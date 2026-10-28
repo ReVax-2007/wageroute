@@ -10,7 +10,7 @@ WageRoute is a local-first personal finance ledger that puts every paycheck thro
 
 It is a planning and ledger tool, not a bank connection. There is no account linking, no cloud account, no telemetry and no sync. Everything lives in one SQLite file on the machine where you installed it.
 
-> Version 1.0.0 · single user · macOS and Windows · unsigned developer builds
+> Version 1.0.1 · single user · macOS and Windows · unsigned developer builds
 
 ---
 

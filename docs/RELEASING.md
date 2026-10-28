@@ -32,7 +32,7 @@ WageRoute has three independent version numbers. Confusing them is the most comm
 
 | Version | Where it lives | Current value | What it means |
 | --- | --- | --- | --- |
-| App version | `package.json` → `version` | `1.0.0` | The build users install. Drives installer names, macOS bundle version and release tags. |
+| App version | `package.json` → `version` | `1.0.1` | The build users install. Drives installer names, macOS bundle version and release tags. |
 | Database schema version | `src/main/db/migrations.ts` → `SCHEMA_VERSION`, stored in SQLite `PRAGMA user_version` | `3` | The shape of the on-disk database. Changes only when a migration is added. |
 | Backup format version | Written into every JSON backup, equal to `SCHEMA_VERSION` | `3` | The newest backup the app writes. The reader accepts versions `2` and `3`. |
 
@@ -220,10 +220,10 @@ out/
 
 ```text
 release/
-├── WageRoute-1.0.0-arm64.dmg
-├── WageRoute-1.0.0-arm64.dmg.blockmap
-├── WageRoute-1.0.0-x64.dmg
-├── WageRoute-1.0.0-x64.dmg.blockmap
+├── WageRoute-1.0.1-arm64.dmg
+├── WageRoute-1.0.1-arm64.dmg.blockmap
+├── WageRoute-1.0.1-x64.dmg
+├── WageRoute-1.0.1-x64.dmg.blockmap
 ├── mac-arm64/WageRoute.app
 └── mac/WageRoute.app            # when an x64 build runs
 ```
@@ -234,8 +234,8 @@ Exact file names follow electron-builder's `productName-version-arch` pattern. T
 
 ```text
 release/
-├── WageRoute Setup 1.0.0.exe
-└── WageRoute Setup 1.0.0.exe.blockmap
+├── WageRoute Setup 1.0.1.exe
+└── WageRoute Setup 1.0.1.exe.blockmap
 ```
 
 NSIS is configured as a per-user install (`perMachine: false`), not one-click, with a selectable directory and a desktop shortcut. Per-user installs do not require administrator rights and put the app under the user's profile.
@@ -290,7 +290,7 @@ A normal branch push does **not** build installers. That is deliberate: packagin
 - It does not lint. There is no linter configured.
 - It does not test on Linux.
 - It does not smoke-test the packaged app. It proves the bundle was produced, not that it launches.
-- It does not sign or notarize.
+- It does not sign with a real identity or notarize. macOS artifacts get an ad-hoc signature from the afterPack hook; Windows artifacts are unsigned.
 - It does not create a GitHub Release, tag or changelog.
 - It does not compute checksums.
 - It does not publish anywhere. `npm run dist:*` passes `--publish never`, because electron-builder treats a tag build as an implicit publish request and fails when `GH_TOKEN` is absent. Artifacts expire according to the repository's retention setting (GitHub's default is 90 days).
@@ -302,7 +302,7 @@ Artifacts are downloaded from the workflow run page. They are zip files containi
 
 ## Code signing and notarization
 
-**Current state: none.** No certificate, identity, notarization step, entitlements file or signing secret is configured.
+**Current state: ad-hoc macOS signature only.** Every macOS build is explicitly re-signed ad-hoc by `scripts/adhoc-sign.js` (electron-builder `afterPack` hook, driven by `identity: null` in `electron-builder.yml`). There is no certificate, notarization step, entitlements file or signing secret.
 
 ### macOS
 
@@ -317,7 +317,7 @@ Practical workarounds for an internal build:
 2. System Settings → Privacy & Security → **Open Anyway**; or
 3. `xattr -dr com.apple.quarantine /Applications/WageRoute.app` (only for a build you trust; it removes a real protection).
 
-Apple Silicon requires at least an ad-hoc signature for the executable to run. electron-builder may apply an ad-hoc signature when no identity is provided, but that is not notarization and does not satisfy Gatekeeper for downloaded copies. Verify the artifact on a clean machine rather than assuming a local launch proves it will open elsewhere.
+Apple Silicon requires at least an ad-hoc signature for the executable to run, and an *invalid* signature produces the "damaged" dialog rather than the "cannot be verified" one. electron-builder's default no-identity path leaves the bundle with a broken signature, which is why the build re-signs it explicitly with `codesign --force --deep --sign -` in the afterPack hook. Ad-hoc is not notarization and does not satisfy Gatekeeper for downloaded copies. Verify the artifact on a clean machine rather than assuming a local launch proves it will open elsewhere.
 
 To ship properly you need:
 
