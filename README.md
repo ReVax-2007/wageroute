@@ -20,6 +20,7 @@ It is a planning and ledger tool, not a bank connection. There is no account lin
 - [Design rules](#design-rules)
 - [Screens](#screens)
 - [Technology](#technology)
+- [Installing WageRoute](#installing-wageroute)
 - [Quick start](#quick-start)
 - [Where your data lives](#where-your-data-lives)
 - [Backup, export and import](#backup-export-and-import)
@@ -89,6 +90,35 @@ The **Allocator** is a full-screen wizard available from the sidebar or the Over
 
 The renderer is sandboxed with `contextIsolation: true`, `nodeIntegration: false` and `sandbox: true`. It reaches the main process only through the typed `window.api` bridge.
 
+## Installing WageRoute
+
+The macOS build is ad-hoc signed, not notarized. The first launch of any downloaded copy needs one extra click (right-click the app → **Open** → **Open**); after that it opens normally. The cleanest no-prompt path is Homebrew or the curl one-liner below.
+
+**Homebrew (recommended, macOS):**
+
+```bash
+brew tap ReVax-2007/wageroute
+brew install --cask wageroute          # add --no-quarantine to skip the first-launch prompt entirely
+brew upgrade --cask wageroute          # future updates
+```
+
+Homebrew verifies the DMG against a pinned SHA-256 before installing. `brew uninstall --cask wageroute` removes the app but leaves your data in place.
+
+**DMG (manual):** download `WageRoute-<version>-arm64.dmg` (Apple Silicon) or `WageRoute-<version>.dmg` (Intel) from [GitHub Releases](https://github.com/ReVax-2007/wageroute/releases), drag to Applications, then right-click → **Open** on first launch.
+
+**curl (no Gatekeeper prompt at all):** browsers tag downloads with a quarantine flag that triggers Gatekeeper; curl does not.
+
+```bash
+curl -LO https://github.com/ReVax-2007/wageroute/releases/download/v1.0.1/WageRoute-1.0.1-arm64.dmg
+hdiutil attach WageRoute-1.0.1-arm64.dmg
+cp -R "/Volumes/WageRoute 1.0.1-arm64/WageRoute.app" /Applications/
+hdiutil detach "/Volumes/WageRoute 1.0.1-arm64"
+```
+
+Windows: download `WageRoute.Setup.<version>.exe`; SmartScreen shows “Windows protected your PC” on first run — choose **More info → Run anyway**.
+
+Full details, including the Gatekeeper behaviour on each macOS version, are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) and [docs/RELEASING.md](docs/RELEASING.md).
+
 ## Quick start
 
 Requirements: **Node.js 22 or newer** (CI uses 24) and npm. macOS packaging expects Xcode Command Line Tools; Windows packaging is normally done on Windows or in CI.
@@ -96,14 +126,14 @@ Requirements: **Node.js 22 or newer** (CI uses 24) and npm. macOS packaging expe
 ```bash
 npm install          # also rebuilds better-sqlite3 for Electron
 npm run dev          # launch the app with hot reload
-npm test             # 19 domain tests
+npm test             # 21 domain tests
 npm run typecheck    # main/preload and renderer type checks
 npm run build        # typecheck + production bundles in out/
 npm run dist:mac     # DMG for arm64 and x64
 npm run dist:win     # NSIS installer for x64 and arm64
 ```
 
-On first launch with an empty database the app seeds a demo profile named Alex, five accounts, six bills, three goals, three paychecks and a set of transactions. The seed never runs again once a user row exists.
+`npm run dev` seeds a demo profile (Alex, with accounts, bills, goals, paychecks and transactions) the first time it launches, so every screen is explorable. Packaged builds are different: first launch creates an empty profile and the dashboard offers **Start from scratch** or **Import a backup**. In both cases the seed never runs again once a user row exists.
 
 ## Where your data lives
 
