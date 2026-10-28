@@ -44,7 +44,11 @@ README names the [`homebrew-wageroute`](https://github.com/ReVax-2007/homebrew-w
 
 An account can be bound to one sinking fund and its **balance is that goal's progress**; each account declares whether it counts as spendable; total wealth (cash + goal money + investments − credit owed) appears on the Overview, Accounts and sidebar. Safe to Spend is now measured against the spendable pool rather than all cash, and the deduction uses only goals whose money actually sits in that pool. A dedicated account's balance is already excluded from the pool, so deducting it again made the hero number negative. Detail in [CHANGELOG.md](../CHANGELOG.md#unreleased), [FEATURES.md](FEATURES.md) and [DATA-MODEL.md](DATA-MODEL.md).
 
-Committed on `feat/dedicated-accounts` (branched from `8b25329`, **no pull request yet**) with 56 tests, a clean type-check and a production build. The dedicated-account and total-wealth surfaces have been driven in a built app over CDP; that walk caught and then confirmed the fix for a **−$3,000.00** Safe to Spend caused by deducting dedicated-goal money from the pool twice. See [CHANGELOG.md](../CHANGELOG.md#unreleased) for the full inventory, including the two-goal-totals change it forced.
+Merged as PR #13 (`76283d4`) with 56 tests, a clean type-check, a green `verify` run and a production build. The dedicated-account and total-wealth surfaces were driven in a built app over CDP against a disposable profile; that walk caught and then confirmed the fix for a **−$3,000.00** Safe to Spend caused by deducting dedicated-goal money from the pool twice.
+
+**The arm64 build is installed on the development machine and ran the migration against the real ledger.** Before installing, `wageroute.db` was snapshotted with `sqlite3 .backup` (schema 3, 11 accounts, 10 transactions, 2 goals, 3 bills, 17 settings); after first launch `user_version` was 4, both columns existed, every count was unchanged, `integrity_check` said `ok` and `foreign_key_check` was empty. The hero numbers then matched a SQL calculation of the documented rules on the same data — spendable pool $1,582.02, Priority Wall $462.69, pool-funded goals $0.00, Safe to Spend **$1,119.33**, total wealth **$4,751.93** splitting exactly into Cash $1,582.02 + Invested $3,679.66 − credit owed $509.75 — and Safe to Spend is the same number 1.0.2 showed, which is the "no existing row opts in, so nothing moves" claim tested rather than asserted. The bundle still reports `1.0.2` because the version bump happens on the release branch, so version alone cannot distinguish this build; the `release/` DMGs carry the same misleading name until 1.1.0 is cut.
+
+See [CHANGELOG.md](../CHANGELOG.md#unreleased) for the full inventory, including the two-goal-totals change it forced.
 
 ### 6. Queued, not merged: Linux and extra Windows formats — `2ef251f` (`origin/feat/linux-windows-installers`, no PR yet)
 
@@ -58,7 +62,6 @@ Decide **before** cutting 1.1.0: open the PR and land it, or hold it for 1.2.0. 
 
 1. **The import wizard's rendered flow has never been opened.** Its detection and repair rules are tested as pure code, and the app itself is now drivable over CDP (see [DEVELOPMENT.md](DEVELOPMENT.md)), but the wizard begins with a native file picker that CDP cannot reach. Someone has to pick a real file and walk the questions by hand. The dedicated-accounts surfaces do not have this gap — they were verified that way, though no component test exists to keep them honest.
 2. **Decide the Linux/Windows-formats question** (item 6 above).
-3. **Confirm the v3→v4 migration once more on the release branch** after merges, using a **copy** of a real database — the earlier check passed, but it ran against a branch state that has since gained commits.
 
 ---
 
