@@ -310,12 +310,14 @@ An unsigned or ad-hoc-signed app downloaded from the internet receives the `com.
 
 - “WageRoute cannot be opened because the developer cannot be verified.”
 - “WageRoute is damaged and can’t be opened” when the signature is missing or invalid on Apple Silicon.
+- On recent macOS (15+), a plain double-click of a downloaded copy shows only **Move to Trash / Done** with no Open button.
 
-Practical workarounds for an internal build:
+Practical workarounds, in order of convenience:
 
-1. Right-click the app → **Open** → **Open** again; or
-2. System Settings → Privacy & Security → **Open Anyway**; or
-3. `xattr -dr com.apple.quarantine /Applications/WageRoute.app` (only for a build you trust; it removes a real protection).
+1. **Right-click the app → Open → Open.** The shortcut-menu launch presents a dialog with an actual **Open** button; no trip to System Settings is needed. After the first approval, the app opens normally.
+2. System Settings → Privacy & Security → **Open Anyway** (fallback when the right-click dialog is not offered).
+3. Install via **Homebrew** (`brew install --cask ReVax-2007/wageroute/wageroute`) or **curl** — see [DEPLOYMENT.md](DEPLOYMENT.md#homebrew-tap). A curl download carries no quarantine attribute, so Gatekeeper never checks it; `brew --no-quarantine` achieves the same.
+4. `xattr -dr com.apple.quarantine /Applications/WageRoute.app` (only for a build you trust; it removes a real protection). **Note:** on macOS 25+ this returns EPERM for browser-downloaded apps, which also carry `com.apple.provenance`; prefer options 1–3.
 
 Apple Silicon requires at least an ad-hoc signature for the executable to run, and an *invalid* signature produces the "damaged" dialog rather than the "cannot be verified" one. electron-builder's default no-identity path leaves the bundle with a broken signature, which is why the build re-signs it explicitly with `codesign --force --deep --sign -` in the afterPack hook. Ad-hoc is not notarization and does not satisfy Gatekeeper for downloaded copies. Verify the artifact on a clean machine rather than assuming a local launch proves it will open elsewhere.
 
@@ -594,7 +596,8 @@ Schema: 3 (unchanged) · Backups: accepts 2–3
 ## Upgrade notes
 
 - Back up before installing. See docs/DEPLOYMENT.md.
-- macOS: the build is unsigned; right-click → Open on first launch.
+- macOS (Homebrew): `brew upgrade --cask wageroute` — nothing else to do.
+- macOS (manual DMG): the build is unsigned; right-click → Open on first launch. Zero-prompt alternative: `curl -LO <dmg-url>` instead of a browser download.
 - Windows: SmartScreen will warn; choose More info → Run anyway.
 
 ## Checksums
@@ -636,6 +639,7 @@ Keep the notes honest about signing, because that is the first thing a recipient
 ### After release
 
 - [ ] Install from the published assets on a clean machine.
+- [ ] Bump the `homebrew-wageroute` tap: set `version` and both arch `sha256`s in `Casks/wageroute.rb` to the new release's checksums from `SHA256SUMS.txt`.
 - [ ] Archive installers, checksums, notes, schema version and commit SHA.
 - [ ] Keep the previous installer until the new one has been used successfully.
 - [ ] Record any signing or Gatekeeper/SmartScreen feedback.

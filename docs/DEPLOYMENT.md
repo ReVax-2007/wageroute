@@ -13,6 +13,7 @@ This document separates what exists from what has been discussed. It also record
 - [Where data lives](#where-data-lives)
 - [Legacy data adoption](#legacy-data-adoption)
 - [Current distribution](#current-distribution)
+- [Homebrew tap](#homebrew-tap)
 - [Multi-device today](#multi-device-today)
 - [Sync status](#sync-status)
 - [Auto-update status](#auto-update-status)
@@ -146,6 +147,25 @@ It does **not**:
 - upload to any external service.
 
 The artifacts are unsigned development builds. macOS Gatekeeper and Windows SmartScreen will warn when they are opened on another machine.
+
+## Homebrew tap
+
+macOS releases are also published to a custom tap, [`ReVax-2007/homebrew-wageroute`](https://github.com/ReVax-2007/homebrew-wageroute). Homebrew downloads the DMG itself, pins the exact SHA-256 of each installer in the cask, and replaces the app in `/Applications` on upgrade.
+
+Install and update:
+
+```bash
+brew tap ReVax-2007/wageroute
+brew install --cask wageroute          # add --no-quarantine to skip the first-launch Gatekeeper prompt
+brew upgrade --cask wageroute
+```
+
+Notes:
+
+- Homebrew quarantines cask downloads by default, so the first launch still needs right-click → **Open** unless `--no-quarantine` was used. Either way, the checksum was verified before install, unlike a manual browser download.
+- On Homebrew 7+, tapping for the first time asks you to trust the tap once (`brew trust revax-2007/wageroute`).
+- Uninstalling (`brew uninstall --cask wageroute`) removes only the app. The ledger database under `~/Library/Application Support/WageRoute` is deliberately not in the cask's `zap` list, so `brew uninstall --zap` cannot wipe your data either.
+- The cask tracks one version at a time. Updating it is part of the release procedure; see [RELEASING.md](RELEASING.md#release-checklist).
 
 ## Multi-device today
 
