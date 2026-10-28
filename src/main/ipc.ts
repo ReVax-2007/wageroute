@@ -22,6 +22,7 @@ import {
   parseBackupJson
 } from './db/backup'
 import { mergeEntries } from './db/entries'
+import { seedIfEmpty } from './db/seed'
 import * as repo from './db/repositories'
 
 const MAX_IMPORT_BYTES = 64 * 1024 * 1024
@@ -41,49 +42,51 @@ function defaultFile(name: string): string {
 }
 
 export function registerIpcHandlers(db: Database.Database): void {
-  const userId = repo.getLocalUserId(db)
+  // Resolved per call: data:reset wipes the user row and re-seeds a fresh one,
+  // so a value captured once here would go stale.
+  const userId = (): string => repo.getLocalUserId(db)
 
-  ipcMain.handle('snapshot:get', () => repo.getSnapshot(db, userId))
+  ipcMain.handle('snapshot:get', () => repo.getSnapshot(db, userId()))
   ipcMain.handle('db:path', () => databasePath())
 
   ipcMain.handle('account:create', (_event, input: AccountInput) =>
-    repo.createAccount(db, userId, input)
+    repo.createAccount(db, userId(), input)
   )
   ipcMain.handle('account:update', (_event, id: unknown, patch: Partial<AccountInput>) =>
-    repo.updateAccount(db, userId, requireId(id), patch)
+    repo.updateAccount(db, userId(), requireId(id), patch)
   )
   ipcMain.handle('account:delete', (_event, id: unknown) =>
-    repo.deleteAccount(db, userId, requireId(id))
+    repo.deleteAccount(db, userId(), requireId(id))
   )
 
-  ipcMain.handle('bill:create', (_event, input: BillInput) => repo.createBill(db, userId, input))
+  ipcMain.handle('bill:create', (_event, input: BillInput) => repo.createBill(db, userId(), input))
   ipcMain.handle('bill:update', (_event, id: unknown, patch: Partial<BillInput>) =>
-    repo.updateBill(db, userId, requireId(id), patch)
+    repo.updateBill(db, userId(), requireId(id), patch)
   )
-  ipcMain.handle('bill:delete', (_event, id: unknown) => repo.deleteBill(db, userId, requireId(id)))
+  ipcMain.handle('bill:delete', (_event, id: unknown) => repo.deleteBill(db, userId(), requireId(id)))
 
-  ipcMain.handle('goal:create', (_event, input: GoalInput) => repo.createGoal(db, userId, input))
+  ipcMain.handle('goal:create', (_event, input: GoalInput) => repo.createGoal(db, userId(), input))
   ipcMain.handle('goal:update', (_event, id: unknown, patch: Partial<GoalInput>) =>
-    repo.updateGoal(db, userId, requireId(id), patch)
+    repo.updateGoal(db, userId(), requireId(id), patch)
   )
-  ipcMain.handle('goal:delete', (_event, id: unknown) => repo.deleteGoal(db, userId, requireId(id)))
+  ipcMain.handle('goal:delete', (_event, id: unknown) => repo.deleteGoal(db, userId(), requireId(id)))
 
   ipcMain.handle('transaction:create', (_event, input: TransactionInput) =>
-    repo.createTransaction(db, userId, input)
+    repo.createTransaction(db, userId(), input)
   )
   ipcMain.handle('transaction:update', (_event, id: unknown, patch: TransactionPatch) =>
-    repo.updateTransaction(db, userId, requireId(id), patch)
+    repo.updateTransaction(db, userId(), requireId(id), patch)
   )
   ipcMain.handle('transaction:delete', (_event, id: unknown) =>
-    repo.deleteTransaction(db, userId, requireId(id))
+    repo.deleteTransaction(db, userId(), requireId(id))
   )
 
   ipcMain.handle('paycheck:commit', (_event, input: PaycheckDraftInput) =>
-    repo.commitPaycheck(db, userId, input)
+    repo.commitPaycheck(db, userId(), input)
   )
 
   ipcMain.handle('settings:save', (_event, settings: AppSettings) =>
-    repo.writeSettings(db, userId, settingsToRecord(settings))
+    repo.writeSettings(db, userId(), settingsToRecord(settings))
   )
 
   ipcMain.handle('backup:export', async (event) => {
@@ -96,7 +99,7 @@ export function registerIpcHandlers(db: Database.Database): void {
     const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options)
     if (result.canceled || !result.filePath) return null
 
-    const payload = buildBackup(db, userId)
+    const payload = buildBackup(db, userId())
     writeFileSync(result.filePath, backupToJson(payload), 'utf8')
     return result.filePath
   })
@@ -111,7 +114,7 @@ export function registerIpcHandlers(db: Database.Database): void {
     const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options)
     if (result.canceled || !result.filePath) return null
 
-    const snapshot = repo.getSnapshot(db, userId)
+    const snapshot = repo.getSnapshot(db, userId())
     writeFileSync(
       result.filePath,
       transactionsToCsv(snapshot.transactions, snapshot.accounts, snapshot.user.currency),
@@ -139,7 +142,7 @@ export function registerIpcHandlers(db: Database.Database): void {
       if (parsed.entries.length === 0 && parsed.issues.length === 0) {
         throw new Error('That CSV has no entries')
       }
-      const merged = mergeEntries(db, userId, parsed.entries)
+      const merged = mergeEntries(db, userId(), parsed.entries)
       const added = emptyImportCounts()
       const skipped = emptyImportCounts()
       added.transactions = merged.added
@@ -155,7 +158,12 @@ export function registerIpcHandlers(db: Database.Database): void {
     }
 
     const payload = parseBackupJson(text)
-    const { added, skipped } = mergeBackup(db, userId, payload)
+    const { added, skipped } = mergeBackup(db, userId(), payload)
     return { path, format: 'backup', exportedAt: payload.exportedAt, added, skipped, issues: [] }
+  })
+
+  ipcMain.handle('data:reset', () => {
+    repo.wipeAllData(db)
+    seedIfEmpty(db)
   })
 }

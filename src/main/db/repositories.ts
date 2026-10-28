@@ -164,6 +164,32 @@ export function getLocalUserId(db: Db): string {
   return row.id
 }
 
+// Every tenant table, children before parents. Literal names only; the reset
+// path must never interpolate user input here.
+const WIPE_TABLES = [
+  'allocations',
+  'transactions',
+  'paychecks',
+  'goals',
+  'bills',
+  'accounts',
+  'settings',
+  'users'
+] as const
+
+export function wipeAllData(db: Db): void {
+  db.pragma('foreign_keys = OFF')
+  try {
+    db.transaction(() => {
+      for (const table of WIPE_TABLES) {
+        db.prepare(`DELETE FROM ${table}`).run()
+      }
+    })()
+  } finally {
+    db.pragma('foreign_keys = ON')
+  }
+}
+
 // ---------------------------------------------------------------- settings
 
 export function readSettings(db: Db, userId: string): Record<string, string> {
