@@ -106,7 +106,7 @@ Homebrew verifies the DMG against a pinned SHA-256 before installing. `brew unin
 
 **DMG (manual):** download `WageRoute-<version>-arm64.dmg` (Apple Silicon) or `WageRoute-<version>.dmg` (Intel) from [GitHub Releases](https://github.com/ReVax-2007/wageroute/releases), drag to Applications, then right-click → **Open** on first launch.
 
-**curl (no Gatekeeper prompt at all):** browsers tag downloads with a quarantine flag that triggers Gatekeeper; curl does not.
+**curl (no Gatekeeper prompt at all):** browsers tag downloads with a quarantine flag that triggers Gatekeeper; curl does not. Replace `v1.0.1` below with the latest version from [GitHub Releases](https://github.com/ReVax-2007/wageroute/releases).
 
 ```bash
 curl -LO https://github.com/ReVax-2007/wageroute/releases/download/v1.0.1/WageRoute-1.0.1-arm64.dmg
