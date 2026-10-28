@@ -9,6 +9,7 @@ import {
   Trash2
 } from 'lucide-react'
 import { todayISO } from '@shared/dates'
+import { countsInSafeToSpend, totalWealthCents } from '@shared/accounts'
 import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
 import type { AccountInput, AccountKind, AccountWithBalance } from '@shared/types'
 import {
@@ -31,6 +32,13 @@ import {
 import { useFinanceStore } from '../store/useFinanceStore'
 
 const KINDS: AccountKind[] = ['checking', 'savings', 'cash', 'credit', 'investment']
+
+type SafeToSpendChoice = 'auto' | 'in' | 'out'
+
+function safeToSpendChoice(account: AccountWithBalance | null): SafeToSpendChoice {
+  if (!account || account.inSafeToSpend === null) return 'auto'
+  return account.inSafeToSpend ? 'in' : 'out'
+}
 
 export function Accounts() {
   const snapshot = useFinanceStore((state) => state.snapshot)
@@ -56,6 +64,11 @@ export function Accounts() {
     return [...byInstitution.entries()].sort(([a], [b]) => a.localeCompare(b))
   }, [active])
 
+  const goalNames = useMemo(
+    () => new Map((snapshot?.goals ?? []).map((goal) => [goal.id, goal.name])),
+    [snapshot]
+  )
+
   if (!snapshot) return null
 
   const currency = settings.currency
@@ -63,6 +76,7 @@ export function Accounts() {
   const owed = creditOwedCents(active)
   const available = creditAvailableCents(active)
   const creditCards = active.filter((account) => account.kind === 'credit').length
+  const wealth = totalWealthCents(snapshot.accounts)
 
   const remove = (account: AccountWithBalance) => {
     if (
@@ -92,6 +106,13 @@ export function Accounts() {
       </header>
 
       <div className="account-summary">
+        <article className="summary-tile">
+          <span className="stat-label">Total wealth</span>
+          <p className="stat-value">
+            <Money cents={wealth} currency={currency} compact />
+          </p>
+          <span className="stat-hint">Everything you own, debts taken off</span>
+        </article>
         <article className="summary-tile">
           <span className="stat-label">Cash across accounts</span>
           <p className="stat-value">
@@ -169,6 +190,12 @@ export function Accounts() {
                             {isCredit && limit !== null
                               ? ` · limit ${formatMoney(limit, currency)}`
                               : ''}
+                            {account.dedicatedGoalId !== null
+                              ? ` · only for ${goalNames.get(account.dedicatedGoalId) ?? 'a removed goal'}`
+                              : ''}
+                            {!countsInSafeToSpend(account) && !account.isArchived
+                              ? ' · not safe to spend'
+                              : ''}
                           </span>
                           {isCredit && limit !== null && limit > 0 && (
                             <span className="credit-meter">
@@ -245,6 +272,7 @@ function AccountDialog({
   onClose: () => void
 }) {
   const accounts = useFinanceStore((state) => state.snapshot?.accounts ?? [])
+  const goals = useFinanceStore((state) => state.snapshot?.goals ?? [])
   const createAccount = useFinanceStore((state) => state.createAccount)
   const updateAccount = useFinanceStore((state) => state.updateAccount)
 
@@ -262,12 +290,18 @@ function AccountDialog({
     creditLimit:
       account && account.creditLimitCents !== null
         ? centsToEditable(account.creditLimitCents)
-        : ''
+        : '',
+    dedicatedGoalId: account?.dedicatedGoalId ?? '',
+    safeToSpend: safeToSpendChoice(account)
   })
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
   const isCredit = form.kind === 'credit'
+  const dedicatedGoals = useMemo(
+    () => goals.filter((goal) => !goal.isArchived),
+    [goals]
+  )
 
   const submit = async () => {
     if (!form.name.trim()) {
@@ -281,13 +315,18 @@ function AccountDialog({
       return
     }
 
+    const dedicatedGoalId = form.dedicatedGoalId || null
+    const inSafeToSpend = form.safeToSpend === 'auto' ? null : form.safeToSpend === 'in'
+    const purposeFields = { dedicatedGoalId, inSafeToSpend }
+
     setSaving(true)
     if (account) {
       await updateAccount(account.id, {
         name: form.name.trim(),
         kind: form.kind,
         institution: form.institution.trim(),
-        creditLimitCents: isCredit ? limitTyped : null
+        creditLimitCents: isCredit ? limitTyped : null,
+        ...purposeFields
       })
     } else {
       const startingTyped = form.startingBalance.trim()
@@ -304,7 +343,8 @@ function AccountDialog({
         institution: form.institution.trim(),
         // A credit card's opening balance is money owed, stored as a negative balance.
         startingBalanceCents: isCredit ? -Math.abs(startingTyped) : startingTyped,
-        creditLimitCents: isCredit ? limitTyped : null
+        creditLimitCents: isCredit ? limitTyped : null,
+        ...purposeFields
       }
       await createAccount(input)
     }
@@ -400,6 +440,49 @@ function AccountDialog({
             />
           </Field>
         )}
+
+        <Field label="Mine only for" wide hint="Leave as Nothing to keep it a general account">
+          <select
+            className="select"
+            value={form.dedicatedGoalId}
+            onChange={(event) => setForm({ ...form, dedicatedGoalId: event.target.value })}
+          >
+            <option value="">Nothing in particular</option>
+            {dedicatedGoals.map((goal) => (
+              <option key={goal.id} value={goal.id}>
+                {goal.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        {form.dedicatedGoalId !== '' && (
+          <p className="field-hint">
+            This account&apos;s balance <em>is</em> the goal&apos;s progress — money parked here is
+            spent when the goal is funded, so it no longer counts as savings.
+          </p>
+        )}
+
+        <Field
+          label="Safe to spend"
+          hint={
+            form.dedicatedGoalId !== ''
+              ? 'Dedicated accounts are excluded by default'
+              : 'Default follows the account type; investments are never included by default'
+          }
+        >
+          <select
+            className="select"
+            value={form.safeToSpend}
+            onChange={(event) =>
+              setForm({ ...form, safeToSpend: event.target.value as SafeToSpendChoice })
+            }
+          >
+            <option value="auto">Automatic</option>
+            <option value="in">Always count it</option>
+            <option value="out">Never count it</option>
+          </select>
+        </Field>
       </div>
 
       {error && <p className="form-error">{error}</p>}

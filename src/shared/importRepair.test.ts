@@ -29,7 +29,7 @@ function context(overrides: Partial<ImportContext> = {}): ImportContext {
   const choices: Record<ImportChoiceTable, ImportChoice[]> = {
     accounts: ACCOUNT_CHOICES,
     bills: [],
-    goals: [],
+    goals: [{ id: 'goal-1', label: 'Emergency fund' }],
     paychecks: [{ id: 'pay-1', label: '2026-02-15 · Paycheck' }]
   }
   const knownIds = {} as Record<string, Set<string>>
@@ -249,4 +249,42 @@ test('unmatched CSV account names collapse into one question each', () => {
   assert.deepEqual(map, { 'chase freedom': 'acc-checking' })
 
   assert.deepEqual(buildAccountMap(mappings, [{ key: 'e:3', value: '', skip: true }]), {})
+})
+
+test('the accounts and goals reference cycle restores in one pass', () => {
+  const tables = emptyTables()
+  tables.accounts.push({
+    id: 'acc-1',
+    name: 'Emergency Savings',
+    kind: 'savings',
+    dedicated_goal_id: 'goal-1',
+    in_safe_to_spend: 0
+  })
+  tables.goals.push({ id: 'goal-1', name: 'Emergency fund', target_cents: 60000, account_id: 'acc-1' })
+
+  assert.deepEqual(findImportProblems(tables, withFileIds(context(), tables)), [])
+})
+
+test('a dedicated account pointing at a goal that is not there is asked for', () => {
+  const tables = emptyTables()
+  tables.accounts.push({
+    id: 'acc-1',
+    name: 'Emergency Savings',
+    kind: 'savings',
+    dedicated_goal_id: 'goal-gone'
+  })
+  const problems = findImportProblems(tables, withFileIds(context(), tables))
+  assert.deepEqual(
+    problems.map((problem) => problem.key),
+    ['b:accounts:0:dedicated_goal_id']
+  )
+
+  const result = applyImportAnswers(
+    tables,
+    problems,
+    [{ key: 'b:accounts:0:dedicated_goal_id', value: '', skip: false }],
+    context()
+  )
+  assert.equal(result.tables.accounts.length, 1)
+  assert.equal(result.tables.accounts[0].dedicated_goal_id, null)
 })

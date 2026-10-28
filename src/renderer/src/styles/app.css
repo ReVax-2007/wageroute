@@ -290,6 +290,27 @@ textarea {
   color: var(--text-muted);
 }
 
+.sidebar-stat-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--border-row);
+}
+
+.sidebar-stat-row .sidebar-stat-top {
+  letter-spacing: 0.06em;
+}
+
+.sidebar-stat-value-sm {
+  font-size: 13.5px;
+  font-weight: 620;
+  color: var(--investment);
+  font-variant-numeric: tabular-nums;
+}
+
 .sidebar-foot {
   margin-top: 12px;
   padding: 0 4px;
@@ -1945,6 +1966,82 @@ select.grid-editor {
   letter-spacing: -0.02em;
 }
 
+/* ------------------------------------------------------- total wealth */
+
+.wealth-strip {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(300px, 0.9fr);
+  gap: 24px;
+  margin-bottom: 16px;
+  padding: 20px 26px;
+  background:
+    radial-gradient(520px 220px at 12% 0%, rgba(167, 139, 250, 0.12), transparent 70%),
+    var(--panel);
+  border: 1px solid rgba(167, 139, 250, 0.24);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
+}
+
+.wealth-head {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+}
+
+.wealth-value {
+  margin: 2px 0 0;
+  font-size: 34px;
+  font-weight: 680;
+  letter-spacing: -0.03em;
+  color: var(--investment);
+  font-variant-numeric: tabular-nums;
+}
+
+.wealth-note {
+  margin: 8px 0 0;
+  max-width: 44ch;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.wealth-breakdown {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  margin: 0;
+  padding: 6px 16px;
+  background: var(--inset-plate);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.wealth-breakdown > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border-row);
+}
+
+.wealth-breakdown > div:last-child {
+  border-bottom: none;
+}
+
+.wealth-breakdown dt {
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.wealth-breakdown dd {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ------------------------------------------------------ bill prompts */
 
 .prompt-card {
@@ -2610,6 +2707,12 @@ select.grid-editor {
   border-color: rgba(76, 194, 255, 0.24);
 }
 
+.chip-funded {
+  color: var(--goal);
+  background: var(--warn-soft);
+  border-color: rgba(245, 189, 74, 0.26);
+}
+
 /* --------------------------------------------------------- scrollbars */
 
 ::-webkit-scrollbar {
@@ -2685,6 +2788,10 @@ select.grid-editor {
   }
 
   .safe-hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .wealth-strip {
     grid-template-columns: minmax(0, 1fr);
   }
 

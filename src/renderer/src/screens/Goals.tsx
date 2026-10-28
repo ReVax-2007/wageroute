@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CalendarDays, LifeBuoy, Pencil, Plus, Target, Trash2 } from 'lucide-react'
+import { CalendarDays, Landmark, LifeBuoy, Pencil, Plus, Target, Trash2 } from 'lucide-react'
 import { formatDateLong, monthsUntil, todayISO } from '@shared/dates'
 import {
   EMERGENCY_MONTH_OPTIONS,
@@ -115,6 +115,12 @@ export function Goals() {
                 </div>
 
                 <div className="goal-foot">
+                  {goal.fundedFrom === 'account' && (
+                    <span className="chip chip-funded">
+                      <Landmark size={12} />
+                      {goal.dedicatedAccountNames.join(', ') || 'Dedicated account'}
+                    </span>
+                  )}
                   <span className="chip">Priority {goal.priority}</span>
                   {goal.isEmergency && (
                     <span className="chip chip-emergency">
@@ -136,8 +142,9 @@ export function Goals() {
       )}
 
       <p className="footnote">
-        Progress comes from allocations recorded when a paycheck is routed — not from account
-        balances. Moving the money is still your job.
+        A goal with a dedicated account reads its progress straight from that account&apos;s
+        balance. Every other goal counts the allocations recorded when a paycheck is routed, so
+        moving that money is still your job.
       </p>
 
       {editing !== null && (

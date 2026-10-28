@@ -4,7 +4,7 @@ WageRoute is a **single-user, local-only desktop ledger**. It does not authentic
 
 This document describes what is actually implemented, what the trust boundaries are, what an attacker with local access can do, and which weaknesses are known and accepted. It is deliberately specific; “secure” without a threat model is not useful.
 
-> **Scope:** the application in this repository, versions `0.1.x`. There is no production server, hosted service or multi-tenant deployment to assess.
+> **Scope:** the application in this repository, versions `1.0.x`. There is no production server, hosted service or multi-tenant deployment to assess.
 
 ---
 
@@ -32,10 +32,10 @@ This document describes what is actually implemented, what the trust boundaries 
 
 | Version | Supported | Notes |
 | --- | --- | --- |
-| `0.1.x` (schema 3) | Yes | Current line; fixes land here |
+| `1.0.x` | Yes | Current line; fixes land here. 1.0.2 carries schema 3; schema 4 arrives with the next release. |
 | Older app versions | No | No security backports; upgrade or restore a backup |
 | Backups with schema `1` | No | Rejected by the importer |
-| Databases with `user_version > 3` | Unsupported | Use the newer app; do not open them with an older build |
+| Databases with `user_version` ahead of the app | Unsupported | A schema 4 database opened by an older build is not migrated down; use the newer app |
 
 There is no long-term-support branch, no patch guarantee and no CVE process. This is a personal finance tool, not a regulated product.
 
@@ -141,7 +141,7 @@ The app does not defend against malware running as the same user, an administrat
 | Import size cap | `MAX_IMPORT_BYTES = 64 MiB` | Trivial memory/disk exhaustion via a huge file |
 | Per-table row cap | 200,000 rows in `parseBackupJson` | Absurd table sizes before insertion |
 | Format/version checks | `parseBackupJson` | Wrong file type, newer schema, unsupported old schema |
-| Transactional import | `mergeBackup`, `mergeEntries` | Partial writes on a bad row; foreign-key failures roll back |
+| Per-row guarded import | `mergeBackup`, `mergeEntries` | One rejected row costing the whole file; the transaction still commits the rest |
 | Foreign keys on | `PRAGMA foreign_keys = ON` | Dangling references from imported rows |
 | STRICT tables + CHECK constraints | migrations | Wrong types and out-of-range enums/amounts at the database boundary |
 | Additive import / existing-wins settings | `mergeBackup` | A backup silently overwriting existing settings or rows |
@@ -249,7 +249,7 @@ JSON backups and CSV entry files are the only external data the app accepts.
 - **It cannot choose its own `user_id`.** Imported rows are rewritten to the local user ID.
 - **It cannot read another file.** The renderer cannot pass a path; the native dialog chooses one path, and only that file is read.
 - **It cannot escape the chosen export path.** Export writes to the path returned by the save dialog.
-- **It cannot bypass the transaction.** A constraint or foreign-key failure aborts the whole import; rows inserted earlier in the same transaction are rolled back.
+- **It cannot abort a healthy import.** Everything inserts inside one transaction, but each row is guarded on its own: a row that still violates a `STRICT` type, `CHECK` or foreign-key rule after the wizard is reported as an issue and skipped, and the remaining rows commit. A file built to break one row cannot damage the rest of the database. (Before the import wizard existed, a constraint failure rolled the whole import back; that is no longer the design.)
 - **It cannot overwrite existing settings.** Settings use `INSERT OR IGNORE`; the local value wins.
 - **It cannot overwrite an existing row by ID.** Existing IDs are skipped, not updated.
 
@@ -324,7 +324,7 @@ Likelihood assumes a normal personal installation, not a targeted investigation.
 
 ## Known weaknesses
 
-Listed with severity for this app's context. None are fixed in `0.1.x` unless stated.
+Listed with severity for this app's context. None are fixed in `1.0.x` unless stated.
 
 | Weakness | Severity | Impact | Notes |
 | --- | --- | --- | --- |

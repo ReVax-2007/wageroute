@@ -1,6 +1,6 @@
 {
   "format": "cash-flow-routing-backup",
-  "version": 3,
+  "version": 4,
   "exportedAt": "2026-10-28T12:00:00.000Z",
   "tables": {
     "accounts": [
@@ -12,6 +12,8 @@
         "institution": "Chase",
         "starting_balance_cents": 150000,
         "credit_limit_cents": null,
+        "dedicated_goal_id": null,
+        "in_safe_to_spend": null,
         "is_archived": false,
         "sort_order": 1,
         "created_at": "2026-10-01T09:00:00.000Z",
@@ -27,6 +29,8 @@
         "institution": "Ally",
         "starting_balance_cents": 50000,
         "credit_limit_cents": null,
+        "dedicated_goal_id": "5a1c8e3f-2b4d-4c6a-8e9f-1c3a5b7d9e05",
+        "in_safe_to_spend": false,
         "is_archived": false,
         "sort_order": 2,
         "created_at": "2026-10-01T09:00:00.000Z",

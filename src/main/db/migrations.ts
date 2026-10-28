@@ -206,6 +206,27 @@ CREATE INDEX idx_transactions_transfer_group ON transactions(transfer_group_id)
 UPDATE goals SET is_emergency = 1 WHERE lower(name) = 'emergency fund';
 `
 
+/**
+ * v4 makes an account's purpose explicit: a savings account can be dedicated to
+ * one goal (its balance then *is* that goal's progress), and any account can be
+ * opted out of the Safe-to-spend figure.
+ *
+ * `dedicated_goal_id` deliberately carries no FOREIGN KEY clause. goals already
+ * references accounts, so a declared key here would make the two tables cyclic
+ * and no static insert order could restore a backup containing both. It is
+ * validated in the repository layer on write and ignored when dangling on read,
+ * exactly like v3's transfer_group_id.
+ */
+const SCHEMA_V4 = `
+ALTER TABLE accounts ADD COLUMN dedicated_goal_id TEXT;
+
+CREATE INDEX idx_accounts_dedicated_goal ON accounts(dedicated_goal_id)
+  WHERE dedicated_goal_id IS NOT NULL;
+
+ALTER TABLE accounts ADD COLUMN in_safe_to_spend INTEGER
+  CHECK (in_safe_to_spend IS NULL OR in_safe_to_spend IN (0,1));
+`
+
 const MIGRATIONS: readonly Migration[] = [
   {
     version: 1,
@@ -223,6 +244,12 @@ const MIGRATIONS: readonly Migration[] = [
     version: 3,
     up: (db) => {
       db.exec(SCHEMA_V3)
+    }
+  },
+  {
+    version: 4,
+    up: (db) => {
+      db.exec(SCHEMA_V4)
     }
   }
 ]

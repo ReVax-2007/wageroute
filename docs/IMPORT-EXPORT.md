@@ -73,7 +73,7 @@ Detection is pure shared code (`findImportProblems`), so the main process re-der
 | A value of the wrong JSON type (object, array, boolean in a text/date column) | "Pay date is not a plain value" | The column's own editor |
 | A CSV account name with no matching local account | "no local account is named “COFFSHOC *BREW BAR”" | Dropdown of local accounts, one question per distinct name covering every line that shares it |
 
-Columns that have a schema default — `sort_order`, `is_archived`, `category`, `memo`, `revision`, `priority` and friends — are **never** asked about; they are filled silently. See [partial tables](#partial-tables).
+Columns that have a schema default — `sort_order`, `is_archived`, `category`, `memo`, `revision`, `priority` and friends — are **never** asked about; they are filled silently. See [partial tables](#partial-tables). The two v4 account columns are not in that list either, in the other direction: they have no default and are nullable, so an absent `dedicated_goal_id` or `in_safe_to_spend` simply arrives as `NULL`.
 
 Rows without an `id` are not a question either: a UUID is minted at import time. Only rows that *other* rows in the same file point at need a real ID, which is why the wizard's reference check counts IDs the file creates itself (`withFileIds`).
 
@@ -102,7 +102,7 @@ A backup is a single JSON object:
 ```json
 {
   "format": "cash-flow-routing-backup",
-  "version": 3,
+  "version": 4,
   "exportedAt": "2026-10-27T18:22:04.871Z",
   "tables": {
     "accounts": [],
@@ -121,7 +121,7 @@ A backup is a single JSON object:
 | Field | Required | Rule |
 | --- | --- | --- |
 | `format` | Yes | Must equal `cash-flow-routing-backup` |
-| `version` | Yes | Integer, 2 or 3, not greater than the current schema version |
+| `version` | Yes | Integer, 2 to 4, not greater than the current schema version |
 | `exportedAt` | No | String; defaults to `""` when absent |
 | `tables` | Yes | Object containing table arrays |
 
@@ -133,7 +133,7 @@ Seven tables are exported and accepted. Each row carries the full column set bel
 
 | Table | Accepted columns |
 | --- | --- |
-| `accounts` | `id`, `user_id`, `name`, `kind`, `institution`, `starting_balance_cents`, `credit_limit_cents`, `is_archived`, `sort_order`, `created_at`, `updated_at`, `deleted_at`, `revision` |
+| `accounts` | `id`, `user_id`, `name`, `kind`, `institution`, `starting_balance_cents`, `credit_limit_cents`, `dedicated_goal_id`, `in_safe_to_spend`, `is_archived`, `sort_order`, `created_at`, `updated_at`, `deleted_at`, `revision` |
 | `bills` | `id`, `user_id`, `name`, `amount_cents`, `frequency`, `due_day`, `category`, `account_id`, `autopay`, `is_active`, `next_due_on`, `created_at`, `updated_at`, `deleted_at`, `revision` |
 | `goals` | `id`, `user_id`, `name`, `target_cents`, `target_date`, `priority`, `color`, `account_id`, `is_emergency`, `is_archived`, `created_at`, `updated_at`, `deleted_at`, `revision` |
 | `paychecks` | `id`, `user_id`, `amount_cents`, `received_on`, `source`, `deposit_account_id`, `priority_cents`, `surplus_cents`, `leisure_cents`, `health`, `created_at`, `updated_at`, `deleted_at`, `revision` |
@@ -170,7 +170,7 @@ This allows hand-written or selectively exported files. A complete, importable f
 ```json
 {
   "format": "cash-flow-routing-backup",
-  "version": 3,
+  "version": 4,
   "tables": {
     "transactions": [
       {
@@ -210,7 +210,9 @@ Because every column is named explicitly in the `INSERT`, a SQLite column defaul
 | `transactions` | `memo` → `""`, `category` → `Uncategorized` |
 | `allocations`, `settings` | — |
 
-Anything else that is missing or unusable — no `name`, an out-of-range `due_day`, a bad `kind`, a dangling `account_id` — is raised in the wizard before the merge runs, and its row is left out if it is not answered. A row that still breaks a database rule is reported on its own and does not stop the others.
+Anything else that is missing or unusable — no `name`, an out-of-range `due_day`, a bad `kind`, a dangling `account_id` or `dedicated_goal_id` — is raised in the wizard before the merge runs, and its row is left out if it is not answered. A row that still breaks a database rule is reported on its own and does not stop the others.
+
+`accounts.dedicated_goal_id` and `accounts.in_safe_to_spend` need **no** silent default: both are nullable with no schema default, so an absent key becomes `NULL`, which is exactly "not dedicated" and "derive Safe to Spend from the kind". A v2 or v3 file therefore imports with pre-v4 semantics.
 
 ### Version compatibility
 
@@ -218,8 +220,9 @@ Anything else that is missing or unusable — no `name`, an out-of-range `due_da
 | --- | --- |
 | `< 2` | Rejected: “Backups older than schema 2 are not supported” |
 | `2` | Accepted; missing v3 columns receive fallbacks |
-| `3` | Accepted |
-| `> 3` | Rejected: “This backup came from a newer version (schema N)” |
+| `3` | Accepted; the two v4 account columns arrive as `NULL` |
+| `4` | Accepted |
+| `> 4` | Rejected: “This backup came from a newer version (schema N)” |
 | Non-integer | Rejected: “Backup has no version number” |
 
 ---
@@ -275,6 +278,8 @@ Foreign keys are enforced. A partial import must either:
 - include the rows it references, in an order the merge can satisfy (the fixed table order handles this), or
 - reference rows that already exist locally with the same IDs, or
 - omit the reference so it becomes `null`.
+
+The one exception is `accounts.dedicated_goal_id`: accounts are inserted before goals, so a real foreign key there would make the pair cyclic and no order could restore a backup that uses the feature. The column carries **no** `REFERENCES` clause and is validated by the repository instead — on **write** only. A pointer that dangles after a restore is ignored when reading (the goal simply has no dedicated account), which is why the wizard has to ask about it before the merge rather than rely on the database.
 
 A transaction with an explicit `bill_id`, `goal_id`, `account_id` or `paycheck_id` that exists neither locally nor earlier in the same file is raised in the wizard, where you can point it at a real row, clear it where the column is nullable, or leave that one row out. This used to be the most common cause of a whole backup being rejected; now it costs at most the rows that carry the bad link.
 
@@ -558,7 +563,7 @@ Rows are inserted even if they fall outside the UI's 500-row snapshot window; th
 ```json
 {
   "format": "cash-flow-routing-backup",
-  "version": 3,
+  "version": 4,
   "tables": {
     "settings": [
       { "key": "currency", "value": "CAD" },
@@ -608,7 +613,7 @@ The header is found at row 4. Both rows import as entries. The first becomes an 
 ```json
 {
   "format": "cash-flow-routing-backup",
-  "version": 3,
+  "version": 4,
   "tables": {
     "accounts": [{ "id": "acc-1", "name": "Cheque", "kind": "checking" }],
     "bills": [{ "id": "bill-1", "name": "Rent", "frequency": "monthly", "due_day": 45, "account_id": "acc-gone" }]
