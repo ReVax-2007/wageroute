@@ -128,6 +128,11 @@ export function PriorityWall() {
                     <div className="cell-sub">
                       {bill.category}
                       {bill.autopay ? ' · autopay' : ''}
+                      {!bill.isActive && (
+                        <span className="chip chip-quiet" style={{ marginLeft: 6 }}>
+                          Bill inactive
+                        </span>
+                      )}
                     </div>
                   </td>
                   <td>
@@ -153,6 +158,15 @@ export function PriorityWall() {
                   </td>
                   <td>
                     <div className="row-actions">
+                      {!bill.isActive && (
+                        <Button
+                          size="sm"
+                          variant="quiet"
+                          onClick={() => void updateBill(bill.id, { isActive: true })}
+                        >
+                          Resume bill
+                        </Button>
+                      )}
                       <button
                         type="button"
                         className={bill.isActive ? 'switch on' : 'switch'}
@@ -343,6 +357,11 @@ function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () => void 
           Reserve money from every paycheck
         </label>
       </div>
+      {!form.isActive && (
+        <p className="field-hint" style={{ marginTop: 4 }}>
+          Bill inactive · You can resume this bill at any time.
+        </p>
+      )}
 
       {error && <p className="form-error">{error}</p>}
     </Modal>

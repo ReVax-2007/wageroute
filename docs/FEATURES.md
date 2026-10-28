@@ -268,14 +268,23 @@ Example: three expenses of $100, $200 and $300 in three months average $200/mont
 
 Manual mode replaces the calculation with a typed amount. Switching to manual pre-fills the field with the current automatic target if it is empty. The manual amount is still saved to settings when switching back to auto, so it is not lost.
 
+### Cumulative account and saving cadence
+
+The card allows tracking progress through accounts rather than allocations alone:
+
+- **Single account by default**: One account can be designated to cumulate the emergency total.
+- **Option to manually select many**: A toggle allows choosing multiple accounts whose balances are summed for progress.
+- **Dedicated binding**: Applying the target binds the chosen account(s) to the emergency goal via `dedicated_goal_id`.
+- **Paycheck cadence**: A "Save money from every paycheck" toggle allows pausing contributions. When paused, it marks the status as **Bill inactive** and offers a **Resume bill** action, and the allocator skips the emergency goal during paycheck routing.
+
 ### Applying
 
 “Apply target” / “Create emergency fund”:
 
 1. validates the target is above zero;
 2. saves the emergency settings;
-3. if an emergency goal exists, updates its `target_cents`;
-4. otherwise creates a goal named **Emergency Fund**, priority 1, colour `#38BDF8`, no account, `isEmergency = true`.
+3. if an emergency goal exists, updates its `target_cents` and binds dedicated accounts;
+4. otherwise creates a goal named **Emergency Fund**, priority 1, colour `#38BDF8`, `isEmergency = true`.
 
 The card also shows the wall, variable average, essentials, target, a progress bar, coverage in months and whether an emergency goal exists. Coverage is `funded / essentials`, and is 0 when essentials are 0.
 

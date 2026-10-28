@@ -354,6 +354,8 @@ Stored in `settings.value` as text. Defaults and validation live in `src/shared/
 | `emergencyMonths` | number | `3` | Integer 1–12, else 3 |
 | `emergencyIncludeVariable` | boolean | `true` | |
 | `emergencyManualTargetCents` | number | `0` | Positive integer, else 0 |
+| `emergencyAccountIds` | string | `""` | Comma-separated account IDs cumulating emergency total |
+| `emergencyActive` | boolean | `true` | When false, emergency saving is paused (bill inactive) |
 
 Unknown keys are preserved by an import but ignored by `parseSettings`. Settings imported from a backup never overwrite existing local keys (`INSERT OR IGNORE`).
 

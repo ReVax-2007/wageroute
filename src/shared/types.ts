@@ -249,4 +249,15 @@ export interface AppSettings {
   emergencyMonths: number
   emergencyIncludeVariable: boolean
   emergencyManualTargetCents: number
+  /**
+   * Account IDs whose combined balance counts as the emergency fund total.
+   * An empty array means the emergency goal's own accountId (or allocations)
+   * is used instead — this is the legacy behaviour.
+   */
+  emergencyAccountIds: string[]
+  /**
+   * When false the emergency goal is excluded from the allocator and the card
+   * shows a "Resume" prompt instead of an active contribution cadence.
+   */
+  emergencyActive: boolean
 }

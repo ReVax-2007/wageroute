@@ -50,7 +50,13 @@ Merged as PR #13 (`76283d4`) with 56 tests, a clean type-check, a green `verify`
 
 See [CHANGELOG.md](../CHANGELOG.md#unreleased) for the full inventory, including the two-goal-totals change it forced.
 
-### 6. Queued, not merged: Linux and extra Windows formats — `2ef251f` (`origin/feat/linux-windows-installers`, no PR yet)
+### 6. Emergency fund cumulative account tracking and cadence control
+
+- The Emergency Card tracks progress through a single cumulative account by default, with an option to manually select multiple accounts.
+- Binds designated accounts directly to the emergency goal via `dedicated_goal_id`.
+- Added "Save money from every paycheck" toggle to pause/resume emergency contributions ("Bill inactive / Resume bill"), with allocator filtering and Priority Wall inactive-bill alignment.
+
+### 7. Queued, not merged: Linux and extra Windows formats — `2ef251f` (`origin/feat/linux-windows-installers`, no PR yet)
 
 electron-builder additionally targets AppImage/deb/rpm for Linux x64 and arm64 and portable exe/zip for Windows, with two Ubuntu CI jobs and artifact names `wageroute-linux-x64/arm64`.
 

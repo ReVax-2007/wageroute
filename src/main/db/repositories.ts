@@ -1062,8 +1062,11 @@ export function commitPaycheck(
   if (!depositAccountId) throw new Error('Choose the account this paycheck landed in')
   requireAccount(db, userId, depositAccountId)
 
+  const settings = parseSettings(readSettings(db, userId))
   const bills = listBills(db, userId).filter((bill) => bill.isActive)
-  const goals = listGoals(db, userId)
+  const goals = listGoals(db, userId).filter(
+    (goal) => !(goal.isEmergency && !settings.emergencyActive)
+  )
 
   const plan = buildAllocationPlan({
     incomeCents,

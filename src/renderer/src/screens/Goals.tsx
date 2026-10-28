@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CalendarDays, Landmark, LifeBuoy, Pencil, Plus, Target, Trash2 } from 'lucide-react'
+import { CalendarDays, Landmark, LifeBuoy, Pause, Pencil, Play, Plus, Target, Trash2 } from 'lucide-react'
 import { formatDateLong, monthsUntil, todayISO } from '@shared/dates'
 import {
   EMERGENCY_MONTH_OPTIONS,
@@ -160,6 +160,7 @@ function EmergencyCard() {
   const saveSettings = useFinanceStore((state) => state.saveSettings)
   const createGoal = useFinanceStore((state) => state.createGoal)
   const updateGoal = useFinanceStore((state) => state.updateGoal)
+  const updateAccount = useFinanceStore((state) => state.updateAccount)
   const notify = useFinanceStore((state) => state.notify)
 
   const goal = snapshot?.goals.find((item) => item.isEmergency) ?? null
@@ -173,9 +174,29 @@ function EmergencyCard() {
   )
   const [saving, setSaving] = useState(false)
 
+  // Account selection state: 1 account by default, or an option to manually select many
+  const [selectedIds, setSelectedIds] = useState<string[]>(settings.emergencyAccountIds)
+  const [allowMultiple, setAllowMultiple] = useState<boolean>(settings.emergencyAccountIds.length > 1)
+
   if (!snapshot) return null
 
   const currency = settings.currency
+  const isActive = settings.emergencyActive
+
+  // Accounts eligible to back the emergency fund (savings, checking, cash — not archived)
+  const eligibleAccounts = snapshot.accounts.filter(
+    (a) => !a.isArchived && (a.kind === 'savings' || a.kind === 'checking' || a.kind === 'cash')
+  )
+
+  // Compute funded total: sum of selected account balances (if any are chosen),
+  // otherwise fall back to the goal's own fundedCents
+  const fundedFromAccounts =
+    selectedIds.length > 0
+      ? snapshot.accounts
+          .filter((a) => selectedIds.includes(a.id))
+          .reduce((sum, a) => sum + Math.max(0, a.balanceCents), 0)
+      : null
+
   const wall = monthlyWall(activeBills(snapshot.bills))
   const variable = averageMonthlyVariableCents(snapshot.transactions, todayISO())
   const essentials = emergencyMonthlyEssentialsCents({
@@ -186,13 +207,25 @@ function EmergencyCard() {
   const autoTarget = recommendedEmergencyTargetCents(essentials, months)
   const manualCents = mode === 'manual' ? parseMoneyToCents(manual) : null
   const targetCents = mode === 'manual' ? Math.max(0, manualCents ?? 0) : autoTarget
-  const funded = goal?.fundedCents ?? 0
+  const funded = fundedFromAccounts ?? goal?.fundedCents ?? 0
   const coverage = emergencyCoverageMonths(funded, essentials)
   const targetMonths = months
 
   const changeMode = (next: EmergencyMode) => {
     setMode(next)
     if (next === 'manual' && !manual.trim()) setManual(centsToEditable(autoTarget))
+  }
+
+  const toggleAccount = (id: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    )
+  }
+
+  const toggleActive = async () => {
+    const next = !isActive
+    await saveSettings({ ...settings, emergencyActive: next })
+    notify(next ? 'Emergency saving resumed' : 'Emergency saving paused (Bill inactive)', 'success')
   }
 
   const apply = async () => {
@@ -207,10 +240,20 @@ function EmergencyCard() {
       emergencyMonths: months,
       emergencyIncludeVariable: includeVariable,
       emergencyManualTargetCents:
-        mode === 'manual' ? targetCents : Math.max(0, manualCents ?? 0)
+        mode === 'manual' ? targetCents : Math.max(0, manualCents ?? 0),
+      emergencyAccountIds: selectedIds
     })
     if (goal) {
-      await updateGoal(goal.id, { targetCents })
+      await updateGoal(goal.id, { targetCents, accountId: selectedIds[0] ?? null })
+      for (const account of snapshot.accounts) {
+        const shouldBeDedicated = selectedIds.includes(account.id)
+        const isCurrentlyDedicated = account.dedicatedGoalId === goal.id
+        if (shouldBeDedicated && !isCurrentlyDedicated) {
+          await updateAccount(account.id, { dedicatedGoalId: goal.id })
+        } else if (!shouldBeDedicated && isCurrentlyDedicated) {
+          await updateAccount(account.id, { dedicatedGoalId: null })
+        }
+      }
     } else {
       await createGoal({
         name: 'Emergency Fund',
@@ -218,7 +261,7 @@ function EmergencyCard() {
         targetDate: null,
         priority: 1,
         color: '#38BDF8',
-        accountId: null,
+        accountId: selectedIds[0] ?? null,
         isEmergency: true
       })
     }
@@ -232,6 +275,40 @@ function EmergencyCard() {
       className="emergency-card"
       actions={<LifeBuoy size={17} className="stat-icon" />}
     >
+      {/* Pause / Resume banner */}
+      <div className="setting-row" style={{ marginBottom: '1.25rem' }}>
+        <div>
+          <strong>Save money from every paycheck</strong>
+          <p className="field-hint">
+            {isActive
+              ? 'Active · The allocator reserves money towards your emergency cadence each paycheck.'
+              : 'Bill inactive · Money will not be saved from paychecks until you resume.'}
+          </p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {!isActive && (
+            <span
+              className="chip chip-quiet"
+              style={{
+                color: 'var(--warn, #f59e0b)',
+                borderColor: 'rgba(245, 189, 74, 0.3)',
+                fontWeight: 600
+              }}
+            >
+              Bill inactive
+            </span>
+          )}
+          <Button
+            variant={isActive ? 'quiet' : 'primary'}
+            size="sm"
+            icon={isActive ? <Pause size={13} /> : <Play size={13} />}
+            onClick={() => void toggleActive()}
+          >
+            {isActive ? 'Pause' : 'Resume bill'}
+          </Button>
+        </div>
+      </div>
+
       <div className="emergency-grid">
         <div className="emergency-controls">
           <Segmented<EmergencyMode>
@@ -286,6 +363,84 @@ function EmergencyCard() {
               ? `Target = ${targetMonths} × monthly essentials`
               : 'Manual target replaces the calculation until you switch back.'}
           </p>
+
+          {/* Account selector: 1 cumulative account by default, or option to manually select many */}
+          {!allowMultiple ? (
+            <Field
+              label="Cumulative emergency account"
+              hint="Only this account cumulates the emergency total (other sinking funds are independent)"
+            >
+              <select
+                className="select"
+                value={selectedIds[0] ?? ''}
+                onChange={(e) => {
+                  const val = e.target.value
+                  setSelectedIds(val ? [val] : [])
+                }}
+              >
+                <option value="">No account (track via allocations)</option>
+                {eligibleAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.name} ({formatMoney(Math.max(0, account.balanceCents), currency)})
+                  </option>
+                ))}
+              </select>
+            </Field>
+          ) : (
+            <Field
+              label="Cumulative emergency accounts"
+              hint="Select multiple accounts whose combined balance cumulates your emergency total"
+            >
+              {eligibleAccounts.length === 0 ? (
+                <p className="field-hint">No eligible accounts yet.</p>
+              ) : (
+                <div className="emergency-account-list">
+                  {eligibleAccounts.map((account) => {
+                    const checked = selectedIds.includes(account.id)
+                    return (
+                      <label key={account.id} className="check emergency-account-check">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleAccount(account.id)}
+                        />
+                        <span className="emergency-account-name">{account.name}</span>
+                        <span className="emergency-account-balance num muted">
+                          {formatMoney(Math.max(0, account.balanceCents), currency)}
+                        </span>
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
+            </Field>
+          )}
+
+          <div style={{ marginTop: '-4px', marginBottom: '4px' }}>
+            <label className="check" style={{ fontSize: '12.5px', color: 'var(--text-dim)' }}>
+              <input
+                type="checkbox"
+                checked={allowMultiple}
+                onChange={(e) => {
+                  const checked = e.target.checked
+                  setAllowMultiple(checked)
+                  if (!checked && selectedIds.length > 1) {
+                    setSelectedIds(selectedIds.slice(0, 1))
+                  }
+                }}
+              />
+              Option to manually select many accounts
+            </label>
+          </div>
+
+          <p className="field-hint">
+            {selectedIds.length === 0
+              ? 'No account selected — progress is measured from allocation records instead.'
+              : selectedIds.length === 1
+                ? 'Only this single account cumulates towards the emergency fund total.'
+                : `${selectedIds.length} accounts cumulate towards the emergency fund total.`}{' '}
+            Not every sinking fund/goal is towards the emergency cadence.
+          </p>
         </div>
 
         <div className="emergency-figures">
@@ -306,10 +461,11 @@ function EmergencyCard() {
             <Money cents={targetCents} currency={currency} />
           </div>
 
-          <Progress value={funded} max={targetCents} color="var(--savings)" />
+          <Progress value={funded} max={targetCents} color={isActive ? 'var(--savings)' : 'var(--color-text-dim, #666)'} />
           <p className="emergency-coverage">
             <strong>{coverage.toFixed(1)} months</strong> covered
-            {goal ? '' : ' · no emergency goal yet'}
+            {!goal ? ' · no emergency goal yet' : ''}
+            {!isActive ? ' · saving paused (Bill inactive)' : ''}
           </p>
 
           <Button variant="primary" onClick={() => void apply()} disabled={saving}>

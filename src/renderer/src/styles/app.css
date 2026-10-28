@@ -2707,6 +2707,43 @@ select.grid-editor {
   border-color: rgba(76, 194, 255, 0.24);
 }
 
+/* Emergency account multi-select list */
+
+.emergency-account-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--inset-plate);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.emergency-account-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+.emergency-account-name {
+  flex: 1;
+  color: var(--text);
+}
+
+.emergency-account-balance {
+  font-size: 12px;
+  text-align: right;
+}
+
+/* Emergency paused state — dim the progress bar colour */
+
+.emergency-card.paused .emergency-target .num {
+  color: var(--text-muted);
+}
+
 .chip-funded {
   color: var(--goal);
   background: var(--warn-soft);

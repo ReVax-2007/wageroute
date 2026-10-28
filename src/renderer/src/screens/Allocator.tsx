@@ -80,6 +80,13 @@ export function Allocator() {
 
   const incomeCents = parseMoneyToCents(income) ?? 0
   const bills = useMemo(() => activeBills(snapshot?.bills ?? []), [snapshot?.bills])
+  const activeGoals = useMemo(
+    () =>
+      (snapshot?.goals ?? []).filter(
+        (goal) => !(goal.isEmergency && !settings.emergencyActive)
+      ),
+    [snapshot?.goals, settings.emergencyActive]
+  )
 
   const plan = useMemo(
     () =>
@@ -87,7 +94,7 @@ export function Allocator() {
         incomeCents,
         payCadence: cadence,
         bills,
-        goals: snapshot?.goals ?? [],
+        goals: activeGoals,
         splits: {
           savingsPercent: savings,
           investmentPercent: investment,
@@ -100,7 +107,7 @@ export function Allocator() {
       incomeCents,
       cadence,
       bills,
-      snapshot?.goals,
+      activeGoals,
       savings,
       investment,
       goalsSplit,
