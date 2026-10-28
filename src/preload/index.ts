@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { FinanceApi } from '@shared/api'
+import type { ImportAnswer } from '@shared/importRepair'
 import type {
   AccountInput,
   AppSettings,
@@ -38,7 +39,8 @@ const api: FinanceApi = {
 
   exportBackup: () => invoke('backup:export'),
   exportTransactionsCsv: () => invoke('csv:export'),
-  importData: () => invoke('data:import'),
+  previewImport: () => invoke('data:preview'),
+  confirmImport: (token: string, answers: ImportAnswer[]) => invoke('data:confirm', token, answers),
   resetData: () => invoke('data:reset')
 }
 

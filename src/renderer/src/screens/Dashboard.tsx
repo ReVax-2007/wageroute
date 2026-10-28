@@ -45,7 +45,7 @@ export function Dashboard() {
   const snapshot = useFinanceStore((state) => state.snapshot)
   const settings = useFinanceStore((state) => state.settings)
   const openAllocator = useFinanceStore((state) => state.openAllocator)
-  const importData = useFinanceStore((state) => state.importData)
+  const openImport = useFinanceStore((state) => state.openImport)
   const go = useFinanceStore((state) => state.go)
   const safeToSpend = useFinanceStore(selectSafeToSpendCents)
   const cash = useFinanceStore(selectCashOnHandCents)
@@ -133,7 +133,7 @@ export function Dashboard() {
                 <Button variant="primary" onClick={() => go('accounts')}>
                   Start from scratch
                 </Button>
-                <Button onClick={() => void importData()}>Import a backup</Button>
+                <Button onClick={() => void openImport()}>Import a backup</Button>
               </div>
             }
           />

@@ -4,7 +4,7 @@
 - **Date:** 2026-10-27
 - **Deciders:** Project owner
 - **Supersedes:** none
-- **Related:** [IMPORT-EXPORT.md](../IMPORT-EXPORT.md), [ADR 0001](0001-local-first-desktop.md), [ADR 0004](0004-sync-ready-schema.md)
+- **Related:** [IMPORT-EXPORT.md](../IMPORT-EXPORT.md), [ADR 0001](0001-local-first-desktop.md), [ADR 0004](0004-sync-ready-schema.md), [ADR 0006](0006-import-wizard-asks-instead-of-failing.md) (keeps this decision's additive intent; replaces its fail-the-file behaviour on a defective row with an interactive per-row repair)
 
 ## Context
 

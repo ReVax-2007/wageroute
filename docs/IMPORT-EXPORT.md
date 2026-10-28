@@ -2,15 +2,18 @@
 
 WageRoute has one data-movement principle: **imports add, they never restore over what is already there.** A JSON backup can be complete or partial, and a CSV file can be a full export or a handful of rows from a bank. Existing rows and existing settings always win.
 
-This document specifies both file formats, the merge rules, deduplication, validation, error reporting and the exact behaviour the UI exposes.
+The second principle is **a file is never rejected because of one bad row.** Anything the app cannot work out on its own is asked about in an import wizard, and anything you cannot answer is left out with an explanation while the rest of the file lands.
 
-Source: [`src/main/db/backup.ts`](../src/main/db/backup.ts), [`src/main/db/entries.ts`](../src/main/db/entries.ts), [`src/shared/csv.ts`](../src/shared/csv.ts), [`src/main/ipc.ts`](../src/main/ipc.ts).
+This document specifies both file formats, the wizard, the merge rules, deduplication, validation, error reporting and the exact behaviour the UI exposes.
+
+Source: [`src/shared/importRepair.ts`](../src/shared/importRepair.ts), [`src/main/db/backup.ts`](../src/main/db/backup.ts), [`src/main/db/entries.ts`](../src/main/db/entries.ts), [`src/shared/csv.ts`](../src/shared/csv.ts), [`src/main/ipc.ts`](../src/main/ipc.ts), [`src/renderer/src/components/ImportWizard.tsx`](../src/renderer/src/components/ImportWizard.tsx).
 
 ---
 
 ## Contents
 
 - [Entry points](#entry-points)
+- [The import wizard](#the-import-wizard)
 - [JSON backup format](#json-backup-format)
 - [JSON merge semantics](#json-merge-semantics)
 - [JSON validation and errors](#json-validation-and-errors)
@@ -27,21 +30,68 @@ Source: [`src/main/db/backup.ts`](../src/main/db/backup.ts), [`src/main/db/entri
 
 ## Entry points
 
-All three operations live in **Settings → Data**.
+Import lives in **Settings → Data**; export lives beside it.
 
 | Action | API method | Dialog | Default name |
 | --- | --- | --- | --- |
 | Export full backup | `exportBackup()` | Save JSON | `~/Documents/wageroute-backup-YYYY-MM-DD.json` |
 | Export transactions CSV | `exportTransactionsCsv()` | Save CSV | `~/Documents/wageroute-transactions-YYYY-MM-DD.csv` |
-| Import data | `importData()` | Open JSON or CSV | — |
+| Import data | `previewImport()` then `confirmImport(token, answers)` | Open JSON or CSV, then the wizard | — |
 
-Import first shows a confirmation:
-
-> Import this file? Everything already in this app stays exactly as it is — the import only adds what is missing.
+The first-run dashboard offers **Start from scratch** or **Import a backup**; the second button opens the same wizard as Settings → Import data. There is no longer a single "pick a file and hope" import.
 
 The file picker accepts `.json` and `.csv`. The branch is chosen by the file extension, case-insensitively. A file larger than **64 MiB** is rejected before parsing.
 
-Cancelling any dialog returns `null` and shows no toast.
+Cancelling the file picker returns `null` and opens nothing. Cancelling the wizard leaves the database untouched.
+
+---
+
+## The import wizard
+
+### Why it exists
+
+The ledger's columns are `NOT NULL`, `STRICT` and `CHECK`-constrained, while a hand-written or bank-supplied file is rarely complete. Before the wizard, one unusable value aborted the whole import with a raw SQLite message. Now the gaps are found before anything is written and put to you in plain language.
+
+### Steps
+
+1. **Choose file** — the picker in the main process. The renderer never sees or sends a path; it holds a token.
+2. **Missing info** — one card per row that cannot import as it stands, with an editor per problem and a **Leave this row out** toggle.
+3. **Review** — what will be imported, what you filled in (with the values), and what is being left out with why and how to fix the file.
+
+Step 2 is skipped when nothing is missing, so a clean WageRoute backup is a one-click confirm.
+
+### What the wizard asks about
+
+Detection is pure shared code (`findImportProblems`), so the main process re-derives exactly the same questions when the answers come back.
+
+| Category | Asked as | Editor |
+| --- | --- | --- |
+| A required column is empty (`name`, `amount_cents`, `kind`, `frequency`, `due_day`, `target_cents`, `received_on`, `occurred_on`, `label`, `bucket`, settings `key`) | "Account name is missing" | Text / amount / whole number, per column |
+| An enum value outside the schema's `CHECK` list | "Account type is not valid (chekcing)" | Dropdown of the accepted values |
+| A number outside its allowed range (`due_day` 1–31, amounts above zero) | "Day of month is not valid (45)" | Whole number with the range in the hint |
+| A foreign key pointing at something that does not exist | "Posting account is not valid (acc-nope)" | Dropdown of local rows, plus **Leave unlinked** where the column is nullable |
+| A value of the wrong JSON type (object, array, boolean in a text/date column) | "Pay date is not a plain value" | The column's own editor |
+| A CSV account name with no matching local account | "no local account is named “COFFSHOC *BREW BAR”" | Dropdown of local accounts, one question per distinct name covering every line that shares it |
+
+Columns that have a schema default — `sort_order`, `is_archived`, `category`, `memo`, `revision`, `priority` and friends — are **never** asked about; they are filled silently. See [partial tables](#partial-tables).
+
+Rows without an `id` are not a question either: a UUID is minted at import time. Only rows that *other* rows in the same file point at need a real ID, which is why the wizard's reference check counts IDs the file creates itself (`withFileIds`).
+
+### Fix or leave out
+
+Each answer is `{ key, value, skip }`, keyed by `b:<table>:<rowIndex>:<column>` for backup rows and `e:<firstLine>` for CSV name groups.
+
+- **Fill it in** — the answer is validated by the same rules as the file (`validateFieldValue`). A valid answer patches the row before the merge.
+- **Leave it out** — the whole row is dropped from this import, and the review step lists it with every reason on it plus how to fix the source file.
+- **Say nothing** — an unanswered question drops its row too. Nothing invalid ever reaches SQLite, so nothing can abort the rest of the file.
+- **Answer wrongly** — an answer that still fails validation drops that row and reports why (`… — must be one of checking, savings, …`), instead of throwing.
+
+Dropping is per row: a bill with three problems is one card, and leaving it out removes only that bill. Every other row in the table still imports.
+
+### What the wizard cannot fix
+
+Rows that satisfy every question but still break a database rule — a `CHECK` on a column the wizard does not police, a foreign key to a row that vanished between the two steps — are caught per row inside the merge transaction and returned as `issues` with a row description (`account “Weekend Fun”: CHECK constraint failed: kind`). The transaction still commits everything else.
+
 
 ---
 
@@ -144,12 +194,23 @@ Omitted metadata is filled as follows:
 | `created_at` | Import time |
 | `updated_at` | Import time |
 | `revision` | `1` |
+| `id` | A freshly generated UUID |
 | `credit_limit_cents` | `null` |
-| `is_emergency` | `0` |
 | `transfer_group_id` | `null` |
-| Any other omitted column | `null` (or the database default, if the column has one) |
+| Any other omitted column | `null` |
 
-Omitted `memo`, `category`, `source`, `priority`, booleans and similar columns fall back to database defaults where defined. Omitted `name`, `amount_cents`, `kind`, `frequency`, `due_day`, `account_id`, `user_id` or `id` will generally fail a NOT NULL or CHECK constraint and roll back the entire import.
+Because every column is named explicitly in the `INSERT`, a SQLite column default never fires — the importer supplies the value. `TABLE_DEFAULTS` in [`src/main/db/backup.ts`](../src/main/db/backup.ts) mirrors the schema defaults so an omitted column lands on the same value the app would have chosen:
+
+| Table | Omitted columns filled silently |
+| --- | --- |
+| `accounts` | `starting_balance_cents` → `0`, `is_archived` → `0`, `sort_order` → `0` |
+| `bills` | `category` → `Bills`, `autopay` → `0`, `is_active` → `1` |
+| `goals` | `priority` → `100`, `color` → `#34D399`, `is_archived` → `0`, `is_emergency` → `0` |
+| `paychecks` | `source` → `Paycheck`, `priority_cents` → `0`, `surplus_cents` → `0`, `leisure_cents` → `0` |
+| `transactions` | `memo` → `""`, `category` → `Uncategorized` |
+| `allocations`, `settings` | — |
+
+Anything else that is missing or unusable — no `name`, an out-of-range `due_day`, a bad `kind`, a dangling `account_id` — is raised in the wizard before the merge runs, and its row is left out if it is not answered. A row that still breaks a database rule is reported on its own and does not stop the others.
 
 ### Version compatibility
 
@@ -165,7 +226,7 @@ Omitted `memo`, `category`, `source`, `priority`, booleans and similar columns f
 
 ## JSON merge semantics
 
-`mergeBackup` runs inside one SQLite transaction. Either every eligible row is added, or nothing is.
+`mergeBackup` runs inside one SQLite transaction, but each row is inserted in its own `try`. A row the database rejects is reported in `issues` with a description of that row, and the transaction still commits everything else. A statement failing does not abort the transaction; the import either commits the good rows or, if the whole transaction fails, writes nothing at all.
 
 Tables are processed in foreign-key order:
 
@@ -192,8 +253,7 @@ Settings use `INSERT OR IGNORE` against `PRIMARY KEY (user_id, key)`:
 
 - missing keys are added;
 - existing keys are skipped, so local preferences always win;
-- an empty or non-string key fails the import;
-- a missing `value` becomes an empty string;
+- a row with no usable `key` or `value` is asked about in the wizard, and left out with an explanation if it stays blank — it never fails the import;
 - a missing `updated_at` becomes import time.
 
 Importing a backup never changes your existing currency, theme, splits, round-up or emergency settings.
@@ -216,11 +276,15 @@ Foreign keys are enforced. A partial import must either:
 - reference rows that already exist locally with the same IDs, or
 - omit the reference so it becomes `null`.
 
-A transaction with an explicit `bill_id`, `goal_id`, `account_id` or `paycheck_id` that does not exist locally or earlier in the same file will fail the whole import. This is the most common cause of a partial backup being rejected.
+A transaction with an explicit `bill_id`, `goal_id`, `account_id` or `paycheck_id` that exists neither locally nor earlier in the same file is raised in the wizard, where you can point it at a real row, clear it where the column is nullable, or leave that one row out. This used to be the most common cause of a whole backup being rejected; now it costs at most the rows that carry the bad link.
+
+IDs the file creates for itself count as known, so a partial file that ships its own accounts and transactions is not asked about them — as long as the parent row either has an `id` in the file or is not referenced by name. A row that will be given a generated UUID cannot be a reference target, because nothing in the file can know that ID in advance; the wizard reports the referencing row instead.
 
 ---
 
 ## JSON validation and errors
+
+Whole-file problems are rejected in `data:preview`, before the wizard opens, and the database is never touched:
 
 | Condition | Message |
 | --- | --- |
@@ -234,14 +298,20 @@ A transaction with an explicit `bill_id`, `goal_id`, `account_id` or `paycheck_i
 | A table is not an array | “The `<table>` table is not a list” |
 | More than 200,000 rows in a table | “Backup `<table>` table is too large” |
 | A row is not an object | “Backup has a malformed row in `<table>`” |
-| A row has no `id` | “Backup has a `<table>` row without an id” |
-| A settings row has no key | “Backup has a settings row without a key” |
-| A value is an array/object | “Backup has an unsupported value for `<column>`” |
-| A database constraint fails | SQLite's error message, with the whole import rolled back |
 
-Values may be strings, numbers, booleans or `null`. Booleans are converted to 0/1. Numbers are passed through as-is; SQLite `STRICT` will reject a non-integer in an INTEGER column.
+Everything below is per row: the row is left out, described in `issues`, and the rest of the file imports.
 
-The import result contains `added` and `skipped` counts per table. Issues are only used by the CSV path; a JSON import that succeeds returns an empty `issues` array.
+| Condition | Handling |
+| --- | --- |
+| A required or constrained value is missing, invalid or dangling | Asked in the wizard first; dropped with a reason if unanswered or answered badly |
+| A row has no `id` | A UUID is generated and the row imports (it just cannot be a reference target) |
+| A settings row has no key | Issue: “setting row N: no setting key” |
+| A value is an array/object where a scalar belongs | Issue naming the constraint, or a wizard question first |
+| Any other database constraint fails | Issue: `<table> “label”: <SQLite message>` |
+
+Values may be strings, numbers, booleans or `null`. Booleans are converted to 0/1. Numbers are passed through as-is; SQLite `STRICT` rejects a non-integer in an INTEGER column, and that rejection is reported per row.
+
+The import result carries `added` and `skipped` counts per table, `dropped` rows (label, every reason, how to fix the file) and `issues` for rows the database itself refused. Both JSON and CSV imports use them.
 
 ---
 
@@ -398,12 +468,15 @@ Outcomes:
 | Candidates | Result |
 | --- | --- |
 | Exactly one | Row is queued for insert |
-| Zero | Issue: ``no account named “X”`` |
+| One already mapped by you in the wizard | Queued for insert against the account you picked |
+| Zero | One wizard question per distinct name; leave it unanswered and every line with that name is left out |
 | More than one | Issue: ``“X” matches more than one account`` |
 
-Account names are not created automatically. Create or rename accounts before importing.
+The wizard groups a bank statement's many `COFFSHOC *BREW BAR` lines into a single question keyed on the first line that name appears on (`e:<firstLine>`), so you map each name once rather than line by line. Its answer becomes an account map handed to the merge, and names you chose to leave out are reported once as a dropped group instead of once per line.
 
-Archived accounts are still eligible for matching because the lookup does not filter `is_archived`. Soft-deleted accounts are excluded.
+Account names are not created automatically. Either map the lines onto an existing account in the wizard, or create an account with that exact name and import again — the second run matches by name and needs no mapping.
+
+Archived accounts are still eligible for matching because the lookup does not filter `is_archived`. Soft-deleted accounts are excluded. An account you mapped in the wizard and then deleted before confirming is reported per line (“was mapped to an account that no longer exists”) rather than aborting the import.
 
 ---
 
@@ -448,7 +521,7 @@ Queued rows are inserted in one SQLite transaction with:
 
 - a new UUID;
 - the local user ID;
-- the resolved account ID;
+- the resolved account ID, or the account you mapped that name onto in the wizard;
 - the parsed kind, amount, date, memo and category;
 - `bill_id`, `goal_id`, `paycheck_id`, `counter_account_id` and `transfer_group_id` set to `NULL`;
 - `created_at` and `updated_at` set to import time;
@@ -530,24 +603,53 @@ The header is found at row 4. Both rows import as entries. The first becomes an 
 - Both are inserted.
 - A later re-import skips both.
 
+### 8. Hand-written backup with three problems on one bill
+
+```json
+{
+  "format": "cash-flow-routing-backup",
+  "version": 3,
+  "tables": {
+    "accounts": [{ "id": "acc-1", "name": "Cheque", "kind": "checking" }],
+    "bills": [{ "id": "bill-1", "name": "Rent", "frequency": "monthly", "due_day": 45, "account_id": "acc-gone" }]
+  }
+}
+```
+
+- The wizard opens on one card for bill “Rent” with three questions: the amount is missing, `due_day` 45 is outside 1–31, and `acc-gone` does not exist.
+- Type `1200`, `15` and pick Cheque: the row imports with those values.
+- Leave the amount blank instead: the whole bill is left out — the row is dropped, not partially patched — and the review step says so and how to fix the file. The account still imports.
+- Answer `0` for the amount: validation rejects it (“must be at least 0.01”), so the row is dropped with that message rather than reaching SQLite.
+
+### 9. Bank CSV whose account names do not exist locally
+
+- `findUnmappedAccounts` collapses the file's lines into one question per distinct name, so 40 `COFFSHOC *BREW BAR` lines ask once.
+- Map it to an existing account and those 40 lines insert against that account; the dedup fingerprint then uses that account ID, so re-importing the same CSV skips them.
+- Leave one name unmapped and it is reported once as a dropped group, while every other line still imports.
+
 ---
 
 ## UI messages
 
-After a JSON import:
+The wizard's review step is where detail lives: what is being imported, the values you filled in, and every row left out with its reason and how to fix the file. The toast after confirming is the one-line summary.
 
-- `Imported N new records` when rows were added;
-- `… · N already present` when rows were skipped;
-- `Nothing new — those records are already in your data` when nothing was added and nothing was skipped;
-- `That file had nothing to import` when the file contained no rows.
+When rows were added — **records** for JSON, **entries** for CSV:
 
-After a CSV import, the noun changes to **entries** and ignored rows are included:
+```text
+Imported N new records · M already present · K rows left out · L rows refused by the database
+```
 
-- `Imported N new entries · N already present · N rows ignored`;
-- if nothing was added but rows were ignored:
-  `Nothing imported — N rows ignored (<first issue message>)`.
+Each tail segment only appears when its count is above zero. `left out` counts rows you dropped or never answered; `refused by the database` counts rows that passed the wizard and were still rejected by a constraint.
 
-JSON imports never report ignored rows; a malformed row aborts the import instead.
+When nothing was added:
+
+| Situation | Message |
+| --- | --- |
+| Rows were left out or refused | `Nothing imported — N rows left out` (error styling) |
+| Everything was already there | `Nothing new — those records are already in your data` |
+| The file had no rows | `That file had nothing to import` |
+
+Problems raised before or during the run appear as error toasts with the main-process message verbatim: `That file is not valid JSON`, `That CSV has no entries`, `That file is too large`, `That file could not be read`, and `That import has expired — pick the file again` when the token was evicted or already used.
 
 ---
 
@@ -557,6 +659,8 @@ JSON imports never report ignored rows; a malformed row aborts the import instea
 | --- | --- |
 | Maximum import file size | 64 MiB |
 | Maximum rows per JSON table | 200,000 |
+| Pending wizard tokens held in the main process | 8, oldest evicted first, single use |
+| Reference choices offered per table | 200 |
 | Snapshot/CSV export rows | 500 newest transactions |
 | JSON date range | Any valid date; no limit |
 
@@ -565,5 +669,6 @@ Cautions:
 - Backups contain your complete financial history in plain text. Store them somewhere you would store a bank statement.
 - Imported JSON preserves IDs. Importing two installations into one database creates duplicate accounts and goals with the same names but different IDs.
 - CSV import does not create missing accounts, link bills or goals, or reconstruct transfers.
-- A failed JSON import leaves the database unchanged, including any rows that appeared to import before the failure.
+- A whole-file rejection leaves the database untouched. A per-row rejection leaves the *other* rows imported — read the review step and the toast rather than assuming all-or-nothing, and re-import the same file after fixing it: rows that already landed are recognised by ID (or by fingerprint for CSV) and skipped.
+- Leaving a row out is not a rollback. Nothing local is deleted by an import, but a row you skipped stays missing until you import it again.
 - The import is not a restore. It will not delete local rows, reset settings, or roll back to an earlier state.
