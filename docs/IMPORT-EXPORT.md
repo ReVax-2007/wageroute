@@ -115,7 +115,7 @@ Because the user row is absent, restoring a backup into a fresh database still r
 
 A file may omit any table. An absent table is treated as an empty list, not as “delete everything”. Unknown table names are ignored.
 
-This allows hand-written or selectively exported files:
+This allows hand-written or selectively exported files. A complete, importable file covering every table with full column sets — two accounts, two bills, a goal, a routed paycheck with allocations, and linked transactions including a paired transfer — lives at [`examples/backup.example.json`](../examples/backup.example.json). It is validated by `src/shared/backup-example.test.ts`, so it cannot drift from the parser.
 
 ```json
 {
