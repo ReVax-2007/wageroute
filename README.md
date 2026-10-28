@@ -96,6 +96,8 @@ The macOS build is ad-hoc signed, not notarized. The first launch of any downloa
 
 **Homebrew (recommended, macOS):**
 
+Install and update through the official [`homebrew-wageroute`](https://github.com/ReVax-2007/homebrew-wageroute) tap:
+
 ```bash
 brew tap ReVax-2007/wageroute
 brew install --cask wageroute          # add --no-quarantine to skip the first-launch prompt entirely
@@ -214,6 +216,8 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full status matrix and the 
 | [docs/RELEASING.md](docs/RELEASING.md) | Versioning, packaging, CI, signing gaps, release and rollback |
 | [docs/SECURITY.md](docs/SECURITY.md) | Trust boundaries, controls, threats, known gaps |
 | [docs/decisions/README.md](docs/decisions/README.md) | Architecture decision records for the load-bearing choices |
+
+Related repositories: [ReVax-2007/homebrew-wageroute](https://github.com/ReVax-2007/homebrew-wageroute) — the official Homebrew tap (cask, install/update docs); bumped to each release per [docs/RELEASING.md](docs/RELEASING.md#release-checklist). |
 
 ## Contributing
 
