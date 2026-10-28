@@ -58,11 +58,41 @@ const TABLE_ORDER: readonly BackupTable[] = [
   'settings'
 ]
 
-/** Columns that did not exist in v2 backups get a safe default instead of failing. */
-const FALLBACK_VALUES: Record<string, SqlValue> = {
-  credit_limit_cents: null,
-  is_emergency: 0,
-  transfer_group_id: null
+/**
+ * Columns the schema declares with a DEFAULT, keyed per table. The importer
+ * lists every allowlisted column explicitly in its INSERT, so an omitted key
+ * would insert NULL and trip the NOT NULL constraint — an explicit value is
+ * needed to get the default behaviour. Mirrors the defaults in migrations.ts.
+ */
+const TABLE_DEFAULTS: Record<BackupTable, Record<string, SqlValue>> = {
+  accounts: {
+    starting_balance_cents: 0,
+    is_archived: 0,
+    sort_order: 0
+  },
+  bills: {
+    category: 'Bills',
+    autopay: 0,
+    is_active: 1
+  },
+  goals: {
+    priority: 100,
+    color: '#34D399',
+    is_archived: 0,
+    is_emergency: 0
+  },
+  paychecks: {
+    source: 'Paycheck',
+    priority_cents: 0,
+    surplus_cents: 0,
+    leisure_cents: 0
+  },
+  allocations: {},
+  transactions: {
+    memo: '',
+    category: 'Uncategorized'
+  },
+  settings: {}
 }
 
 export function buildBackup(db: Db, userId: string): BackupPayload {
@@ -138,10 +168,7 @@ export function parseBackupJson(text: string): BackupPayload {
 }
 
 function toSqlValue(value: unknown, key: string): SqlValue {
-  if (value === undefined) {
-    if (key in FALLBACK_VALUES) return FALLBACK_VALUES[key]
-    return null
-  }
+  if (value === undefined) return null
   if (value === null) return null
   if (typeof value === 'string' || typeof value === 'number') return value
   if (typeof value === 'boolean') return value ? 1 : 0
@@ -211,13 +238,17 @@ export function mergeBackup(db: Db, userId: string, payload: BackupPayload): Mer
           skipped[table] += 1
           continue
         }
+        const defaults = TABLE_DEFAULTS[table]
         const values = columns.map((column) => {
           if (column === 'user_id') return userId
           const value = row[column]
-          // Hand-written entry files often omit sync metadata; give it a sane row.
+          // Hand-written entry files often omit sync metadata and position
+          // columns; give every omitted key a sane value instead of NULL.
           if (value === undefined) {
             if (column === 'created_at' || column === 'updated_at') return now
             if (column === 'revision') return 1
+            if (column in defaults) return defaults[column]
+            return null
           }
           return toSqlValue(value, column)
         })

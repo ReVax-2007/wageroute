@@ -128,7 +128,7 @@ Requirements: **Node.js 22 or newer** (CI uses 24) and npm. macOS packaging expe
 ```bash
 npm install          # also rebuilds better-sqlite3 for Electron
 npm run dev          # launch the app with hot reload
-npm test             # 21 domain tests
+npm test             # domain, backup-format and backup-merge tests
 npm run typecheck    # main/preload and renderer type checks
 npm run build        # typecheck + production bundles in out/
 npm run dist:mac     # DMG for arm64 and x64
