@@ -27,7 +27,7 @@ This document separates what exists from what has been discussed. It also record
 
 | Capability | Status | Evidence / notes |
 | --- | --- | --- |
-| Local desktop app (macOS, Windows) | **Implemented** | Electron + electron-builder DMG/NSIS |
+| Local desktop app (macOS, Windows, Linux) | **Implemented** | Electron + electron-builder DMG/NSIS/portable/zip/AppImage/deb/rpm |
 | Local SQLite persistence | **Implemented** | `wageroute.db` in Electron `userData` |
 | Manual JSON backup and additive import | **Implemented** | Settings → Data |
 | Manual CSV export and entries import | **Implemented** | Settings → Data |
@@ -52,7 +52,7 @@ The schema contains UUIDs, `updated_at`, `revision` and `deleted_at` because a f
 
 There are three different things people usually mean:
 
-1. **Installing the app.** Today: build an unsigned DMG or NSIS installer and run it locally. The app is self-contained; there is nothing to host.
+1. **Installing the app.** Today: build an unsigned DMG, NSIS/portable/zip or AppImage/deb/rpm installer and run it locally. The app is self-contained; there is nothing to host.
 2. **Distributing the app.** Today: share the installer manually or download a CI artifact. There is no release channel, store listing or update feed.
 3. **Deploying a backend.** There is no backend. Nothing is deployed to a server, and no data leaves the machine.
 
@@ -122,7 +122,8 @@ The code lives in [`src/main/db/legacy.ts`](../src/main/db/legacy.ts).
 | --- | --- |
 | `npm run build` | `out/main`, `out/preload`, `out/renderer` |
 | `npm run dist:mac` | `release/*.dmg` for arm64 and x64 |
-| `npm run dist:win` | `release/*.exe` (NSIS) for x64 and arm64 |
+| `npm run dist:win` | `release/*.exe` (NSIS + portable) and `*.zip` for x64 and arm64 |
+| `npm run dist:linux` | `release/*.AppImage`, `*.deb`, `*.rpm` for x64 and arm64 |
 | `npm run dist` | Current platform default target |
 
 `release/` and `out/` are gitignored.
@@ -132,21 +133,22 @@ The code lives in [`src/main/db/legacy.ts`](../src/main/db/legacy.ts).
 The GitHub Actions workflow at [`.github/workflows/build.yml`](../.github/workflows/build.yml):
 
 - triggers on `workflow_dispatch` and on tags matching `v*`;
-- runs a matrix of `macos-latest` and `windows-latest`;
+- runs a matrix of `macos-latest`, `windows-latest`, `ubuntu-latest` and `ubuntu-24.04-arm`;
 - installs Node 24 with npm caching;
-- runs `npm ci`, `npm test`, then `npm run dist:mac` or `npm run dist:win`;
-- uploads `release/*.dmg` or `release/*.exe` as build artifacts named `wageroute-mac` and `wageroute-win`.
+- runs `npm ci`, `npm test`, then `npm run dist:mac`, `dist:win` or `dist:linux`;
+- uploads the installers as build artifacts named `wageroute-mac`, `wageroute-win`, `wageroute-linux-x64` and `wageroute-linux-arm64`.
 
 It does **not**:
 
 - run `npm run typecheck` separately (the `dist` script runs the build, which type-checks first);
 - sign or notarize the macOS app;
-- sign the Windows installer;
+- sign the Windows installer or portable/zip;
+- sign the Linux packages;
 - create a GitHub Release;
 - publish to a store;
 - upload to any external service.
 
-The artifacts are unsigned development builds. macOS Gatekeeper and Windows SmartScreen will warn when they are opened on another machine.
+The artifacts are unsigned development builds. macOS Gatekeeper, Windows SmartScreen and some Linux package managers will warn when they are opened on another machine.
 
 ## Homebrew tap
 

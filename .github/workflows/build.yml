@@ -14,10 +14,28 @@ jobs:
         include:
           - os: macos-latest
             target: mac
+            name: mac
             artifact: release/*.dmg
           - os: windows-latest
             target: win
-            artifact: release/*.exe
+            name: win
+            artifact: |
+              release/*.exe
+              release/*.zip
+          - os: ubuntu-latest
+            target: linux
+            name: linux-x64
+            artifact: |
+              release/*.AppImage
+              release/*.deb
+              release/*.rpm
+          - os: ubuntu-24.04-arm
+            target: linux
+            name: linux-arm64
+            artifact: |
+              release/*.AppImage
+              release/*.deb
+              release/*.rpm
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -34,6 +52,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wageroute-${{ matrix.target }}
+          name: wageroute-${{ matrix.name }}
           path: ${{ matrix.artifact }}
           if-no-files-found: error

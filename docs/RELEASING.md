@@ -146,6 +146,7 @@ npm run build               # typecheck, then electron-vite build into out/
 
 npm run dist:mac            # build + DMG
 npm run dist:win            # build + NSIS installer
+npm run dist:linux          # build + AppImage, deb and rpm
 npm run dist                # build + installers for the current platform
 ```
 
@@ -164,7 +165,8 @@ npm run dist                # build + installers for the current platform
 | `build` | typecheck, then bundle main/preload/renderer into `out/` |
 | `dist` | build, then electron-builder for the host platform |
 | `dist:mac` | build, then macOS DMG |
-| `dist:win` | build, then Windows NSIS |
+| `dist:win` | build, then Windows NSIS, portable and zip |
+| `dist:linux` | build, then Linux AppImage, deb and rpm |
 | `postinstall` | rebuild native modules for Electron |
 
 ### Cross-platform builds
@@ -173,7 +175,7 @@ Build each installer on the platform it targets, or let CI do it.
 
 - **macOS** — build on macOS. Producing both arm64 and x64 from an Apple Silicon machine requires the x64 native `better-sqlite3` binary; the config requests both architectures, but a build succeeding is not proof the x64 app launches. Verify on an Intel Mac or an x64 VM before shipping both.
 - **Windows** — build on Windows. electron-builder can sometimes cross-build NSIS from macOS with Wine, but that path is not supported by this project and is not tested.
-- **Linux** — there is no Linux target in `electron-builder.yml`, even though the app runs in development. Do not promise a Linux installer.
+- **Linux** — build on Linux (CI uses Ubuntu). The AppImage, deb and rpm targets each download their own tooling (appimagetool, fpm) on demand; the Ubuntu runners already have the C toolchain better-sqlite3 needs. Cross-building Linux installers from macOS or Windows is not supported and not tested.
 
 ### Isolated test profile
 
@@ -230,15 +232,28 @@ release/
 
 Exact file names follow electron-builder's `productName-version-arch` pattern. The `.blockmap` files are useful only to an auto-updater; there is none today.
 
-**Windows** — `win.target` requests `nsis` for `x64` and `arm64`:
+**Windows** — `win.target` requests `nsis`, `portable` and `zip` for `x64` and `arm64`:
 
 ```text
 release/
-├── WageRoute Setup 1.0.1.exe
-└── WageRoute Setup 1.0.1.exe.blockmap
+├── WageRoute Setup 1.0.3.exe        # NSIS installer
+├── WageRoute Portable 1.0.3.exe     # single-file, no installation
+├── WageRoute-1.0.3-win.zip          # unpack-and-run archive
+└── *.blockmap
 ```
 
-NSIS is configured as a per-user install (`perMachine: false`), not one-click, with a selectable directory and a desktop shortcut. Per-user installs do not require administrator rights and put the app under the user's profile.
+NSIS is configured as a per-user install (`perMachine: false`), not one-click, with a selectable directory and a desktop shortcut. Per-user installs do not require administrator rights and put the app under the user's profile. The portable and zip targets exist for users who cannot run installers (locked-down machines, no admin); all three Windows formats are unsigned, so SmartScreen treats them the same way.
+
+**Linux** — `linux.target` requests `AppImage`, `deb` and `rpm` for `x64` and `arm64`:
+
+```text
+release/
+├── WageRoute-1.0.3.AppImage / WageRoute-1.0.3-arm64.AppImage
+├── WageRoute_1.0.3_amd64.deb / WageRoute_1.0.3_arm64.deb
+└── WageRoute-1.0.3.x86_64.rpm / WageRoute-1.0.3.aarch64.rpm
+```
+
+Exact file names follow each packager's convention. AppImage runs on any distro without root; deb and rpm integrate with the system package manager and desktop menu. All three are unsigned, so some distros warn during install.
 
 ### Bundle contents
 
@@ -272,7 +287,9 @@ A normal branch push does **not** build installers. That is deliberate: packagin
 | Runner | Target | Uploaded artifact | File pattern |
 | --- | --- | --- | --- |
 | `macos-latest` | `mac` | `wageroute-mac` | `release/*.dmg` |
-| `windows-latest` | `win` | `wageroute-win` | `release/*.exe` |
+| `windows-latest` | `win` | `wageroute-win` | `release/*.exe`, `release/*.zip` |
+| `ubuntu-latest` | `linux` | `wageroute-linux-x64` | `release/*.AppImage`, `release/*.deb`, `release/*.rpm` |
+| `ubuntu-24.04-arm` | `linux` | `wageroute-linux-arm64` | `release/*.AppImage`, `release/*.deb`, `release/*.rpm` |
 
 `fail-fast: false` means a macOS failure does not cancel the Windows build, so you can see both results.
 
@@ -288,8 +305,7 @@ A normal branch push does **not** build installers. That is deliberate: packagin
 ### What CI does not do
 
 - It does not lint. There is no linter configured.
-- It does not test on Linux.
-- It does not smoke-test the packaged app. It proves the bundle was produced, not that it launches.
+- It does not smoke-test the packaged app on any platform. It proves the bundles were produced, not that they launch.
 - It does not sign with a real identity or notarize. macOS artifacts get an ad-hoc signature from the afterPack hook; Windows artifacts are unsigned.
 - It does not create a GitHub Release, tag or changelog.
 - It does not compute checksums.
@@ -411,8 +427,7 @@ A build that launches from `out/` is not evidence that the packaged app works. T
 ### 6. Record checksums
 
 ```bash
-shasum -a 256 release/*.dmg
-shasum -a 256 release/*.exe
+shasum -a 256 release/*.dmg release/*.exe release/*.AppImage release/*.deb release/*.rpm
 ```
 
 Publish the checksums alongside the installers. They let a recipient confirm the file was not truncated or replaced.
@@ -459,11 +474,11 @@ CI uploads workflow artifacts only. Creating a release is a manual, deliberate s
 2. Choose the existing tag (`v0.2.0`). Do not create the tag in the web UI unless you intentionally skipped the CLI step.
 3. Title: `WageRoute 0.2.0`.
 4. Paste the release notes from the template below.
-5. Attach:
-   - `WageRoute-0.2.0-arm64.dmg`
-   - `WageRoute-0.2.0-x64.dmg` (if built and verified)
-   - `WageRoute Setup 0.2.0.exe`
-   - `SHA256SUMS.txt`
+5. Attach every verified installer for the version:
+   - `WageRoute-0.2.0-arm64.dmg` and `WageRoute-0.2.0.dmg` (Intel)
+   - `WageRoute Setup 0.2.0.exe` (NSIS), the portable exe and the win zip
+   - the AppImage, deb and rpm for x64 and arm64
+   - `SHA256SUMS.txt` covering all of the above
 6. Mark as **pre-release** only if you do not intend this build as the default download.
 7. Publish.
 
@@ -602,9 +617,12 @@ Schema: 3 (unchanged) · Backups: accepts 2–3
 
 ## Checksums
 
-SHA-256:
+SHA-256, one line per attached installer (see SHA256SUMS.txt):
 - WageRoute-0.2.0-arm64.dmg — ...
+- WageRoute-0.2.0.dmg — ...
 - WageRoute Setup 0.2.0.exe — ...
+- WageRoute-0.2.0.AppImage — ...
+- ...
 ```
 
 Keep the notes honest about signing, because that is the first thing a recipient will hit.
@@ -659,8 +677,8 @@ These are real limitations, not TODOs that are already handled elsewhere:
 | No SBOM or build provenance | Cannot attest to dependency contents beyond the lockfile |
 | Actions pinned by major tag | A compromised or retagged action could affect builds |
 | No packaged-app smoke test in CI | A build can be produced that never launches |
+| Linux and alternative Windows formats not launch-verified | CI proves the AppImage/deb/rpm/portable/zip files are produced; none has been launched on a real machine. Treat the first release shipping them as unverified until users confirm |
 | No x64 app verification on Apple Silicon | The config requests x64, but only arm64 has been exercised locally |
-| No Linux target | No Linux installer, despite development support |
 | No rollback automation | Rollback is a manual file restore with a quarantine step |
 | Unsigned native module | `better-sqlite3` is unpacked from asar; integrity depends on the installer signature (which does not exist yet) |
 
