@@ -1,0 +1,468 @@
+# Security model
+
+WageRoute is a **single-user, local-only desktop ledger**. It does not authenticate a user, does not talk to a server and does not hold bank credentials. Its security therefore rests on three things: the operating-system account that runs it, full-disk encryption, and the fact that imported files are parsed as data rather than executed.
+
+This document describes what is actually implemented, what the trust boundaries are, what an attacker with local access can do, and which weaknesses are known and accepted. It is deliberately specific; “secure” without a threat model is not useful.
+
+> **Scope:** the application in this repository, versions `0.1.x`. There is no production server, hosted service or multi-tenant deployment to assess.
+
+---
+
+## Contents
+
+- [Supported versions](#supported-versions)
+- [Reporting a vulnerability](#reporting-a-vulnerability)
+- [Assets](#assets)
+- [Trust boundaries](#trust-boundaries)
+- [Implemented controls](#implemented-controls)
+- [Data at rest](#data-at-rest)
+- [Network exposure](#network-exposure)
+- [Supply chain](#supply-chain)
+- [Import security](#import-security)
+- [Threat model](#threat-model)
+- [Known weaknesses](#known-weaknesses)
+- [Hardening recommendations](#hardening-recommendations)
+- [Incident response](#incident-response)
+- [Security review checklist](#security-review-checklist)
+- [Non-goals](#non-goals)
+
+---
+
+## Supported versions
+
+| Version | Supported | Notes |
+| --- | --- | --- |
+| `0.1.x` (schema 3) | Yes | Current line; fixes land here |
+| Older app versions | No | No security backports; upgrade or restore a backup |
+| Backups with schema `1` | No | Rejected by the importer |
+| Databases with `user_version > 3` | Unsupported | Use the newer app; do not open them with an older build |
+
+There is no long-term-support branch, no patch guarantee and no CVE process. This is a personal finance tool, not a regulated product.
+
+---
+
+## Reporting a vulnerability
+
+There is no public repository, security mailbox or bug bounty yet. Report privately to the maintainer through the channel you use to receive builds.
+
+Please include:
+
+- the WageRoute version and schema version (Settings shows the database path; `package.json` shows the app version);
+- operating system and architecture;
+- steps to reproduce, ideally with a **synthetic** ledger;
+- the impact you believe it has;
+- whether the issue requires local access, a malicious import file, or a tampered installer.
+
+Do **not** attach a real database, a real backup, a CSV export or screenshots containing account numbers or balances. Reproduce with fake accounts and amounts. If a real file is unavoidable, redact it and say so.
+
+There is no response-time commitment. Do not open a public issue for an unfixed vulnerability once a repository exists; coordinate first.
+
+---
+
+## Assets
+
+In rough order of sensitivity:
+
+1. **The ledger database** — account names, institutions, balances, bills, paychecks, allocations, goals, transaction memos, dates and amounts. This is a detailed financial profile.
+2. **Backups and exports** — full JSON backups contain every table, including soft-deleted rows. CSV exports contain transaction history. Both are plaintext.
+3. **Settings** — split percentages, round-up destination, theme. Low sensitivity alone; combined with the ledger they describe behaviour.
+4. **Database path and machine identity** — the absolute path is shown in the UI and can reveal the OS username.
+5. **Application integrity** — users must be able to trust that the installer they run is the build that was tested.
+6. **The host account** — any process running as the same OS user can read or modify all of the above regardless of what the app does.
+
+There are no passwords, API keys, bank tokens or session cookies stored by WageRoute. If you find a credential in the repository or a build, that is a release-blocking defect.
+
+---
+
+## Trust boundaries
+
+```text
+┌──────────────────────────────────────────────────────────────────┐
+│ Operating-system user account                                    │
+│                                                                  │
+│  ┌──────────────────────────┐        ┌────────────────────────┐  │
+│  │ Renderer (Chromium)      │        │ Main process (Node)    │  │
+│  │ React, Zustand           │        │ fs, dialogs, SQLite    │  │
+│  │ sandbox: true            │        │ full user privileges   │  │
+│  │ no Node, no direct FS    │        │                        │  │
+│  └────────────┬─────────────┘        └───────────┬────────────┘  │
+│               │ window.api (contextBridge)       │               │
+│               └──────────── IPC ─────────────────┘               │
+│                                                  │               │
+│                                       ┌──────────▼────────────┐  │
+│                                       │ wageroute.db (+WAL)   │  │
+│                                       └───────────────────────┘  │
+│                                                                  │
+│  Untrusted files ──► native open dialog ──► main parser ──► SQL  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### Renderer
+
+The renderer is treated as **less trusted than main** but still capable of reading and changing the entire ledger through the bridge. It has no Node.js, no `require`, no filesystem and no network permission beyond what CSP allows. A cross-site-scripting bug in the renderer is therefore not arbitrary code execution on the host, but it is full access to the ledger and every IPC channel.
+
+### Preload
+
+The preload script is the only bridge. It exposes one object, `window.api`, with named methods. It does not expose `ipcRenderer`, `require`, `process` or arbitrary channel names. See [src/preload/index.ts](../src/preload/index.ts).
+
+### Main
+
+The main process is fully privileged: it can read and write files, open native dialogs and execute SQL. It assumes the renderer's arguments are untrusted and validates IDs and repository inputs, but it does not assume the renderer itself is hostile. Defense in depth is limited; the bridge is the security boundary.
+
+### Files
+
+Imported files are **untrusted input**. The renderer cannot choose the path; the user picks it in a native dialog owned by main. Exports likewise write only to a path the user selects. This means a compromised renderer cannot read an arbitrary file by passing a path over IPC, but it can ask the user to pick a file and then read the parsed contents through the snapshot.
+
+### Operating system
+
+The app does not defend against malware running as the same user, an administrator, or an attacker with physical access and an unlocked session. Full-disk encryption and OS account hygiene are the controls for those cases.
+
+---
+
+## Implemented controls
+
+| Control | Where | What it prevents |
+| --- | --- | --- |
+| `sandbox: true` | [src/main/index.ts](../src/main/index.ts) | Renderer process sandbox; no direct OS access |
+| `contextIsolation: true` | same | Page JavaScript cannot reach Electron internals |
+| `nodeIntegration: false` | same | No `require`, `process` or Node APIs in the renderer |
+| Narrow preload bridge | [src/preload/index.ts](../src/preload/index.ts) | Only named finance operations, no generic IPC |
+| Navigation denied | `will-navigate` handler | The window cannot be navigated to a remote page |
+| New windows denied | `setWindowOpenHandler` | No child windows; `http(s)` URLs are handed to the external browser |
+| All permission requests denied | `setPermissionRequestHandler` | Camera, microphone, notifications, geolocation, clipboard read, etc. |
+| Single-instance lock | `app.requestSingleInstanceLock()` | Two processes writing the same SQLite file |
+| Content Security Policy | [src/renderer/index.html](../src/renderer/index.html) | Remote script/style/frame/connection origins are blocked by default |
+| No HTML injection sinks | Renderer source | No `dangerouslySetInnerHTML`, `innerHTML`, `eval` or `new Function` |
+| Fixed IPC channel list | [src/main/ipc.ts](../src/main/ipc.ts) | Renderer cannot invoke arbitrary main-process operations |
+| ID validation | `requireId()` in `ipc.ts` | Empty/non-string IDs are rejected before reaching SQL |
+| User-scoped queries | `src/main/db/repositories.ts` | Every read and write includes `user_id`; one local user cannot address another's rows |
+| Prepared statements | repositories and backup merge | No user-supplied string is interpolated into SQL |
+| Column allowlists | `TABLE_COLUMNS` in `src/main/db/backup.ts` | Imported object keys never become SQL identifiers |
+| Import size cap | `MAX_IMPORT_BYTES = 64 MiB` | Trivial memory/disk exhaustion via a huge file |
+| Per-table row cap | 200,000 rows in `parseBackupJson` | Absurd table sizes before insertion |
+| Format/version checks | `parseBackupJson` | Wrong file type, newer schema, unsupported old schema |
+| Transactional import | `mergeBackup`, `mergeEntries` | Partial writes on a bad row; foreign-key failures roll back |
+| Foreign keys on | `PRAGMA foreign_keys = ON` | Dangling references from imported rows |
+| STRICT tables + CHECK constraints | migrations | Wrong types and out-of-range enums/amounts at the database boundary |
+| Additive import / existing-wins settings | `mergeBackup` | A backup silently overwriting existing settings or rows |
+| No telemetry or analytics | entire source | Ledger data leaving the machine through app code |
+| Lockfile + `npm ci` in CI | `package-lock.json`, workflow | Unreviewed dependency resolution drift |
+
+### What “sandbox” means here
+
+`sandbox: true` sandboxes the **Chromium renderer**, not the whole application. The main process still runs with the user's full privileges by design: it must open the SQLite file and native dialogs. There is no macOS App Sandbox entitlement, no Windows AppContainer and no container around the app.
+
+### Validation split
+
+Repository functions validate renderer input: text length, cent ranges, enum values, ISO dates, account existence. Backup import is a **separate path**: it type-checks values, allowlists columns and relies on SQLite constraints, but it does not apply the same length and date-format checks. See [Import security](#import-security).
+
+---
+
+## Data at rest
+
+| Item | Protection |
+| --- | --- |
+| `wageroute.db` | **None beyond the OS.** Plaintext SQLite. |
+| `wageroute.db-wal` / `-shm` | Same. Recent commits may exist only in the WAL. |
+| JSON backups | Plaintext JSON at the user-selected path; default name is in Documents. |
+| CSV exports | Plaintext at the user-selected path. |
+| Logs | No ledger logging is implemented. Electron/Chromium may write crash or GPU logs outside the app's control. |
+| Preferences | SQLite settings table; no secrets. |
+
+WageRoute does **not**:
+
+- encrypt the database;
+- set or tighten file permissions (`chmod`) on the database;
+- require a password or app lock;
+- purge soft-deleted rows;
+- encrypt backups;
+- wipe free space or guarantee secure deletion.
+
+The database and its sidecar files inherit the process umask and directory ACLs. On a normal single-user macOS or Windows install, that means the OS user can read them and other local users generally cannot reach the user's home/profile. The app does not verify this.
+
+**Deleted data is retained.** Deletes set `deleted_at`; rows remain in the table and are included in `SELECT *` exports. “Delete” means “hide from the UI”, not “erase”. A backup taken after a deletion still contains the deleted row, memo and amount.
+
+### Practical implications
+
+- Use **FileVault** (macOS) or **BitLocker** (Windows). Without it, anyone with the disk can read the ledger.
+- Do not store backups in a cloud-synced folder unless you accept that the provider can read them. The default save location is Documents, which is often synced by iCloud Drive or OneDrive.
+- Encrypt backups before moving them off the machine (for example with an encrypted archive or `age`).
+- Quit the app before copying the database. Copy `.db`, `-wal` and `-shm` together.
+- Do not sync the **live** `WageRoute` folder. Syncing a WAL-mode SQLite database across devices can corrupt it or resurrect old data.
+
+---
+
+## Network exposure
+
+The application code makes **no outbound network requests**. There is no HTTP client, no telemetry SDK, no crash reporter, no update checker, no bank integration and no analytics.
+
+The CSP still allows development connections:
+
+```text
+connect-src 'self' ws://localhost:* http://localhost:*
+```
+
+and inline scripts:
+
+```text
+script-src 'self' 'unsafe-inline'
+```
+
+In a packaged build the `ws://localhost` allowance is unnecessary. It exists so the Vite dev server and HMR work. It is a defense-in-depth weakness, not a remote-code-execution path on its own: a compromised renderer would still need a way to run script (CSP allows inline) and a local service worth talking to. See [Known weaknesses](#known-weaknesses).
+
+The main process can open an external browser for `http(s)` URLs passed to `window.open`. The UI contains no links and never calls `window.open`, so this is dormant behaviour. If a renderer compromise occurs, that handler is a potential exfiltration path through a URL; it should be restricted to an allowlist or removed if it stays unused.
+
+---
+
+## Supply chain
+
+The build is part of the product. WageRoute ships Chromium, a native SQLite module and a small JavaScript dependency tree, and it is assembled by npm and GitHub Actions.
+
+Current controls:
+
+- `package-lock.json` pins the resolved dependency tree; CI and the release instructions use `npm ci`, not `npm install`.
+- The runtime dependency set is small: React, React DOM, Zustand, react-data-grid, lucide-react and better-sqlite3. The rest is build tooling.
+- `better-sqlite3` is rebuilt against the installed Electron ABI by `postinstall` and unpacked from the asar archive, so the binary that loads is the one built for that app.
+- No runtime CDN, remote font, remote image or remote script is used. The CSP blocks remote origins by default.
+- The repository is recommended to stay private until the source and history have been reviewed for anything that should not be public.
+
+Known gaps:
+
+- no `npm audit`, Dependabot/Renovate or dependency-review gate in CI;
+- no SBOM, build provenance or reproducible-build check;
+- GitHub Actions are referenced by major tag (`@v4`), not by commit SHA;
+- installers are unsigned, so a tampered build cannot be distinguished from a legitimate one;
+- an Electron major upgrade changes the native ABI and needs a full packaged-app test, not just a typecheck.
+
+A compromised dependency or action runs with the build's privileges. Because the app makes no outbound requests, a malicious package would have to add that capability itself; review diffs and lockfile changes rather than assuming the network policy protects the build. Recommendations are in [Hardening recommendations](#hardening-recommendations).
+
+---
+
+## Import security
+
+JSON backups and CSV entry files are the only external data the app accepts.
+
+### What a malicious file cannot do
+
+- **It cannot execute code.** JSON is parsed by `JSON.parse`; CSV is parsed by a hand-written state machine. No `eval`, no dynamic import, no shell.
+- **It cannot inject SQL.** Every value is bound as a parameter. Column names come from a fixed allowlist, and table names come from a fixed order list.
+- **It cannot choose its own `user_id`.** Imported rows are rewritten to the local user ID.
+- **It cannot read another file.** The renderer cannot pass a path; the native dialog chooses one path, and only that file is read.
+- **It cannot escape the chosen export path.** Export writes to the path returned by the save dialog.
+- **It cannot bypass the transaction.** A constraint or foreign-key failure aborts the whole import; rows inserted earlier in the same transaction are rolled back.
+- **It cannot overwrite existing settings.** Settings use `INSERT OR IGNORE`; the local value wins.
+- **It cannot overwrite an existing row by ID.** Existing IDs are skipped, not updated.
+
+### What a malicious file can do
+
+- **Create plausible-looking but false financial records.** Imports are additive and there is no signature or provenance. A file can add accounts, transactions, bills and goals that look real. Treat an imported ledger as untrusted until reviewed.
+- **Exhaust resources within the caps.** 64 MiB of JSON and up to 200,000 rows per table can still take time and disk. The UI grid shows at most 500 transactions and 24 paychecks, so the damage is mostly to derived totals and startup time.
+- **Insert misleading text.** Memos, categories, account names and institution names are stored and displayed. React escapes them, so they cannot become HTML, but they can contain control characters, very long strings or deceptive labels.
+- **Insert malformed dates and absurd text lengths.** The backup path does not apply the repository's date and length validators. SQLite `STRICT` and `CHECK` constraints catch wrong types and invalid enums/amounts; they do not validate date syntax or limit string size. A resulting “Invalid Date” can distort projections.
+- **Add unknown settings keys.** They are stored and ignored by the UI. Existing keys are not changed.
+- **Add tombstoned rows.** A deleted row imported from another device is invisible but retained, consistent with the sync model.
+- **Use up to the full 64 MiB in one string value.** Nothing in the backup path caps individual field lengths.
+- **Trigger confusing duplicate accounts.** IDs are preserved, so importing the same account under a new ID creates a second account with the same name and institution.
+
+### CSV-specific
+
+- The CSV parser is RFC 4180-style and quote-aware; malformed quoting produces issues rather than code execution.
+- The importer only reads the first 10 rows looking for a header, then requires date, account and amount columns.
+- Amounts are parsed into integer cents; unparseable rows are reported as issues.
+- Transfers are skipped with a reason rather than paired automatically.
+- Rows do not trigger round-up; imports are direct inserts.
+- Deduplication uses a fingerprint (account, kind, amount, date, memo, category), so a modified memo defeats it. Duplicate-looking rows can be imported intentionally.
+
+### Formula injection on export
+
+`transactionsToCsv` quotes cells containing commas, quotes or newlines, but it does **not** neutralize cells beginning with `=`, `+`, `-` or `@`. A memo such as `=HYPERLINK("https://example.invalid","click")` remains a formula when the CSV is opened in Excel or another spreadsheet that evaluates formulas.
+
+This is a **known, unfixed weakness**. It requires the user to export and open a ledger containing attacker-influenced text (for example, a memo from an imported file). Mitigations until it is fixed:
+
+- open exported CSV files in a plain-text editor or import them as text, not by double-clicking;
+- review memos before exporting data you did not enter yourself;
+- do not open a CSV from an untrusted ledger in a spreadsheet with macros enabled.
+
+The correct fix is to prefix dangerous leading characters (typically with a single quote) or to provide a “safe export” option. That change belongs in `src/shared/csv.ts` and needs tests; it is not implemented.
+
+### Backups as data, not instructions
+
+A backup is a data file. It is not a configuration bundle, a plugin or a script. Do not import a file from someone you would not trust with your ledger, and do not treat instructions embedded in memos or account names as anything other than text.
+
+---
+
+## Threat model
+
+Likelihood assumes a normal personal installation, not a targeted investigation.
+
+| # | Threat | Scenario | Mitigation | Residual risk |
+| --- | --- | --- | --- | --- |
+| 1 | Local data disclosure | Another process or user reads `wageroute.db` | OS account separation; FileVault/BitLocker; no network | **High** if malware runs as the same user or the disk is unencrypted |
+| 2 | Lost or stolen device | Laptop stolen while unlocked or disk removed | OS full-disk encryption | **High** without FDE; no app-level encryption |
+| 3 | Malicious import | A crafted JSON/CSV adds false rows or oversized text | Parser allowlists, size/row caps, SQLite constraints, transaction rollback | **Medium** — fabricated data, misleading UI, slow projections |
+| 4 | Renderer compromise | XSS or a malicious dependency runs in the renderer | Sandbox, context isolation, no Node, CSP, no HTML sinks, narrow bridge | **High for the ledger** — full read/write via `window.api`; possible external-URL exfiltration |
+| 5 | Supply chain | A compromised npm package or GitHub Action alters the build | Lockfile, `npm ci`, small dependency set, review | **Medium** — no audit, SBOM, provenance or SHA-pinned actions |
+| 6 | Tampered installer | A modified DMG/EXE is distributed | Checksums are manual; source is private | **High** — no code signing or notarization |
+| 7 | Shared computer | A colleague or family member uses the same OS session | None inside the app | **High** — no app lock, no separate profiles |
+| 8 | Accidental deletion | A transaction or account is deleted | Soft delete retains the row; backups | **Low** for recovery, but no undo UI and no purge |
+| 9 | Disk/database corruption | Power loss, disk failure, killed process | WAL, `synchronous=NORMAL`, transactions, FK | **Medium** — no automatic backup, no scheduled `integrity_check` |
+| 10 | SQL injection | A crafted ID or imported value reaches SQL | Prepared statements, ID checks, column allowlists | **Low** |
+| 11 | Arbitrary file read/write | Renderer asks main to read a path | Native dialog; no path parameter over IPC | **Low** — social engineering of the user remains |
+| 12 | Denial of service | A huge import or many rows | 64 MiB cap, 200k rows/table, UI limits | **Medium** — startup and derived calculations can still slow |
+| 13 | CSV formula execution | Exported memo begins with `=` and is opened in Excel | None | **Medium** — see above |
+| 14 | Backup exposure | Plaintext backup in iCloud/OneDrive/Documents | User choice of path; no encryption | **Medium** — provider and sync history can read it |
+| 15 | Deleted-data retention | User expects deletion to erase data | Soft deletes; documentation | **Medium** — privacy expectation mismatch |
+
+### Explicitly out of scope
+
+- A remote attacker with no local access and no malicious file. There is no listening service and no inbound network path.
+- Bank fraud, account takeover or payment initiation. WageRoute never connects to a bank and never moves money; “routing” is an envelope plan stored locally.
+- Multi-user authorization. There is one local user row and no login.
+- Malicious administrators, kernel malware or physical memory attacks.
+
+---
+
+## Known weaknesses
+
+Listed with severity for this app's context. None are fixed in `0.1.x` unless stated.
+
+| Weakness | Severity | Impact | Notes |
+| --- | --- | --- | --- |
+| Unsigned macOS and Windows builds | **High** for distribution | Tampering is hard to detect; Gatekeeper/SmartScreen friction | See [RELEASING.md](RELEASING.md#code-signing-and-notarization) |
+| No encryption at rest | **High** on a stolen disk | Full ledger readable | Rely on FileVault/BitLocker |
+| CSV formula injection on export | **Medium** | Formula execution in a spreadsheet | `escapeCell` only handles RFC 4180 quoting |
+| Permissive production CSP | **Medium** | Weakens defense in depth if an injection sink appears | `script-src 'unsafe-inline'`; `connect-src` allows localhost |
+| No IPC sender/frame validation | **Low–Medium** | Any frame with the preload could call the bridge | Only one window exists today; validate `event.senderFrame` as future-proofing |
+| Soft-deleted rows never purged | **Medium** (privacy) | “Deleted” data persists in DB and backups | No purge or compact feature |
+| Backup import bypasses length/date validators | **Medium** (integrity) | Oversized strings, malformed dates, odd revision values | SQLite constraints still apply |
+| Database file permissions not tightened | **Low–Medium** | Other local accounts may read the file if directory ACLs allow | App does not `chmod 600` |
+| No dependency audit, SBOM or provenance | **Medium** | Supply-chain issues are found late | `npm ci` and review only |
+| GitHub Actions pinned by major tag | **Medium** | A moved/compromised action tag affects builds | Pin to commit SHAs |
+| No app lock or idle timeout | **Medium** on shared devices | Anyone at an unlocked session can read the ledger | No auth by design |
+| No integrity check on startup | **Low** | Corruption may surface as a query error | SQLite reports errors; no proactive check |
+| External URL handler is unrestricted | **Low** today | Potential exfiltration if renderer is compromised | No UI links; remove or allowlist |
+| Default backup path is Documents | **Low–Medium** | May be cloud-synced | User can choose another path |
+| No audit log of edits/deletes | **Low–Medium** | Cannot reconstruct who changed what | Single-user app; backups are the fallback |
+| Error messages may include local paths | **Low** | Reveals username/path to the local user | Not remote |
+
+---
+
+## Hardening recommendations
+
+Ordered by value for this project. None are implemented unless explicitly noted.
+
+### Before distributing beyond your own machines
+
+1. **Sign and notarize macOS builds; sign Windows builds.** Without this, users cannot distinguish your build from a modified one. See [RELEASING.md](RELEASING.md#code-signing-and-notarization).
+2. **Publish SHA-256 checksums** with every installer, and verify them after download.
+3. **Pin GitHub Actions to commit SHAs** and add a dependency review step.
+4. **Add `permissions: contents: read`** to the workflow so the default token is not broader than needed.
+
+### Data protection
+
+5. **Turn on FileVault/BitLocker** on every machine that runs WageRoute. This is the single highest-value control.
+6. **Encrypt backups** before storing them off the machine; avoid cloud-synced live database folders.
+7. **Tighten database permissions** — create the file with mode `0600` on POSIX systems, and confirm the directory is user-only.
+8. **Add an optional purge/compact action** that physically removes tombstoned rows, with a clear warning that it breaks sync history.
+9. **Consider SQLCipher or an encrypted container** if the threat model includes disk theft without FDE. This is a significant change: it affects migrations, backups, debugging and performance.
+
+### Application hardening
+
+10. **Neutralize CSV formulas on export.** Prefix `=`, `+`, `-`, `@`, tab and carriage return with a single quote, or offer a raw export. Add tests for memos and account names.
+11. **Tighten the CSP** for production: remove `'unsafe-inline'` from `script-src` and drop localhost from `connect-src`. Verify the packaged build first; Vite may inline a bootstrap script.
+12. **Add `base-uri 'none'`, `object-src 'none'`, `frame-ancestors 'none'` and `form-action 'none'`** to the CSP.
+13. **Validate the IPC sender** — reject calls whose `senderFrame` is not the main window's top frame.
+14. **Apply repository validators to imported rows** (text length, date syntax, revision bounds) before insert, or share one validation layer between both paths.
+15. **Cap individual field lengths on import** to match the UI limits.
+16. **Remove or allowlist the external URL handler** if no feature needs it.
+17. **Add `PRAGMA integrity_check`** on startup or on demand, and surface the result rather than silently continuing.
+18. **Add automated dependency updates and `npm audit` in CI**, with a documented triage policy.
+19. **Add a lightweight audit trail** (append-only local log of create/update/delete with timestamp) if the ledger becomes shared or business-critical.
+
+### Operational
+
+20. **Do not run WageRoute on a shared OS account.** Use a separate user account per person.
+21. **Test restores.** A backup that has never been imported is an assumption, not a backup.
+22. **Keep an offline copy** of the installer and checksums for the version that created the current schema.
+
+---
+
+## Incident response
+
+### Suspected malicious import
+
+1. Quit WageRoute.
+2. Preserve a copy of the current database and the imported file in a dated quarantine folder.
+3. Do not re-import the file.
+4. Restore the last known-good database copy, or import a known-good JSON backup into a clean profile.
+5. Review accounts, recent transactions and settings for unexpected rows.
+6. If the file came from another person, warn them.
+
+### Suspected local compromise
+
+1. Assume the ledger and every backup on the machine are exposed.
+2. Disconnect the machine from the network if malware is suspected.
+3. Preserve evidence before cleanup; do not overwrite the database or WAL.
+4. Change credentials for any financial institution whose data appears in the ledger, using a different device.
+5. Rebuild the OS or restore from a trusted image; reinstall WageRoute from a verified installer and checksum.
+6. Restore data from a backup created before the compromise, if one is trustworthy.
+
+### Suspected tampered installer
+
+1. Do not run it.
+2. Compare its SHA-256 with the published checksum and the build you produced.
+3. Delete or quarantine the file.
+4. Rebuild from source and re-verify; if signing keys were exposed, revoke the certificate and publish an advisory.
+
+### Data corruption
+
+1. Quit the app.
+2. Copy `.db`, `-wal` and `-shm` aside.
+3. Run `sqlite3 copy.db "PRAGMA integrity_check;"` on the copy.
+4. If the copy opens, export a JSON backup from a build pointed at it, then import into a clean profile.
+5. If it does not open, restore the latest backup and accept the loss of changes since then.
+6. Do not repeatedly open a corrupt database with the live app; each open may create more WAL state.
+
+### What WageRoute cannot tell you
+
+There is no audit log, no login history and no tamper-evident hash chain. After an incident you can see current rows and tombstones, but not who changed them or when beyond `created_at`/`updated_at`. Document that limitation rather than implying forensic coverage.
+
+---
+
+## Security review checklist
+
+Use this for any change that touches the bridge, the database, imports or the build.
+
+- [ ] No new outbound network request, telemetry or remote resource.
+- [ ] No new IPC channel without input validation and a user-scoped query.
+- [ ] No renderer-supplied filesystem path.
+- [ ] No `dangerouslySetInnerHTML`, `innerHTML`, `eval` or dynamic code loading.
+- [ ] `sandbox`, `contextIsolation` and `nodeIntegration` settings unchanged.
+- [ ] CSP not relaxed for production; any relaxation has a written reason.
+- [ ] SQL uses bound parameters and allowlisted identifiers.
+- [ ] Import changes keep the byte cap, row caps, table allowlist and transaction.
+- [ ] Imported strings and dates are validated or their limits documented.
+- [ ] New dependencies are reviewed; lockfile updated; no postinstall script from an unknown package.
+- [ ] No ledger data, backup, database or secret in logs, fixtures or the repository.
+- [ ] Error messages do not echo file contents.
+- [ ] Tests cover malformed and hostile input for the changed path.
+- [ ] Documentation updated — this file, [IMPORT-EXPORT.md](IMPORT-EXPORT.md) or [RELEASING.md](RELEASING.md) as appropriate.
+
+---
+
+## Non-goals
+
+WageRoute does not attempt to provide:
+
+- multi-user authentication or authorization;
+- server, API or cloud security;
+- bank credential handling (it never asks for them);
+- payment initiation or money movement;
+- protection from malware running as the same OS user;
+- anti-tamper, DRM or license enforcement;
+- secure erase of deleted data;
+- regulatory certification (PCI DSS, SOC 2, GDPR “compliance” in a formal sense);
+- hardware-backed key storage;
+- a vulnerability disclosure program or bug bounty.
+
+If any of these become requirements, they change the architecture. Record the decision as an ADR before building it.

@@ -1,0 +1,19 @@
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.icns binary
+*.ico binary
+*.dmg binary
+*.pkg binary
+*.exe binary
+*.msi binary
+*.node binary
+*.db binary
+*.db-wal binary
+*.db-shm binary
+*.zip binary
+
+package-lock.json text eol=lf

@@ -1,0 +1,18 @@
+# Architecture decision records
+
+Short, dated records of the choices that are expensive to reverse. Each ADR states the context, the decision, the consequences and the alternatives that were rejected. When a decision changes, add a new ADR that supersedes the old one; do not rewrite history.
+
+| ADR | Decision | Status |
+| --- | --- | --- |
+| [0001](0001-local-first-desktop.md) | Local-first desktop app with no backend | Accepted |
+| [0002](0002-integer-cents.md) | Store money as integer cents | Accepted |
+| [0003](0003-additive-imports.md) | Imports add data; they never replace it | Accepted |
+| [0004](0004-sync-ready-schema.md) | Prepare the schema for sync without implementing sync | Accepted as preparation only |
+| [0005](0005-wageroute-rename.md) | Rename to WageRoute and adopt legacy data | Accepted |
+
+## Conventions
+
+- **Status** is one of `Proposed`, `Accepted`, `Superseded by ADR NNNN`, `Deprecated`.
+- **Date** is the date the decision was accepted, in `YYYY-MM-DD`.
+- An ADR describes the decision at the time it was made. Later changes belong in a new ADR, even if the old one is edited for typos.
+- Implementation details live in the reference docs ([ARCHITECTURE.md](../ARCHITECTURE.md), [DATA-MODEL.md](../DATA-MODEL.md), [DEPLOYMENT.md](../DEPLOYMENT.md)); the ADR explains *why*.

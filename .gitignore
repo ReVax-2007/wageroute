@@ -1,0 +1,60 @@
+# Dependencies
+node_modules/
+
+# Build output
+out/
+release/
+dist/
+coverage/
+*.tsbuildinfo
+*.blockmap
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment and local configuration
+.env
+.env.*
+!.env.example
+*.local
+
+# Local databases and SQLite sidecars
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+
+# Installers and packages
+*.dmg
+*.pkg
+*.exe
+*.msi
+*.AppImage
+*.deb
+*.rpm
+
+# Signing material and secrets
+*.pem
+*.p12
+*.pfx
+*.cer
+*.key
+*.mobileprovision
+secrets/
+
+# Editors and OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+*~

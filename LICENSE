@@ -1,0 +1,81 @@
+WAGEROUTE SOURCE-AVAILABLE LICENSE
+
+Copyright (c) 2026 Xavier Voet ("the Licensor")
+
+WageRoute is source-available software, not open-source software. It is not
+licensed under any OSI-approved license. The source is made available so you can
+study it, trust it, and improve it — not so it can be republished or resold
+by someone else.
+
+1. GRANT — WHAT YOU MAY DO
+
+   You may, free of charge and without asking:
+   - use and run WageRoute for any purpose, including commercial and business
+     use, on machines you control;
+   - study how it works and modify it for your own use;
+   - keep your modifications private forever. They are yours.
+
+2. RESTRICTIONS — WHAT YOU MAY NOT DO
+
+   You may not, without a separate written agreement with the Licensor:
+   - sell, rent, lease, or otherwise charge for WageRoute or any modified version
+     of it;
+   - sublicense, transfer, or assign your rights under this license;
+   - distribute, publish, host, mirror, bundle, or otherwise make WageRoute —
+     original or modified, in source or executable form, including a DMG, ZIP,
+     app bundle, binary, container, or download of any part of it — available
+     to any third party. Only the Licensor ships WageRoute.
+
+   You may still link to the official project so others can obtain WageRoute
+   from the Licensor directly:
+   https://github.com/ReVax-2007/wageroute
+   Pointing at it is encouraged. Becoming the place people get it from is not.
+
+3. CONTRIBUTIONS
+
+   You may modify WageRoute and push your work to a separate branch in this
+   repository, or to your own fork, provided you follow the project's
+   contribution standards: never push directly to `main`; keep each change
+   focused; make sure the tests, type checks and build pass; do not commit
+   databases, backups, exported CSVs, credentials or signing material; and
+   update the documentation when behaviour or data compatibility changes.
+
+   Submit contributions as a pull request. A maintainer reviews and merges
+   them; contributors do not merge their own changes.
+
+   By submitting a contribution you grant the Licensor a non-exclusive,
+   royalty-free, sublicensable and transferable license to use, reproduce,
+   modify, license, and distribute that contribution as part of WageRoute. That
+   is the only route by which a modified WageRoute reaches other users.
+
+   Pushing a contribution branch to this repository, or creating a fork through
+   the hosting platform's own mechanism solely to prepare contributions, is
+   permitted and is not distribution. A branch or fork may not be operated as a
+   place from which others download WageRoute.
+
+4. NOTICES AND ENDORSEMENT
+
+   Do not remove or alter this license, the copyright notice, or any attribution
+   in WageRoute or in copies of it. This license grants no right to use the
+   "WageRoute" name, logo, or marks to market, endorse, or brand any product or
+   service.
+
+5. TERMINATION
+
+   Your rights under this license end automatically if you breach section 2 or
+   section 4. The Licensor may reinstate them in writing. Sections 2, 4, 5, and 6
+   survive termination.
+
+6. DISCLAIMER OF WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   LICENSOR BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+   ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+   WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+   This matters more than in most projects: WageRoute stores financial records
+   on your machine, has no server-side backup, and is not financial advice. You
+   are responsible for backups, for the accuracy of the data you enter, and for
+   keeping the device and its disk encryption secure.

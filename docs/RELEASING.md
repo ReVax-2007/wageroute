@@ -1,0 +1,663 @@
+# Releasing WageRoute
+
+A WageRoute release is a **verified build of the desktop app plus a deliberate distribution step**. There is no server to deploy, no migration to run remotely and no publish automation. The hard parts are data compatibility, native modules and the fact that the installers are currently unsigned.
+
+This document is the operational manual: what the version numbers mean, how to build, what CI does, what is missing before public distribution, and how to roll back without losing a ledger.
+
+---
+
+## Contents
+
+- [Version model](#version-model)
+- [Compatibility guarantees](#compatibility-guarantees)
+- [Preflight checklist](#preflight-checklist)
+- [Local build](#local-build)
+- [What the build produces](#what-the-build-produces)
+- [CI pipeline](#ci-pipeline)
+- [Code signing and notarization](#code-signing-and-notarization)
+- [Manual release procedure](#manual-release-procedure)
+- [Publishing a GitHub Release](#publishing-a-github-release)
+- [Version bump procedure](#version-bump-procedure)
+- [Rollback](#rollback)
+- [Hotfixes](#hotfixes)
+- [Release notes template](#release-notes-template)
+- [Release checklist](#release-checklist)
+- [Known gaps](#known-gaps)
+
+---
+
+## Version model
+
+WageRoute has three independent version numbers. Confusing them is the most common release mistake.
+
+| Version | Where it lives | Current value | What it means |
+| --- | --- | --- | --- |
+| App version | `package.json` → `version` | `0.1.0` | The build users install. Drives installer names, macOS bundle version and release tags. |
+| Database schema version | `src/main/db/migrations.ts` → `SCHEMA_VERSION`, stored in SQLite `PRAGMA user_version` | `3` | The shape of the on-disk database. Changes only when a migration is added. |
+| Backup format version | Written into every JSON backup, equal to `SCHEMA_VERSION` | `3` | The newest backup the app writes. The reader accepts versions `2` and `3`. |
+
+The source of truth for the app version is `package.json`. `npm` updates `package-lock.json` with it; electron-builder reads it when naming artifacts and writing bundle metadata.
+
+### SemVer policy
+
+The project is pre-1.0. Until the data model and UI are declared stable:
+
+- **Patch** (`0.1.0` → `0.1.1`) — bug fixes, copy changes, dependency patches, no schema change, no intentional behaviour break.
+- **Minor** (`0.1.0` → `0.2.0`) — new features, new settings, new screens, **or any schema migration**. A schema change is always at least a minor bump, even if the feature is small.
+- **Major** (`1.0.0`) — first stability commitment. After 1.0, schema changes that cannot be migrated forward require a major bump and a documented migration path.
+
+Tags use the `v` prefix and match the app version exactly: `v0.1.0`. The CI workflow triggers on `v*`, so a typo such as `0.1.0` will build nothing.
+
+### What is not versioned
+
+- The backup format's internal marker remains `cash-flow-routing-backup` for compatibility with files produced before the rename. **Do not "fix" this string**; changing it would reject every existing backup.
+- The `appId` (`com.wageroute.desktop`) and `productName` (`WageRoute`) are identity, not version. Changing either changes install paths and can orphan user data.
+- Electron's version is pinned by `package-lock.json`. Upgrading Electron's major version changes the native-module ABI and is effectively a platform change; treat it as a feature release with a full installer test.
+
+---
+
+## Compatibility guarantees
+
+### Database
+
+- Migrations are **forward-only and append-only**. `migrate()` runs every migration whose version is greater than `PRAGMA user_version`, each inside a transaction, then advances `user_version`.
+- Opening an older database upgrades it in place. There is no automatic downgrade.
+- The app does **not** explicitly refuse a database whose `user_version` is newer than the app's `SCHEMA_VERSION`. `migrate()` simply finds nothing to run, and the older code then operates against a schema it does not know. This can fail at query time or, worse, write data the newer version misinterprets. **Never open a newer database with an older build.**
+- Schema changes must preserve existing rows unless the migration explicitly rebuilds a table, as the v2 rebuild did. Every migration must be tested against a copy of the previous schema with realistic data.
+
+### Backups
+
+| File version | Behaviour |
+| --- | --- |
+| `1` or missing | Rejected: `Backups older than schema 2 are not supported` |
+| `2` | Accepted; missing columns receive documented defaults |
+| `3` | Accepted |
+| `4+` | Rejected: `This backup came from a newer version` |
+
+Imports are additive and idempotent. Re-importing the same file skips rows that already exist by UUID. See [IMPORT-EXPORT.md](IMPORT-EXPORT.md).
+
+A release that raises `SCHEMA_VERSION` must also decide whether the new backup shape is backward-compatible with the previous app version. The default answer is **no**: backups written by a newer app are not readable by an older app.
+
+### Application
+
+There is no auto-update, so "compatibility" means the new installer can open the existing database and the old installer can still be reinstalled if the new one is rejected. The second half is only true before a migration runs. Back up before every upgrade.
+
+---
+
+## Preflight checklist
+
+Run this before building anything you intend to distribute. It is intentionally redundant with CI: CI checks types and tests, not whether the app is usable or correctly branded.
+
+### Source and metadata
+
+- [ ] Working tree is clean, or you know exactly which uncommitted changes are in the build.
+- [ ] `package.json` version is the intended release version.
+- [ ] `package-lock.json` was updated by the same version change.
+- [ ] `productName`, `appId`, shortcut name and icon paths in `electron-builder.yml` are unchanged unless the rename is intentional.
+- [ ] `build/icon.icns`, `build/icon.png` and the iconset exist and are current.
+- [ ] No database, backup, exported CSV, `.env` or credential file is staged or inside the source tree.
+- [ ] The backup format marker was not changed.
+- [ ] `SCHEMA_VERSION` matches the latest migration entry.
+
+### Verification
+
+- [ ] `npm ci` from a clean `node_modules` (not `npm install`).
+- [ ] `npm test` passes.
+- [ ] `npm run typecheck` passes for both TypeScript projects.
+- [ ] `npm run build` succeeds.
+- [ ] The app boots with a throwaway profile.
+- [ ] The golden paths were exercised manually (see [DEVELOPMENT.md](DEVELOPMENT.md#known-test-gaps)).
+- [ ] A JSON export from the previous build imports into the new build on a fresh profile.
+- [ ] A database created by the previous schema version migrates when opened by the new build, using a **copy**.
+- [ ] Account balances, recent transactions and settings survive the migration.
+
+### Packaging
+
+- [ ] The previous output in `release/` has been moved aside so no stale installer is mistaken for this build.
+- [ ] The built app launches from the packaged artifact, not just from `npm run dev`.
+- [ ] The packaged app opens the expected database path.
+- [ ] The version shown in the installer and app metadata matches `package.json`.
+
+> **Current stale artifact:** `release/` contains `Cash Flow Routing-0.1.0-arm64.dmg`, produced before the rename. It is ignored by git but easy to grab by mistake. Move it out of `release/` before packaging; do not distribute it under the WageRoute name.
+
+---
+
+## Local build
+
+### Prerequisites
+
+- Node.js **22 or newer** (`engines.node`). CI uses Node 24.
+- npm with a working lockfile.
+- Platform build tools for the native module:
+  - macOS: Xcode Command Line Tools;
+  - Windows: Visual Studio Build Tools with the C++ workload and Python;
+  - Linux: `build-essential`, `python3`, `make`, `g++`.
+- Enough disk for Electron, the unpacked app and installers (roughly 1–2 GB per platform).
+
+`npm ci` runs `postinstall`, which is `electron-builder install-app-deps`. That rebuilds `better-sqlite3` against the installed Electron ABI. Skipping it produces `NODE_MODULE_VERSION` errors at launch.
+
+### Commands
+
+```bash
+npm ci                      # exact dependency tree + native rebuild
+npm test                    # shared domain tests
+npm run typecheck           # node + web projects
+npm run build               # typecheck, then electron-vite build into out/
+
+npm run dist:mac            # build + DMG
+npm run dist:win            # build + NSIS installer
+npm run dist                # build + installers for the current platform
+```
+
+`npm run dist:*` runs `npm run build` first, so a type error stops the release.
+
+### Script reference
+
+| Script | Effect |
+| --- | --- |
+| `dev` | electron-vite dev server with HMR |
+| `start` | preview the production build |
+| `test` | `node --import tsx --test src/shared/domain.test.ts` |
+| `typecheck:node` | main, preload, shared, config |
+| `typecheck:web` | renderer and shared |
+| `typecheck` | both projects |
+| `build` | typecheck, then bundle main/preload/renderer into `out/` |
+| `dist` | build, then electron-builder for the host platform |
+| `dist:mac` | build, then macOS DMG |
+| `dist:win` | build, then Windows NSIS |
+| `postinstall` | rebuild native modules for Electron |
+
+### Cross-platform builds
+
+Build each installer on the platform it targets, or let CI do it.
+
+- **macOS** — build on macOS. Producing both arm64 and x64 from an Apple Silicon machine requires the x64 native `better-sqlite3` binary; the config requests both architectures, but a build succeeding is not proof the x64 app launches. Verify on an Intel Mac or an x64 VM before shipping both.
+- **Windows** — build on Windows. electron-builder can sometimes cross-build NSIS from macOS with Wine, but that path is not supported by this project and is not tested.
+- **Linux** — there is no Linux target in `electron-builder.yml`, even though the app runs in development. Do not promise a Linux installer.
+
+### Isolated test profile
+
+Never test a release against the real ledger. On macOS, relocate Electron's application-data home:
+
+```bash
+CFFIXED_USER_HOME=/tmp/wageroute-release-test npm run dev
+```
+
+For the packaged app, launch it with the same environment variable if needed, or test on a clean user account or VM. Confirm the path shown in Settings before creating data.
+
+### Why `npm ci` matters
+
+`better-sqlite3` is a native module. It is compiled for one Electron ABI and one CPU architecture. The failure modes are:
+
+- compiled for Node instead of Electron → `NODE_MODULE_VERSION` mismatch;
+- compiled for arm64 and shipped in an x64 build → module load failure;
+- `npm install` resolving a different tree than CI → a build that works locally and fails in CI.
+
+`npm ci` plus `postinstall` is the supported path.
+
+---
+
+## What the build produces
+
+### Intermediate output
+
+`electron-vite build` writes `out/`:
+
+```text
+out/
+├── main/index.js        main process
+├── preload/index.js     context bridge
+└── renderer/            HTML, CSS, JS assets
+```
+
+`out/` is gitignored. It is not a release artifact; it is input to electron-builder.
+
+### Installers
+
+`electron-builder` writes to `release/` (gitignored).
+
+**macOS** — `mac.target` requests `dmg` for `arm64` and `x64`:
+
+```text
+release/
+├── WageRoute-0.1.0-arm64.dmg
+├── WageRoute-0.1.0-arm64.dmg.blockmap
+├── WageRoute-0.1.0-x64.dmg
+├── WageRoute-0.1.0-x64.dmg.blockmap
+├── mac-arm64/WageRoute.app
+└── mac/WageRoute.app            # when an x64 build runs
+```
+
+Exact file names follow electron-builder's `productName-version-arch` pattern. The `.blockmap` files are useful only to an auto-updater; there is none today.
+
+**Windows** — `win.target` requests `nsis` for `x64` and `arm64`:
+
+```text
+release/
+├── WageRoute Setup 0.1.0.exe
+└── WageRoute Setup 0.1.0.exe.blockmap
+```
+
+NSIS is configured as a per-user install (`perMachine: false`), not one-click, with a selectable directory and a desktop shortcut. Per-user installs do not require administrator rights and put the app under the user's profile.
+
+### Bundle contents
+
+`files` includes only `out/**/*` and `package.json`, minus source maps. `asarUnpack` extracts `**/*.node`, so the native SQLite binary sits outside the asar archive where it can be loaded. `npmRebuild: true` rebuilds native modules during packaging.
+
+No database is bundled. On first launch the app seeds a demo ledger if no user row exists. That seed is **not** a release asset and must be treated as demo data, not a starter budget.
+
+---
+
+## CI pipeline
+
+The workflow lives in [`.github/workflows/build.yml`](../.github/workflows/build.yml).
+
+### Triggers
+
+```yaml
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+```
+
+- **Manual** — run from the Actions tab, any branch.
+- **Tag push** — a tag beginning with `v` (for example `v0.1.0`).
+
+A normal branch push does **not** build installers. That is deliberate: packaging is slow and the artifacts are unsigned.
+
+### Matrix
+
+| Runner | Target | Uploaded artifact | File pattern |
+| --- | --- | --- | --- |
+| `macos-latest` | `mac` | `wageroute-mac` | `release/*.dmg` |
+| `windows-latest` | `win` | `wageroute-win` | `release/*.exe` |
+
+`fail-fast: false` means a macOS failure does not cancel the Windows build, so you can see both results.
+
+### Steps
+
+1. `actions/checkout@v4`
+2. `actions/setup-node@v4` with Node **24** and npm cache
+3. `npm ci`
+4. `npm test`
+5. `npm run dist:${{ matrix.target }}` (which includes typecheck and build)
+6. `actions/upload-artifact@v4` with `if-no-files-found: error`
+
+### What CI does not do
+
+- It does not lint. There is no linter configured.
+- It does not test on Linux.
+- It does not smoke-test the packaged app. It proves the bundle was produced, not that it launches.
+- It does not sign or notarize.
+- It does not create a GitHub Release, tag or changelog.
+- It does not compute checksums.
+- It does not publish anywhere. Artifacts expire according to the repository's retention setting (GitHub's default is 90 days).
+- It does not pin actions to commit SHAs; the major tags are mutable. See [SECURITY.md](SECURITY.md#supply-chain).
+
+Artifacts are downloaded from the workflow run page. They are zip files containing the installer, and may lose the executable bit or macOS metadata depending on the download path. For distribution, publish the raw installer files rather than the artifact zip.
+
+---
+
+## Code signing and notarization
+
+**Current state: none.** No certificate, identity, notarization step, entitlements file or signing secret is configured.
+
+### macOS
+
+An unsigned or ad-hoc-signed app downloaded from the internet receives the `com.apple.quarantine` attribute. Gatekeeper then refuses the normal launch path. Without an Apple Developer ID, users see one of:
+
+- “WageRoute cannot be opened because the developer cannot be verified.”
+- “WageRoute is damaged and can’t be opened” when the signature is missing or invalid on Apple Silicon.
+
+Practical workarounds for an internal build:
+
+1. Right-click the app → **Open** → **Open** again; or
+2. System Settings → Privacy & Security → **Open Anyway**; or
+3. `xattr -dr com.apple.quarantine /Applications/WageRoute.app` (only for a build you trust; it removes a real protection).
+
+Apple Silicon requires at least an ad-hoc signature for the executable to run. electron-builder may apply an ad-hoc signature when no identity is provided, but that is not notarization and does not satisfy Gatekeeper for downloaded copies. Verify the artifact on a clean machine rather than assuming a local launch proves it will open elsewhere.
+
+To ship properly you need:
+
+- an Apple Developer Program membership;
+- a **Developer ID Application** certificate;
+- a hardened-runtime build with entitlements that allow Electron's JIT and the native module to load;
+- notarization via `notarytool` (electron-builder's `notarize` configuration or an after-sign hook);
+- stapling the notarization ticket to the DMG/app.
+
+Secrets belong in CI secret storage (`CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`), never in the repository. Signing also changes the build pipeline and must be tested end to end; it is not a checkbox that can be added at the last minute.
+
+### Windows
+
+The NSIS installer is unsigned. On first run, SmartScreen shows “Windows protected your PC” and hides the install action behind **More info → Run anyway**. This is expected, not a bug.
+
+To remove the warning you need an OV or EV code-signing certificate (or a cloud signing service such as Azure Trusted Signing), applied to both the application executables and the installer. EV certificates historically received immediate reputation; OV certificates accumulate reputation over time. Signing must be timestamped so signatures remain valid after the certificate expires.
+
+### What signing does not solve
+
+Signing proves who built the binary and that it was not modified after signing. It does not:
+
+- encrypt the database;
+- make the app safe to run from an untrusted source;
+- replace backups;
+- provide auto-update.
+
+---
+
+## Manual release procedure
+
+This is the full path for a release you intend to distribute. It assumes the repository and remotes already exist. **Do not create a tag until the artifacts have passed verification**, because a tag push triggers CI and implies a release.
+
+### 1. Decide the version and schema impact
+
+- Does this release add a migration? If yes, raise the minor version and update [DATA-MODEL.md](DATA-MODEL.md).
+- Does it change backup compatibility? If yes, document the new minimum/maximum in [IMPORT-EXPORT.md](IMPORT-EXPORT.md) and this file.
+- Does it change app identity (`productName`, `appId`)? If yes, stop and plan data adoption first; see [ADR 0005](decisions/0005-wageroute-rename.md).
+
+### 2. Bump the version
+
+```bash
+npm version 0.2.0 --no-git-tag-version
+```
+
+This updates `package.json` and `package-lock.json` without committing or tagging. Review the diff. Do not hand-edit one file and forget the other.
+
+### 3. Verify from a clean tree
+
+```bash
+rm -rf node_modules out release
+npm ci
+npm test
+npm run typecheck
+npm run build
+```
+
+Run the preflight checklist above. Test on a copy of a real database and on a fresh profile.
+
+### 4. Build the installers
+
+On macOS:
+
+```bash
+npm run dist:mac
+```
+
+On Windows:
+
+```bash
+npm run dist:win
+```
+
+Or let CI build both after the tag. Local builds are for verification and for a release you are assembling by hand.
+
+### 5. Test the packaged artifacts
+
+Install from the DMG/EXE on a machine or VM that has never run WageRoute:
+
+- launch and confirm the demo seed appears on a fresh profile;
+- import a backup and confirm counts;
+- create an account, entry and transfer;
+- quit and relaunch; confirm persistence;
+- confirm the database path in Settings;
+- on macOS, confirm Gatekeeper behaviour on a downloaded copy;
+- on Windows, confirm SmartScreen behaviour and the per-user install path.
+
+A build that launches from `out/` is not evidence that the packaged app works. The asar layout and native module unpacking only exist in the packaged artifact.
+
+### 6. Record checksums
+
+```bash
+shasum -a 256 release/*.dmg
+shasum -a 256 release/*.exe
+```
+
+Publish the checksums alongside the installers. They let a recipient confirm the file was not truncated or replaced.
+
+### 7. Commit and tag
+
+```bash
+git add package.json package-lock.json docs
+git commit -m "Release 0.2.0"
+git push
+git tag -a v0.2.0 -m "WageRoute 0.2.0"
+git push origin v0.2.0
+```
+
+Only do this when you intend to release. The tag push starts CI. Do not move or force-push a tag after artifacts have been distributed; publish a new patch version instead.
+
+### 8. Wait for CI and collect artifacts
+
+Both matrix jobs must pass. Download the macOS and Windows artifacts. Compare their file names and sizes with the local build. If CI and local builds disagree, investigate before publishing; a platform-specific native-module failure is the usual cause.
+
+### 9. Publish the release
+
+See [Publishing a GitHub Release](#publishing-a-github-release). Attach the raw installers and checksums, write notes from the template, and mark pre-1.0 builds as pre-release unless you intend them as the default download.
+
+### 10. Archive
+
+Keep, for the current and previous release:
+
+- the installers;
+- the checksums;
+- the release notes;
+- a copy of the database schema version and a sample backup from that version;
+- the exact commit SHA.
+
+If a future migration is questioned, this archive is how you reproduce the old behaviour.
+
+---
+
+## Publishing a GitHub Release
+
+CI uploads workflow artifacts only. Creating a release is a manual, deliberate step.
+
+1. Open **Releases → Draft a new release**.
+2. Choose the existing tag (`v0.2.0`). Do not create the tag in the web UI unless you intentionally skipped the CLI step.
+3. Title: `WageRoute 0.2.0`.
+4. Paste the release notes from the template below.
+5. Attach:
+   - `WageRoute-0.2.0-arm64.dmg`
+   - `WageRoute-0.2.0-x64.dmg` (if built and verified)
+   - `WageRoute Setup 0.2.0.exe`
+   - `SHA256SUMS.txt`
+6. Mark as **pre-release** while the app is 0.x, unless you have a specific reason not to.
+7. Publish.
+
+Do not attach the workflow artifact zip in place of the raw installers. Do not attach a `.db` file, a personal backup, a CSV export or any file containing real financial data.
+
+If the repository is private, release assets are only visible to people with access. Distribution to anyone else requires sharing the file directly or making the repository/release public deliberately.
+
+---
+
+## Version bump procedure
+
+### App-only change
+
+```bash
+npm version 0.1.1 --no-git-tag-version
+```
+
+No schema or backup change. Installers get the new version; the database is untouched.
+
+### Schema change
+
+1. Append a migration to `MIGRATIONS` in `src/main/db/migrations.ts`; never edit an existing migration.
+2. Raise the app version at least a minor.
+3. Update `SCHEMA_VERSION` implicitly through the last migration entry (do not hard-code it separately).
+4. Update the schema section of [DATA-MODEL.md](DATA-MODEL.md) and the compatibility table here.
+5. Update the backup allowlists/defaults in `src/main/db/backup.ts` if columns changed.
+6. Test: previous-schema database copy → new app → migration → export → import into fresh profile.
+7. Test: new backup → previous app, and confirm the expected rejection.
+8. Decide whether old backups remain importable. The reader currently accepts `2..SCHEMA_VERSION`; keep that window honest.
+9. If the migration rebuilds a table, follow the v2 pattern: create the new table, copy rows, drop the old one, recreate indexes and triggers, inside a transaction.
+10. Do not ship a migration that cannot run on a database containing deleted rows, nulls in nullable columns, or the documented maximum row counts.
+
+### Electron upgrade
+
+1. Upgrade `electron` and `electron-builder` together where required.
+2. Run `npm ci` so `postinstall` rebuilds `better-sqlite3` for the new ABI.
+3. Rebuild and launch the packaged app on every target architecture.
+4. Check the CSP and preload bridge against the new Electron defaults; do not relax `sandbox`, `contextIsolation` or `nodeIntegration` to make an upgrade work.
+5. Treat it as a feature release, not a patch.
+
+### Rename or identity change
+
+Changing `productName` moves `userData` and therefore the database path. This requires an adoption step and a migration plan like the one in [legacy.ts](../src/main/db/legacy.ts). Never change the name and assume users will find their data.
+
+---
+
+## Rollback
+
+### The safe rule
+
+**A database that has been migrated cannot be rolled back by reinstalling an older app.** Restore a copy taken before the upgrade.
+
+### App rollback without a schema change
+
+1. Quit the app completely.
+2. Reinstall the previous installer.
+3. Launch and confirm the database opens.
+
+No data is lost because the schema did not change.
+
+### App rollback after a schema change
+
+1. Quit the app.
+2. Move the current `wageroute.db`, `-wal` and `-shm` into a dated quarantine folder. Do not delete them; they may be the only copy of new-version data.
+3. Restore the pre-upgrade database files (all three) into `WageRoute/`.
+4. Reinstall the previous app.
+5. Launch and confirm balances and recent entries.
+
+If you do not have a pre-upgrade copy, you cannot safely downgrade. Either stay on the newer app or reconstruct data from a JSON backup into a clean profile. Imports are additive, so import into an empty database when reconstructing.
+
+### Bad release already distributed
+
+- **Do not delete the tag or silently replace the assets.** People may already have the file.
+- Mark the GitHub release as a pre-release or edit the notes with a prominent warning.
+- Publish a fixed patch version as soon as possible.
+- If the defect can corrupt data, say so explicitly and give the restore steps.
+- Keep the bad artifacts available for diagnosis unless they contain something sensitive.
+
+### CI artifact rollback
+
+Artifacts expire. The release assets and your local archive are the durable copies. Do not rely on a workflow run from six months ago.
+
+---
+
+## Hotfixes
+
+A hotfix is a patch release with the smallest possible diff.
+
+1. Branch from the released tag, not from an unrelated feature branch.
+2. Fix only the defect. Do not include opportunistic refactors.
+3. Bump the patch version.
+4. Run the full preflight and packaged-app test. Shortcuts here are how a second bad release happens.
+5. Tag, let CI build, publish, and note the fixed version in the release notes.
+6. Merge the fix back to the main line so it is not lost.
+
+If the fix requires a schema change, it is not a patch. Follow the schema procedure and raise the minor version.
+
+---
+
+## Release notes template
+
+```markdown
+# WageRoute 0.2.0
+
+Released: 2026-11-04
+Schema: 3 (unchanged) · Backups: accepts 2–3
+
+## Highlights
+
+- One or two sentences a user can understand.
+
+## Added
+
+- ...
+
+## Changed
+
+- ...
+
+## Fixed
+
+- ...
+
+## Data and compatibility
+
+- Database schema: unchanged / migrated from 2 to 3.
+- Backups from version X are accepted; backups from version Y are rejected.
+- Existing data: preserved / requires the following step.
+
+## Upgrade notes
+
+- Back up before installing. See docs/DEPLOYMENT.md.
+- macOS: the build is unsigned; right-click → Open on first launch.
+- Windows: SmartScreen will warn; choose More info → Run anyway.
+
+## Checksums
+
+SHA-256:
+- WageRoute-0.2.0-arm64.dmg — ...
+- WageRoute Setup 0.2.0.exe — ...
+```
+
+Keep the notes honest about signing, because that is the first thing a recipient will hit.
+
+---
+
+## Release checklist
+
+### Before tagging
+
+- [ ] Version decided; schema impact understood.
+- [ ] `package.json` and `package-lock.json` bumped together.
+- [ ] Tests, typecheck and build pass from a clean `npm ci`.
+- [ ] Manual golden-path pass on an isolated profile.
+- [ ] Previous-schema database copy migrates correctly.
+- [ ] Export → fresh-profile import works.
+- [ ] Packaged artifact launches on each target architecture.
+- [ ] No personal data, database, backup or `.env` in the source tree.
+- [ ] Icons and product metadata are correct.
+- [ ] `release/` contains no stale installer from an earlier name or version.
+
+### At release
+
+- [ ] Commit is on the intended branch.
+- [ ] Tag matches the app version exactly (`vX.Y.Z`).
+- [ ] CI macOS and Windows jobs pass.
+- [ ] Checksums generated.
+- [ ] GitHub Release created with raw installers, checksums and notes.
+- [ ] Pre-release flag set for 0.x.
+- [ ] No database or backup attached.
+
+### After release
+
+- [ ] Install from the published assets on a clean machine.
+- [ ] Archive installers, checksums, notes, schema version and commit SHA.
+- [ ] Keep the previous installer until the new one has been used successfully.
+- [ ] Record any signing or Gatekeeper/SmartScreen feedback.
+
+---
+
+## Known gaps
+
+These are real limitations, not TODOs that are already handled elsewhere:
+
+| Gap | Consequence |
+| --- | --- |
+| No code signing or notarization | Gatekeeper and SmartScreen warn or block; unsuitable for broad public distribution |
+| No auto-update | Users must download and install each release manually |
+| No published release automation | CI produces artifacts only; a human must create the release |
+| No checksums in CI | Checksums are manual and easy to skip |
+| No SBOM or build provenance | Cannot attest to dependency contents beyond the lockfile |
+| Actions pinned by major tag | A compromised or retagged action could affect builds |
+| No packaged-app smoke test in CI | A build can be produced that never launches |
+| No x64 app verification on Apple Silicon | The config requests x64, but only arm64 has been exercised locally |
+| No Linux target | No Linux installer, despite development support |
+| No rollback automation | Rollback is a manual file restore with a quarantine step |
+| Unsigned native module | `better-sqlite3` is unpacked from asar; integrity depends on the installer signature (which does not exist yet) |
+
+Closing any of these changes the release process. Record the decision before implementing it.

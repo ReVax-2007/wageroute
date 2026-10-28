@@ -1,0 +1,231 @@
+import type Database from 'better-sqlite3'
+import type { ImportCounts } from '@shared/api'
+import { SCHEMA_VERSION } from './migrations'
+
+type Db = Database.Database
+type SqlValue = string | number | null
+
+export interface BackupPayload {
+  format: 'cash-flow-routing-backup'
+  version: number
+  exportedAt: string
+  tables: Record<BackupTable, Record<string, unknown>[]>
+}
+
+type BackupTable = 'accounts' | 'bills' | 'goals' | 'paychecks' | 'allocations' | 'transactions' | 'settings'
+
+/** Column allowlists keep imports parameterised; keys from the file are never interpolated. */
+const TABLE_COLUMNS: Record<BackupTable, readonly string[]> = {
+  accounts: [
+    'id', 'user_id', 'name', 'kind', 'institution', 'starting_balance_cents',
+    'credit_limit_cents', 'is_archived', 'sort_order', 'created_at', 'updated_at',
+    'deleted_at', 'revision'
+  ],
+  bills: [
+    'id', 'user_id', 'name', 'amount_cents', 'frequency', 'due_day', 'category',
+    'account_id', 'autopay', 'is_active', 'next_due_on', 'created_at', 'updated_at',
+    'deleted_at', 'revision'
+  ],
+  goals: [
+    'id', 'user_id', 'name', 'target_cents', 'target_date', 'priority', 'color',
+    'account_id', 'is_emergency', 'is_archived', 'created_at', 'updated_at',
+    'deleted_at', 'revision'
+  ],
+  paychecks: [
+    'id', 'user_id', 'amount_cents', 'received_on', 'source', 'deposit_account_id',
+    'priority_cents', 'surplus_cents', 'leisure_cents', 'health', 'created_at',
+    'updated_at', 'deleted_at', 'revision'
+  ],
+  allocations: [
+    'id', 'user_id', 'paycheck_id', 'bucket', 'goal_id', 'label', 'amount_cents',
+    'created_at', 'updated_at', 'deleted_at', 'revision'
+  ],
+  transactions: [
+    'id', 'user_id', 'account_id', 'kind', 'amount_cents', 'occurred_on', 'memo',
+    'category', 'bill_id', 'goal_id', 'paycheck_id', 'counter_account_id',
+    'transfer_group_id', 'created_at', 'updated_at', 'deleted_at', 'revision'
+  ],
+  settings: ['user_id', 'key', 'value', 'updated_at']
+}
+
+const TABLE_ORDER: readonly BackupTable[] = [
+  'accounts',
+  'bills',
+  'goals',
+  'paychecks',
+  'allocations',
+  'transactions',
+  'settings'
+]
+
+/** Columns that did not exist in v2 backups get a safe default instead of failing. */
+const FALLBACK_VALUES: Record<string, SqlValue> = {
+  credit_limit_cents: null,
+  is_emergency: 0,
+  transfer_group_id: null
+}
+
+export function buildBackup(db: Db, userId: string): BackupPayload {
+  const tables = {} as BackupPayload['tables']
+  for (const table of TABLE_ORDER) {
+    tables[table] = db
+      .prepare(`SELECT * FROM ${table} WHERE user_id = ?`)
+      .all(userId) as Record<string, unknown>[]
+  }
+  return {
+    format: 'cash-flow-routing-backup',
+    version: SCHEMA_VERSION,
+    exportedAt: new Date().toISOString(),
+    tables
+  }
+}
+
+export function backupToJson(payload: BackupPayload): string {
+  return `${JSON.stringify(payload, null, 2)}\n`
+}
+
+function fail(message: string): never {
+  throw new Error(message)
+}
+
+export function parseBackupJson(text: string): BackupPayload {
+  let raw: unknown
+  try {
+    raw = JSON.parse(text)
+  } catch {
+    fail('That file is not valid JSON')
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) fail('Backup file has no data')
+  const candidate = raw as Partial<BackupPayload>
+  if (candidate.format !== 'cash-flow-routing-backup') {
+    fail('That is not a WageRoute backup')
+  }
+  if (typeof candidate.version !== 'number' || !Number.isInteger(candidate.version)) {
+    fail('Backup has no version number')
+  }
+  if (candidate.version > SCHEMA_VERSION) {
+    fail(`This backup came from a newer version (schema ${candidate.version})`)
+  }
+  if (candidate.version < 2) fail('Backups older than schema 2 are not supported')
+  const source = candidate.tables
+  if (!source || typeof source !== 'object' || Array.isArray(source)) fail('Backup has no tables')
+
+  // Partial files are allowed: a file holding only transactions (or only
+  // settings) imports exactly that table and leaves the rest untouched.
+  const tables = {} as BackupPayload['tables']
+  for (const table of TABLE_ORDER) {
+    const rows = (source as Partial<BackupPayload['tables']>)[table]
+    if (rows === undefined) {
+      tables[table] = []
+      continue
+    }
+    if (!Array.isArray(rows)) fail(`The ${table} table is not a list`)
+    if (rows.length > 200000) fail(`Backup ${table} table is too large`)
+    for (const row of rows) {
+      if (!row || typeof row !== 'object' || Array.isArray(row)) {
+        fail(`Backup has a malformed row in ${table}`)
+      }
+    }
+    tables[table] = rows as Record<string, unknown>[]
+  }
+
+  return {
+    format: 'cash-flow-routing-backup',
+    version: candidate.version,
+    exportedAt: typeof candidate.exportedAt === 'string' ? candidate.exportedAt : '',
+    tables
+  }
+}
+
+function toSqlValue(value: unknown, key: string): SqlValue {
+  if (value === undefined) {
+    if (key in FALLBACK_VALUES) return FALLBACK_VALUES[key]
+    return null
+  }
+  if (value === null) return null
+  if (typeof value === 'string' || typeof value === 'number') return value
+  if (typeof value === 'boolean') return value ? 1 : 0
+  fail(`Backup has an unsupported value for ${key}`)
+}
+
+export interface MergeResult {
+  added: ImportCounts
+  skipped: ImportCounts
+}
+
+function emptyCounts(): ImportCounts {
+  return {
+    accounts: 0,
+    bills: 0,
+    goals: 0,
+    paychecks: 0,
+    allocations: 0,
+    transactions: 0,
+    settings: 0
+  }
+}
+
+/**
+ * Adds whatever the local database is missing and leaves existing rows alone.
+ * Account/paycheck UUIDs are preserved so cross-table links hold, and re-importing
+ * the same backup is a no-op.
+ */
+export function mergeBackup(db: Db, userId: string, payload: BackupPayload): MergeResult {
+  const added = emptyCounts()
+  const skipped = emptyCounts()
+  const now = new Date().toISOString()
+
+  db.transaction(() => {
+    for (const table of TABLE_ORDER) {
+      if (table === 'settings') {
+        const insert = db.prepare(
+          `INSERT OR IGNORE INTO settings (user_id, key, value, updated_at)
+           VALUES (?, ?, ?, ?)`
+        )
+        for (const row of payload.tables.settings) {
+          if (typeof row.key !== 'string' || row.key.length === 0) {
+            fail('Backup has a settings row without a key')
+          }
+          const value = toSqlValue(row.value, 'value')
+          const updatedAt =
+            typeof row.updated_at === 'string' ? row.updated_at : now
+          const result = insert.run(userId, row.key, String(value ?? ''), updatedAt)
+          if (result.changes > 0) added.settings += 1
+          else skipped.settings += 1
+        }
+        continue
+      }
+
+      const columns = TABLE_COLUMNS[table]
+      const insert = db.prepare(
+        `INSERT INTO ${table} (${columns.join(', ')})
+         VALUES (${columns.map(() => '?').join(', ')})`
+      )
+      const exists = db.prepare(`SELECT 1 FROM ${table} WHERE id = ? AND user_id = ?`)
+      for (const row of payload.tables[table]) {
+        const id = row.id
+        if (typeof id !== 'string' || id.length === 0) {
+          fail(`Backup has a ${table} row without an id`)
+        }
+        if (exists.get(id, userId)) {
+          skipped[table] += 1
+          continue
+        }
+        const values = columns.map((column) => {
+          if (column === 'user_id') return userId
+          const value = row[column]
+          // Hand-written entry files often omit sync metadata; give it a sane row.
+          if (value === undefined) {
+            if (column === 'created_at' || column === 'updated_at') return now
+            if (column === 'revision') return 1
+          }
+          return toSqlValue(value, column)
+        })
+        insert.run(...values)
+        added[table] += 1
+      }
+    }
+  })()
+
+  return { added, skipped }
+}
