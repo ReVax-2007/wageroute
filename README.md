@@ -92,7 +92,7 @@ The renderer is sandboxed with `contextIsolation: true`, `nodeIntegration: false
 
 ## Installing WageRoute
 
-The macOS build is ad-hoc signed, not notarized. The first launch of any downloaded copy needs one extra click (right-click the app → **Open** → **Open**); after that it opens normally. The cleanest no-prompt path is Homebrew or the curl one-liner below.
+The macOS build is ad-hoc signed, not notarized. The first launch of any downloaded copy needs one extra click (right-click the app → **Open** → **Open**); after that it opens normally. Homebrew verifies checksums for you, and the curl one-liner below avoids the prompt entirely because curl never sets the quarantine flag.
 
 **Homebrew (recommended, macOS):**
 
@@ -100,11 +100,11 @@ Install and update through the official [`homebrew-wageroute`](https://github.co
 
 ```bash
 brew tap ReVax-2007/wageroute
-brew install --cask wageroute          # add --no-quarantine to skip the first-launch prompt entirely
+brew install --cask wageroute          # first launch still needs right-click → Open
 brew upgrade --cask wageroute          # future updates
 ```
 
-Homebrew verifies the DMG against a pinned SHA-256 before installing. `brew uninstall --cask wageroute` removes the app but leaves your data in place.
+Homebrew verifies the DMG against a pinned SHA-256 before installing. To drop the Gatekeeper flag after installing, run `sudo xattr -rd com.apple.quarantine /Applications/WageRoute.app`. `brew uninstall --cask wageroute` removes the app but leaves your data in place.
 
 **DMG (manual):** download `WageRoute-<version>-arm64.dmg` (Apple Silicon) or `WageRoute-<version>.dmg` (Intel) from [GitHub Releases](https://github.com/ReVax-2007/wageroute/releases), drag to Applications, then right-click → **Open** on first launch.
 

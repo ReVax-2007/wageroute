@@ -156,13 +156,13 @@ Install and update:
 
 ```bash
 brew tap ReVax-2007/wageroute
-brew install --cask wageroute          # add --no-quarantine to skip the first-launch Gatekeeper prompt
+brew install --cask wageroute          # first launch still needs right-click → Open
 brew upgrade --cask wageroute
 ```
 
 Notes:
 
-- Homebrew quarantines cask downloads by default, so the first launch still needs right-click → **Open** unless `--no-quarantine` was used. Either way, the checksum was verified before install, unlike a manual browser download.
+- Homebrew quarantines cask downloads by default, so the first launch still needs right-click → **Open**. To remove the flag instead, run `sudo xattr -rd com.apple.quarantine /Applications/WageRoute.app`. Either way, the checksum was verified before install, unlike a manual browser download.
 - On Homebrew 7+, tapping for the first time asks you to trust the tap once (`brew trust revax-2007/wageroute`).
 - Uninstalling (`brew uninstall --cask wageroute`) removes only the app. The ledger database under `~/Library/Application Support/WageRoute` is deliberately not in the cask's `zap` list, so `brew uninstall --zap` cannot wipe your data either.
 - The cask tracks one version at a time. Updating it is part of the release procedure; see [RELEASING.md](RELEASING.md#release-checklist).
