@@ -10,8 +10,10 @@ files:
 asarUnpack:
   - '**/*.node'
 npmRebuild: true
+afterPack: scripts/adhoc-sign.js
 mac:
   category: public.app-category.finance
+  identity: null
   icon: build/icon.icns
   darkModeSupport: true
   target:
