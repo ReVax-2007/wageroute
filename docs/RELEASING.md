@@ -32,9 +32,11 @@ WageRoute has three independent version numbers. Confusing them is the most comm
 
 | Version | Where it lives | Current value | What it means |
 | --- | --- | --- | --- |
-| App version | `package.json` → `version` | `1.0.1` | The build users install. Drives installer names, macOS bundle version and release tags. |
-| Database schema version | `src/main/db/migrations.ts` → `SCHEMA_VERSION`, stored in SQLite `PRAGMA user_version` | `3` | The shape of the on-disk database. Changes only when a migration is added. |
-| Backup format version | Written into every JSON backup, equal to `SCHEMA_VERSION` | `3` | The newest backup the app writes. The reader accepts versions `2` and `3`. |
+| App version | `package.json` → `version` | `1.0.2` | The build users install. Drives installer names, macOS bundle version and release tags. |
+| Database schema version | `src/main/db/migrations.ts` → `SCHEMA_VERSION`, stored in SQLite `PRAGMA user_version` | `4` | The shape of the on-disk database. Changes only when a migration is added. |
+| Backup format version | Written into every JSON backup, equal to `SCHEMA_VERSION` | `4` | The newest backup the app writes. The reader accepts versions `2`, `3` and `4`. |
+
+`package.json` still says `1.0.2` on `main` even though commits after that tag have landed, so between releases the **commit SHA** is the only reliable identifier of a build. Bump the version as part of the release, never before. The schema and backup numbers above are the **working tree**: every build users have installed is still schema 3, and schema 4 first ships with 1.1.0.
 
 The source of truth for the app version is `package.json`. `npm` updates `package-lock.json` with it; electron-builder reads it when naming artifacts and writing bundle metadata.
 
@@ -220,10 +222,10 @@ out/
 
 ```text
 release/
-├── WageRoute-1.0.1-arm64.dmg
-├── WageRoute-1.0.1-arm64.dmg.blockmap
-├── WageRoute-1.0.1-x64.dmg
-├── WageRoute-1.0.1-x64.dmg.blockmap
+├── WageRoute-1.0.2-arm64.dmg
+├── WageRoute-1.0.2-arm64.dmg.blockmap
+├── WageRoute-1.0.2-x64.dmg
+├── WageRoute-1.0.2-x64.dmg.blockmap
 ├── mac-arm64/WageRoute.app
 └── mac/WageRoute.app            # when an x64 build runs
 ```
@@ -234,8 +236,8 @@ Exact file names follow electron-builder's `productName-version-arch` pattern. T
 
 ```text
 release/
-├── WageRoute Setup 1.0.1.exe
-└── WageRoute Setup 1.0.1.exe.blockmap
+├── WageRoute Setup 1.0.2.exe
+└── WageRoute Setup 1.0.2.exe.blockmap
 ```
 
 NSIS is configured as a per-user install (`perMachine: false`), not one-click, with a selectable directory and a desktop shortcut. Per-user installs do not require administrator rights and put the app under the user's profile.
@@ -361,7 +363,7 @@ This is the full path for a release you intend to distribute. It assumes the rep
 ### 2. Bump the version
 
 ```bash
-npm version 0.2.0 --no-git-tag-version
+npm version 1.1.0 --no-git-tag-version
 ```
 
 This updates `package.json` and `package-lock.json` without committing or tagging. Review the diff. Do not hand-edit one file and forget the other.
@@ -421,10 +423,10 @@ Publish the checksums alongside the installers. They let a recipient confirm the
 
 ```bash
 git add package.json package-lock.json docs
-git commit -m "Release 0.2.0"
+git commit -m "Release 1.1.0"
 git push
-git tag -a v0.2.0 -m "WageRoute 0.2.0"
-git push origin v0.2.0
+git tag -a v1.1.0 -m "WageRoute 1.1.0"
+git push origin v1.1.0
 ```
 
 Only do this when you intend to release. The tag push starts CI. Do not move or force-push a tag after artifacts have been distributed; publish a new patch version instead.
@@ -456,13 +458,13 @@ If a future migration is questioned, this archive is how you reproduce the old b
 CI uploads workflow artifacts only. Creating a release is a manual, deliberate step.
 
 1. Open **Releases → Draft a new release**.
-2. Choose the existing tag (`v0.2.0`). Do not create the tag in the web UI unless you intentionally skipped the CLI step.
-3. Title: `WageRoute 0.2.0`.
+2. Choose the existing tag (`v1.1.0`). Do not create the tag in the web UI unless you intentionally skipped the CLI step.
+3. Title: `WageRoute 1.1.0`.
 4. Paste the release notes from the template below.
 5. Attach:
-   - `WageRoute-0.2.0-arm64.dmg`
-   - `WageRoute-0.2.0-x64.dmg` (if built and verified)
-   - `WageRoute Setup 0.2.0.exe`
+   - `WageRoute-1.1.0-arm64.dmg`
+   - `WageRoute-1.1.0-x64.dmg` (if built and verified)
+   - `WageRoute Setup 1.1.0.exe`
    - `SHA256SUMS.txt`
 6. Mark as **pre-release** only if you do not intend this build as the default download.
 7. Publish.
@@ -566,7 +568,7 @@ If the fix requires a schema change, it is not a patch. Follow the schema proced
 ## Release notes template
 
 ```markdown
-# WageRoute 0.2.0
+# WageRoute 1.1.0
 
 Released: 2026-11-04
 Schema: 3 (unchanged) · Backups: accepts 2–3
@@ -603,8 +605,8 @@ Schema: 3 (unchanged) · Backups: accepts 2–3
 ## Checksums
 
 SHA-256:
-- WageRoute-0.2.0-arm64.dmg — ...
-- WageRoute Setup 0.2.0.exe — ...
+- WageRoute-1.1.0-arm64.dmg — ...
+- WageRoute Setup 1.1.0.exe — ...
 ```
 
 Keep the notes honest about signing, because that is the first thing a recipient will hit.

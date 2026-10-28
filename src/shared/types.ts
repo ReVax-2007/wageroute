@@ -57,6 +57,10 @@ export interface Account extends SyncMeta {
   institution: string | null
   startingBalanceCents: number
   creditLimitCents: number | null
+  /** The one goal this account exists to fund; its balance becomes that goal's progress. */
+  dedicatedGoalId: string | null
+  /** null means "derive from the account kind". */
+  inSafeToSpend: boolean | null
   isArchived: boolean
   sortOrder: number
 }
@@ -92,9 +96,15 @@ export interface Goal extends SyncMeta {
   isArchived: boolean
 }
 
+export type GoalFundingSource = 'allocations' | 'account'
+
 export interface GoalWithProgress extends Goal {
   fundedCents: number
   remainingCents: number
+  /** 'account' when one or more dedicated accounts make up the progress. */
+  fundedFrom: GoalFundingSource
+  /** Names of the dedicated accounts, empty unless fundedFrom is 'account'. */
+  dedicatedAccountNames: string[]
 }
 
 export interface Transaction extends SyncMeta {
@@ -160,6 +170,8 @@ export interface AccountInput {
   institution: string
   startingBalanceCents: number
   creditLimitCents?: number | null
+  dedicatedGoalId?: string | null
+  inSafeToSpend?: boolean | null
   sortOrder?: number
 }
 

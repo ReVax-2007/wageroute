@@ -1,5 +1,6 @@
 import { CreditCard, Plus, ShieldCheck, Sparkles, Target, Wallet } from 'lucide-react'
 import { formatDateLong, formatMonthLong, todayISO } from '@shared/dates'
+import { wealthBuckets } from '@shared/accounts'
 import { formatMoney } from '@shared/money'
 import type { AllocationBucket } from '@shared/types'
 import { BillPrompts } from '../components/BillPrompts'
@@ -21,7 +22,10 @@ import {
   selectCashOnHandCents,
   selectFundedGoalsCents,
   selectMonthlyWallCents,
+  selectPoolEarmarkedGoalsCents,
   selectSafeToSpendCents,
+  selectSafeToSpendPoolCents,
+  selectTotalWealthCents,
   useFinanceStore
 } from '../store/useFinanceStore'
 
@@ -48,7 +52,10 @@ export function Dashboard() {
   const openImport = useFinanceStore((state) => state.openImport)
   const go = useFinanceStore((state) => state.go)
   const safeToSpend = useFinanceStore(selectSafeToSpendCents)
+  const wealth = useFinanceStore(selectTotalWealthCents)
   const cash = useFinanceStore(selectCashOnHandCents)
+  const pool = useFinanceStore(selectSafeToSpendPoolCents)
+  const earmarked = useFinanceStore(selectPoolEarmarkedGoalsCents)
   const fundedGoals = useFinanceStore(selectFundedGoalsCents)
   const monthlyPriority = useFinanceStore(selectMonthlyWallCents)
 
@@ -61,6 +68,7 @@ export function Dashboard() {
   const goals = goalsSummary(snapshot.goals)
   const last = latestPaycheck(snapshot.paychecks)
   const cashBalances = cashOnHand(snapshot.accounts)
+  const wealthSplit = wealthBuckets(snapshot.accounts)
   const recent = snapshot.transactions.slice(0, 6)
 
   const committed = monthlyPriority + fundedGoals
@@ -159,9 +167,9 @@ export function Dashboard() {
 
         <dl className="safe-breakdown">
           <div>
-            <dt>Cash across accounts</dt>
+            <dt>Spendable accounts</dt>
             <dd>
-              <Money cents={cash} currency={currency} />
+              <Money cents={pool} currency={currency} />
             </dd>
           </div>
           <div>
@@ -171,9 +179,9 @@ export function Dashboard() {
             </dd>
           </div>
           <div>
-            <dt>Funded sinking goals</dt>
+            <dt>Funded goals from the pool</dt>
             <dd className="deduct">
-              − <Money cents={fundedGoals} currency={currency} />
+              − <Money cents={earmarked} currency={currency} />
             </dd>
           </div>
           <div className="safe-total">
@@ -182,6 +190,29 @@ export function Dashboard() {
               <Money cents={safeToSpend} currency={currency} />
             </dd>
           </div>
+        </dl>
+      </section>
+
+      <section className="wealth-strip">
+        <div className="wealth-head">
+          <p className="eyebrow">Total wealth</p>
+          <p className="wealth-value">
+            <Money cents={wealth} currency={currency} />
+          </p>
+          <p className="wealth-note">
+            Money you cannot spend today is still money you own. This is the whole picture, debts
+            taken off.
+          </p>
+        </div>
+        <dl className="wealth-breakdown">
+          {wealthSplit.map((bucket) => (
+            <div key={bucket.label}>
+              <dt>{bucket.label}</dt>
+              <dd>
+                <Money cents={bucket.cents} currency={currency} />
+              </dd>
+            </div>
+          ))}
         </dl>
       </section>
 

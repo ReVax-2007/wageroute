@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { parseBackupJson } from '../main/db/backup'
+import { SCHEMA_VERSION } from '../main/db/migrations'
 
 const here = dirname(fileURLToPath(import.meta.url))
 
@@ -11,7 +12,7 @@ test('examples/backup.example.json parses as a valid backup', () => {
   const text = readFileSync(join(here, '../../examples/backup.example.json'), 'utf8')
   const payload = parseBackupJson(text)
   assert.equal(payload.format, 'cash-flow-routing-backup')
-  assert.equal(payload.version, 3)
+  assert.equal(payload.version, SCHEMA_VERSION)
   assert.equal(payload.tables.accounts.length, 2)
   assert.equal(payload.tables.bills.length, 2)
   assert.equal(payload.tables.goals.length, 1)
@@ -26,8 +27,17 @@ test('the example keeps its cross-table links intact', () => {
   const { tables } = parseBackupJson(text)
   const accountIds = new Set(tables.accounts.map((row) => row.id))
   const billIds = new Set(tables.bills.map((row) => row.id))
+  const goalIds = new Set(tables.goals.map((row) => row.id))
   const paycheckIds = new Set(tables.paychecks.map((row) => row.id))
 
+  for (const account of tables.accounts) {
+    if (account.dedicated_goal_id !== null) {
+      assert.ok(goalIds.has(account.dedicated_goal_id), `${account.name} dedicates to a goal in the file`)
+    }
+  }
+  for (const goal of tables.goals) {
+    if (goal.account_id !== null) assert.ok(accountIds.has(goal.account_id), `goal ${goal.name} links to an account`)
+  }
   for (const bill of tables.bills) assert.ok(accountIds.has(bill.account_id), `bill ${bill.name} links to an account`)
   for (const txn of tables.transactions) {
     assert.ok(accountIds.has(txn.account_id), `txn ${txn.memo} links to an account`)

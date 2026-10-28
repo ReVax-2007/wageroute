@@ -151,7 +151,11 @@ There is no optimistic update and no client-side cache invalidation. The databas
 
 ### Selectors
 
-`selectSafeToSpendCents`, `selectCashOnHandCents`, `selectMonthlyWallCents` and `selectFundedGoalsCents` return numbers only. Zustand's default `Object.is` comparison therefore prevents re-renders when unrelated parts of the snapshot change.
+`selectSafeToSpendCents`, `selectSafeToSpendPoolCents`, `selectCashOnHandCents`, `selectMonthlyWallCents`, `selectFundedGoalsCents`, `selectPoolEarmarkedGoalsCents` and `selectTotalWealthCents` return numbers only. Zustand's default `Object.is` comparison therefore prevents re-renders when unrelated parts of the snapshot change.
+
+The maths is never re-derived in a component. The spendable pool, which goal money may be deducted from it, total wealth and its buckets all come from pure functions in `src/shared/accounts.ts`, so the tests, the main process and the renderer answer with the same rules — a screen either uses a selector or calls the shared function on `snapshot.accounts` directly. `wealthBuckets` returns a freshly-allocated array, so it is used with the whole snapshot in a render body rather than as a selector.
+
+Two goal totals exist on purpose and are not interchangeable: `selectFundedGoalsCents` is every goal's money (used by the committed-spending meter, measured against all cash), while `selectPoolEarmarkedGoalsCents` is only the money that sits inside the spendable pool. Deducting the first from the pool would subtract dedicated-account goal money twice — once by keeping it out of the pool, once by deducting it as progress — which is the mistake [ADR 0007](decisions/0007-dedicated-accounts-balance-is-progress.md) records.
 
 ## IPC surface
 
@@ -179,6 +183,7 @@ Channels are registered once in `src/main/ipc.ts` and exposed through `src/prelo
 | `csv:export` | `exportTransactionsCsv` | — | saved path or `null` |
 | `data:preview` | `previewImport` | — | `ImportPreview` or `null` (cancelled) |
 | `data:confirm` | `confirmImport` | `token`, `ImportAnswer[]` | `ImportResult` |
+| `data:reset` | `resetData` | — | `void` (wipes every table, re-seeds a blank profile) |
 
 Notes:
 
@@ -414,10 +419,24 @@ Both use `strict: true`, `verbatimModuleSyntax`, `isolatedModules` and no emit. 
 
 | Path | Owns |
 | --- | --- |
+| `src/shared/types.ts` | Domain types shared by both processes |
+| `src/shared/money.ts` | Money parsing and formatting, percent helpers, cent rounding |
+| `src/shared/dates.ts` | ISO date maths, due-date derivation, month-end clamping |
+| `src/shared/cadence.ts` | Per-year period counts, monthly equivalents, per-paycheck reserves |
+| `src/shared/allocator.ts` | Paycheck split, priority order, shortfall scaling |
+| `src/shared/accounts.ts` | Safe-to-spend membership, spendable pool, total wealth, wealth buckets |
+| `src/shared/billPrompts.ts` | Bill prompt chronology and early-payment window |
+| `src/shared/projections.ts` | Upcoming-month bill/goal projection rows |
+| `src/shared/transfers.ts` | Round-up remainders and paired transfer legs |
+| `src/shared/emergency.ts` | Emergency-fund variables, essentials and coverage |
+| `src/shared/settings.ts` | Settings defaults, corrupt-input recovery, serialization |
+| `src/shared/importRepair.ts` | Import problem detection, repair questions and field validation |
+| `src/shared/csv.ts` | CSV encoding/parsing and entry-row validation |
+| `src/shared/api.ts` | The `FinanceApi` contract the preload implements |
 | `src/main/index.ts` | App lifecycle, window, navigation policy, permissions |
 | `src/main/ipc.ts` | Channel registration, dialogs, file reads/writes |
 | `src/main/db/connection.ts` | Database singleton, pragmas, path |
-| `src/main/db/migrations.ts` | Schema versions 1–3 |
+| `src/main/db/migrations.ts` | Schema versions 1–4 |
 | `src/main/db/repositories.ts` | All CRUD, derived reads, transfers, round-up, paycheck commit |
 | `src/main/db/backup.ts` | Backup build/parse/merge |
 | `src/main/db/entries.ts` | CSV entry merge and account resolution |

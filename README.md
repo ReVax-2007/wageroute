@@ -10,7 +10,7 @@ WageRoute is a local-first personal finance ledger that puts every paycheck thro
 
 It is a planning and ledger tool, not a bank connection. There is no account linking, no cloud account, no telemetry and no sync. Everything lives in one SQLite file on the machine where you installed it.
 
-> Version 1.0.1 · single user · macOS and Windows · unsigned developer builds
+> Version 1.0.2 · single user · macOS and Windows · unsigned developer builds
 
 ---
 
@@ -38,9 +38,10 @@ It is a planning and ledger tool, not a bank connection. There is no account lin
 | --- | --- |
 | **Priority Wall** | Track rent, utilities, insurance and subscriptions with weekly through yearly cadences. Each bill is smoothed into a monthly equivalent and a per-paycheck reserve. Paused bills stop reserving money but stay in history. |
 | **Paycheck allocator** | A three-step wizard: enter the deposit, subtract the wall, distribute the true surplus. Splits are percentages of the surplus, not of gross income. The result is committed as one paycheck record with allocation lines. |
-| **Sinking funds** | Named goals with targets, optional deadlines and priorities. The allocator funds them in priority order, then by deadline, then by name. Fully funded goals stop taking money. Unused goal budget sweeps into savings. |
+| **Sinking funds** | Named goals with targets, optional deadlines and priorities. The allocator funds them in priority order, then by deadline, then by name. Fully funded goals stop taking money. Unused goal budget sweeps into savings. A goal can be given a dedicated account, whose balance *is* the progress; every other goal counts allocation lines. |
 | **Emergency fund** | A special sinking fund with an automatic target: monthly essentials × 3–6 months. Essentials are the Priority Wall plus, optionally, the average of recent variable expenses. A manual target mode is also available. |
-| **Accounts and credit** | Checking, savings, cash, investment and credit accounts, grouped by institution. Balances are derived from entries. Credit cards store debt as a negative balance and expose a utilization meter against their limit. |
+| **Accounts and credit** | Checking, savings, cash, investment and credit accounts, grouped by institution. Balances are derived from entries. Credit cards store debt as a negative balance and expose a utilization meter against their limit. Each account declares whether it counts as spendable, and can be marked as reserved for one goal. |
+| **Total wealth** | Everything owned on one strip: cash, money parked in dedicated goal accounts and investments, minus credit owed. Shown on the Overview page, as an Accounts summary tile and in the sidebar. All three read the same shared function, so they cannot disagree. |
 | **Spreadsheet** | An editable grid of every ledger row. Date, account, kind, category, description and amount edit in place. A second tab projects bills and goal deadlines over the next 90 days. |
 | **Round-up** | Tangerine-style spare-change sweeps: when an expense is logged against a checking or cash account, the difference to the next $1, $2 or $5 is moved to a savings account as a paired transfer. |
 | **Paired transfers** | Account-to-account moves are written as two linked rows sharing a `transfer_group_id`. Editing an amount, date, memo or category updates both legs. Deleting either leg removes both. |
@@ -59,16 +60,17 @@ These are product and engineering constraints, not aspirations.
 5. **Deletes are soft.** Rows get `deleted_at` tombstones so history and future sync stay coherent.
 6. **Imports only add.** Existing rows and existing settings win. Nothing local is removed by an import.
 7. **Local by default.** No server, no network calls in application code, no analytics, no auto-update.
-8. **Deterministic domain logic.** The allocator, cadence maths, emergency calculator, projections and bill prompts are pure functions in `src/shared`, covered by Node tests.
+8. **Deterministic domain logic.** The allocator, account and wealth rules, cadence maths, emergency calculator, projections and bill prompts are pure functions in `src/shared`, covered by Node tests.
+9. **A dedicated account is the exception to rule 4.** Marking an account "only for" a goal makes its balance the goal's progress, and takes it out of the spendable pool so the same money is never counted twice. [ADR 0007](docs/decisions/0007-dedicated-accounts-balance-is-progress.md) records why, and what it costs.
 
 ## Screens
 
 | Screen | Purpose | Key formulas |
 | --- | --- | --- |
-| **Overview** | Safe to Spend hero, accounts, month-to-date donut, last routing, goal progress, recent activity, bill prompts | `cash − monthly wall − funded goals` |
+| **Overview** | Safe to Spend hero, total wealth strip, accounts, month-to-date donut, last routing, goal progress, recent activity, bill prompts | `spendable pool − monthly wall − pool-funded goals`; `Σ balances − credit owed` |
 | **Priority Wall** | Bill CRUD, pause/resume, per-paycheck and monthly totals | `amount × bill periods / 12`; `amount × bill periods / pay periods` |
-| **Sinking funds** | Goal CRUD, progress, emergency calculator | `funded / target`; `essentials × months` |
-| **Accounts** | Bank-grouped account CRUD, balance adjustments, credit payments | `starting + SUM(entries)`; `max(0, −balance)` owed |
+| **Sinking funds** | Goal CRUD, progress, emergency calculator | `funded / target`; dedicated goals read `account balance`; `essentials × months` |
+| **Accounts** | Bank-grouped account CRUD, purpose and safe-to-spend choices, balance adjustments, credit payments | `starting + SUM(entries)`; `max(0, −balance)` owed |
 | **Spreadsheet** | Editable ledger and 90-day projection | `next due date`, `advance by frequency` |
 | **Settings** | Theme, round-up, import/export, database path | `remainder to next increment` |
 
@@ -108,13 +110,13 @@ Homebrew verifies the DMG against a pinned SHA-256 before installing. To drop th
 
 **DMG (manual):** download `WageRoute-<version>-arm64.dmg` (Apple Silicon) or `WageRoute-<version>.dmg` (Intel) from [GitHub Releases](https://github.com/ReVax-2007/wageroute/releases), drag to Applications, then right-click → **Open** on first launch.
 
-**curl (no Gatekeeper prompt at all):** browsers tag downloads with a quarantine flag that triggers Gatekeeper; curl does not. Replace `v1.0.1` below with the latest version from [GitHub Releases](https://github.com/ReVax-2007/wageroute/releases).
+**curl (no Gatekeeper prompt at all):** browsers tag downloads with a quarantine flag that triggers Gatekeeper; curl does not. Replace `v1.0.2` below with the latest version from [GitHub Releases](https://github.com/ReVax-2007/wageroute/releases).
 
 ```bash
-curl -LO https://github.com/ReVax-2007/wageroute/releases/download/v1.0.1/WageRoute-1.0.1-arm64.dmg
-hdiutil attach WageRoute-1.0.1-arm64.dmg
-cp -R "/Volumes/WageRoute 1.0.1-arm64/WageRoute.app" /Applications/
-hdiutil detach "/Volumes/WageRoute 1.0.1-arm64"
+curl -LO https://github.com/ReVax-2007/wageroute/releases/download/v1.0.2/WageRoute-1.0.2-arm64.dmg
+hdiutil attach WageRoute-1.0.2-arm64.dmg
+cp -R "/Volumes/WageRoute 1.0.2-arm64/WageRoute.app" /Applications/
+hdiutil detach "/Volumes/WageRoute 1.0.2-arm64"
 ```
 
 Windows: download `WageRoute.Setup.<version>.exe`; SmartScreen shows “Windows protected your PC” on first run — choose **More info → Run anyway**.
@@ -128,7 +130,7 @@ Requirements: **Node.js 22 or newer** (CI uses 24) and npm. macOS packaging expe
 ```bash
 npm install          # also rebuilds better-sqlite3 for Electron
 npm run dev          # launch the app with hot reload
-npm test             # domain, backup-format and backup-merge tests
+npm test             # domain, accounts, import-repair, backup and repository tests
 npm run typecheck    # main/preload and renderer type checks
 npm run build        # typecheck + production bundles in out/
 npm run dist:mac     # DMG for arm64 and x64
@@ -195,6 +197,7 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full status matrix and the 
 │   │       └── styles/        tokens.css, app.css
 │   └── shared/                Pure domain layer used by all processes
 │       ├── allocator.ts       Paycheck routing algorithm
+│       ├── accounts.ts        Safe-to-spend membership, total wealth, buckets
 │       ├── cadence.ts         Bill/pay frequency smoothing
 │       ├── emergency.ts       Emergency fund calculator
 │       ├── csv.ts             CSV export and import parsing
@@ -216,6 +219,8 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full status matrix and the 
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Setup, scripts, feature checklist, migration recipe, debugging |
 | [docs/RELEASING.md](docs/RELEASING.md) | Versioning, packaging, CI, signing gaps, release and rollback |
 | [docs/SECURITY.md](docs/SECURITY.md) | Trust boundaries, controls, threats, known gaps |
+| [CHANGELOG.md](CHANGELOG.md) | What changed in each release, and what landed after the last one |
+| [docs/UNRELEASED.md](docs/UNRELEASED.md) | The running queue for the next release, its blockers and its checklist |
 | [docs/decisions/README.md](docs/decisions/README.md) | Architecture decision records for the load-bearing choices |
 
 Related repositories: [ReVax-2007/homebrew-wageroute](https://github.com/ReVax-2007/homebrew-wageroute) — the official Homebrew tap (cask, install/update docs); bumped to each release per [docs/RELEASING.md](docs/RELEASING.md#release-checklist). |

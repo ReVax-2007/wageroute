@@ -274,16 +274,16 @@ If auto-update is added later, it needs a signed release feed, platform signing 
 
 ## Repository hosting: GitHub or GitLab
 
-The working directory is **not currently a git repository**. No remote, history or hosting decision exists. The recommendation below is about where to put the project once you decide to version it.
+The project lives in **`ReVax-2007/wageroute` on GitHub** — a public repository with protected `main`, pull-request-only merges, the `verify` CI check and releases that carry the installers and `SHA256SUMS.txt`. The comparison below is the reasoning that led there, kept because it still explains the trade-offs if that ever changes.
 
-### Recommendation: a private GitHub repository
+### Why GitHub won
 
 For this project, GitHub is the better default:
 
 1. **The CI is already written for it.** `.github/workflows/build.yml` uses GitHub Actions, `actions/checkout`, `setup-node` and `upload-artifact`. Moving to GitLab means rewriting the pipeline as `.gitlab-ci.yml`.
 2. **The toolchain fits.** electron-builder publishes naturally to GitHub Releases; the `gh` CLI covers issues, PRs and release assets; Dependabot can watch Electron and better-sqlite3, which matter for security.
 3. **macOS and Windows runners are available without managing infrastructure.** A desktop app needs both platforms to produce installers.
-4. **It is a private personal finance app.** A private repository keeps the code and future design notes out of public view. The database is gitignored either way, but privacy still matters.
+4. **Source-available, not open-source.** The [LICENSE](../LICENSE) keeps commercial redistribution off the table — only the licensor ships WageRoute — so a public repository does not hand the product to anyone, and the app holds no server-side secrets. Privacy therefore rests on the licence, not on repository visibility, and nothing user-financial is ever committed (see [DEVELOPMENT.md](DEVELOPMENT.md#working-safely-with-data)).
 5. **No self-hosting requirement.** Nothing about WageRoute needs a self-managed DevOps platform.
 
 ### When GitLab is the better choice

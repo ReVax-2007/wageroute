@@ -8,9 +8,11 @@ import {
   Sun,
   Table2,
   Target,
+  TrendingUp,
   Wallet,
   type LucideIcon
 } from 'lucide-react'
+import { totalWealthCents } from '@shared/accounts'
 import { formatMoneyCompact } from '@shared/money'
 import mark from '../assets/wageroute-mark.png'
 import { cashOnHand } from '../lib/finance'
@@ -106,6 +108,15 @@ export function Sidebar() {
           {formatMoneyCompact(cashOnHand(snapshot.accounts), settings.currency)}
         </p>
         <p className="sidebar-stat-hint">{snapshot.accounts.length} accounts tracked</p>
+        <div className="sidebar-stat-row">
+          <span className="sidebar-stat-top">
+            <TrendingUp size={14} />
+            <span>Total wealth</span>
+          </span>
+          <span className="sidebar-stat-value-sm">
+            {formatMoneyCompact(totalWealthCents(snapshot.accounts), settings.currency)}
+          </span>
+        </div>
       </div>
 
       <p className="sidebar-foot" title={dbPath}>

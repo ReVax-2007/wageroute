@@ -54,7 +54,7 @@ npm run postinstall
 | --- | --- | --- |
 | `npm run dev` | `electron-vite dev` | Dev server, main/preload rebuild, hot renderer reload |
 | `npm start` | `electron-vite preview` | Run the production bundles in `out/` |
-| `npm test` | `node --import tsx --test src/shared/*.test.ts` (four files listed explicitly) | Domain, importer, backup-example and repair tests |
+| `npm test` | `node --import tsx --test` (six files listed explicitly) | Domain, accounts, importer, backup-example, merge and repository tests |
 | `npm run typecheck` | node + web type checks | Both TypeScript projects |
 | `npm run typecheck:node` | `tsc --noEmit -p tsconfig.node.json` | Main, preload, shared, config |
 | `npm run typecheck:web` | `tsc --noEmit -p tsconfig.json` | Renderer and shared |
@@ -79,7 +79,8 @@ src/
 │       ├── backup.ts         JSON build/parse/merge
 │       ├── entries.ts        CSV entry merge
 │       ├── legacy.ts         pre-rename database adoption
-│       └── seed.ts           first-run seed: blank (packaged) / demo (dev)
+│       ├── seed.ts           first-run seed: blank (packaged) / demo (dev)
+│       └── dedicated-accounts.test.ts  repository behaviour for dedicated goals
 ├── preload/
 │   ├── index.ts              contextBridge API
 │   └── index.d.ts            window.api typing
@@ -94,6 +95,7 @@ src/
 │       ├── store/            Zustand store and selectors
 │       └── styles/           tokens.css, app.css
 └── shared/
+    ├── accounts.ts       Safe-to-spend pool, total wealth, wealth buckets
     ├── allocator.ts
     ├── api.ts
     ├── billPrompts.ts
@@ -108,6 +110,7 @@ src/
     ├── transfers.ts
     ├── types.ts
     ├── domain.test.ts
+    ├── accounts.test.ts
     ├── backup-example.test.ts
     ├── backup-merge.test.ts
     └── importRepair.test.ts
@@ -193,14 +196,16 @@ When a test requires moving a database aside, move it to a dated quarantine fold
 
 ## Testing
 
-Four files, all in `src/shared/`, run by `npm test` through `node --test` with `tsx` as the loader. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**.
+Six files run by `npm test` through `node --test` with `tsx` as the loader. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**.
 
 | File | Style | Covers |
 | --- | --- | --- |
 | `domain.test.ts` | pure functions | money parsing and formatting boundaries; cadence smoothing and per-paycheck reserves; month-end date clamping and due-date derivation; allocator priority, shortfall, scaling, goal ordering, whole-dollar sweeping and the balance identity; debt as a surplus bucket; bill prompt chronology and early-payment window; round-up remainders and transfer legs; emergency variable averaging, essentials, target and coverage; settings defaults, corrupt input and round-trip serialization; CSV quoting, parsing, bank-style dates, duplicate headers and transfer rejection |
-| `importRepair.test.ts` | pure functions | a clean backup needs nothing; each missing, invalid or dangling value becomes exactly one question; nullable versus required references; answers repair rows, unanswered rows are dropped rather than thrown; a still-invalid answer drops with the validation message; clearing a nullable reference is a valid answer; rows inside one file can satisfy each other's references; unmatched CSV account names collapse to one question each |
-| `backup-merge.test.ts` | **real in-memory SQLite** | schema-defaulted columns import with the default instead of failing NOT NULL; one unusable row is reported rather than aborting the file; a settings row without a key is skipped; existing values survive while missing timestamps fill in; CSV names mapped in the wizard land on the chosen account; an unmapped name is left out once and the rest still imports; a mapping whose account disappeared reports the row instead of throwing |
-| `backup-example.test.ts` | real file | `examples/backup.example.json` parses as a valid backup and every cross-table link resolves, so the shipped example cannot silently drift |
+| `importRepair.test.ts` | pure functions | a clean backup needs nothing; each missing, invalid or dangling value becomes exactly one question; nullable versus required references; answers repair rows, unanswered rows are dropped rather than thrown; a still-invalid answer drops with the validation message; clearing a nullable reference is a valid answer; rows inside one file can satisfy each other's references; the accounts↔goals cycle is answerable in one pass; unmatched CSV account names collapse to one question each |
+| `accounts.test.ts` | pure functions | the explicit Safe-to-spend choice versus the kind default; a dedicated account staying out of the spendable pool; archived accounts counting for nothing; credit subtracting from total wealth; wealth buckets partitioning the total exactly; the allocator skipping an account-funded goal and the leftover falling to savings |
+| `backup-merge.test.ts` | **real in-memory SQLite** | schema-defaulted columns import with the default instead of failing NOT NULL; one unusable row is reported rather than aborting the file; a settings row without a key is skipped; existing values survive while missing timestamps fill in; a dedicated account and its goal survive an export/import round trip; CSV names mapped in the wizard land on the chosen account; an unmapped name is left out once and the rest still imports; a mapping whose account disappeared reports the row instead of throwing |
+| `dedicated-accounts.test.ts` | **real in-memory SQLite** | the two v4 columns round-trip through the repository; an unknown goal is refused; the account balance replaces the allocation total; an overdraft reads as zero; archiving releases the goal back to allocations; removing a goal detaches every account |
+| `backup-example.test.ts` | real file | `examples/backup.example.json` parses at the current `SCHEMA_VERSION` and every cross-table link — including an account dedicated to a goal — resolves, so the shipped example cannot silently drift |
 
 Conventions every new test follows:
 
@@ -277,6 +282,8 @@ A typical feature crosses most layers. Use this checklist.
 - Update [IMPORT-EXPORT.md](IMPORT-EXPORT.md) if the file formats change.
 - Update [RELEASING.md](RELEASING.md) if packaging or migration compatibility changes.
 - Add a numbered record in [decisions/](decisions/) when a decision is new or changes; supersede rather than rewrite an old one.
+- Add a bullet under `## [Unreleased]` in [CHANGELOG.md](../CHANGELOG.md). Anything merged to `main` after the last tag belongs there until a build ships it, including fixes and documentation-only changes.
+- Append to [UNRELEASED.md](UNRELEASED.md) when a change joins the next-release queue, and update its blockers and checklist if the release gets harder, not just when it gets easier.
 
 ## Adding an IPC channel
 
@@ -293,7 +300,7 @@ Do not expose `ipcRenderer`, `require`, `fs` or raw SQL to the renderer.
 
 ## Adding a schema migration
 
-Migrations are append-only. Never modify `SCHEMA_V1`, `SCHEMA_V2` or `SCHEMA_V3` once released; databases in the field have already run them.
+Migrations are append-only. Never modify a `SCHEMA_V*` string once its version has shipped (`SCHEMA_V1`–`SCHEMA_V3` are released); databases in the field have already run them.
 
 ### Procedure
 
@@ -301,13 +308,28 @@ Migrations are append-only. Never modify `SCHEMA_V1`, `SCHEMA_V2` or `SCHEMA_V3`
 2. Add `{ version: 4, up: (db) => db.exec(SCHEMA_V4) }` to `MIGRATIONS`.
 3. `SCHEMA_VERSION` updates automatically from the last entry.
 4. Update types, repositories, backup allowlists and the seed.
-5. Test against a copy of a version-3 database:
+5. Test against a **copy** of a version-3 database (see [Working safely with data](#working-safely-with-data) — never the live file, and there is no downgrade path):
    - `PRAGMA user_version` before and after;
    - row counts preserved;
    - new columns present with correct defaults;
+   - `PRAGMA integrity_check` and `foreign_key_check` clean;
    - app boots and snapshot loads.
 6. Test a fresh database and an upgrade database separately.
 7. Add or update documentation.
+
+Version 4 is the model for an additive migration: two nullable `ALTER TABLE ADD COLUMN` statements and a partial index, no backfill, and no downgrade path. Existing rows read `NULL` in both columns, which the shared rules treat as "no explicit choice", so behaviour is unchanged until the user opts in.
+
+### Pointing at another table
+
+`accounts.dedicated_goal_id` references `goals`, and `goals.account_id` already references `accounts`. Declaring the second direction as a foreign key makes the pair cyclic, and no static restore order in `TABLE_ORDER` (accounts → bills → goals → …) can then insert both rows without violating it. See [ADR 0007](decisions/0007-dedicated-accounts-balance-is-progress.md).
+
+When a new column would close a cycle:
+
+- store it as plain `TEXT` and validate the reference in the repository (`Goal not found`), not in SQLite;
+- teach `findImportProblems` to ask about a dangling value, or an exported backup can point at a goal that no longer exists;
+- null the pointer when the target is deleted, since no `ON DELETE` clause will do it for you.
+
+The same "no declared key" precedent applies to `transactions.transfer_group_id` (version 3).
 
 ### SQLite constraints
 
@@ -323,11 +345,14 @@ Migrations are append-only. Never modify `SCHEMA_V1`, `SCHEMA_V2` or `SCHEMA_V3`
 
 ### Backup compatibility
 
+Export uses `SELECT *`, import uses an allowlist (`TABLE_COLUMNS`). A new column that is not added to `TABLE_COLUMNS` exports fine and is then **silently dropped on import** — no error, no issue row, just missing data. `src/main/db/dedicated-accounts.test.ts` and the round trip in `backup-merge.test.ts` exist to catch exactly that.
+
 If a new column is added:
 
 - add it to `TABLE_COLUMNS`;
-- add a fallback in `TABLE_DEFAULTS` if backups without it should import cleanly;
-- decide whether the backup `version` should increase. A new `version` means older app builds reject newer files; that is usually correct for a breaking schema change.
+- add a fallback in `TABLE_DEFAULTS` only when a backup without the column should import as something other than `NULL`. Version 4's two columns need none: `NULL` is a meaningful value there ("no explicit choice"), which is the quieter option;
+- decide whether the backup `version` should increase. A new `version` means older app builds reject newer files; that is usually correct for a breaking schema change. Version 4 raised it even though the SQL is additive, because the *meaning* of goal progress changed — an older build would read a dedicated account's balance as ordinary savings and double-count it.
+- add the column to `examples/backup.example.json` and, if it links tables, to the link check in `backup-example.test.ts`.
 
 ## Debugging
 
@@ -352,13 +377,30 @@ If a new column is added:
 
 ### CDP / remote debugging
 
-For scripted UI checks, launch the built app or dev app with a remote debugging port and connect with the Chrome DevTools Protocol:
+For scripted UI checks, launch a build with a remote debugging port and connect with the Chrome DevTools Protocol:
 
 ```bash
-"/Applications/WageRoute.app/Contents/MacOS/WageRoute" --remote-debugging-port=9222
+CFFIXED_USER_HOME=/tmp/wageroute-ui-home \
+  "release/mac-arm64/WageRoute.app/Contents/MacOS/WageRoute" --remote-debugging-port=9222
 ```
 
-Then query `http://127.0.0.1:9222/json` for the page target. A small Node script using `Runtime.evaluate` can click buttons, read text and take screenshots. Use a disposable home so the script never touches real data.
+Then query `http://127.0.0.1:9222/json` for the page target's `webSocketDebuggerUrl` and call `Runtime.evaluate` from a small Node script — Node 24 has a global `WebSocket`, so no dependency is needed. This is how the dedicated-accounts dialogs, badges and hero numbers were verified, and it is the only method that has found a real product bug (a Safe-to-Spend double deduction that the type checker and the unit tests both passed).
+
+Three things cost time on the first attempt:
+
+- Point the command at a build under `release/` or `out/`, **not** at `/Applications/WageRoute.app`. `src/main/index.ts` takes a single-instance lock, so launching the installed bundle again while the user's app is running just quits the new process and focuses theirs. The lock lives in `userData`, which is why a different `CFFIXED_USER_HOME` gets its own instance — but never rely on that as permission to launch the installed bundle.
+- Always set `CFFIXED_USER_HOME` to a fresh directory. Without it the script reads and writes real data.
+- React controls its form fields, so assigning `element.value` is invisible to the app. Use the prototype's native setter and then dispatch an event:
+
+  ```js
+  const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+  set.call(input, '4200.00')
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  ```
+
+  `HTMLSelectElement` has its own setter for `<select>`; applying the input one throws.
+
+The renderer's DOM is readable this way, but pixel output is not: `screencapture` on the machine used so far returns "could not create image from display" and assistive access is denied, so CDP verifies **behaviour and text**, never appearance. Scratch homes created for these runs are disposable — delete them afterwards, and delete only the ones this session made.
 
 ### Simulating first launch and legacy adoption
 

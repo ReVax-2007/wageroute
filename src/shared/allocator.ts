@@ -1,6 +1,6 @@
 import { monthlyEquivalentCents, reservePerPaycheckCents } from './cadence'
 import { clampPercent, floorToDollarCents, percentOf } from './money'
-import type { Frequency, PayCadence, PlanHealth } from './types'
+import type { Frequency, GoalFundingSource, PayCadence, PlanHealth } from './types'
 
 export interface AllocatorBill {
   id: string
@@ -16,6 +16,12 @@ export interface AllocatorGoal {
   fundedCents: number
   priority: number
   targetDate: string | null
+  /**
+   * 'account' means a dedicated account's balance already is the progress, so
+   * writing an allocation row against it would be invisible. Those goals are
+   * skipped and their share of the budget falls through to savings.
+   */
+  fundedFrom?: GoalFundingSource
 }
 
 export interface AllocatorSplits {
@@ -147,7 +153,9 @@ export function buildAllocationPlan(input: AllocatorInput): AllocationPlan {
   let goalBudget = scaled[2]
   let debtCents = scaled[3]
 
-  const goalsByNeed = [...input.goals]
+  const allocatableGoals = input.goals.filter((goal) => goal.fundedFrom !== 'account')
+
+  const goalsByNeed = [...allocatableGoals]
     .filter((goal) => goal.targetCents > goal.fundedCents)
     .sort(
       (a, b) =>
@@ -168,7 +176,7 @@ export function buildAllocationPlan(input: AllocatorInput): AllocationPlan {
   if (goalBudget > 0) {
     savingsCents += goalBudget
     warnings.push(
-      input.goals.length === 0
+      allocatableGoals.length === 0
         ? { code: 'no_goals' }
         : { code: 'goal_overflow', overflowCents: goalBudget }
     )

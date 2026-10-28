@@ -384,6 +384,8 @@ test('CSV export quotes commas, quotes and newlines', () => {
       institution: 'Tangerine',
       startingBalanceCents: 0,
       creditLimitCents: null,
+      dedicatedGoalId: null,
+      inSafeToSpend: null,
       isArchived: false,
       sortOrder: 0,
       createdAt: '2026-01-01T00:00:00.000Z',

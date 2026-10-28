@@ -30,7 +30,8 @@ const TABLE_LABEL: Record<BackupTable, string> = {
 const TABLE_COLUMNS: Record<BackupTable, readonly string[]> = {
   accounts: [
     'id', 'user_id', 'name', 'kind', 'institution', 'starting_balance_cents',
-    'credit_limit_cents', 'is_archived', 'sort_order', 'created_at', 'updated_at',
+    'credit_limit_cents', 'dedicated_goal_id', 'in_safe_to_spend',
+    'is_archived', 'sort_order', 'created_at', 'updated_at',
     'deleted_at', 'revision'
   ],
   bills: [

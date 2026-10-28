@@ -1,6 +1,6 @@
 # Data model
 
-WageRoute stores everything in one SQLite database, `wageroute.db`, using `STRICT` tables, integer cents, UUID text keys and ISO-8601 timestamps. This document describes the schema at version 3, the semantics of each column, the derived values the app computes at read time, and the invariants that keep the ledger coherent.
+WageRoute stores everything in one SQLite database, `wageroute.db`, using `STRICT` tables, integer cents, UUID text keys and ISO-8601 timestamps. This document describes the schema at version 4, the semantics of each column, the derived values the app computes at read time, and the invariants that keep the ledger coherent.
 
 Source of truth: [`src/main/db/migrations.ts`](../src/main/db/migrations.ts). Read model assembly: [`src/main/db/repositories.ts`](../src/main/db/repositories.ts).
 
@@ -70,6 +70,7 @@ erDiagram
   accounts ||--o{ paychecks : "deposited into"
   accounts ||--o{ transactions : "posts to"
   accounts ||--o{ transactions : "counter account"
+  goals ||--o{ accounts : "funded by a dedicated account"
 
   paychecks ||--o{ allocations : "splits into"
   goals ||--o{ allocations : "funded by"
@@ -124,6 +125,8 @@ Writes use `INSERT ... ON CONFLICT(user_id, key) DO UPDATE`. Reads return the ra
 | `institution` | TEXT | nullable | Bank grouping, e.g. Tangerine |
 | `starting_balance_cents` | INTEGER | NOT NULL, default 0 | Opening balance |
 | `credit_limit_cents` | INTEGER | nullable, CHECK null or ≥ 0 | Added in v3; credit cards only in practice |
+| `dedicated_goal_id` | TEXT | nullable, **no FK**, partial index | Added in v4. The goal whose progress this account's balance *is*; validated in the repository |
+| `in_safe_to_spend` | INTEGER | nullable, CHECK null / 0 / 1 | Added in v4. Tri-state: `NULL` = derive from `kind` |
 | `is_archived` | INTEGER | NOT NULL, default 0, CHECK 0/1 | |
 | `sort_order` | INTEGER | NOT NULL, default 0 | |
 | `created_at` | TEXT | NOT NULL | |
@@ -135,7 +138,9 @@ Semantics:
 
 - A credit card's opening debt is stored as a **negative** starting balance. The account dialog asks for a positive “balance owed” and negates it.
 - The current balance is derived: `starting_balance_cents + SUM(non-deleted transactions for the account)`.
-- Archived accounts remain in the snapshot but are excluded from cash, credit totals and most pickers.
+- Archived accounts remain in the snapshot but are excluded from cash, credit totals, total wealth and goal progress.
+- `dedicated_goal_id` has no `REFERENCES` clause on purpose: `goals.account_id` already points at `accounts`, so a declared key would make the pair cyclic and no static insert order could restore a backup. `createAccount`/`updateAccount` check the goal exists and belongs to the user, and `deleteGoal` nulls every pointer to it. See [ADR 0007](decisions/0007-dedicated-accounts-balance-is-progress.md).
+- `in_safe_to_spend` is consulted by `countsInSafeToSpend` before the kind default; a dedicated account defaults to excluded because its balance is already goal progress.
 - Deleting nulls `bills.account_id`, `goals.account_id` and `paychecks.deposit_account_id` before soft-deleting the account. Transactions are kept.
 
 ### `bills`
@@ -179,18 +184,26 @@ Semantics:
 | `deleted_at` | TEXT | nullable | |
 | `revision` | INTEGER | NOT NULL, default 1 | |
 
-Goal progress is **not** stored. It is derived from allocations:
+Goal progress is **not** stored. It has two possible sources, chosen per goal at read time:
 
 ```sql
+-- the allocation total, used unless an account is dedicated to this goal
 SUM(allocations.amount_cents)
 WHERE goal_id = ? AND bucket = 'goal' AND deleted_at IS NULL
+
+-- the dedicated-account total, which replaces it
+SUM(accounts.starting_balance_cents + transactions total)
+WHERE dedicated_goal_id = goal.id AND is_archived = 0 AND deleted_at IS NULL
 ```
+
+`GoalWithProgress.fundedFrom` reports which one is live, and `dedicatedAccountNames` lists the contributing accounts. Several accounts may feed one goal; their balances add and the total is clamped at zero.
 
 Consequences:
 
-- `fundedCents` only increases through paycheck routing.
-- A manual `goal_funding` transaction does not fund a goal.
-- A goal's held-in account balance is unrelated to its funded amount. The app tracks intent, not ring-fenced cash.
+- With `fundedFrom = 'allocations'`, `fundedCents` only increases through paycheck routing.
+- With `fundedFrom = 'account'`, `fundedCents` is whatever the balances say right now — including after a withdrawal, and including money that arrived without any allocation row.
+- A manual `goal_funding` transaction does not fund an allocation-driven goal; on a dedicated account it moves the balance, so it *does* change progress.
+- An allocation-driven goal's held-in account balance is unrelated to its funded amount. The app tracks intent, not ring-fenced cash — except where an account is explicitly dedicated.
 
 ### `paychecks`
 
@@ -280,6 +293,7 @@ Transfer rules:
 | `idx_transactions_account` | `transactions(account_id, occurred_on DESC) WHERE deleted_at IS NULL` | Account-ledger reads |
 | `idx_transactions_user_date` | `transactions(user_id, occurred_on DESC) WHERE deleted_at IS NULL` | Snapshot ordering |
 | `idx_transactions_transfer_group` | `transactions(transfer_group_id) WHERE transfer_group_id IS NOT NULL` | Find both transfer legs |
+| `idx_accounts_dedicated_goal` | `accounts(dedicated_goal_id) WHERE dedicated_goal_id IS NOT NULL` | Goal progress from a dedicated account |
 
 ## Derived values
 
@@ -292,11 +306,15 @@ None of the following are stored. They are recomputed from rows.
 | Credit owed | `SUM(max(0, −balance))` for non-archived credit accounts | `finance.ts` |
 | Credit available | `SUM(max(0, limit − owed))` per credit account with a limit | `finance.ts` |
 | Credit display | `max(0, −balance)` | `finance.ts` |
-| Goal funded | `SUM(allocations.amount_cents)` where bucket `goal`, matching goal, non-deleted | `listGoals` |
+| Goal funded | Dedicated account present → `SUM(live dedicated balances)`, clamped at 0; otherwise `SUM(allocations.amount_cents)` where bucket `goal`, matching goal, non-deleted | `listGoals` |
 | Goal remaining | `max(0, target_cents − fundedCents)` | `listGoals` |
 | Monthly wall | `SUM(round(amount × billPeriodsPerYear / 12))` over active bills | `cadence.ts` |
 | Per-paycheck wall | `SUM(round(amount × billPeriodsPerYear / payPeriodsPerYear))` | `cadence.ts` |
-| Safe to Spend | Cash on hand − monthly wall − funded sinking goals | `useFinanceStore.ts` |
+| Spendable pool | Sum of non-archived balances where `countsInSafeToSpend` holds (`in_safe_to_spend`, else not dedicated and kind in `checking,savings,cash`) | `accounts.ts` |
+| Pool-earmarked goals | `SUM(fundedCents)` for goals whose `fundedFrom` is `allocations`; account-funded goals are already outside the pool | `poolEarmarkedGoalsCents` |
+| Safe to Spend | Spendable pool − monthly wall − pool-earmarked goals | `useFinanceStore.ts` |
+| Total wealth | Sum of every non-archived balance; credit is already negative | `accounts.ts` |
+| Wealth buckets | Cash / Saved for goals / Invested / Credit owed, partitioning total wealth exactly | `accounts.ts` |
 | Months to goal | `max(1, ceil(daysUntil / 30.4375))` | `dates.ts` |
 | Monthly goal pace | `ceil(remaining / months)` | `Goals.tsx` |
 | Month routing donut | Priority; savings+investment+goal folded as growth; debt; leisure | `finance.ts` |
@@ -350,8 +368,9 @@ Migrations run inside a transaction per version and are tracked by `PRAGMA user_
 | **1** | Creates `users`, `settings`, `accounts`, `bills`, `goals`, `paychecks`, `allocations`, `transactions` and all indexes | Initial schema |
 | **2** | Rebuilds `allocations` to add `debt` to the bucket CHECK | SQLite cannot alter a CHECK constraint; the table is copied, dropped and renamed |
 | **3** | Adds `accounts.credit_limit_cents`, `goals.is_emergency`, `transactions.transfer_group_id`, a transfer-group index, and flags existing goals named “Emergency Fund” | Credit tracking, emergency fund, paired transfers |
+| **4** | Adds `accounts.dedicated_goal_id` (no foreign key, plus a partial index) and `accounts.in_safe_to_spend` as a nullable tri-state | Dedicated accounts, per-account Safe to Spend. Both default to NULL, so pre-v4 rows keep their previous behaviour |
 
-`SCHEMA_VERSION` is derived from the last migration and is reported in JSON backups. Backups with a higher version are rejected. Backups older than version 2 are rejected; versions 2 and 3 are accepted.
+`SCHEMA_VERSION` is derived from the last migration and is reported in JSON backups. Backups with a higher version are rejected. Backups older than version 2 are rejected; versions 2, 3 and 4 are accepted.
 
 Migration procedure for future work is in [DEVELOPMENT.md](DEVELOPMENT.md#adding-a-schema-migration).
 
@@ -366,7 +385,7 @@ These should hold after every successful mutation.
 4. **Amount sign.** Income is positive and expenses/bill payments are negative when created through the UI; adjustments and manual ledger edits may use either sign.
 5. **Positive targets.** `bills.amount_cents > 0` and `goals.target_cents > 0` are enforced by the schema.
 6. **Non-negative allocation.** `allocations.amount_cents >= 0`.
-7. **Goal funding.** `fundedCents = SUM(goal allocations)`; a goal cannot be “funded” by editing its target or its account balance.
+7. **Goal funding.** `fundedCents` is `SUM(goal allocations)` **unless** a live account is dedicated to the goal, in which case it is that accounts' live balance. A goal is never funded by editing its target, and never by both sources at once.
 8. **Soft delete visibility.** All list queries filter `deleted_at IS NULL`; snapshots never include deleted rows.
 9. **One local user.** `getLocalUserId` selects the earliest non-deleted user.
 10. **Currency display.** Every formatted amount uses `settings.currency`, not `users.currency`.
@@ -377,7 +396,7 @@ These should hold after every successful mutation.
 | --- | --- |
 | Delete account | References nulled; account soft-deleted; transactions retained |
 | Delete bill | Bill soft-deleted; past payments and prompts disappear |
-| Delete goal | Goal soft-deleted; allocations retained but no longer shown as progress |
+| Delete goal | Goal soft-deleted; allocations retained but no longer shown as progress; `accounts.dedicated_goal_id` nulled for every account dedicated to it |
 | Delete transaction | Row soft-deleted; if paired, both legs are soft-deleted |
 | Delete paycheck | No delete path in the UI |
 | Clear all data | No in-app path; remove the database file manually |

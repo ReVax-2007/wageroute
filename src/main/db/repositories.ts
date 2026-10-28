@@ -15,6 +15,7 @@ import type {
   BillInput,
   Frequency,
   Goal,
+  GoalFundingSource,
   GoalInput,
   GoalWithProgress,
   PayCadence,
@@ -142,6 +143,23 @@ function requireAccount(db: Db, userId: string, accountId: string): { id: string
   return row
 }
 
+/**
+ * dedicated_goal_id has no database foreign key (see the v4 migration note), so
+ * every write path has to check the target exists.
+ */
+function requireGoal(db: Db, userId: string, goalId: string): { id: string; name: string } {
+  const row = db
+    .prepare('SELECT id, name FROM goals WHERE id = ? AND user_id = ? AND deleted_at IS NULL')
+    .get(goalId, userId) as { id: string; name: string } | undefined
+  if (!row) throw new Error('Goal not found')
+  return row
+}
+
+function flagColumn(value: unknown): 0 | 1 | null {
+  if (value === null || value === undefined) return null
+  return value ? 1 : 0
+}
+
 // ---------------------------------------------------------------- users
 
 export function getUser(db: Db, userId: string): User {
@@ -256,10 +274,18 @@ export function writeSettings(
 
 // ---------------------------------------------------------------- accounts
 
-type AccountRow = Omit<AccountWithBalance, 'isArchived'> & { isArchived: number }
+type AccountRow = Omit<AccountWithBalance, 'isArchived' | 'inSafeToSpend'> & {
+  isArchived: number
+  inSafeToSpend: number | null
+}
 
 function mapAccount(row: AccountRow): AccountWithBalance {
-  return { ...row, isArchived: row.isArchived === 1 }
+  const { isArchived, inSafeToSpend, ...rest } = row
+  return {
+    ...rest,
+    isArchived: isArchived === 1,
+    inSafeToSpend: inSafeToSpend === null ? null : inSafeToSpend === 1
+  }
 }
 
 export function listAccounts(db: Db, userId: string): AccountWithBalance[] {
@@ -268,6 +294,8 @@ export function listAccounts(db: Db, userId: string): AccountWithBalance[] {
       `SELECT a.id, a.user_id AS userId, a.name, a.kind, a.institution,
               a.starting_balance_cents AS startingBalanceCents,
               a.credit_limit_cents AS creditLimitCents,
+              a.dedicated_goal_id AS dedicatedGoalId,
+              a.in_safe_to_spend AS inSafeToSpend,
               a.is_archived AS isArchived, a.sort_order AS sortOrder,
               a.created_at AS createdAt, a.updated_at AS updatedAt,
               a.deleted_at AS deletedAt, a.revision,
@@ -287,11 +315,14 @@ export function listAccounts(db: Db, userId: string): AccountWithBalance[] {
 export function createAccount(db: Db, userId: string, input: AccountInput): string {
   const id = randomUUID()
   const ts = nowISO()
+  const dedicatedGoalId = optionalText(input.dedicatedGoalId, 'Dedicated goal')
+  if (dedicatedGoalId) requireGoal(db, userId, dedicatedGoalId)
   db.prepare(
     `INSERT INTO accounts
        (id, user_id, name, kind, institution, starting_balance_cents, credit_limit_cents,
+        dedicated_goal_id, in_safe_to_spend,
         is_archived, sort_order, created_at, updated_at, deleted_at, revision)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, NULL, 1)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, NULL, 1)`
   ).run(
     id,
     userId,
@@ -305,6 +336,8 @@ export function createAccount(db: Db, userId: string, input: AccountInput): stri
     input.creditLimitCents === undefined || input.creditLimitCents === null
       ? null
       : assertCents(input.creditLimitCents, 'Credit limit', { allowZero: true }),
+    dedicatedGoalId,
+    flagColumn(input.inSafeToSpend),
     input.sortOrder ?? 0,
     ts,
     ts
@@ -339,6 +372,14 @@ export function updateAccount(
         : patch.creditLimitCents === null
           ? null
           : assertCents(patch.creditLimitCents, 'Credit limit', { allowZero: true }),
+    dedicated_goal_id:
+      patch.dedicatedGoalId === undefined
+        ? undefined
+        : patch.dedicatedGoalId
+          ? requireGoal(db, userId, patch.dedicatedGoalId).id
+          : null,
+    in_safe_to_spend:
+      patch.inSafeToSpend === undefined ? undefined : flagColumn(patch.inSafeToSpend),
     sort_order: patch.sortOrder
   })
 }
@@ -453,10 +494,19 @@ export function deleteBill(db: Db, userId: string, id: string): void {
 
 // ---------------------------------------------------------------- goals
 
-type GoalRow = Omit<GoalWithProgress, 'isArchived' | 'isEmergency'> & {
+type GoalRow = Omit<
+  GoalWithProgress,
+  'isArchived' | 'isEmergency' | 'fundedCents' | 'fundedFrom' | 'dedicatedAccountNames'
+> & {
   isArchived: number
   isEmergency: number
-  fundedCents: number
+  allocationCents: number
+}
+
+interface DedicatedAccountRow {
+  dedicatedGoalId: string
+  name: string
+  balanceCents: number
 }
 
 export function listGoals(db: Db, userId: string): GoalWithProgress[] {
@@ -469,20 +519,58 @@ export function listGoals(db: Db, userId: string): GoalWithProgress[] {
               COALESCE((
                 SELECT SUM(a.amount_cents) FROM allocations a
                 WHERE a.goal_id = g.id AND a.deleted_at IS NULL AND a.bucket = 'goal'
-              ), 0) AS fundedCents
+              ), 0) AS allocationCents
        FROM goals g
        WHERE g.user_id = ? AND g.deleted_at IS NULL
        ORDER BY g.is_archived, g.priority, g.name`
     )
     .all(userId) as GoalRow[]
 
-  return rows.map((row) => ({
-    ...row,
-    isArchived: row.isArchived === 1,
-    isEmergency: row.isEmergency === 1,
-    fundedCents: row.fundedCents,
-    remainingCents: Math.max(0, row.targetCents - row.fundedCents)
-  }))
+  // A dedicated account's live balance *is* the progress, so it replaces the
+  // allocation total rather than adding to it. Grouped in JS instead of
+  // GROUP_CONCAT so account names containing commas survive.
+  const dedicated = db
+    .prepare(
+      `SELECT dedicated_goal_id AS dedicatedGoalId, name,
+              starting_balance_cents + COALESCE((
+                SELECT SUM(t.amount_cents) FROM transactions t
+                WHERE t.account_id = accounts.id AND t.deleted_at IS NULL
+              ), 0) AS balanceCents
+       FROM accounts
+       WHERE user_id = ? AND deleted_at IS NULL AND is_archived = 0
+         AND dedicated_goal_id IS NOT NULL
+       ORDER BY sort_order, name`
+    )
+    .all(userId) as DedicatedAccountRow[]
+
+  const byGoal = new Map<string, DedicatedAccountRow[]>()
+  for (const row of dedicated) {
+    const existing = byGoal.get(row.dedicatedGoalId)
+    if (existing) existing.push(row)
+    else byGoal.set(row.dedicatedGoalId, [row])
+  }
+
+  return rows.map((row) => {
+    const sources = byGoal.get(row.id) ?? []
+    const fundedFrom: GoalFundingSource = sources.length > 0 ? 'account' : 'allocations'
+    const fundedCents =
+      fundedFrom === 'account'
+        ? Math.max(
+            0,
+            sources.reduce((total, source) => total + source.balanceCents, 0)
+          )
+        : row.allocationCents
+
+    return {
+      ...row,
+      isArchived: row.isArchived === 1,
+      isEmergency: row.isEmergency === 1,
+      fundedFrom,
+      dedicatedAccountNames: sources.map((source) => source.name),
+      fundedCents,
+      remainingCents: Math.max(0, row.targetCents - fundedCents)
+    }
+  })
 }
 
 export function createGoal(db: Db, userId: string, input: GoalInput): string {
@@ -538,7 +626,13 @@ export function updateGoal(
 }
 
 export function deleteGoal(db: Db, userId: string, id: string): void {
-  softDelete(db, 'goals', id, userId)
+  const ts = nowISO()
+  db.transaction(() => {
+    db.prepare(
+      'UPDATE accounts SET dedicated_goal_id = NULL, updated_at = ?, revision = revision + 1 WHERE dedicated_goal_id = ? AND user_id = ? AND deleted_at IS NULL'
+    ).run(ts, id, userId)
+    softDelete(db, 'goals', id, userId)
+  })()
 }
 
 // ---------------------------------------------------------------- transactions

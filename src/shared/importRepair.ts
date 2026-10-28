@@ -100,7 +100,9 @@ const REQUIRED_FIELDS: Record<ImportTable, readonly FieldSpec[]> = {
 
 /** Foreign keys, so a row pointing at something that does not exist can be redirected. */
 const REFERENCE_FIELDS: Record<ImportTable, readonly FieldSpec[]> = {
-  accounts: [],
+  accounts: [
+    { column: 'dedicated_goal_id', label: 'Dedicated goal', input: 'ref', refTable: 'goals', nullable: true }
+  ],
   bills: [
     { column: 'account_id', label: 'Posting account', input: 'ref', refTable: 'accounts', nullable: true }
   ],

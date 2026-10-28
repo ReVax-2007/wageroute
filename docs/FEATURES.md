@@ -1,6 +1,6 @@
 # Features and behaviour
 
-This is the functional reference for WageRoute 1.0.1. It describes what each screen does, which numbers it derives, what happens on save, and where the edge cases are.
+This is the functional reference for WageRoute 1.0.2 and the dedicated-accounts work queued for the next release. It describes what each screen does, which numbers it derives, what happens on save, and where the edge cases are.
 
 Related references: [DATA-MODEL.md](DATA-MODEL.md) for formulas and storage, [IMPORT-EXPORT.md](IMPORT-EXPORT.md) for file behaviour, [ARCHITECTURE.md](ARCHITECTURE.md) for the mutation loop.
 
@@ -52,12 +52,14 @@ The Overview is assembled from the snapshot and a few derived helpers.
 ### Safe to Spend
 
 ```text
-Safe to Spend = cash on hand − monthly Priority Wall − funded sinking goals
+Safe to Spend = spendable pool − monthly Priority Wall − funded goals whose money is in the pool
 ```
 
-- **Cash on hand** is the sum of non-archived checking, savings and cash balances. Investment and credit accounts are excluded.
+- **Spendable pool** is the sum of the balances of the accounts the user treats as spendable (see [Accounts](#accounts)). It is *not* cash on hand: an investment account can be opted in and a savings account opted out. With no per-account choice recorded, the pool is the non-archived checking, savings and cash balances, so pre-v4 data behaves exactly as before.
 - **Monthly Priority Wall** is the smoothed monthly obligation of all **active** bills.
-- **Funded sinking goals** is the sum of every goal's funded amount.
+- **Funded goals whose money is in the pool** is every goal's funded amount *except* goals fed by a dedicated account (`poolEarmarkedGoalsCents`).
+
+An account dedicated to a goal is left out of the pool by default, and its goal's progress is therefore not deducted either. The money has already been set aside — it is neither spendable nor inside the pool, so deducting it a second time would subtract the same amount twice and could push the hero number far below zero for no reason. Ordinary (allocation-funded) goals keep their deduction because that money really is still sitting in the pool.
 
 The hero also shows:
 
@@ -65,9 +67,17 @@ The hero also shows:
 committed share = min(1, (monthly wall + funded goals) / cash)
 ```
 
-If cash is zero, the share is zero. Safe to Spend can be negative; the value is styled as negative rather than clamped.
+If cash is zero, the share is zero. Safe to Spend can be negative; the value is styled as negative rather than clamped. The meter is deliberately measured against cash on hand, not the pool, because it answers "how much of my visible cash is already spoken for".
 
-The breakdown panel repeats the three inputs and the result. This is a conservative measure: funded goals may be held in a savings account that is already counted in cash, so the same dollars reduce Safe to Spend twice by design.
+### Total wealth
+
+Directly under the hero:
+
+```text
+Total wealth = sum of every non-archived account balance
+```
+
+Credit balances are stored negative, so they subtract. The strip splits the same number into Cash, Saved for goals, Invested and Credit owed; the split is tested to add back to the total exactly. The figure also appears as the first tile on Accounts and as a second line in the sidebar stat.
 
 ### Stat cards
 
@@ -182,7 +192,7 @@ Each card shows:
 - progress bar coloured by the goal;
 - percent funded, capped at 100 for display;
 - amount remaining (`max(0, target − funded)`);
-- priority chip, emergency chip when flagged, and a monthly pace chip.
+- priority chip, emergency chip when flagged, a monthly pace chip, and a funding-source chip when the goal is fed by a dedicated account.
 
 Monthly pace:
 
@@ -193,7 +203,12 @@ monthlyNeed = months ? ceil(remaining / months) : null
 
 A goal with no target date shows “No pace set”. A goal whose deadline is today still gets a one-month pace.
 
-Progress comes only from allocation lines written by paycheck routing. Moving money into the account named in “Held in” does not increase progress.
+Progress has two sources (see [ADR 0007](decisions/0007-dedicated-accounts-balance-is-progress.md)):
+
+- **A dedicated account.** If any live, non-archived account is marked “Mine only for” this goal, its **balance is the funded amount** — several accounts add together, and the allocation total is replaced, not added to. The card shows a chip naming those accounts, and the number moves with every entry that touches them. An overdrawn dedicated account reads as zero.
+- **Otherwise, allocation lines** written by paycheck routing. Moving money into the account named in “Held in” does not increase progress on such a goal.
+
+Detaching or archiving the last dedicated account puts the goal back on its allocation total. The historical allocation rows are never deleted; they are simply not shown while an account is the source.
 
 ### Goal dialog
 
@@ -203,7 +218,7 @@ Validation: name required, target greater than zero. Priority is numeric; lower 
 
 Creating a goal does not backfill it with existing savings. Editing a target recalculates progress against the new target immediately.
 
-Removing a goal asks for confirmation, then soft-deletes it. Its historical allocations remain in the ledger but no longer appear as progress.
+Removing a goal asks for confirmation, then soft-deletes it. Its historical allocations remain in the ledger but no longer appear as progress, and every account dedicated to it is detached in the same transaction so none points at a removed goal.
 
 ### Funding order
 
@@ -213,7 +228,7 @@ When the allocator distributes the goal percentage, eligible goals are sorted by
 2. target date ascending, with no date sorting last;
 3. name ascending.
 
-Fully funded goals are skipped. Each goal takes `min(remaining need, remaining goal budget)`. Any leftover goal budget becomes savings.
+Fully funded goals are skipped, and so is every goal fed by a dedicated account: an allocation written against it would be invisible, so its share of the budget falls through to savings instead. When no goal is allocatable at all the warning is “no goals”, whether that means none exist or all of them have their own account. Each remaining goal takes `min(remaining need, remaining goal budget)`. Any leftover goal budget becomes savings.
 
 ---
 
@@ -278,6 +293,7 @@ Active accounts are grouped by `institution`, sorted alphabetically. Accounts wi
 
 | Tile | Value |
 | --- | --- |
+| Total wealth | `Σ` non-archived balances; credit is already negative |
 | Cash across accounts | Non-archived checking + savings + cash |
 | Credit owed | `Σ max(0, −balance)` for credit accounts |
 | Available credit | `Σ max(0, limit − owed)` for credit accounts with a limit |
@@ -304,6 +320,10 @@ Fields:
 - **Type** — checking, savings, cash, investment, credit.
 - **Starting balance** — create only. For credit cards the label becomes “Balance owed today” and a positive entry is stored as a negative balance.
 - **Credit limit** — credit cards only.
+- **Mine only for** — any live sinking fund, or **Nothing in particular**. Choosing a goal makes the account dedicated: its balance becomes that goal's progress, a hint explains that money parked here is spent when the goal is funded, and the account drops out of the spendable pool by default.
+- **Safe to spend** — Automatic / Always count it / Never count it. Automatic follows the account type (checking, savings and cash are included; investment, credit and dedicated accounts are not), and an explicit choice wins in both directions.
+
+Both fields appear on create *and* edit, and are written as one pair so the dialog cannot save a purpose change without its pool consequence.
 
 Editing cannot change the starting balance. The subtitle explains that corrections use an adjustment entry so the opening balance stays intact.
 
@@ -635,7 +655,7 @@ All domain dates are constructed as UTC dates from `YYYY-MM-DD` strings. “Toda
 | Bank connections / statement sync | Not implemented | Manual entry and file import only |
 | Recurring transaction generation | Not implemented | Bills are a reserve model |
 | Paycheck editing or deletion | Not implemented | Commit is append-only in the UI |
-| Goal withdrawals or spending from a goal | Not implemented | Progress is allocation-only |
+| Goal withdrawals or spending from a goal | Partial | Spending from a **dedicated account** lowers that goal's progress, because its balance is the progress. Allocation-funded goals have no withdrawal path — their money never left the spendable accounts |
 | Debt payoff schedule / APR | Not implemented | Debt is a percentage bucket plus credit balances |
 | Category budgets and reports | Not implemented | |
 | Cloud sync, multi-device, accounts | Not implemented | Schema prepared only |

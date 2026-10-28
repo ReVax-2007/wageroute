@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import Database from 'better-sqlite3'
 import test from 'node:test'
 import { parseEntriesCsv, type CsvEntry } from '@shared/csv'
-import { mergeBackup, type BackupPayload } from '../main/db/backup'
+import { buildBackup, mergeBackup, type BackupPayload } from '../main/db/backup'
 import { mergeEntries } from '../main/db/entries'
 import { migrate, SCHEMA_VERSION } from '../main/db/migrations'
 import {
@@ -364,4 +364,47 @@ test('a mapping whose account disappeared reports the row instead of aborting', 
   assert.equal(merged.added, 1)
   assert.equal(merged.issues.length, 1)
   assert.match(merged.issues[0].message, /no longer exists/)
+})
+
+test('a dedicated account and its goal survive an export/import round trip', () => {
+  const db = freshDb()
+  const result = mergeBackup(
+    db,
+    USER_ID,
+    payload({
+      accounts: [
+        {
+          id: 'acc-1',
+          user_id: USER_ID,
+          name: 'Emergency Savings',
+          kind: 'savings',
+          dedicated_goal_id: 'goal-1',
+          in_safe_to_spend: 0
+        }
+      ],
+      goals: [
+        {
+          id: 'goal-1',
+          user_id: USER_ID,
+          name: 'Emergency fund',
+          target_cents: 600_000,
+          account_id: 'acc-1'
+        }
+      ]
+    })
+  )
+
+  assert.deepEqual(result.issues, [], 'the accounts and goals cycle must not be refused')
+  assert.equal(result.added.accounts, 1)
+  assert.equal(result.added.goals, 1)
+
+  const restored = db
+    .prepare('SELECT dedicated_goal_id, in_safe_to_spend FROM accounts WHERE id = ?')
+    .get('acc-1') as { dedicated_goal_id: string | null; in_safe_to_spend: number | null }
+  assert.equal(restored.dedicated_goal_id, 'goal-1')
+  assert.equal(restored.in_safe_to_spend, 0, 'an explicit opt-out must not import as NULL')
+
+  const reExported = buildBackup(db, USER_ID)
+  assert.equal(reExported.tables.accounts[0].dedicated_goal_id, 'goal-1')
+  assert.equal(reExported.tables.accounts[0].in_safe_to_spend, 0)
 })
