@@ -43,6 +43,8 @@ The architecture follows from five constraints:
 │  app lifecycle ──► connection.ts ──► migrations.ts                 │
 │       │                 │                                          │
 │       │                 ├──► seed.ts (first run only)               │
+       │                 │      packaged: blank user + defaults      │
+       │                 │      dev: demo profile (Alex)             │
 │       │                 └──► repositories.ts (all SQL)              │
 │       │                                                            │
 │       ├──► ipc.ts (handlers, dialogs, file I/O)                    │
@@ -78,7 +80,7 @@ The same `src/shared` modules are imported by both the main process and the rend
    - on macOS in development only, the dock icon is set from `build/icon.png`;
    - `adoptLegacyDatabase()` copies a pre-rename database if the new one is absent;
    - `getDatabase()` opens `wageroute.db`, sets WAL/NORMAL/foreign keys/busy timeout, and runs migrations;
-   - `seedIfEmpty()` inserts demo data only when no user row exists;
+   - packaged builds run `seedIfEmpty()` (a blank local user plus default settings, only when no user row exists); development runs `seedDemoIfEmpty()` (the Alex demo profile);
    - `registerIpcHandlers(db)` binds every channel;
    - `createWindow()` builds the BrowserWindow.
 4. `before-quit` closes the SQLite handle.
@@ -405,7 +407,7 @@ Both use `strict: true`, `verbatimModuleSyntax`, `isolatedModules` and no emit. 
 | `src/main/db/backup.ts` | Backup build/parse/merge |
 | `src/main/db/entries.ts` | CSV entry merge and account resolution |
 | `src/main/db/legacy.ts` | Pre-rename database adoption |
-| `src/main/db/seed.ts` | First-run demo data |
+| `src/main/db/seed.ts` | First-run seed: blank user in packaged builds, demo profile in development |
 | `src/preload/index.ts` | IPC bridge |
 | `src/renderer/src/store/useFinanceStore.ts` | Client state, mutation loop, selectors |
 | `src/renderer/src/lib/finance.ts` | UI-facing derived totals and labels |

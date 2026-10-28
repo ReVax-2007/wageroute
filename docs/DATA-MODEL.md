@@ -97,7 +97,7 @@ The local profile. Exactly one active row is expected; the app never creates a s
 | `deleted_at` | TEXT | nullable | |
 | `revision` | INTEGER | NOT NULL, default 1 | |
 
-The seed creates `display_name = 'Alex'` with `currency = 'USD'`.
+The development seed creates `display_name = 'Alex'` with `currency = 'USD'`. Packaged builds seed a blank display name, which the dashboard greeting renders without a name.
 
 ### `settings`
 
@@ -211,7 +211,7 @@ Consequences:
 | `deleted_at` | TEXT | nullable | |
 | `revision` | INTEGER | NOT NULL, default 1 | |
 
-A paycheck row is an audit record of a routing decision. It is written only by `commitPaycheck` or by the seed. Each commit also writes an `income` transaction on the deposit account, unless the record is seeded with `recordIncome = false`.
+A paycheck row is an audit record of a routing decision. It is written only by `commitPaycheck` or by the development demo seed. Each commit also writes an `income` transaction on the deposit account, unless the record is seeded with `recordIncome = false`.
 
 ### `allocations`
 
@@ -339,7 +339,7 @@ Stored in `settings.value` as text. Defaults and validation live in `src/shared/
 
 Unknown keys are preserved by an import but ignored by `parseSettings`. Settings imported from a backup never overwrite existing local keys (`INSERT OR IGNORE`).
 
-The seed overrides the default splits to `20 / 15 / 15 / 5` and leaves 45% as leisure.
+The development demo seed overrides the default splits to `20 / 15 / 15 / 5` and leaves 45% as leisure. Packaged builds keep `DEFAULT_SETTINGS`.
 
 ## Migrations
 

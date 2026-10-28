@@ -45,6 +45,7 @@ export function Dashboard() {
   const snapshot = useFinanceStore((state) => state.snapshot)
   const settings = useFinanceStore((state) => state.settings)
   const openAllocator = useFinanceStore((state) => state.openAllocator)
+  const importData = useFinanceStore((state) => state.importData)
   const go = useFinanceStore((state) => state.go)
   const safeToSpend = useFinanceStore(selectSafeToSpendCents)
   const cash = useFinanceStore(selectCashOnHandCents)
@@ -67,6 +68,7 @@ export function Dashboard() {
 
   const monthKey = todayISO().slice(0, 7)
   const routing = monthRoutingBreakdown(snapshot.paychecks, monthKey)
+  const firstRun = snapshot.accounts.length === 0 && snapshot.paychecks.length === 0
   const slices: DonutSlice[] = [
     {
       key: 'priority',
@@ -110,7 +112,8 @@ export function Dashboard() {
         <div>
           <p className="eyebrow">Overview · {formatDateLong(todayISO())}</p>
           <h1 className="page-title">
-            {greeting()}, {snapshot.user.displayName}
+            {greeting()}
+            {snapshot.user.displayName ? `, ${snapshot.user.displayName}` : ''}
           </h1>
           <p className="page-sub">Every dollar gets a job before you spend it.</p>
         </div>
@@ -118,6 +121,24 @@ export function Dashboard() {
           Route a paycheck
         </Button>
       </header>
+
+      {firstRun && (
+        <Card title="Welcome to WageRoute" subtitle="Everything stays in a local database on this device">
+          <EmptyState
+            icon={<Sparkles size={20} />}
+            title="Start from scratch or import a backup"
+            body="Set up your own accounts, bills and goals, or bring everything back from a WageRoute JSON backup."
+            action={
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                <Button variant="primary" onClick={() => go('accounts')}>
+                  Start from scratch
+                </Button>
+                <Button onClick={() => void importData()}>Import a backup</Button>
+              </div>
+            }
+          />
+        </Card>
+      )}
 
       <section className="safe-hero">
         <div className="safe-main">

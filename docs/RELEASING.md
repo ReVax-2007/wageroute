@@ -244,7 +244,7 @@ NSIS is configured as a per-user install (`perMachine: false`), not one-click, w
 
 `files` includes only `out/**/*` and `package.json`, minus source maps. `asarUnpack` extracts `**/*.node`, so the native SQLite binary sits outside the asar archive where it can be loaded. `npmRebuild: true` rebuilds native modules during packaging.
 
-No database is bundled. On first launch the app seeds a demo ledger if no user row exists. That seed is **not** a release asset and must be treated as demo data, not a starter budget.
+No database is bundled. On first launch the app seeds one blank local user with default settings if no user row exists, and the dashboard offers a start-from-scratch or import-a-backup path. The demo profile (Alex) is seeded only in development builds (`app.isPackaged` false); it is **not** a release asset.
 
 ---
 
@@ -396,7 +396,7 @@ Or let CI build both after the tag. Local builds are for verification and for a 
 
 Install from the DMG/EXE on a machine or VM that has never run WageRoute:
 
-- launch and confirm the demo seed appears on a fresh profile;
+- launch and confirm the first-run prompt appears on a fresh profile (start from scratch or import a backup);
 - import a backup and confirm counts;
 - create an account, entry and transfer;
 - quit and relaunch; confirm persistence;

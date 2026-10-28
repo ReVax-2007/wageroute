@@ -33,7 +33,27 @@ const DEMO_BILLS: BillSpec[] = [
   { name: 'Spotify', amountCents: 1199, frequency: 'monthly', dueDay: 22, category: 'Subscriptions', autopay: true }
 ]
 
+// Packaged builds start blank: one local user plus default settings, no demo
+// data. The demo profile below exists only for development, so a disposable
+// profile never needs manual setup just to see the app populated.
 export function seedIfEmpty(db: Db): string {
+  const existing = db
+    .prepare('SELECT id FROM users ORDER BY created_at LIMIT 1')
+    .get() as { id: string } | undefined
+  if (existing) return existing.id
+
+  const userId = randomUUID()
+  const ts = new Date().toISOString()
+  db.prepare(
+    `INSERT INTO users
+       (id, email, display_name, currency, created_at, updated_at, deleted_at, revision)
+     VALUES (?, NULL, ?, 'USD', ?, ?, NULL, 1)`
+  ).run(userId, '', ts, ts)
+  writeSettings(db, userId, settingsToRecord(DEFAULT_SETTINGS))
+  return userId
+}
+
+export function seedDemoIfEmpty(db: Db): string {
   const existing = db
     .prepare('SELECT id FROM users ORDER BY created_at LIMIT 1')
     .get() as { id: string } | undefined
