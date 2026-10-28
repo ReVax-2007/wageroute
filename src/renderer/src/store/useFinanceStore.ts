@@ -64,6 +64,7 @@ interface FinanceState {
   exportBackup: () => Promise<void>
   exportCsv: () => Promise<void>
   importData: () => Promise<void>
+  resetData: () => Promise<void>
 }
 
 let noticeTimer: ReturnType<typeof setTimeout> | undefined
@@ -288,6 +289,11 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
       } finally {
         set({ busy: false })
       }
+    },
+
+    resetData: async () => {
+      const ok = await run(() => window.api.resetData(), 'All data erased — back to a blank profile.')
+      if (ok) set({ screen: 'dashboard' })
     }
   }
 })

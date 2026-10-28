@@ -38,7 +38,8 @@ const api: FinanceApi = {
 
   exportBackup: () => invoke('backup:export'),
   exportTransactionsCsv: () => invoke('csv:export'),
-  importData: () => invoke('data:import')
+  importData: () => invoke('data:import'),
+  resetData: () => invoke('data:reset')
 }
 
 contextBridge.exposeInMainWorld('api', api)

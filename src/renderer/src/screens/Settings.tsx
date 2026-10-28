@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   Download,
   FileSpreadsheet,
@@ -5,11 +6,12 @@ import {
   Moon,
   RefreshCw,
   Sun,
+  Trash2,
   Upload
 } from 'lucide-react'
 import type { RoundUpIncrementCents, ThemePreference } from '@shared/types'
 import { roundUpRemainderCents } from '@shared/transfers'
-import { Button, Card, Field, Segmented, Switch } from '../components/ui'
+import { Button, Card, Field, Modal, Segmented, Switch } from '../components/ui'
 import { useFinanceStore } from '../store/useFinanceStore'
 
 const INCREMENTS: { value: string; label: string; cents: RoundUpIncrementCents }[] = [
@@ -26,8 +28,10 @@ export function Settings() {
   const exportBackup = useFinanceStore((state) => state.exportBackup)
   const exportCsv = useFinanceStore((state) => state.exportCsv)
   const importData = useFinanceStore((state) => state.importData)
+  const resetData = useFinanceStore((state) => state.resetData)
   const go = useFinanceStore((state) => state.go)
   const dbPath = useFinanceStore((state) => state.dbPath)
+  const [eraseStep, setEraseStep] = useState<0 | 1 | 2>(0)
 
   if (!snapshot) return null
 
@@ -195,7 +199,85 @@ export function Settings() {
           </p>
           <Button onClick={() => go('goals')}>Open sinking funds</Button>
         </Card>
+
+        <Card
+          title="Danger zone"
+          subtitle="Erase every account, bill, goal, paycheck and entry on this device"
+          actions={<Trash2 size={16} className="stat-icon" />}
+        >
+          <div className="data-actions">
+            <Button
+              variant="danger"
+              icon={<Trash2 size={15} />}
+              onClick={() => setEraseStep(1)}
+              disabled={busy}
+            >
+              Erase all data…
+            </Button>
+          </div>
+          <p className="field-hint">
+            Deletes the entire local database and returns WageRoute to a blank first-run profile.
+            Exported backups and CSV files are not touched. This cannot be undone.
+          </p>
+        </Card>
       </div>
+
+      {eraseStep === 1 && (
+        <Modal
+          title="Erase all data?"
+          subtitle="Step 1 of 2"
+          onClose={() => setEraseStep(0)}
+          footer={
+            <>
+              <Button variant="quiet" onClick={() => setEraseStep(0)}>
+                Cancel
+              </Button>
+              <Button variant="primary" onClick={() => setEraseStep(2)}>
+                Continue
+              </Button>
+            </>
+          }
+        >
+          <p className="field-hint">
+            This permanently deletes every account, bill, sinking fund, paycheck and ledger entry
+            stored on this device, and resets settings to their defaults.
+          </p>
+          <p className="field-hint">
+            Exported backups and CSV files on disk are not affected. If there is any chance you
+            will want this data back later, export a backup first.
+          </p>
+        </Modal>
+      )}
+
+      {eraseStep === 2 && (
+        <Modal
+          title="This cannot be undone"
+          subtitle="Step 2 of 2 — final confirmation"
+          onClose={() => setEraseStep(0)}
+          footer={
+            <>
+              <Button variant="quiet" onClick={() => setEraseStep(0)}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                disabled={busy}
+                onClick={() => {
+                  setEraseStep(0)
+                  void resetData()
+                }}
+              >
+                Erase everything
+              </Button>
+            </>
+          }
+        >
+          <p className="field-hint">
+            Clicking <strong>Erase everything</strong> wipes the local database immediately and
+            drops you back on the dashboard with a blank profile, exactly like a first launch.
+          </p>
+        </Modal>
+      )}
     </>
   )
 }

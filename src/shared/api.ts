@@ -77,4 +77,5 @@ export interface FinanceApi {
   exportBackup(): Promise<string | null>
   exportTransactionsCsv(): Promise<string | null>
   importData(): Promise<ImportResult | null>
+  resetData(): Promise<void>
 }

@@ -534,6 +534,10 @@ Three actions:
 
 The database path is displayed below the actions and is also shown in the sidebar (with a tooltip for the full path).
 
+### Danger zone
+
+**Erase all data…** starts a two-step confirmation. The first dialog explains what is deleted (every account, bill, sinking fund, paycheck and ledger entry, plus settings) and that exported backups and CSV files are untouched; **Continue** opens a second dialog with a final **Erase everything** button. The erase wipes the database, re-seeds a blank local user with default settings, and returns to the dashboard in the same blank state as a first launch.
+
 ### Emergency fund
 
 A pointer card to Sinking funds; the calculator itself lives there.
