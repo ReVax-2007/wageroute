@@ -316,8 +316,8 @@ Practical workarounds, in order of convenience:
 
 1. **Right-click the app → Open → Open.** The shortcut-menu launch presents a dialog with an actual **Open** button; no trip to System Settings is needed. After the first approval, the app opens normally.
 2. System Settings → Privacy & Security → **Open Anyway** (fallback when the right-click dialog is not offered).
-3. Install via **Homebrew** (`brew install --cask ReVax-2007/wageroute/wageroute`) or **curl** — see [DEPLOYMENT.md](DEPLOYMENT.md#homebrew-tap). A curl download carries no quarantine attribute, so Gatekeeper never checks it; `brew --no-quarantine` achieves the same.
-4. `xattr -dr com.apple.quarantine /Applications/WageRoute.app` (only for a build you trust; it removes a real protection). **Note:** on macOS 25+ this returns EPERM for browser-downloaded apps, which also carry `com.apple.provenance`; prefer options 1–3.
+3. Install via **Homebrew** (`brew install --cask ReVax-2007/wageroute/wageroute`) or **curl** — see [DEPLOYMENT.md](DEPLOYMENT.md#homebrew-tap). A curl download carries no quarantine attribute, so Gatekeeper never checks it. Homebrew does quarantine, so its first launch still needs option 1 unless you clear the flag with option 4.
+4. `sudo xattr -rd com.apple.quarantine /Applications/WageRoute.app` (only for a build you trust; it removes a real protection). This needs your password. Without `sudo` the same command fails with EPERM on browser-downloaded apps, which also carry the `com.apple.provenance` attribute; prefer options 1–3.
 
 Apple Silicon requires at least an ad-hoc signature for the executable to run, and an *invalid* signature produces the "damaged" dialog rather than the "cannot be verified" one. electron-builder's default no-identity path leaves the bundle with a broken signature, which is why the build re-signs it explicitly with `codesign --force --deep --sign -` in the afterPack hook. Ad-hoc is not notarization and does not satisfy Gatekeeper for downloaded copies. Verify the artifact on a clean machine rather than assuming a local launch proves it will open elsewhere.
 
