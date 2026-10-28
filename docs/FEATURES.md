@@ -661,4 +661,4 @@ All domain dates are constructed as UTC dates from `YYYY-MM-DD` strings. “Toda
 | Import a backup from a newer schema | Rejected with a version message |
 | JSON import with missing sync metadata | Filled with `now` and revision 1 |
 | JSON import with a dangling foreign key | The whole import rolls back |
-| Delete the database file | Next launch seeds a fresh demo profile |
+| Delete the database file | Packaged: next launch seeds a blank profile with the first-run prompt; development: next launch re-seeds the demo profile |

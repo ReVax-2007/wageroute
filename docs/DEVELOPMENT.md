@@ -79,7 +79,7 @@ src/
 │       ├── backup.ts         JSON build/parse/merge
 │       ├── entries.ts        CSV entry merge
 │       ├── legacy.ts         pre-rename database adoption
-│       └── seed.ts           first-run demo data
+│       └── seed.ts           first-run seed: blank (packaged) / demo (dev)
 ├── preload/
 │   ├── index.ts              contextBridge API
 │   └── index.d.ts            window.api typing
@@ -421,7 +421,7 @@ Architecture matters too: an arm64 Electron build needs an arm64 native module. 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
 | `NODE_MODULE_VERSION` mismatch | Native module built for Node, not Electron | `npm run postinstall` |
-| App opens with Alex's demo data | Using a fresh `userData` directory | Expected on first run; use the real profile or import a backup |
+| App opens with Alex's demo data | Running unpackaged (`npm run dev`) with a fresh `userData` directory | Expected in development; use the real profile or import a backup |
 | Changes do not appear | Snapshot not refreshed or app pointing at another database | Check the database path; restart; verify the store action awaited the mutation |
 | CSV rows ignored | Account name mismatch or duplicate names | Check the issue message; rename or create accounts |
 | JSON import fails with a foreign key error | Partial file references rows that are not local or earlier in the file | Include the referenced rows or null the links |

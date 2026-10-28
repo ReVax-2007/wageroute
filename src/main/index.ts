@@ -2,7 +2,7 @@ import { app, BrowserWindow, session, shell } from 'electron'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { adoptLegacyDatabase, closeDatabase, getDatabase } from './db/connection'
-import { seedIfEmpty } from './db/seed'
+import { seedDemoIfEmpty, seedIfEmpty } from './db/seed'
 import { registerIpcHandlers } from './ipc'
 
 app.setName('WageRoute')
@@ -73,7 +73,11 @@ if (!hasLock) {
 
     adoptLegacyDatabase()
     const db = getDatabase()
-    seedIfEmpty(db)
+    if (app.isPackaged) {
+      seedIfEmpty(db)
+    } else {
+      seedDemoIfEmpty(db)
+    }
     registerIpcHandlers(db)
 
     createWindow()
