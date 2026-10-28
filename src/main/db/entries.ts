@@ -22,13 +22,24 @@ function key(value: string | null | undefined): string {
 
 /**
  * Inserts CSV entries straight into the ledger so historical rows do not trigger
- * round-up sweeps, and skips rows whose account cannot be matched locally.
+ * round-up sweeps. Rows whose account cannot be matched by name are matched
+ * through the wizard's account map, and only then skipped with a reported issue.
  */
+export interface EntryMergeOptions {
+  /** Account names the user mapped to a local account in the import wizard. */
+  accountMap?: Record<string, string>
+  /** Names the wizard already reported as unmapped, so one row replaces many lines. */
+  reportedNames?: Set<string>
+}
+
 export function mergeEntries(
   db: Db,
   userId: string,
-  entries: readonly CsvEntry[]
+  entries: readonly CsvEntry[],
+  options: EntryMergeOptions = {}
 ): EntryMergeResult {
+  const accountMap = options.accountMap ?? {}
+  const reportedNames = options.reportedNames ?? new Set<string>()
   const accounts = db
     .prepare(`SELECT id, name, institution FROM accounts WHERE user_id = ? AND deleted_at IS NULL`)
     .all(userId) as AccountLite[]
@@ -51,6 +62,7 @@ export function mergeEntries(
   let added = 0
   let skipped = 0
 
+  const accountsById = new Map(accounts.map((account) => [account.id, account]))
   const resolved: { entry: CsvEntry; accountId: string }[] = []
   for (const entry of entries) {
     const nameMatches = accounts.filter((account) => key(account.name) === key(entry.accountName))
@@ -62,8 +74,24 @@ export function mergeEntries(
       if (bankMatches.length > 0) candidates = bankMatches
     }
 
+    const mapped = accountMap[key(entry.accountName)]
+    if (mapped) {
+      // The account picked in the wizard can go missing before this confirm runs.
+      if (!accountsById.has(mapped)) {
+        issues.push({
+          line: entry.line,
+          message: `“${entry.accountName}” was mapped to an account that no longer exists`
+        })
+        continue
+      }
+      resolved.push({ entry, accountId: mapped })
+      continue
+    }
+
     if (candidates.length === 0) {
-      issues.push({ line: entry.line, message: `no account named “${entry.accountName}”` })
+      if (!reportedNames.has(key(entry.accountName))) {
+        issues.push({ line: entry.line, message: `no account named “${entry.accountName}”` })
+      }
       continue
     }
     if (candidates.length > 1) {

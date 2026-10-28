@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import type { ImportCounts } from '@shared/api'
+import type { ImportCounts, ImportPreview } from '@shared/api'
+import type { ImportAnswer } from '@shared/importRepair'
 import { DEFAULT_SETTINGS, parseSettings } from '@shared/settings'
 import type {
   AccountInput,
@@ -29,6 +30,8 @@ interface FinanceState {
   dbPath: string
   screen: Screen
   allocatorOpen: boolean
+  importPreview: ImportPreview | null
+  importStep: 'fix' | 'review'
   busy: boolean
   notice: Notice | null
   snoozedBillIds: string[]
@@ -63,7 +66,10 @@ interface FinanceState {
   saveSettings: (next: AppSettings) => Promise<void>
   exportBackup: () => Promise<void>
   exportCsv: () => Promise<void>
-  importData: () => Promise<void>
+  openImport: () => Promise<void>
+  closeImport: () => void
+  goImportStep: (step: 'fix' | 'review') => void
+  runImport: (answers: ImportAnswer[]) => Promise<void>
   resetData: () => Promise<void>
 }
 
@@ -101,6 +107,8 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
     dbPath: '',
     screen: 'dashboard',
     allocatorOpen: false,
+    importPreview: null,
+    importStep: 'fix',
     busy: false,
     notice: null,
     snoozedBillIds: [],
@@ -243,31 +251,45 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
       }
     },
 
-    importData: async () => {
-      const confirmed = window.confirm(
-        'Import this file? Everything already in this app stays exactly as it is — the import only adds what is missing.'
-      )
-      if (!confirmed) return
+    openImport: async () => {
+      set({ busy: true })
+      try {
+        const preview = await window.api.previewImport()
+        if (!preview) return
+        set({ importPreview: preview, importStep: preview.problems.length > 0 ? 'fix' : 'review' })
+      } catch (error) {
+        get().notify(messageOf(error), 'error')
+      } finally {
+        set({ busy: false })
+      }
+    },
+
+    closeImport: () => set({ importPreview: null, importStep: 'fix' }),
+
+    goImportStep: (step) => set({ importStep: step }),
+
+    runImport: async (answers) => {
+      const preview = get().importPreview
+      if (!preview) return
 
       set({ busy: true })
       try {
-        const result = await window.api.importData()
+        const result = await window.api.confirmImport(preview.token, answers)
         if (!result) return
+        set({ importPreview: null, importStep: 'fix' })
         const snapshot = await window.api.getSnapshot()
-        set({
-          snapshot,
-          settings: parseSettings(snapshot.settings)
-        })
+        set({ snapshot, settings: parseSettings(snapshot.settings) })
+
         const added = totalCounts(result.added)
         const skipped = totalCounts(result.skipped)
-        const ignored = result.issues.length
+        const dropped = result.dropped.length
+        const refused = result.issues.length
         const noun = result.format === 'entries' ? 'entries' : 'records'
 
         if (added === 0) {
-          if (ignored > 0) {
-            const first = result.issues[0]
+          if (dropped > 0 || refused > 0) {
             get().notify(
-              `Nothing imported — ${ignored} ${ignored === 1 ? 'row' : 'rows'} ignored (${first.message})`,
+              `Nothing imported — ${dropped + refused} ${dropped + refused === 1 ? 'row' : 'rows'} left out`,
               'error'
             )
           } else {
@@ -282,7 +304,8 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
 
         const parts = [`Imported ${added} new ${noun}`]
         if (skipped > 0) parts.push(`${skipped} already present`)
-        if (ignored > 0) parts.push(`${ignored} ${ignored === 1 ? 'row' : 'rows'} ignored`)
+        if (dropped > 0) parts.push(`${dropped} ${dropped === 1 ? 'row' : 'rows'} left out`)
+        if (refused > 0) parts.push(`${refused} ${refused === 1 ? 'row' : 'rows'} refused by the database`)
         get().notify(parts.join(' · '))
       } catch (error) {
         get().notify(messageOf(error), 'error')

@@ -9,6 +9,7 @@ Short, dated records of the choices that are expensive to reverse. Each ADR stat
 | [0003](0003-additive-imports.md) | Imports add data; they never replace it | Accepted |
 | [0004](0004-sync-ready-schema.md) | Prepare the schema for sync without implementing sync | Accepted as preparation only |
 | [0005](0005-wageroute-rename.md) | Rename to WageRoute and adopt legacy data | Accepted |
+| [0006](0006-import-wizard-asks-instead-of-failing.md) | Imports ask instead of failing: preview/confirm wizard with per-row repair | Accepted |
 
 ## Conventions
 

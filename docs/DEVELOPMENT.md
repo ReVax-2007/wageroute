@@ -54,7 +54,7 @@ npm run postinstall
 | --- | --- | --- |
 | `npm run dev` | `electron-vite dev` | Dev server, main/preload rebuild, hot renderer reload |
 | `npm start` | `electron-vite preview` | Run the production bundles in `out/` |
-| `npm test` | `node --import tsx --test src/shared/domain.test.ts` | 19 domain tests |
+| `npm test` | `node --import tsx --test src/shared/*.test.ts` (four files listed explicitly) | Domain, importer, backup-example and repair tests |
 | `npm run typecheck` | node + web type checks | Both TypeScript projects |
 | `npm run typecheck:node` | `tsc --noEmit -p tsconfig.node.json` | Main, preload, shared, config |
 | `npm run typecheck:web` | `tsc --noEmit -p tsconfig.json` | Renderer and shared |
@@ -101,12 +101,16 @@ src/
     ├── csv.ts
     ├── dates.ts
     ├── emergency.ts
+    ├── importRepair.ts   import problem detection and repair
     ├── money.ts
     ├── projections.ts
     ├── settings.ts
     ├── transfers.ts
     ├── types.ts
-    └── domain.test.ts
+    ├── domain.test.ts
+    ├── backup-example.test.ts
+    ├── backup-merge.test.ts
+    └── importRepair.test.ts
 ```
 
 ### Layering rules
@@ -189,20 +193,25 @@ When a test requires moving a database aside, move it to a dated quarantine fold
 
 ## Testing
 
-### Domain tests
+Four files, all in `src/shared/`, run by `npm test` through `node --test` with `tsx` as the loader. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**.
 
-`src/shared/domain.test.ts` uses `node:test` and `node:assert/strict`. It covers:
+| File | Style | Covers |
+| --- | --- | --- |
+| `domain.test.ts` | pure functions | money parsing and formatting boundaries; cadence smoothing and per-paycheck reserves; month-end date clamping and due-date derivation; allocator priority, shortfall, scaling, goal ordering, whole-dollar sweeping and the balance identity; debt as a surplus bucket; bill prompt chronology and early-payment window; round-up remainders and transfer legs; emergency variable averaging, essentials, target and coverage; settings defaults, corrupt input and round-trip serialization; CSV quoting, parsing, bank-style dates, duplicate headers and transfer rejection |
+| `importRepair.test.ts` | pure functions | a clean backup needs nothing; each missing, invalid or dangling value becomes exactly one question; nullable versus required references; answers repair rows, unanswered rows are dropped rather than thrown; a still-invalid answer drops with the validation message; clearing a nullable reference is a valid answer; rows inside one file can satisfy each other's references; unmatched CSV account names collapse to one question each |
+| `backup-merge.test.ts` | **real in-memory SQLite** | schema-defaulted columns import with the default instead of failing NOT NULL; one unusable row is reported rather than aborting the file; a settings row without a key is skipped; existing values survive while missing timestamps fill in; CSV names mapped in the wizard land on the chosen account; an unmapped name is left out once and the rest still imports; a mapping whose account disappeared reports the row instead of throwing |
+| `backup-example.test.ts` | real file | `examples/backup.example.json` parses as a valid backup and every cross-table link resolves, so the shipped example cannot silently drift |
 
-- money parsing and formatting boundaries;
-- cadence smoothing and per-paycheck reserves;
-- month-end date clamping and due-date derivation;
-- allocator priority, shortfall, scaling, goal ordering, whole-dollar sweeping and the balance identity;
-- debt as a surplus bucket;
-- bill prompt chronology and early-payment window;
-- round-up remainders and transfer legs;
-- emergency variable averaging, essentials, target and coverage;
-- settings defaults, corrupt input and round-trip serialization;
-- CSV quoting, parsing, bank-style dates, duplicate headers and transfer rejection.
+Conventions every new test follows:
+
+```ts
+import test from 'node:test'
+import assert from 'node:assert/strict'
+```
+
+- Flat top-level `test('description', () => …)` calls — the suite does not use `describe`/`it`.
+- A database-backed test creates its own: `new Database(':memory:')` → `migrate(db)` → insert a `users` row with the fixed `USER_ID`, because every tenant query filters `user_id`. The `freshDb()` helper in `backup-merge.test.ts` is the pattern to copy; it is re-created per test.
+- Assertions are on plain values and integer cents, never on rendered output or snapshots. There is no Testing Library, no jsdom and no coverage tool.
 
 Run:
 
@@ -214,12 +223,12 @@ npm test
 
 There are no automated:
 
-- repository/database tests;
-- IPC integration tests;
-- React component tests;
+- IPC integration tests (the `data:preview`/`data:confirm` token lifecycle included);
+- React component tests — including the import wizard and the allocator;
 - end-to-end tests;
 - visual regression tests;
-- migration tests against fixture databases.
+- migration tests against fixture databases (the v2/v3 table rebuilds are verified by hand);
+- repository tests for the CRUD validators outside the two importer paths above.
 
 Those paths are verified manually. When changing them, use the disposable home and a copy of a real database, and document the manual check in the change description.
 
@@ -231,7 +240,7 @@ A typical feature crosses most layers. Use this checklist.
 
 - Add or change types in `src/shared/types.ts`.
 - Add pure rules in `src/shared` if the behaviour must be testable.
-- Add tests in `src/shared/domain.test.ts`.
+- Add tests to the file that owns the area: `domain.test.ts` for the maths and formats, `importRepair.test.ts` for the import problem/repair rules, `backup-merge.test.ts` when the rule needs a real database. Anything new needs its own `*.test.ts` listed in the `test` script.
 
 ### 2. Storage
 
@@ -243,7 +252,7 @@ A typical feature crosses most layers. Use this checklist.
   - snapshot assembly if the data is part of the read model.
 - Update `src/main/db/backup.ts`:
   - `TABLE_COLUMNS` for any new table or column;
-  - `FALLBACK_VALUES` for columns that may be absent in older backups;
+  - `TABLE_DEFAULTS` for columns that may be absent in older backups;
   - merge order if a new table has foreign keys.
 - Update the seed if the demo profile should include the feature.
 
@@ -267,6 +276,7 @@ A typical feature crosses most layers. Use this checklist.
 - Update [FEATURES.md](FEATURES.md) for behaviour.
 - Update [IMPORT-EXPORT.md](IMPORT-EXPORT.md) if the file formats change.
 - Update [RELEASING.md](RELEASING.md) if packaging or migration compatibility changes.
+- Add a numbered record in [decisions/](decisions/) when a decision is new or changes; supersede rather than rewrite an old one.
 
 ## Adding an IPC channel
 
@@ -277,7 +287,7 @@ A typical feature crosses most layers. Use this checklist.
    - Delegate payload rules to the repository; do not duplicate them in the handler.
 4. Expose it in `src/preload/index.ts`.
 5. Add a store action that calls it, refreshes the snapshot and surfaces errors.
-6. Keep channel names `domain:verb` (`account:create`, `data:import`).
+6. Keep channel names `domain:verb` (`account:create`, `data:preview`, `data:confirm`).
 
 Do not expose `ipcRenderer`, `require`, `fs` or raw SQL to the renderer.
 
@@ -316,7 +326,7 @@ Migrations are append-only. Never modify `SCHEMA_V1`, `SCHEMA_V2` or `SCHEMA_V3`
 If a new column is added:
 
 - add it to `TABLE_COLUMNS`;
-- add a fallback in `FALLBACK_VALUES` if backups without it should import cleanly;
+- add a fallback in `TABLE_DEFAULTS` if backups without it should import cleanly;
 - decide whether the backup `version` should increase. A new `version` means older app builds reject newer files; that is usually correct for a breaking schema change.
 
 ## Debugging

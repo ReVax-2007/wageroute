@@ -2183,6 +2183,68 @@ select.grid-editor {
   margin-top: 14px;
 }
 
+/* --------------------------------------------------------- import wizard */
+
+.import-problem {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 14px 16px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+}
+
+.import-problem-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.import-problem-head strong {
+  font-size: 13px;
+}
+
+.import-problem-reason {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.import-problem-hint {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.import-problem-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.import-review-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.import-review-list > strong {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.import-review-row {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+
 .split-check {
   display: flex;
   align-items: center;

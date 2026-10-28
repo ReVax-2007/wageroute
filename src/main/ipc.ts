@@ -1,9 +1,32 @@
 import { app, BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent } from 'electron'
+import { randomUUID } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type Database from 'better-sqlite3'
+import type {
+  ImportDroppedRow,
+  ImportIssue,
+  ImportPreview,
+  ImportResult
+} from '@shared/api'
 import { emptyImportCounts } from '@shared/api'
-import { parseEntriesCsv, transactionsToCsv } from '@shared/csv'
+import { parseEntriesCsv, transactionsToCsv, type CsvEntry } from '@shared/csv'
+import { todayISO } from '@shared/dates'
+import {
+  applyImportAnswers,
+  buildAccountMap,
+  findImportProblems,
+  findUnmappedAccounts,
+  IMPORT_TABLES,
+  withFileIds,
+  type EntryMapping,
+  type ImportAnswer,
+  type ImportChoice,
+  type ImportChoiceTable,
+  type ImportContext,
+  type ImportProblem,
+  type ImportTable
+} from '@shared/importRepair'
 import { settingsToRecord } from '@shared/settings'
 import type {
   AccountInput,
@@ -19,7 +42,8 @@ import {
   backupToJson,
   buildBackup,
   mergeBackup,
-  parseBackupJson
+  parseBackupJson,
+  type BackupPayload
 } from './db/backup'
 import { mergeEntries } from './db/entries'
 import { seedIfEmpty } from './db/seed'
@@ -39,6 +63,106 @@ function ownerWindow(event: IpcMainInvokeEvent): BrowserWindow | null {
 function defaultFile(name: string): string {
   const stamp = new Date().toISOString().slice(0, 10)
   return join(app.getPath('documents'), name.replace('DATE', stamp))
+}
+
+/**
+ * A chosen file stays here between the wizard's preview and confirm steps so
+ * the renderer only ever hands back a token, never a path it picked itself.
+ */
+interface PendingImport {
+  path: string
+  format: 'backup' | 'entries'
+  exportedAt: string
+  payload?: BackupPayload
+  entries?: CsvEntry[]
+  parseIssues?: ImportIssue[]
+  mappings?: EntryMapping[]
+}
+
+const MAX_PENDING_IMPORTS = 8
+const pendingImports = new Map<string, PendingImport>()
+
+function holdImport(entry: PendingImport): string {
+  const token = randomUUID()
+  pendingImports.set(token, entry)
+  while (pendingImports.size > MAX_PENDING_IMPORTS) {
+    const oldest = pendingImports.keys().next().value
+    if (oldest === undefined) break
+    pendingImports.delete(oldest)
+  }
+  return token
+}
+
+function takeImport(token: string): PendingImport {
+  const pending = pendingImports.get(token)
+  if (!pending) throw new Error('That import has expired — pick the file again')
+  pendingImports.delete(token)
+  return pending
+}
+
+async function pickImportFile(win: BrowserWindow | null): Promise<string | null> {
+  const options = {
+    title: 'Import data',
+    properties: ['openFile' as const],
+    filters: [{ name: 'Backup or entries', extensions: ['json', 'csv'] }]
+  }
+  const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
+  if (result.canceled || result.filePaths.length === 0) return null
+  return result.filePaths[0]
+}
+
+function readImportText(path: string): string {
+  let text: string
+  try {
+    text = readFileSync(path, 'utf8')
+  } catch {
+    throw new Error('That file could not be read')
+  }
+  if (text.length > MAX_IMPORT_BYTES) throw new Error('That file is too large')
+  return text
+}
+
+/** Ids the database will accept for references: what is already local, plus what the file carries. */
+function importContext(
+  database: Database.Database,
+  localUserId: string,
+  payload: BackupPayload
+): ImportContext {
+  const choices = repo.listImportChoices(database, localUserId)
+  const knownIds = {} as Record<ImportTable, Set<string>>
+  for (const table of IMPORT_TABLES) knownIds[table] = new Set<string>()
+  for (const table of Object.keys(choices) as ImportChoiceTable[]) {
+    for (const choice of choices[table]) knownIds[table].add(choice.id)
+  }
+  return withFileIds({ knownIds, choices, today: todayISO() }, payload.tables)
+}
+
+function entryProblem(mapping: EntryMapping, choices: Record<ImportChoiceTable, ImportChoice[]>): ImportProblem {
+  return {
+    key: `e:${mapping.firstLine}`,
+    scope: 'entry',
+    table: 'transactions',
+    rowIndex: 0,
+    line: mapping.firstLine,
+    field: {
+      column: 'account_id',
+      label: 'Account',
+      input: 'ref',
+      refTable: 'accounts'
+    },
+    rowLabel: `CSV “${mapping.displayName}” (${mapping.lines} ${mapping.lines === 1 ? 'line' : 'lines'})`,
+    reason: `no local account is named “${mapping.displayName}”`,
+    fixHint: `Create an account named “${mapping.displayName}” and import again, or point these lines at an existing account.`,
+    suggested: choices.accounts[0]?.id ?? ''
+  }
+}
+
+function entryDropped(mapping: EntryMapping): ImportDroppedRow {
+  return {
+    rowLabel: `CSV “${mapping.displayName}” (${mapping.lines} ${mapping.lines === 1 ? 'line' : 'lines'})`,
+    reason: `no local account is named “${mapping.displayName}”`,
+    fixHint: `Create an account named “${mapping.displayName}” and import again, or map the lines next time.`
+  }
 }
 
 export function registerIpcHandlers(db: Database.Database): void {
@@ -123,43 +247,102 @@ export function registerIpcHandlers(db: Database.Database): void {
     return result.filePath
   })
 
-  ipcMain.handle('data:import', async (event) => {
-    const win = ownerWindow(event)
-    const options = {
-      title: 'Import data',
-      properties: ['openFile' as const],
-      filters: [{ name: 'Backup or entries', extensions: ['json', 'csv'] }]
-    }
-    const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
-    if (result.canceled || result.filePaths.length === 0) return null
-
-    const path = result.filePaths[0]
-    const text = readFileSync(path, 'utf8')
-    if (text.length > MAX_IMPORT_BYTES) throw new Error('That file is too large')
+  ipcMain.handle('data:preview', async (event) => {
+    const path = await pickImportFile(ownerWindow(event))
+    if (!path) return null
+    const text = readImportText(path)
 
     if (/\.csv$/i.test(path)) {
       const parsed = parseEntriesCsv(text)
       if (parsed.entries.length === 0 && parsed.issues.length === 0) {
         throw new Error('That CSV has no entries')
       }
-      const merged = mergeEntries(db, userId(), parsed.entries)
-      const added = emptyImportCounts()
-      const skipped = emptyImportCounts()
+      const choices = repo.listImportChoices(db, userId())
+      const knownNames = new Set(choices.accounts.map((choice) => choice.label.trim().toLocaleLowerCase()))
+      const mappings = findUnmappedAccounts(parsed.entries, knownNames)
+      const token = holdImport({
+        path,
+        format: 'entries',
+        exportedAt: '',
+        entries: parsed.entries,
+        parseIssues: parsed.issues,
+        mappings
+      })
+      const rows = emptyImportCounts()
+      rows.transactions = parsed.entries.length
+      return {
+        token,
+        path,
+        format: 'entries',
+        exportedAt: '',
+        fileRows: rows,
+        problems: mappings.map((mapping) => entryProblem(mapping, choices)),
+        choices
+      } satisfies ImportPreview
+    }
+
+    const payload = parseBackupJson(text)
+    const context = importContext(db, userId(), payload)
+    const token = holdImport({ path, format: 'backup', exportedAt: payload.exportedAt, payload })
+    const rows = emptyImportCounts()
+    for (const table of IMPORT_TABLES) rows[table] = payload.tables[table].length
+    return {
+      token,
+      path,
+      format: 'backup',
+      exportedAt: payload.exportedAt,
+      fileRows: rows,
+      problems: findImportProblems(payload.tables, context),
+      choices: context.choices
+    } satisfies ImportPreview
+  })
+
+  ipcMain.handle('data:confirm', (_event, token: unknown, answers: unknown) => {
+    const pending = takeImport(requireId(token))
+    const list = Array.isArray(answers) ? (answers as ImportAnswer[]) : []
+    const added = emptyImportCounts()
+    const skipped = emptyImportCounts()
+
+    if (pending.format === 'entries') {
+      const mappings = pending.mappings ?? []
+      const accountMap = buildAccountMap(mappings, list)
+      const unmapped = mappings.filter((mapping) => !(mapping.accountName in accountMap))
+      const merged = mergeEntries(db, userId(), pending.entries ?? [], {
+        accountMap,
+        reportedNames: new Set(unmapped.map((mapping) => mapping.accountName))
+      })
       added.transactions = merged.added
       skipped.transactions = merged.skipped
       return {
-        path,
+        path: pending.path,
         format: 'entries',
         exportedAt: '',
         added,
         skipped,
-        issues: [...parsed.issues, ...merged.issues]
-      }
+        dropped: unmapped.map((mapping) => entryDropped(mapping)),
+        issues: [...(pending.parseIssues ?? []), ...merged.issues]
+      } satisfies ImportResult
     }
 
-    const payload = parseBackupJson(text)
-    const { added, skipped } = mergeBackup(db, userId(), payload)
-    return { path, format: 'backup', exportedAt: payload.exportedAt, added, skipped, issues: [] }
+    const payload = pending.payload
+    if (!payload) throw new Error('That import has expired — pick the file again')
+    const context = importContext(db, userId(), payload)
+    const repaired = applyImportAnswers(
+      payload.tables,
+      findImportProblems(payload.tables, context),
+      list,
+      context
+    )
+    const merged = mergeBackup(db, userId(), { ...payload, tables: repaired.tables })
+    return {
+      path: pending.path,
+      format: 'backup',
+      exportedAt: payload.exportedAt,
+      added: merged.added,
+      skipped: merged.skipped,
+      dropped: repaired.dropped,
+      issues: merged.issues
+    } satisfies ImportResult
   })
 
   ipcMain.handle('data:reset', () => {

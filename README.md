@@ -155,8 +155,9 @@ The app was previously named **Cash Flow Routing**. On first launch, if the new 
 
 - **Export full backup** writes every row of accounts, bills, goals, paychecks, allocations, transactions and settings as JSON. It includes tombstones and all linked IDs.
 - **Export transactions CSV** writes the latest 500 ledger rows (the snapshot limit) with Date, Account, Institution, Kind, Category, Description, Amount and Currency.
-- **Import data** accepts either format. JSON may contain only some tables. CSV is treated as entries and matched to local accounts by name (optionally narrowed by institution).
-- Imports are additive and transactional. Existing IDs are skipped, existing settings keys win, and re-importing the same file changes nothing.
+- **Import data** accepts either format and walks you through a three-step wizard. JSON may contain only some tables. CSV is treated as entries and matched to local accounts by name (optionally narrowed by institution).
+- **The wizard asks instead of failing.** Anything a row is missing, mis-typed, out of range or pointing at — plus CSV account names that match nothing — is put to you as a question with a fix-or-leave-out choice. Rows you cannot fix are left out with an explanation of what was wrong and how to repair the file; the rest of the import still lands.
+- Imports are additive: existing IDs are skipped, existing settings keys win, and re-importing the same file changes nothing.
 
 Full format rules, examples and failure modes are in [docs/IMPORT-EXPORT.md](docs/IMPORT-EXPORT.md).
 

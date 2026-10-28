@@ -530,7 +530,19 @@ Three actions:
 
 - **Export full backup** — JSON save dialog, default `~/Documents/wageroute-backup-YYYY-MM-DD.json`.
 - **Export transactions CSV** — CSV save dialog, default `~/Documents/wageroute-transactions-YYYY-MM-DD.csv`.
-- **Import data** — open dialog accepting `.json` and `.csv`, with a confirmation that explains imports only add.
+- **Import data** — open dialog accepting `.json` and `.csv`, then the import wizard.
+
+### Import wizard
+
+The wizard has three steps — choose file, missing info, review — and the same component serves the first-run "Import a backup" button on the dashboard.
+
+- **Missing info** shows one card per row that cannot import as it stands, with an editor per question: text, amount, whole number, date, an enum dropdown, or a dropdown of local rows for a foreign key (with **Leave unlinked** where the column allows NULL). CSV account names that match nothing are grouped into one question per name covering every line that shares it.
+- Each card offers **Leave this row out** (or **Leave these lines out** for CSV). Filling an answer in patches the row; leaving it blank drops the row instead of failing the import.
+- **Review** names what is being imported, echoes the values you supplied, and lists everything not imported with every reason on that row plus how to fix the source file. A warning counts rows still incomplete before you confirm.
+- A file with nothing missing skips straight to review, so a clean WageRoute backup is still one click.
+- Rows that pass the wizard but break a database rule anyway are reported individually; the rest of the transaction commits.
+
+The file path stays in the main process between the two steps — the renderer only ever holds a single-use token. See [docs/IMPORT-EXPORT.md](IMPORT-EXPORT.md#the-import-wizard).
 
 The database path is displayed below the actions and is also shown in the sidebar (with a tooltip for the full path).
 

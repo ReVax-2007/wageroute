@@ -1,8 +1,16 @@
 import assert from 'node:assert/strict'
 import Database from 'better-sqlite3'
 import test from 'node:test'
+import { parseEntriesCsv, type CsvEntry } from '@shared/csv'
 import { mergeBackup, type BackupPayload } from '../main/db/backup'
+import { mergeEntries } from '../main/db/entries'
 import { migrate, SCHEMA_VERSION } from '../main/db/migrations'
+import {
+  buildAccountMap,
+  findUnmappedAccounts,
+  type EntryMapping,
+  type ImportAnswer
+} from './importRepair'
 
 const USER_ID = '11111111-2222-3333-4444-555555555555'
 
@@ -136,6 +144,83 @@ test('rows missing schema-defaulted columns import with the column default, not 
   assert.equal(txn.transfer_group_id, null)
 })
 
+test('one unusable row is reported instead of aborting the import', () => {
+  const db = freshDb()
+  const result = mergeBackup(
+    db,
+    USER_ID,
+    payload({
+      accounts: [
+        {
+          id: 'acc-ok',
+          user_id: USER_ID,
+          name: 'Good account',
+          kind: 'checking',
+          created_at: '2026-02-01T00:00:00.000Z',
+          updated_at: '2026-02-01T00:00:00.000Z'
+        },
+        {
+          id: 'acc-bad',
+          user_id: USER_ID,
+          name: 'Impossible account',
+          kind: 'crypto',
+          created_at: '2026-02-01T00:00:00.000Z',
+          updated_at: '2026-02-01T00:00:00.000Z'
+        }
+      ],
+      transactions: [
+        {
+          id: 'txn-orphan',
+          user_id: USER_ID,
+          account_id: 'acc-missing',
+          kind: 'expense',
+          amount_cents: 100,
+          occurred_on: '2026-02-16'
+        },
+        {
+          // No id at all: the importer mints one rather than refusing the row.
+          user_id: USER_ID,
+          account_id: 'acc-ok',
+          kind: 'expense',
+          amount_cents: 250,
+          occurred_on: '2026-02-17'
+        }
+      ]
+    })
+  )
+
+  assert.equal(result.added.accounts, 1, 'the valid account still imports')
+  assert.equal(result.added.transactions, 1, 'the valid transaction still imports')
+  assert.equal(result.generatedIds, 1)
+  assert.equal(result.issues.length, 2)
+  assert.match(
+    result.issues.find((issue) => issue.message.includes('Impossible account'))?.message ?? '',
+    /CHECK constraint failed/
+  )
+  assert.match(
+    result.issues.find((issue) => issue.message.includes('transaction row 1'))?.message ?? '',
+    /FOREIGN KEY constraint failed/
+  )
+})
+
+test('a settings row without a key is skipped, not fatal', () => {
+  const db = freshDb()
+  const result = mergeBackup(
+    db,
+    USER_ID,
+    payload({
+      settings: [
+        { user_id: USER_ID, key: 'theme', value: 'dark' },
+        { user_id: USER_ID, value: 'orphan' }
+      ]
+    })
+  )
+
+  assert.equal(result.added.settings, 1)
+  assert.equal(result.issues.length, 1)
+  assert.match(result.issues[0].message, /no setting key/)
+})
+
 test('rows that already carry values keep them; timestamps still fill in when missing', () => {
   const db = freshDb()
   mergeBackup(
@@ -181,4 +266,102 @@ test('rows that already carry values keep them; timestamps still fill in when mi
   assert.equal(again.skipped.accounts, 1)
   assert.equal(again.added.accounts, 0)
   assert.equal(account.sort_order, 7)
+})
+
+const CSV = [
+  'date,account,kind,category,description,amount',
+  '2026-02-03,Coffee Shop,expense,Food,Latte,-5.40',
+  '2026-02-04,Everyday Cheque,expense,Food,Bread,-3.00'
+].join('\n')
+
+function localAccounts(db: Database.Database): { id: string; name: string }[] {
+  return db.prepare('SELECT id, name FROM accounts WHERE user_id = ?').all(USER_ID) as {
+    id: string
+    name: string
+  }[]
+}
+
+function unmappedNames(db: Database.Database, entries: CsvEntry[]): EntryMapping[] {
+  const knownNames = new Set(
+    localAccounts(db).map((account) => account.name.trim().toLocaleLowerCase())
+  )
+  return findUnmappedAccounts(entries, knownNames)
+}
+
+/** What the main process derives from the wizard's answers: a name map plus the names left out. */
+function mappingFromAnswer(
+  db: Database.Database,
+  entries: CsvEntry[],
+  answer: ImportAnswer
+): { accountMap: Record<string, string>; reportedNames: Set<string> } {
+  const mappings = unmappedNames(db, entries)
+  const accountMap = buildAccountMap(mappings, [answer])
+  const unmapped = mappings.filter((mapping) => !(mapping.accountName in accountMap))
+  return { accountMap, reportedNames: new Set(unmapped.map((mapping) => mapping.accountName)) }
+}
+
+test('a CSV account name mapped in the wizard lands on the account chosen there', () => {
+  const db = freshDb()
+  mergeBackup(
+    db,
+    USER_ID,
+    payload({ accounts: [{ id: 'acc-cheque', user_id: USER_ID, name: 'Everyday Cheque', kind: 'checking' }] })
+  )
+
+  const parsed = parseEntriesCsv(CSV)
+  const [first] = unmappedNames(db, parsed.entries)
+  const { accountMap, reportedNames } = mappingFromAnswer(db, parsed.entries, {
+    key: `e:${first.firstLine}`,
+    value: 'acc-cheque',
+    skip: false
+  })
+  const merged = mergeEntries(db, USER_ID, parsed.entries, { accountMap, reportedNames })
+
+  assert.equal(merged.added, 2)
+  assert.deepEqual(merged.issues, [])
+  const posting = db
+    .prepare('SELECT account_id FROM transactions WHERE memo = ?')
+    .get('Latte') as { account_id: string }
+  assert.equal(posting.account_id, 'acc-cheque')
+})
+
+test('a CSV row nobody maps is left out once, and the rest still imports', () => {
+  const db = freshDb()
+  mergeBackup(
+    db,
+    USER_ID,
+    payload({ accounts: [{ id: 'acc-cheque', user_id: USER_ID, name: 'Everyday Cheque', kind: 'checking' }] })
+  )
+
+  const parsed = parseEntriesCsv(CSV)
+  const [first] = unmappedNames(db, parsed.entries)
+  const { accountMap, reportedNames } = mappingFromAnswer(db, parsed.entries, {
+    key: `e:${first.firstLine}`,
+    value: '',
+    skip: true
+  })
+  const merged = mergeEntries(db, USER_ID, parsed.entries, { accountMap, reportedNames })
+
+  assert.equal(merged.added, 1)
+  // The wizard already reported the name once, so the importer stays quiet about it.
+  assert.deepEqual(merged.issues, [])
+})
+
+test('a mapping whose account disappeared reports the row instead of aborting', () => {
+  const db = freshDb()
+  mergeBackup(
+    db,
+    USER_ID,
+    payload({ accounts: [{ id: 'acc-cheque', user_id: USER_ID, name: 'Everyday Cheque', kind: 'checking' }] })
+  )
+
+  const parsed = parseEntriesCsv(CSV)
+  const merged = mergeEntries(db, USER_ID, parsed.entries, {
+    accountMap: { 'coffee shop': 'acc-deleted' },
+    reportedNames: new Set<string>()
+  })
+
+  assert.equal(merged.added, 1)
+  assert.equal(merged.issues.length, 1)
+  assert.match(merged.issues[0].message, /no longer exists/)
 })

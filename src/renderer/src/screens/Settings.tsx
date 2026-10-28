@@ -27,7 +27,7 @@ export function Settings() {
   const saveSettings = useFinanceStore((state) => state.saveSettings)
   const exportBackup = useFinanceStore((state) => state.exportBackup)
   const exportCsv = useFinanceStore((state) => state.exportCsv)
-  const importData = useFinanceStore((state) => state.importData)
+  const openImport = useFinanceStore((state) => state.openImport)
   const resetData = useFinanceStore((state) => state.resetData)
   const go = useFinanceStore((state) => state.go)
   const dbPath = useFinanceStore((state) => state.dbPath)
@@ -173,7 +173,7 @@ export function Settings() {
             </Button>
             <Button
               icon={<Upload size={15} />}
-              onClick={() => void importData()}
+              onClick={() => void openImport()}
               disabled={busy}
             >
               Import data

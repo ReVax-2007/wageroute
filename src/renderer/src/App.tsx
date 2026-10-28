@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useFinanceStore } from './store/useFinanceStore'
 import { Sidebar } from './components/Sidebar'
+import { ImportWizard } from './components/ImportWizard'
 import { Toast } from './components/ui'
 import { Dashboard } from './screens/Dashboard'
 import { PriorityWall } from './screens/PriorityWall'
@@ -70,6 +71,7 @@ export default function App() {
         </div>
       </main>
       <Allocator />
+      <ImportWizard />
       <Toast />
     </div>
   )

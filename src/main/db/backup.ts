@@ -1,5 +1,7 @@
+import { randomUUID } from 'node:crypto'
 import type Database from 'better-sqlite3'
-import type { ImportCounts } from '@shared/api'
+import type { ImportCounts, ImportIssue } from '@shared/api'
+import { IMPORT_TABLES, type ImportTable, type ImportTables } from '@shared/importRepair'
 import { SCHEMA_VERSION } from './migrations'
 
 type Db = Database.Database
@@ -9,10 +11,20 @@ export interface BackupPayload {
   format: 'cash-flow-routing-backup'
   version: number
   exportedAt: string
-  tables: Record<BackupTable, Record<string, unknown>[]>
+  tables: ImportTables
 }
 
-type BackupTable = 'accounts' | 'bills' | 'goals' | 'paychecks' | 'allocations' | 'transactions' | 'settings'
+export type BackupTable = ImportTable
+
+const TABLE_LABEL: Record<BackupTable, string> = {
+  accounts: 'account',
+  bills: 'bill',
+  goals: 'goal',
+  paychecks: 'paycheck',
+  allocations: 'allocation',
+  transactions: 'transaction',
+  settings: 'setting'
+}
 
 /** Column allowlists keep imports parameterised; keys from the file are never interpolated. */
 const TABLE_COLUMNS: Record<BackupTable, readonly string[]> = {
@@ -48,15 +60,7 @@ const TABLE_COLUMNS: Record<BackupTable, readonly string[]> = {
   settings: ['user_id', 'key', 'value', 'updated_at']
 }
 
-const TABLE_ORDER: readonly BackupTable[] = [
-  'accounts',
-  'bills',
-  'goals',
-  'paychecks',
-  'allocations',
-  'transactions',
-  'settings'
-]
+const TABLE_ORDER: readonly BackupTable[] = IMPORT_TABLES
 
 /**
  * Columns the schema declares with a DEFAULT, keyed per table. The importer
@@ -178,6 +182,10 @@ function toSqlValue(value: unknown, key: string): SqlValue {
 export interface MergeResult {
   added: ImportCounts
   skipped: ImportCounts
+  /** Rows the database refused; every other row in the file still imports. */
+  issues: ImportIssue[]
+  /** Rows that arrived without an id and were given a fresh UUID. */
+  generatedIds: number
 }
 
 function emptyCounts(): ImportCounts {
@@ -192,14 +200,30 @@ function emptyCounts(): ImportCounts {
   }
 }
 
+function describeRow(table: BackupTable, row: Record<string, unknown>, index: number): string {
+  for (const column of ['name', 'label', 'memo', 'key']) {
+    const value = row[column]
+    if (typeof value === 'string' && value.trim()) return `${TABLE_LABEL[table]} “${value.trim()}”`
+  }
+  return `${TABLE_LABEL[table]} row ${index + 1}`
+}
+
+function issueOf(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.replace(/^SqliteError: /, '')
+}
+
 /**
  * Adds whatever the local database is missing and leaves existing rows alone.
  * Account/paycheck UUIDs are preserved so cross-table links hold, and re-importing
- * the same backup is a no-op.
+ * the same backup is a no-op. A row the database refuses is reported, not fatal:
+ * the wizard has already offered to fix or drop it.
  */
 export function mergeBackup(db: Db, userId: string, payload: BackupPayload): MergeResult {
   const added = emptyCounts()
   const skipped = emptyCounts()
+  const issues: ImportIssue[] = []
+  let generatedIds = 0
   const now = new Date().toISOString()
 
   db.transaction(() => {
@@ -209,17 +233,22 @@ export function mergeBackup(db: Db, userId: string, payload: BackupPayload): Mer
           `INSERT OR IGNORE INTO settings (user_id, key, value, updated_at)
            VALUES (?, ?, ?, ?)`
         )
-        for (const row of payload.tables.settings) {
-          if (typeof row.key !== 'string' || row.key.length === 0) {
-            fail('Backup has a settings row without a key')
+        payload.tables.settings.forEach((row, index) => {
+          if (typeof row.key !== 'string' || row.key.trim().length === 0) {
+            issues.push({ table, message: `${describeRow(table, row, index)}: no setting key` })
+            return
           }
-          const value = toSqlValue(row.value, 'value')
           const updatedAt =
             typeof row.updated_at === 'string' ? row.updated_at : now
-          const result = insert.run(userId, row.key, String(value ?? ''), updatedAt)
-          if (result.changes > 0) added.settings += 1
-          else skipped.settings += 1
-        }
+          try {
+            const value = toSqlValue(row.value, 'value')
+            const result = insert.run(userId, row.key, String(value ?? ''), updatedAt)
+            if (result.changes > 0) added.settings += 1
+            else skipped.settings += 1
+          } catch (error) {
+            issues.push({ table, message: `${describeRow(table, row, index)}: ${issueOf(error)}` })
+          }
+        })
         continue
       }
 
@@ -229,34 +258,38 @@ export function mergeBackup(db: Db, userId: string, payload: BackupPayload): Mer
          VALUES (${columns.map(() => '?').join(', ')})`
       )
       const exists = db.prepare(`SELECT 1 FROM ${table} WHERE id = ? AND user_id = ?`)
-      for (const row of payload.tables[table]) {
-        const id = row.id
-        if (typeof id !== 'string' || id.length === 0) {
-          fail(`Backup has a ${table} row without an id`)
-        }
-        if (exists.get(id, userId)) {
+      payload.tables[table].forEach((row, index) => {
+        const existingId = typeof row.id === 'string' && row.id.length > 0 ? row.id : ''
+        const id = existingId || randomUUID()
+        if (!existingId) generatedIds += 1
+        else if (exists.get(id, userId)) {
           skipped[table] += 1
-          continue
+          return
         }
         const defaults = TABLE_DEFAULTS[table]
-        const values = columns.map((column) => {
-          if (column === 'user_id') return userId
-          const value = row[column]
-          // Hand-written entry files often omit sync metadata and position
-          // columns; give every omitted key a sane value instead of NULL.
-          if (value === undefined) {
-            if (column === 'created_at' || column === 'updated_at') return now
-            if (column === 'revision') return 1
-            if (column in defaults) return defaults[column]
-            return null
-          }
-          return toSqlValue(value, column)
-        })
-        insert.run(...values)
-        added[table] += 1
-      }
+        try {
+          const values = columns.map((column) => {
+            if (column === 'user_id') return userId
+            if (column === 'id') return id
+            const value = row[column]
+            // Hand-written entry files often omit sync metadata and position
+            // columns; give every omitted key a sane value instead of NULL.
+            if (value === undefined) {
+              if (column === 'created_at' || column === 'updated_at') return now
+              if (column === 'revision') return 1
+              if (column in defaults) return defaults[column]
+              return null
+            }
+            return toSqlValue(value, column)
+          })
+          insert.run(...values)
+          added[table] += 1
+        } catch (error) {
+          issues.push({ table, message: `${describeRow(table, row, index)}: ${issueOf(error)}` })
+        }
+      })
     }
   })()
 
-  return { added, skipped }
+  return { added, skipped, issues, generatedIds }
 }

@@ -1,5 +1,12 @@
 import type { AllocationPlan } from './allocator'
 import type {
+  ImportAnswer,
+  ImportChoice,
+  ImportChoiceTable,
+  ImportProblem,
+  ImportTable
+} from './importRepair'
+import type {
   AccountInput,
   AppSettings,
   BillInput,
@@ -26,8 +33,31 @@ export interface ImportCounts {
 }
 
 export interface ImportIssue {
-  line: number
+  /** CSV entry rows report the file line; backup rows report the table. */
+  line?: number
+  table?: ImportTable
   message: string
+}
+
+/** A row the wizard left out, with the reason and how to repair the file. */
+export interface ImportDroppedRow {
+  rowLabel: string
+  reason: string
+  fixHint: string
+}
+
+export interface ImportPreview {
+  /** Handle for the file held open in the main process until the import runs. */
+  token: string
+  path: string
+  format: 'backup' | 'entries'
+  exportedAt: string
+  /** How many rows the file carries per table. */
+  fileRows: ImportCounts
+  /** Rows that cannot import as they stand; the wizard asks about each one. */
+  problems: ImportProblem[]
+  /** Local rows a reference can be pointed at. */
+  choices: Record<ImportChoiceTable, ImportChoice[]>
 }
 
 export interface ImportResult {
@@ -36,6 +66,7 @@ export interface ImportResult {
   exportedAt: string
   added: ImportCounts
   skipped: ImportCounts
+  dropped: ImportDroppedRow[]
   issues: ImportIssue[]
 }
 
@@ -76,6 +107,9 @@ export interface FinanceApi {
 
   exportBackup(): Promise<string | null>
   exportTransactionsCsv(): Promise<string | null>
-  importData(): Promise<ImportResult | null>
+  /** Opens the file picker and reports what the import would need fixed. */
+  previewImport(): Promise<ImportPreview | null>
+  /** Runs the import for a preview token, applying the wizard's answers. */
+  confirmImport(token: string, answers: ImportAnswer[]): Promise<ImportResult | null>
   resetData(): Promise<void>
 }

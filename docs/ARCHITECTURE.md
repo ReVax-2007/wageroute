@@ -177,7 +177,8 @@ Channels are registered once in `src/main/ipc.ts` and exposed through `src/prelo
 | `settings:save` | `saveSettings` | `AppSettings` | `void` |
 | `backup:export` | `exportBackup` | — | saved path or `null` |
 | `csv:export` | `exportTransactionsCsv` | — | saved path or `null` |
-| `data:import` | `importData` | — | `ImportResult` or `null` |
+| `data:preview` | `previewImport` | — | `ImportPreview` or `null` (cancelled) |
+| `data:confirm` | `confirmImport` | `token`, `ImportAnswer[]` | `ImportResult` |
 
 Notes:
 
@@ -185,6 +186,7 @@ Notes:
 - File dialogs are owned by the invoking window, so they are modal to WageRoute.
 - Export and import use native save/open dialogs. The main process reads and writes the chosen file.
 - The import reader rejects files larger than **64 MiB** before parsing.
+- `data:preview` keeps the chosen file in a main-process map and hands back a single-use token; `data:confirm` accepts only that token. The renderer can never ask the main process to read a path it chose itself.
 
 ## The shared domain layer
 
@@ -330,14 +332,27 @@ Both round-up legs share a new `transfer_group_id`. Imported CSV entries call th
 ### Import a file
 
 ```text
-data:import
-  ├─ open dialog (JSON or CSV)
+data:preview
+  ├─ open dialog (JSON or CSV) → null when cancelled
   ├─ read file, reject > 64 MiB
-  ├─ .csv  ──► parseEntriesCsv ──► mergeEntries ──► result
-  └─ .json ──► parseBackupJson ──► mergeBackup ──► result
+  ├─ .csv  ──► parseEntriesCsv ──► findUnmappedAccounts ──► problems
+  ├─ .json ──► parseBackupJson ──► findImportProblems ──────► problems
+  └─ hold the file under a token, return ImportPreview { token, fileRows, problems, choices }
+
+ImportWizard (renderer)
+  ├─ step 2: one question per problem, answered or left out
+  └─ step 3: review, then confirmImport(token, answers)
+
+data:confirm
+  ├─ takeImport(token)          ← single use, oldest of 8 evicted
+  ├─ .csv  ──► buildAccountMap ──► mergeEntries ──► result
+  └─ .json ──► findImportProblems (same pure rules, re-derived)
+             ──► applyImportAnswers ──► mergeBackup ──► result
 ```
 
-JSON import preserves IDs for cross-table links. CSV import creates new UUIDs and resolves accounts by name, because a CSV has no IDs to preserve.
+Problem detection is shared, pure code in `src/shared/importRepair.ts`, so the main process re-derives exactly the questions the wizard showed and can trust `table:index` answer keys. Anything still unusable is dropped with a reason rather than thrown, and `mergeBackup` / `mergeEntries` isolate the remaining database errors per row.
+
+JSON import preserves IDs for cross-table links. CSV import creates new UUIDs and resolves accounts by name — or by your mapping in the wizard — because a CSV has no IDs to preserve.
 
 ### Delete an account
 

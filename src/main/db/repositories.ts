@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3'
 import { buildAllocationPlan } from '@shared/allocator'
 import type { CommittedPaycheck } from '@shared/api'
 import { isISODate } from '@shared/dates'
+import type { ImportChoice, ImportChoiceTable } from '@shared/importRepair'
 import { parseSettings } from '@shared/settings'
 import { roundUpRemainderCents, transferLegs } from '@shared/transfers'
 import type {
@@ -162,6 +163,42 @@ export function getLocalUserId(db: Db): string {
     .get() as { id: string } | undefined
   if (!row) throw new Error('No local user has been seeded')
   return row.id
+}
+
+/**
+ * Rows an import can point at when a reference is missing or dangling.
+ * Capped so a huge ledger cannot bloat the wizard.
+ */
+export function listImportChoices(
+  db: Db,
+  userId: string
+): Record<ImportChoiceTable, ImportChoice[]> {
+  const limit = 200
+  const rows = (sql: string): ImportChoice[] =>
+    db.prepare(sql).all(userId, limit) as ImportChoice[]
+
+  return {
+    accounts: rows(
+      `SELECT id, name AS label FROM accounts
+       WHERE user_id = ? AND deleted_at IS NULL
+       ORDER BY sort_order, name LIMIT ?`
+    ),
+    bills: rows(
+      `SELECT id, name AS label FROM bills
+       WHERE user_id = ? AND deleted_at IS NULL
+       ORDER BY name LIMIT ?`
+    ),
+    goals: rows(
+      `SELECT id, name AS label FROM goals
+       WHERE user_id = ? AND deleted_at IS NULL
+       ORDER BY priority, name LIMIT ?`
+    ),
+    paychecks: rows(
+      `SELECT id, received_on || ' · ' || source AS label FROM paychecks
+       WHERE user_id = ? AND deleted_at IS NULL
+       ORDER BY received_on DESC LIMIT ?`
+    )
+  }
 }
 
 // Every tenant table, children before parents. Literal names only; the reset
