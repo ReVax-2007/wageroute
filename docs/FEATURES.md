@@ -1,6 +1,6 @@
 # Features and behaviour
 
-This is the functional reference for WageRoute 0.1.0. It describes what each screen does, which numbers it derives, what happens on save, and where the edge cases are.
+This is the functional reference for WageRoute 1.0.0. It describes what each screen does, which numbers it derives, what happens on save, and where the edge cases are.
 
 Related references: [DATA-MODEL.md](DATA-MODEL.md) for formulas and storage, [IMPORT-EXPORT.md](IMPORT-EXPORT.md) for file behaviour, [ARCHITECTURE.md](ARCHITECTURE.md) for the mutation loop.
 
