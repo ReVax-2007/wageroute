@@ -32,7 +32,7 @@ WageRoute has three independent version numbers. Confusing them is the most comm
 
 | Version | Where it lives | Current value | What it means |
 | --- | --- | --- | --- |
-| App version | `package.json` → `version` | `0.1.0` | The build users install. Drives installer names, macOS bundle version and release tags. |
+| App version | `package.json` → `version` | `1.0.0` | The build users install. Drives installer names, macOS bundle version and release tags. |
 | Database schema version | `src/main/db/migrations.ts` → `SCHEMA_VERSION`, stored in SQLite `PRAGMA user_version` | `3` | The shape of the on-disk database. Changes only when a migration is added. |
 | Backup format version | Written into every JSON backup, equal to `SCHEMA_VERSION` | `3` | The newest backup the app writes. The reader accepts versions `2` and `3`. |
 
@@ -40,13 +40,13 @@ The source of truth for the app version is `package.json`. `npm` updates `packag
 
 ### SemVer policy
 
-The project is pre-1.0. Until the data model and UI are declared stable:
+The data model and UI are declared stable as of 1.0.0:
 
-- **Patch** (`0.1.0` → `0.1.1`) — bug fixes, copy changes, dependency patches, no schema change, no intentional behaviour break.
-- **Minor** (`0.1.0` → `0.2.0`) — new features, new settings, new screens, **or any schema migration**. A schema change is always at least a minor bump, even if the feature is small.
-- **Major** (`1.0.0`) — first stability commitment. After 1.0, schema changes that cannot be migrated forward require a major bump and a documented migration path.
+- **Patch** (`1.0.0` → `1.0.1`) — bug fixes, copy changes, dependency patches, no schema change, no intentional behaviour break.
+- **Minor** (`1.0.0` → `1.1.0`) — new features, new settings, new screens, **or any schema migration**. A schema change is always at least a minor bump, even if the feature is small.
+- **Major** (`2.0.0`) — a stability break: schema changes that cannot be migrated forward, or removal of documented behaviour. A major bump requires a documented migration path.
 
-Tags use the `v` prefix and match the app version exactly: `v0.1.0`. The CI workflow triggers on `v*`, so a typo such as `0.1.0` will build nothing.
+Tags use the `v` prefix and match the app version exactly: `v1.0.0`. The CI workflow triggers on `v*`, so a typo such as `0.1.0` will build nothing.
 
 ### What is not versioned
 
@@ -220,10 +220,10 @@ out/
 
 ```text
 release/
-├── WageRoute-0.1.0-arm64.dmg
-├── WageRoute-0.1.0-arm64.dmg.blockmap
-├── WageRoute-0.1.0-x64.dmg
-├── WageRoute-0.1.0-x64.dmg.blockmap
+├── WageRoute-1.0.0-arm64.dmg
+├── WageRoute-1.0.0-arm64.dmg.blockmap
+├── WageRoute-1.0.0-x64.dmg
+├── WageRoute-1.0.0-x64.dmg.blockmap
 ├── mac-arm64/WageRoute.app
 └── mac/WageRoute.app            # when an x64 build runs
 ```
@@ -234,8 +234,8 @@ Exact file names follow electron-builder's `productName-version-arch` pattern. T
 
 ```text
 release/
-├── WageRoute Setup 0.1.0.exe
-└── WageRoute Setup 0.1.0.exe.blockmap
+├── WageRoute Setup 1.0.0.exe
+└── WageRoute Setup 1.0.0.exe.blockmap
 ```
 
 NSIS is configured as a per-user install (`perMachine: false`), not one-click, with a selectable directory and a desktop shortcut. Per-user installs do not require administrator rights and put the app under the user's profile.
@@ -263,7 +263,7 @@ on:
 ```
 
 - **Manual** — run from the Actions tab, any branch.
-- **Tag push** — a tag beginning with `v` (for example `v0.1.0`).
+- **Tag push** — a tag beginning with `v` (for example `v1.0.0`).
 
 A normal branch push does **not** build installers. That is deliberate: packaging is slow and the artifacts are unsigned.
 
@@ -462,7 +462,7 @@ CI uploads workflow artifacts only. Creating a release is a manual, deliberate s
    - `WageRoute-0.2.0-x64.dmg` (if built and verified)
    - `WageRoute Setup 0.2.0.exe`
    - `SHA256SUMS.txt`
-6. Mark as **pre-release** while the app is 0.x, unless you have a specific reason not to.
+6. Mark as **pre-release** only if you do not intend this build as the default download.
 7. Publish.
 
 Do not attach the workflow artifact zip in place of the raw installers. Do not attach a `.db` file, a personal backup, a CSV export or any file containing real financial data.
