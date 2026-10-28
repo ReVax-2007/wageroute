@@ -16,9 +16,9 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "build": "npm run typecheck && electron-vite build",
-    "dist": "npm run build && electron-builder",
-    "dist:mac": "npm run build && electron-builder --mac",
-    "dist:win": "npm run build && electron-builder --win",
+    "dist": "npm run build && electron-builder --publish never",
+    "dist:mac": "npm run build && electron-builder --mac --publish never",
+    "dist:win": "npm run build && electron-builder --win --publish never",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {

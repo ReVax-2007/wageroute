@@ -293,7 +293,7 @@ A normal branch push does **not** build installers. That is deliberate: packagin
 - It does not sign or notarize.
 - It does not create a GitHub Release, tag or changelog.
 - It does not compute checksums.
-- It does not publish anywhere. Artifacts expire according to the repository's retention setting (GitHub's default is 90 days).
+- It does not publish anywhere. `npm run dist:*` passes `--publish never`, because electron-builder treats a tag build as an implicit publish request and fails when `GH_TOKEN` is absent. Artifacts expire according to the repository's retention setting (GitHub's default is 90 days).
 - It does not pin actions to commit SHAs; the major tags are mutable. See [SECURITY.md](SECURITY.md#supply-chain).
 
 Artifacts are downloaded from the workflow run page. They are zip files containing the installer, and may lose the executable bit or macOS metadata depending on the download path. For distribution, publish the raw installer files rather than the artifact zip.
