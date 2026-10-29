@@ -10,7 +10,7 @@ All notable changes to WageRoute are documented here. The format follows [Keep a
 
 Target: **1.1.0**. The queued work adds database schema versions 4, 5 and 6, and [any schema migration is at least a minor bump](docs/RELEASING.md#semver-policy), so this is not a patch release.
 
-The import-wizard and documentation items below are on `main` after the `v1.0.2` tag (`7fce57b`). The dedicated-accounts work (schema 4) merged as PR #13 (`76283d4`), and the bill-funding, goal-funding and account-colour work (schema 5) merged as PR #16 (`100bc65`). The last-check, pay-cycle and split-cap work (schema 6) is on `feat/last-check-pay-cycle-and-split-cap` and reaches `main` through its pull request — until that merges, no released build and no `main` checkout has it.
+The import-wizard and documentation items below are on `main` after the `v1.0.2` tag (`7fce57b`). The dedicated-accounts work (schema 4) merged as PR #13 (`76283d4`), and the bill-funding, goal-funding and account-colour work (schema 5) merged as PR #16 (`100bc65`). The last-check, pay-cycle and split-cap work (schema 6) merged as PR #18 (`ec07dae`).
 
 ### Added
 

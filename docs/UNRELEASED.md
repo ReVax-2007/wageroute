@@ -18,7 +18,7 @@
 | Tag | `v1.1.0` (does not exist yet) |
 | `package.json` today | still `1.0.2` — bump it **inside** the release branch, never before |
 
-Everything below is merged into `main` but is in **no installer any user has**, except the schema-6 items in section 9, which are on `feat/last-check-pay-cycle-and-split-cap` until that pull request merges. The `v1.0.2` tag is at `7fce57b`; anything after it is unreleased. Schema 5 merged as PR #16 (`100bc65`); its section is kept for the release notes.
+Everything below is merged into `main` but is in **no installer any user has**. The `v1.0.2` tag is at `7fce57b`; anything after it is unreleased. Schema 4 merged as PR #13 (`76283d4`), schema 5 as PR #16 (`100bc65`), and schema 6 as PR #18 (`ec07dae`); the sections are kept for the release notes.
 
 ---
 
@@ -73,9 +73,9 @@ electron-builder additionally targets AppImage/deb/rpm for Linux x64 and arm64 a
 
 Decide **before** cutting 1.1.0: open the PR and land it, or hold it for 1.2.0. Holding it is the conservative choice — that branch has never had a green CI run, its artifacts have never been launched by anyone, and shipping a Linux format that does not start is worse than shipping none. If it is held, this section moves to a "deferred" list rather than being deleted.
 
-### 9. Last check, pay-cycle settings and the 100% split cap — schema 6, on `feat/last-check-pay-cycle-and-split-cap` ([ADR 0011](decisions/0011-the-pay-cycle-is-a-setting.md))
+### 9. Last check, pay-cycle settings and the 100% split cap — schema 6 — merged as PR #18 (`ec07dae`) ([ADR 0011](decisions/0011-the-pay-cycle-is-a-setting.md))
 
-Reaches `main` through a pull request. Bumps the schema and the backup format to 6.
+Merged into `main`. Bumps the schema and the backup format to 6.
 
 - **"Last check of every month"** — a fifth funding option. It resolves to the last check the cadence is *guaranteed* to have (monthly 1, semimonthly 2, biweekly 2, weekly 4), so a biweekly month with a third check still funds on the second rather than leaving the bill unreserved in a two-check month. Listed fifth so the owner's original numbering is untouched.
 - **Settings → Paycheck** — pay cadence, a free-text **Payday label** (`15th and last day`) and a **Default paycheck account**. The cadence was previously editable only inside the allocator's step 1; it is the same stored key. The label is display only and is never parsed into dates. The default account is preselect-only, with a fallback chain (`chosen → first non-archived checking → first non-archived`) so an archived pointer degrades instead of blocking a route.
@@ -90,9 +90,8 @@ Reaches `main` through a pull request. Bumps the schema and the backup format to
 ## Blockers before release
 
 1. **The import wizard's rendered flow has never been opened.** Its detection and repair rules are tested as pure code, and the app itself is now drivable over CDP (see [DEVELOPMENT.md](DEVELOPMENT.md)), but the wizard begins with a native file picker that CDP cannot reach. Someone has to pick a real file and walk the questions by hand. The dedicated-accounts surfaces do not have this gap — they were verified that way, though no component test exists to keep them honest.
-2. **The schema-6 branch has no pull request yet.** It must be committed, pushed, opened as a PR and merged before 1.1.0 can be cut.
-3. **The schema-6 build has not been installed over the live app.** It ran against a disposable profile only. Whoever installs it should snapshot `wageroute.db` first, as was done for the 4→5 upgrade, and check that `user_version` reaches 6 with the counts unchanged.
-4. **Decide the Linux/Windows-formats question** (section 8 above).
+2. **The schema-6 build has not been installed over the live app.** It ran against a disposable profile only. Whoever installs it should snapshot `wageroute.db` first, as was done for the 4→5 upgrade, and check that `user_version` reaches 6 with the counts unchanged. The live database is at 5, so it jumps straight to 6; a single run applies every pending migration in order, so any older database reaches 6 in one launch.
+3. **Decide the Linux/Windows-formats question** (section 8 above).
 
 ---
 
