@@ -131,8 +131,10 @@ See [Bill prompts](#bill-prompts) below. The prompt card appears above the stat 
 | Figure | Formula |
 | --- | --- |
 | Locked every month | `Σ round(bill.amount × billPeriodsPerYear / 12)` over active bills |
-| Reserved per paycheck | `Σ round(bill.amount × billPeriodsPerYear / payPeriodsPerYear)` over active bills |
+| Reserved per paycheck | `Σ billFundingReserveCents(bill, payCadence)` over active bills — the spread for `all_checks` bills plus the full month on the one funding check for the three single-check strategies |
 | Active bills | Count of active bills; hint shows paused count and, when a paycheck exists, `perCheck / lastPaycheck.amount` as a percentage |
+
+The two figures answer different questions and are deliberately not the same arithmetic: *locked every month* is the obligation, *reserved per paycheck* is what leaves this particular paycheck. Averaging is what makes a $600 yearly premium look like $50 a month instead of a shock.
 
 Cadence constants:
 
@@ -153,6 +155,8 @@ Example: a $600 annual premium is $50/month. A $1,200 monthly bill reserves $553
 
 Columns: bill name and category (plus “autopay”), amount, cadence, due day as an ordinal, per-paycheck reserve, monthly equivalent and actions.
 
+A bill funded by a single paycheck shows its monthly amount in the per-paycheck column with a **“Nth check only”** sub-label, so the row cannot be read as a recurring deduction. Paused bills sort below the active ones and are marked **Bill inactive** — that label belongs to bills; a paused emergency fund says **Saving paused**.
+
 Actions:
 
 - **Pause/resume** — flips `is_active` immediately. Paused rows are dimmed, stop reserving and stop producing prompts, but remain in the table and in history.
@@ -161,7 +165,20 @@ Actions:
 
 ### Bill dialog
 
-Fields: name, amount, cadence, due day (1–31), category, paid-from account, autopay checkbox and “Reserve money from every paycheck”.
+Fields: name, amount, cadence, due day (1–31), category, paid-from account, autopay checkbox, **Funding schedule** and — when it is needed — **Which paycheck?**.
+
+Funding schedule offers the four choices in this order, numbered so the list reads as an answer rather than a set of labels:
+
+| # | Option | What it does |
+| --- | --- | --- |
+| 1 | **Closest to the due date** | The paycheck whose slot sits nearest the bill's due day carries the whole month; other paychecks reserve nothing for it |
+| 2 | **Choose specific paycheck to fund** | Shows a second field, **Which paycheck?**, listing only the slots this pay cadence is certain to produce each month (1st/2nd for biweekly, 1st–4th for weekly, only 1st for monthly) |
+| 3 | **Reserve from all paychecks** | The default. The year's cost is spread evenly over every paycheck, so nothing lumps onto one check |
+| 4 | **First check of every month** | The month's obligation always lands on the 1st paycheck |
+
+Whatever is chosen, the month is collected exactly once — a strategy moves the money, it never multiplies it. Under 1, 2 and 4 a $50 weekly bill asks $216.67 from one check rather than the $50 instance that happens to fall there.
+
+The "Which paycheck?" field only appears for option 2 and only when the pay cadence has more than one guaranteed slot. A live hint under the field names the paycheck that will actually fund the bill (for example, "Reserves the whole month's obligation on the 2nd paycheck, closest to the due day"), and disappears for option 3.
 
 Validation:
 
@@ -169,7 +186,8 @@ Validation:
 - amount must parse to cents and be greater than zero;
 - due day is coerced to a number and clamped by the repository;
 - category defaults to `Bills`;
-- account is optional.
+- account is optional;
+- funding schedule is one of the four enum values; `funding_paycheck_index` is only read for option 2 and is clamped to a guaranteed slot on write.
 
 New bills get `nextDueOn = null`. Editing preserves the existing `nextDueOn` unless it is explicitly changed.
 
@@ -192,7 +210,8 @@ Each card shows:
 - progress bar coloured by the goal;
 - percent funded, capped at 100 for display;
 - amount remaining (`max(0, target − funded)`);
-- priority chip, emergency chip when flagged, a monthly pace chip, and a funding-source chip when the goal is fed by a dedicated account.
+- priority chip, emergency chip when flagged, a monthly pace chip, and a **Dedicated account** / **N dedicated accounts** chip when the goal is fed by its own accounts;
+- when accounts fund the goal, each one is listed under the total with its own balance, so the sum is never a black box.
 
 Monthly pace:
 
@@ -203,16 +222,24 @@ monthlyNeed = months ? ceil(remaining / months) : null
 
 A goal with no target date shows “No pace set”. A goal whose deadline is today still gets a one-month pace.
 
-Progress has two sources (see [ADR 0007](decisions/0007-dedicated-accounts-balance-is-progress.md)):
+Progress has two sources (see [ADR 0007](decisions/0007-dedicated-accounts-balance-is-progress.md) and [ADR 0009](decisions/0009-the-goal-chooses-its-funding-accounts.md)):
 
-- **A dedicated account.** If any live, non-archived account is marked “Mine only for” this goal, its **balance is the funded amount** — several accounts add together, and the allocation total is replaced, not added to. The card shows a chip naming those accounts, and the number moves with every entry that touches them. An overdrawn dedicated account reads as zero.
-- **Otherwise, allocation lines** written by paycheck routing. Moving money into the account named in “Held in” does not increase progress on such a goal.
+- **A dedicated account.** If any live, non-archived account is ticked as a funder of this goal, those accounts' **balances added together are the funded amount** — the allocation total is replaced, not added to. The card lists each contributing account with its own balance under the total, and the number moves with every entry that touches them. An overdrawn dedicated account reads as zero.
+- **Otherwise, allocation lines** written by paycheck routing. Moving money into the account named in “Deposit account” does not increase progress on such a goal.
 
 Detaching or archiving the last dedicated account puts the goal back on its allocation total. The historical allocation rows are never deleted; they are simply not shown while an account is the source.
 
 ### Goal dialog
 
-Fields: name, target amount, optional target date, priority, held-in account, colour. Colours are a fixed six-swatch palette.
+Fields: name, target amount, optional target date, priority, **Funded by**, **Deposit account**, colour. Goal colours are a fixed six-swatch palette.
+
+**Funded by** is the picker that decides where progress comes from, and it is a property of the goal, not of the account:
+
+- by default one dropdown, because one account is the common case — it lists savings, checking and cash accounts with their balances, plus **“No account — count allocations instead”**. An account that already funds a *different* goal is labelled `(funds That Goal)` so taking it is a visible decision, not a surprise;
+- a **“Let several accounts add up together”** checkbox swaps the dropdown for a tick list, and the ticked balances are summed. Unticking here is the way to release an account; the account dialog's pointer is the same relation seen from the other side;
+- choosing funders never touches **Deposit account**, which stays a separate, informational “where does the finished lump get spent”.
+
+Saving applies both sides at once: the goal row and every funder binding commit in one transaction, so a newly created goal cannot arrive with a target but no accounts, and a failed binding rolls the whole save back rather than half-applying ticks. An archived account is refused as a funder.
 
 Validation: name required, target greater than zero. Priority is numeric; lower numbers are funded first.
 
@@ -268,23 +295,28 @@ Example: three expenses of $100, $200 and $300 in three months average $200/mont
 
 Manual mode replaces the calculation with a typed amount. Switching to manual pre-fills the field with the current automatic target if it is empty. The manual amount is still saved to settings when switching back to auto, so it is not lost.
 
-### Cumulative account and saving cadence
+### Which accounts fund it, and whether to save this paycheck
 
-The card allows tracking progress through accounts rather than allocations alone:
+The card reuses the same **Funded by** picker as the goal dialog, pointed at the emergency goal:
 
-- **Single account by default**: One account can be designated to cumulate the emergency total.
-- **Option to manually select many**: A toggle allows choosing multiple accounts whose balances are summed for progress.
-- **Dedicated binding**: Applying the target binds the chosen account(s) to the emergency goal via `dedicated_goal_id`.
-- **Paycheck cadence**: A "Save money from every paycheck" toggle allows pausing contributions. When paused, it marks the status as **Bill inactive** and offers a **Resume bill** action, and the allocator skips the emergency goal during paycheck routing.
+- one account by default — a single dropdown, because one savings account holding the float is the common case;
+- **“Let several accounts add up together”** switches to a tick list whose balances are summed;
+- nothing ticked means progress is counted from the allocations each paycheck routes.
+
+There is no separate list of emergency account IDs in settings. The relation lives on the goal like any other sinking fund, so the emergency fund cannot disagree with the accounts screen, and an account can only ever be an emergency funder or another goal's funder — never quietly both.
+
+**Save towards it every paycheck** pauses the contribution, not the fund: `emergencyActive = false` makes the allocator stop routing surplus into the emergency goal while leaving its target, progress and coverage visible. While paused the card shows a **Saving paused** chip and a **Resume saving** button. Bills use **Bill inactive / Resume bill** for the same idea; the two labels are deliberately different because a goal is not a bill.
 
 ### Applying
 
 “Apply target” / “Create emergency fund”:
 
 1. validates the target is above zero;
-2. saves the emergency settings;
-3. if an emergency goal exists, updates its `target_cents` and binds dedicated accounts;
-4. otherwise creates a goal named **Emergency Fund**, priority 1, colour `#38BDF8`, `isEmergency = true`.
+2. saves the emergency settings (`emergencyMode`, months, include-variable, manual target, `emergencyActive`) — no account list, because accounts belong to the goal;
+3. if an emergency goal exists, updates `target_cents` **and** its `fundingAccountIds` in the one `goal:update` call, which binds the ticked accounts and releases the ones unticked;
+4. otherwise creates a goal named **Emergency Fund**, priority 1, colour `#38BDF8`, `isEmergency = true`, funders attached in the same `goal:create`.
+
+Progress on the card is read from the goal's own `fundedCents`, not recomputed in the component, so the meter, the goal card and the allocator cannot show three different totals.
 
 The card also shows the wall, variable average, essentials, target, a progress bar, coverage in months and whether an emergency goal exists. Coverage is `funded / essentials`, and is 0 when essentials are 0.
 
@@ -311,7 +343,7 @@ The hint also counts tracked credit cards.
 
 ### Account rows
 
-Each row shows the account kind dot, name, kind label, credit limit when present, a utilization bar for credit cards, the display balance and an available/owed label.
+Each row shows the account kind dot — painted with the account's chosen colour when it has one — name, kind label, credit limit when present, a utilization bar for credit cards, the display balance and an available/owed label.
 
 Display rules:
 
@@ -329,10 +361,11 @@ Fields:
 - **Type** — checking, savings, cash, investment, credit.
 - **Starting balance** — create only. For credit cards the label becomes “Balance owed today” and a positive entry is stored as a negative balance.
 - **Credit limit** — credit cards only.
-- **Mine only for** — any live sinking fund, or **Nothing in particular**. Choosing a goal makes the account dedicated: its balance becomes that goal's progress, a hint explains that money parked here is spent when the goal is funded, and the account drops out of the spendable pool by default.
+- **Mine only for** — any live sinking fund, or **Nothing in particular**. Choosing a goal makes the account dedicated: its balance becomes that goal's progress, a hint explains that money parked here is spent when the goal is funded, and the account drops out of the spendable pool by default. This is the same relation the goal dialog's **Funded by** picker writes, seen from the other side; whichever end you edit last wins, and an account never funds two goals.
 - **Safe to spend** — Automatic / Always count it / Never count it. Automatic follows the account type (checking, savings and cash are included; investment, credit and dedicated accounts are not), and an explicit choice wins in both directions.
+- **Colour** — eight swatches plus **Automatic colour**. The chosen colour paints the account's dot on the Accounts list; *Automatic* stores nothing and lets the account type decide, so an account that has never been touched keeps the type colour and a v4 database shows no change at all.
 
-Both fields appear on create *and* edit, and are written as one pair so the dialog cannot save a purpose change without its pool consequence.
+Both purpose fields appear on create *and* edit, and are written as one pair with the colour so the dialog cannot save a purpose change without its pool consequence.
 
 Editing cannot change the starting balance. The subtitle explains that corrections use an adjustment entry so the opening balance stays intact.
 
@@ -391,7 +424,7 @@ Validation before advancing: the amount must be greater than zero. The commit al
 Shows:
 
 - the number of active bills;
-- the total reserve for the selected cadence;
+- the total reserve for the selected cadence **on the pay date entered in step 1** — a bill scheduled onto one paycheck appears at its full monthly figure there and at nothing on the other check of the month;
 - an expandable per-bill breakdown;
 - true surplus = income − funded wall;
 - a shortfall warning when the wall exceeds income.
@@ -426,7 +459,7 @@ If the splits add up to more than 100%, the route button is disabled and labelle
 In order:
 
 1. Clamp income to ≥ 0 and round to cents.
-2. Compute the Priority Wall reserve from **active** bills and the selected cadence.
+2. Compute the Priority Wall reserve from **active** bills, the selected cadence and the paycheck's own date (`billFundingReserveCents` per bill).
 3. Fund the wall up to income. If income is short, stop: all other buckets are zero and health is `shortfall`.
 4. Compute the true surplus.
 5. Compute each split as `round(surplus × percent / 100)`.

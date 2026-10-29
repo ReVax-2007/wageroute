@@ -93,6 +93,7 @@ export function Allocator() {
       buildAllocationPlan({
         incomeCents,
         payCadence: cadence,
+        paycheckDate: receivedOn,
         bills,
         goals: activeGoals,
         splits: {
@@ -106,6 +107,7 @@ export function Allocator() {
     [
       incomeCents,
       cadence,
+      receivedOn,
       bills,
       activeGoals,
       savings,

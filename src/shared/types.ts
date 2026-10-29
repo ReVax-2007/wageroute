@@ -35,6 +35,12 @@ export type AllocationBucket =
 
 export type PlanHealth = 'covered' | 'tight' | 'shortfall'
 
+export type BillFundingStrategy =
+  | 'all_checks'
+  | 'closest_due_date'
+  | 'specific_check'
+  | 'first_check'
+
 export interface SyncMeta {
   createdAt: string
   updatedAt: string
@@ -57,6 +63,7 @@ export interface Account extends SyncMeta {
   institution: string | null
   startingBalanceCents: number
   creditLimitCents: number | null
+  color: string | null
   /** The one goal this account exists to fund; its balance becomes that goal's progress. */
   dedicatedGoalId: string | null
   /** null means "derive from the account kind". */
@@ -81,6 +88,8 @@ export interface Bill extends SyncMeta {
   autopay: boolean
   isActive: boolean
   nextDueOn: string | null
+  fundingStrategy: BillFundingStrategy
+  fundingPaycheckIndex: number | null
 }
 
 export interface Goal extends SyncMeta {
@@ -98,13 +107,20 @@ export interface Goal extends SyncMeta {
 
 export type GoalFundingSource = 'allocations' | 'account'
 
+/** One account whose balance counts as a goal's progress. */
+export interface GoalFundingAccount {
+  id: string
+  name: string
+  balanceCents: number
+}
+
 export interface GoalWithProgress extends Goal {
   fundedCents: number
   remainingCents: number
   /** 'account' when one or more dedicated accounts make up the progress. */
   fundedFrom: GoalFundingSource
-  /** Names of the dedicated accounts, empty unless fundedFrom is 'account'. */
-  dedicatedAccountNames: string[]
+  /** Empty unless fundedFrom is 'account'; their balances add up to fundedCents. */
+  dedicatedAccounts: GoalFundingAccount[]
 }
 
 export interface Transaction extends SyncMeta {
@@ -170,6 +186,7 @@ export interface AccountInput {
   institution: string
   startingBalanceCents: number
   creditLimitCents?: number | null
+  color?: string | null
   dedicatedGoalId?: string | null
   inSafeToSpend?: boolean | null
   sortOrder?: number
@@ -185,6 +202,8 @@ export interface BillInput {
   autopay: boolean
   isActive: boolean
   nextDueOn: string | null
+  fundingStrategy?: BillFundingStrategy
+  fundingPaycheckIndex?: number | null
 }
 
 export interface GoalInput {
@@ -195,6 +214,12 @@ export interface GoalInput {
   color: string
   accountId: string | null
   isEmergency?: boolean
+  /**
+   * Accounts whose balances become this goal's progress. Omitted means "leave
+   * the current dedication alone"; an empty array releases every account.
+   * Applied in the same transaction as the goal write, so a save is all-or-nothing.
+   */
+  fundingAccountIds?: string[]
 }
 
 export interface TransactionInput {
@@ -250,14 +275,8 @@ export interface AppSettings {
   emergencyIncludeVariable: boolean
   emergencyManualTargetCents: number
   /**
-   * Account IDs whose combined balance counts as the emergency fund total.
-   * An empty array means the emergency goal's own accountId (or allocations)
-   * is used instead — this is the legacy behaviour.
-   */
-  emergencyAccountIds: string[]
-  /**
-   * When false the emergency goal is excluded from the allocator and the card
-   * shows a "Resume" prompt instead of an active contribution cadence.
+   * When false the emergency goal is excluded from the allocator, so no
+   * paycheck reserves towards it until saving is resumed.
    */
   emergencyActive: boolean
 }

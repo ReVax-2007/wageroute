@@ -384,6 +384,7 @@ test('CSV export quotes commas, quotes and newlines', () => {
       institution: 'Tangerine',
       startingBalanceCents: 0,
       creditLimitCents: null,
+      color: null,
       dedicatedGoalId: null,
       inSafeToSpend: null,
       isArchived: false,
@@ -476,7 +477,6 @@ test('settings default to dark theme, round-up off and auto emergency target', (
   assert.equal(defaults.emergencyMonths, 3)
   assert.equal(defaults.emergencyIncludeVariable, true)
   assert.equal(defaults.emergencyManualTargetCents, 0)
-  assert.deepEqual(defaults.emergencyAccountIds, [])
   assert.equal(defaults.emergencyActive, true)
 
   const parsed = parseSettings({
@@ -488,7 +488,6 @@ test('settings default to dark theme, round-up off and auto emergency target', (
     emergencyMonths: '5',
     emergencyIncludeVariable: 'false',
     emergencyManualTargetCents: '1200000',
-    emergencyAccountIds: 'acc-1,acc-2',
     emergencyActive: 'false'
   })
   assert.equal(parsed.theme, 'light')
@@ -499,7 +498,6 @@ test('settings default to dark theme, round-up off and auto emergency target', (
   assert.equal(parsed.emergencyMonths, 5)
   assert.equal(parsed.emergencyIncludeVariable, false)
   assert.equal(parsed.emergencyManualTargetCents, 1200000)
-  assert.deepEqual(parsed.emergencyAccountIds, ['acc-1', 'acc-2'])
   assert.equal(parsed.emergencyActive, false)
 
   const invalid = parseSettings({
@@ -514,7 +512,6 @@ test('settings default to dark theme, round-up off and auto emergency target', (
   assert.equal(invalid.emergencyMode, 'auto')
   assert.equal(invalid.emergencyMonths, 3)
   assert.equal(invalid.emergencyManualTargetCents, 0)
-  assert.deepEqual(invalid.emergencyAccountIds, [])
   assert.equal(invalid.emergencyActive, true)
 
   assert.deepEqual(parseSettings(settingsToRecord(parsed)), parsed)

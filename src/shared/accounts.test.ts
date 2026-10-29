@@ -31,6 +31,7 @@ function account(overrides: Partial<AccountWithBalance> = {}): AccountWithBalanc
     institution: 'Tangerine',
     startingBalanceCents: 0,
     creditLimitCents: null,
+    color: null,
     isArchived: false,
     sortOrder: 0,
     createdAt: '2026-01-01T00:00:00.000Z',
@@ -67,7 +68,7 @@ function goal(overrides: Partial<GoalWithProgress> = {}): GoalWithProgress {
     fundedCents: 0,
     remainingCents: 500_00,
     fundedFrom: 'allocations',
-    dedicatedAccountNames: [],
+    dedicatedAccounts: [],
     ...overrides
   }
 }

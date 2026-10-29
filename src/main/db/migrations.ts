@@ -227,6 +227,21 @@ ALTER TABLE accounts ADD COLUMN in_safe_to_spend INTEGER
   CHECK (in_safe_to_spend IS NULL OR in_safe_to_spend IN (0,1));
 `
 
+/**
+ * v5 adds bill funding strategies and account color customization:
+ *  - bills.funding_strategy ('all_checks', 'closest_due_date', 'specific_check', 'first_check')
+ *  - bills.funding_paycheck_index (1, 2, 3, etc.)
+ *  - accounts.color (hex code string)
+ */
+const SCHEMA_V5 = `
+ALTER TABLE bills ADD COLUMN funding_strategy TEXT NOT NULL DEFAULT 'all_checks'
+  CHECK (funding_strategy IN ('all_checks','closest_due_date','specific_check','first_check'));
+
+ALTER TABLE bills ADD COLUMN funding_paycheck_index INTEGER;
+
+ALTER TABLE accounts ADD COLUMN color TEXT;
+`
+
 const MIGRATIONS: readonly Migration[] = [
   {
     version: 1,
@@ -250,6 +265,12 @@ const MIGRATIONS: readonly Migration[] = [
     version: 4,
     up: (db) => {
       db.exec(SCHEMA_V4)
+    }
+  },
+  {
+    version: 5,
+    up: (db) => {
+      db.exec(SCHEMA_V5)
     }
   }
 ]

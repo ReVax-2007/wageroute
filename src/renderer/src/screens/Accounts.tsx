@@ -33,6 +33,17 @@ import { useFinanceStore } from '../store/useFinanceStore'
 
 const KINDS: AccountKind[] = ['checking', 'savings', 'cash', 'credit', 'investment']
 
+const ACCOUNT_COLORS = [
+  '#60A5FA',
+  '#34D399',
+  '#FBBF24',
+  '#F472B6',
+  '#A78BFA',
+  '#FB923C',
+  '#22D3EE',
+  '#94A3B8'
+]
+
 type SafeToSpendChoice = 'auto' | 'in' | 'out'
 
 function safeToSpendChoice(account: AccountWithBalance | null): SafeToSpendChoice {
@@ -182,7 +193,10 @@ export function Accounts() {
 
                     return (
                       <li key={account.id} className="account-row bank-row">
-                        <span className={`account-dot kind-${account.kind}`} />
+                        <span
+                          className={`account-dot kind-${account.kind}`}
+                          style={account.color ? { background: account.color } : undefined}
+                        />
                         <div className="account-name">
                           <span className="cell-strong">{account.name}</span>
                           <span className="account-meta">
@@ -292,7 +306,8 @@ function AccountDialog({
         ? centsToEditable(account.creditLimitCents)
         : '',
     dedicatedGoalId: account?.dedicatedGoalId ?? '',
-    safeToSpend: safeToSpendChoice(account)
+    safeToSpend: safeToSpendChoice(account),
+    color: account?.color ?? ''
   })
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -317,7 +332,7 @@ function AccountDialog({
 
     const dedicatedGoalId = form.dedicatedGoalId || null
     const inSafeToSpend = form.safeToSpend === 'auto' ? null : form.safeToSpend === 'in'
-    const purposeFields = { dedicatedGoalId, inSafeToSpend }
+    const purposeFields = { dedicatedGoalId, inSafeToSpend, color: form.color || null }
 
     setSaving(true)
     if (account) {
@@ -483,6 +498,30 @@ function AccountDialog({
             <option value="out">Never count it</option>
           </select>
         </Field>
+      </div>
+
+      <div className="field">
+        <span className="field-label">Colour</span>
+        <div className="swatches">
+          <button
+            type="button"
+            aria-label="Automatic colour"
+            aria-pressed={form.color === ''}
+            className={form.color === '' ? 'swatch swatch-auto active' : 'swatch swatch-auto'}
+            onClick={() => setForm({ ...form, color: '' })}
+          />
+          {ACCOUNT_COLORS.map((color) => (
+            <button
+              key={color}
+              type="button"
+              aria-label={`Use colour ${color}`}
+              aria-pressed={form.color === color}
+              className={form.color === color ? 'swatch active' : 'swatch'}
+              style={{ background: color }}
+              onClick={() => setForm({ ...form, color })}
+            />
+          ))}
+        </div>
       </div>
 
       {error && <p className="form-error">{error}</p>}

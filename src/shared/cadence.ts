@@ -1,4 +1,4 @@
-import type { Frequency, PayCadence } from './types'
+import type { BillFundingStrategy, Frequency, PayCadence } from './types'
 
 export const PAY_PERIODS_PER_YEAR: Record<PayCadence, number> = {
   weekly: 52,
@@ -30,6 +30,151 @@ export const FREQUENCY_LABEL: Record<Frequency, string> = {
   monthly: 'Monthly',
   quarterly: 'Quarterly',
   annual: 'Yearly'
+}
+
+export const BILL_FUNDING_STRATEGY_LABEL: Record<BillFundingStrategy, string> = {
+  closest_due_date: 'Closest to the due date',
+  specific_check: 'Choose specific paycheck to fund',
+  all_checks: 'Reserve from all paychecks',
+  first_check: 'First check of every month'
+}
+
+/**
+ * The day-of-month each paycheck slot represents. A bill funded by "the check
+ * closest to its due date" is compared against these, so this table and
+ * {@link paycheckIndexInMonth} must partition the month identically.
+ */
+const CHECK_SLOT_ANCHORS: Record<PayCadence, readonly number[]> = {
+  monthly: [16],
+  semimonthly: [8, 23],
+  biweekly: [7, 21, 30],
+  weekly: [4, 11, 18, 25, 30]
+}
+
+/**
+ * How many paychecks a month is *certain* to contain. Biweekly and weekly pay
+ * can produce a 3rd or 5th check in some months, but not every month, so a bill
+ * told to fund on one of those optional checks would go unreserved whenever the
+ * month came up short. Funding targets are clamped to the guaranteed slots.
+ */
+const GUARANTEED_CHECKS_PER_MONTH: Record<PayCadence, number> = {
+  monthly: 1,
+  semimonthly: 2,
+  biweekly: 2,
+  weekly: 4
+}
+
+/**
+ * Which paycheck of the month a given date falls on, 1-based.
+ *
+ * This is a calendar approximation: WageRoute knows the date of the paycheck
+ * being routed, not a payday calendar, so slots are day-of-month ranges that
+ * match {@link CHECK_SLOT_ANCHORS}. A biweekly payday that drifts a few days
+ * still lands in the same slot.
+ */
+export function paycheckIndexInMonth(dateISO: string, cadence: PayCadence): number {
+  const day = dayOfMonth(dateISO)
+  switch (cadence) {
+    case 'monthly':
+      return 1
+    case 'semimonthly':
+      return day <= 15 ? 1 : 2
+    case 'biweekly':
+      return day <= 14 ? 1 : day <= 28 ? 2 : 3
+    case 'weekly':
+      return Math.min(CHECK_SLOT_ANCHORS.weekly.length, Math.ceil(day / 7))
+  }
+}
+
+/** The slot whose representative day is nearest the bill's due day. Ties go earlier. */
+export function closestCheckIndexToDue(dueDay: number, cadence: PayCadence): number {
+  const anchors = CHECK_SLOT_ANCHORS[cadence]
+  let bestIndex = 1
+  let bestDistance = Number.POSITIVE_INFINITY
+  for (let i = 0; i < anchors.length; i += 1) {
+    const distance = Math.abs(anchors[i] - dueDay)
+    if (distance < bestDistance) {
+      bestDistance = distance
+      bestIndex = i + 1
+    }
+  }
+  return bestIndex
+}
+
+/**
+ * The paycheck slots a bill can be assigned to for this cadence — the
+ * guaranteed ones only, so the UI can never offer a slot that silently stops
+ * reserving in a short month.
+ */
+export function reachableCheckIndexes(cadence: PayCadence): number[] {
+  return Array.from({ length: GUARANTEED_CHECKS_PER_MONTH[cadence] }, (_, i) => i + 1)
+}
+
+/**
+ * The one paycheck of the month that funds this bill, clamped to a slot that
+ * exists every month. Returns null for `all_checks`, where no single check is
+ * responsible.
+ */
+export function fundingCheckIndex(input: {
+  cadence: PayCadence
+  dueDay: number
+  fundingStrategy: BillFundingStrategy
+  fundingPaycheckIndex?: number | null
+}): number | null {
+  if (input.fundingStrategy === 'all_checks') return null
+  if (input.fundingStrategy === 'first_check') return 1
+
+  const requested =
+    input.fundingStrategy === 'closest_due_date'
+      ? closestCheckIndexToDue(input.dueDay, input.cadence)
+      : (input.fundingPaycheckIndex ?? 1)
+
+  return Math.min(Math.max(1, Math.round(requested)), GUARANTEED_CHECKS_PER_MONTH[input.cadence])
+}
+
+/**
+ * What one paycheck must set aside for a bill.
+ *
+ * `all_checks` spreads the year's cost over every paycheck. The three
+ * single-check strategies move that same money onto one paycheck per month —
+ * they never multiply it — so a month's total reserve is
+ * {@link monthlyEquivalentCents} under every strategy and the Priority Wall
+ * stays honest. A $50/week bill therefore asks $216.67 from the one funding
+ * check, not $50.
+ *
+ * `paycheckDate` is required for the single-check strategies. Without it the
+ * position in the month is unknowable, so the bill falls back to the spread.
+ */
+export function billFundingReserveCents(input: {
+  amountCents: number
+  frequency: Frequency
+  cadence: PayCadence
+  dueDay: number
+  fundingStrategy?: BillFundingStrategy
+  fundingPaycheckIndex?: number | null
+  paycheckDate?: string | null
+}): number {
+  const strategy = input.fundingStrategy ?? 'all_checks'
+  const spread = reservePerPaycheckCents(input.amountCents, input.frequency, input.cadence)
+  if (strategy === 'all_checks') return spread
+  if (!input.paycheckDate) return spread
+
+  const fundingIndex = fundingCheckIndex({
+    cadence: input.cadence,
+    dueDay: input.dueDay,
+    fundingStrategy: strategy,
+    fundingPaycheckIndex: input.fundingPaycheckIndex
+  })
+  if (fundingIndex === null) return spread
+
+  return paycheckIndexInMonth(input.paycheckDate, input.cadence) === fundingIndex
+    ? monthlyEquivalentCents(input.amountCents, input.frequency)
+    : 0
+}
+
+function dayOfMonth(dateISO: string): number {
+  const day = Number.parseInt(dateISO.slice(8, 10), 10)
+  return Number.isFinite(day) && day > 0 ? day : 1
 }
 
 /**

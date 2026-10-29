@@ -33,10 +33,10 @@ WageRoute has three independent version numbers. Confusing them is the most comm
 | Version | Where it lives | Current value | What it means |
 | --- | --- | --- | --- |
 | App version | `package.json` → `version` | `1.0.2` | The build users install. Drives installer names, macOS bundle version and release tags. |
-| Database schema version | `src/main/db/migrations.ts` → `SCHEMA_VERSION`, stored in SQLite `PRAGMA user_version` | `4` | The shape of the on-disk database. Changes only when a migration is added. |
-| Backup format version | Written into every JSON backup, equal to `SCHEMA_VERSION` | `4` | The newest backup the app writes. The reader accepts versions `2`, `3` and `4`. |
+| Database schema version | `src/main/db/migrations.ts` → `SCHEMA_VERSION`, stored in SQLite `PRAGMA user_version` | `5` | The shape of the on-disk database. Changes only when a migration is added. |
+| Backup format version | Written into every JSON backup, equal to `SCHEMA_VERSION` | `5` | The newest backup the app writes. The reader accepts versions `2`, `3`, `4` and `5`. |
 
-`package.json` still says `1.0.2` on `main` even though commits after that tag have landed, so between releases the **commit SHA** is the only reliable identifier of a build. Bump the version as part of the release, never before. The schema and backup numbers above are the **working tree**: every build users have installed is still schema 3, and schema 4 first ships with 1.1.0.
+`package.json` still says `1.0.2` on `main` even though commits after that tag have landed, so between releases the **commit SHA** is the only reliable identifier of a build. Bump the version as part of the release, never before. The schema and backup numbers above are the **working tree**: every build users have installed is still schema 3, and schema 5 first ships with 1.1.0.
 
 The source of truth for the app version is `package.json`. `npm` updates `package-lock.json` with it; electron-builder reads it when naming artifacts and writing bundle metadata.
 

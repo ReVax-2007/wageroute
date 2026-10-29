@@ -9,7 +9,8 @@ import {
   insertPaycheckRecord,
   listAccounts,
   listGoals,
-  updateAccount
+  updateAccount,
+  updateGoal
 } from './repositories'
 
 const USER_ID = '11111111-2222-3333-4444-555555555555'
@@ -114,7 +115,10 @@ test('a dedicated account’s balance is the progress, replacing allocations', (
   ;[recorded] = listGoals(db, USER_ID)
   assert.equal(recorded.fundedFrom, 'account')
   assert.equal(recorded.fundedCents, 420_000, 'the routed total is replaced, not added to')
-  assert.deepEqual(recorded.dedicatedAccountNames, ['Emergency Savings'])
+  assert.deepEqual(
+    recorded.dedicatedAccounts.map((account) => [account.name, account.balanceCents]),
+    [['Emergency Savings', 420_000]]
+  )
   assert.equal(recorded.remainingCents, 180_000)
 })
 
@@ -168,4 +172,97 @@ test('removing a goal detaches every account dedicated to it', () => {
   const [orphan] = listAccounts(db, USER_ID).filter((item) => item.id === accountId)
   assert.equal(orphan.dedicatedGoalId, null, 'no account may point at a removed goal')
   assert.equal(listGoals(db, USER_ID).length, 0)
+})
+
+function savings(db: Database.Database, name: string, cents: number): string {
+  return createAccount(db, USER_ID, {
+    name,
+    kind: 'savings',
+    institution: '',
+    startingBalanceCents: cents
+  })
+}
+
+test('the goal decides which accounts fund it, one or several', () => {
+  const db = freshDb()
+  const goalId = createGoal(db, USER_ID, {
+    name: 'Emergency fund',
+    targetCents: 900_000,
+    targetDate: null,
+    priority: 1,
+    color: '#38BDF8',
+    accountId: null,
+    fundingAccountIds: [savings(db, 'Ally', 400_000), savings(db, 'Cash', 61_420)]
+  })
+
+  const [recorded] = listGoals(db, USER_ID).filter((item) => item.id === goalId)
+  assert.equal(recorded.fundedFrom, 'account')
+  assert.equal(recorded.fundedCents, 461_420, 'the ticked balances add up')
+  assert.deepEqual(recorded.dedicatedAccounts.map((account) => account.name), ['Ally', 'Cash'])
+})
+
+test('re-saving a goal releases the ticks that were removed', () => {
+  const db = freshDb()
+  const kept = savings(db, 'Kept', 100_000)
+  const dropped = savings(db, 'Dropped', 250_000)
+  const goalId = goal(db)
+
+  updateAccount(db, USER_ID, dropped, { dedicatedGoalId: goalId })
+  updateAccount(db, USER_ID, kept, { dedicatedGoalId: goalId })
+  updateGoal(db, USER_ID, goalId, { fundingAccountIds: [kept] })
+
+  const [freed] = listAccounts(db, USER_ID).filter((item) => item.id === dropped)
+  assert.equal(freed.dedicatedGoalId, null)
+  const [recorded] = listGoals(db, USER_ID)
+  assert.equal(recorded.fundedCents, 100_000)
+
+  updateGoal(db, USER_ID, goalId, { fundingAccountIds: [] })
+  const [last] = listGoals(db, USER_ID)
+  assert.equal(last.fundedFrom, 'allocations', 'an explicit empty list is a choice, not a no-op')
+})
+
+test('a tick that funded another goal moves, and the old goal falls back', () => {
+  const db = freshDb()
+  const shared = savings(db, 'Shared', 75_702)
+  const emergency = goal(db, 'Emergency fund')
+  const house = goal(db, 'Future house')
+  updateAccount(db, USER_ID, shared, { dedicatedGoalId: emergency })
+
+  updateGoal(db, USER_ID, house, { fundingAccountIds: [shared] })
+
+  const [moved] = listAccounts(db, USER_ID).filter((item) => item.id === shared)
+  assert.equal(moved.dedicatedGoalId, house)
+  const goals = listGoals(db, USER_ID)
+  assert.equal(goals.find((item) => item.id === emergency)?.fundedFrom, 'allocations')
+  assert.equal(goals.find((item) => item.id === house)?.fundedCents, 75_702)
+})
+
+test('a funding save that names a missing account leaves the bindings untouched', () => {
+  const db = freshDb()
+  const accountId = savings(db, 'Ally', 400_000)
+  const goalId = goal(db)
+  updateAccount(db, USER_ID, accountId, { dedicatedGoalId: goalId })
+
+  assert.throws(
+    () => updateGoal(db, USER_ID, goalId, { fundingAccountIds: [accountId, 'no-such-account'] }),
+    /Account not found/
+  )
+
+  const [stillBound] = listAccounts(db, USER_ID).filter((item) => item.id === accountId)
+  assert.equal(stillBound.dedicatedGoalId, goalId, 'the failed save rolled back entirely')
+})
+
+test('an archived account is refused as a funding source', () => {
+  const db = freshDb()
+  const archived = savings(db, 'Closed', 50_000)
+  db.prepare('UPDATE accounts SET is_archived = 1 WHERE id = ?').run(archived)
+  const accountId = savings(db, 'Open', 50_000)
+  const goalId = goal(db)
+
+  assert.throws(
+    () => updateGoal(db, USER_ID, goalId, { fundingAccountIds: [accountId, archived] }),
+    /Archived accounts cannot fund a goal/
+  )
+  const [open] = listAccounts(db, USER_ID).filter((item) => item.id === accountId)
+  assert.equal(open.dedicatedGoalId, null, 'the valid tick did not survive the invalid one')
 })
