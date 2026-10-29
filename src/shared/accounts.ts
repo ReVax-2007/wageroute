@@ -50,7 +50,7 @@ export function totalWealthCents(accounts: readonly AccountWithBalance[]): numbe
  */
 export function poolEarmarkedGoalsCents(goals: readonly GoalWithProgress[]): number {
   return goals
-    .filter((goal) => goal.fundedFrom !== 'account')
+    .filter((goal) => !goal.isArchived && goal.fundedFrom !== 'account')
     .reduce((total, goal) => total + goal.fundedCents, 0)
 }
 

@@ -66,6 +66,7 @@ export function Dashboard() {
   const wall = monthlyWall(bills)
   const perCheck = perPaycheckWall(bills, settings.payCadence)
   const goals = goalsSummary(snapshot.goals)
+  const activeGoals = snapshot.goals.filter((goal) => !goal.isArchived)
   const last = latestPaycheck(snapshot.paychecks)
   const cashBalances = cashOnHand(snapshot.accounts)
   const wealthSplit = wealthBuckets(snapshot.accounts)
@@ -421,10 +422,10 @@ export function Dashboard() {
 
         <Card title="Goals at a glance" subtitle="Money already routed to future expenses">
           <div className="goal-strip-body">
-            {snapshot.goals.length === 0 ? (
+            {activeGoals.length === 0 ? (
               <p className="alloc-note">No sinking funds yet. Create one in the Sinking funds tab.</p>
             ) : (
-              snapshot.goals.map((goal) => (
+              activeGoals.map((goal) => (
                 <div key={goal.id} className="goal-strip-row">
                   <div className="goal-strip-head">
                     <span className="cell-strong">{goal.name}</span>

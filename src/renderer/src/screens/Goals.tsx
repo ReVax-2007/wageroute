@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import {
+  Archive,
   CalendarDays,
   Landmark,
   LifeBuoy,
@@ -7,6 +8,7 @@ import {
   Pencil,
   Play,
   Plus,
+  RotateCcw,
   Target,
   Trash2
 } from 'lucide-react'
@@ -49,17 +51,14 @@ function fundableAccounts(accounts: readonly AccountWithBalance[]): AccountWithB
 export function Goals() {
   const snapshot = useFinanceStore((state) => state.snapshot)
   const settings = useFinanceStore((state) => state.settings)
+  const archiveGoal = useFinanceStore((state) => state.archiveGoal)
   const deleteGoal = useFinanceStore((state) => state.deleteGoal)
   const [editing, setEditing] = useState<GoalWithProgress | null | 'new'>(null)
 
   if (!snapshot) return null
   const currency = settings.currency
-
-  const remove = (goal: GoalWithProgress) => {
-    if (window.confirm(`Archive "${goal.name}"? Its funded amount stays in the ledger history.`)) {
-      void deleteGoal(goal.id)
-    }
-  }
+  const activeGoals = snapshot.goals.filter((goal) => !goal.isArchived)
+  const archivedGoals = snapshot.goals.filter((goal) => goal.isArchived)
 
   return (
     <>
@@ -78,7 +77,7 @@ export function Goals() {
 
       <EmergencyCard />
 
-      {snapshot.goals.length === 0 ? (
+      {activeGoals.length === 0 ? (
         <Card>
           <EmptyState
             icon={<Target size={20} />}
@@ -93,7 +92,7 @@ export function Goals() {
         </Card>
       ) : (
         <div className="goal-grid">
-          {snapshot.goals.map((goal) => {
+          {activeGoals.map((goal) => {
             const remaining = Math.max(0, goal.targetCents - goal.fundedCents)
             const months = goal.targetDate ? monthsUntil(goal.targetDate, todayISO()) : null
             const monthlyNeed = months ? Math.ceil(remaining / months) : null
@@ -117,8 +116,12 @@ export function Goals() {
                   <IconButton label="Edit goal" onClick={() => setEditing(goal)}>
                     <Pencil size={15} />
                   </IconButton>
-                  <IconButton label="Archive goal" danger onClick={() => remove(goal)}>
-                    <Trash2 size={15} />
+                  <IconButton
+                    label="Archive goal"
+                    danger
+                    onClick={() => void archiveGoal(goal.id, true)}
+                  >
+                    <Archive size={15} />
                   </IconButton>
                 </div>
 
@@ -174,6 +177,52 @@ export function Goals() {
             )
           })}
         </div>
+      )}
+
+      {archivedGoals.length > 0 && (
+        <Card
+          title="Archived goals"
+          subtitle="Out of the allocator and every earmark. Restore one to start funding it again."
+        >
+          <ul className="account-list">
+            {archivedGoals.map((goal) => (
+              <li key={goal.id} className="account-row">
+                <Archive size={15} className="muted" />
+                <div className="account-name">
+                  <span className="cell-strong">{goal.name}</span>
+                  <span className="account-meta">
+                    Priority {goal.priority} · archived
+                  </span>
+                </div>
+                <div className="account-figures">
+                  <Money cents={goal.fundedCents} currency={currency} />
+                  <span className="account-meta">funded</span>
+                </div>
+                <IconButton
+                  label={`Restore ${goal.name}`}
+                  onClick={() => void archiveGoal(goal.id, false)}
+                >
+                  <RotateCcw size={14} />
+                </IconButton>
+                <IconButton
+                  label={`Delete ${goal.name}`}
+                  danger
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        `Delete "${goal.name}" for good? Its funded amount stays in the ledger history.`
+                      )
+                    ) {
+                      void deleteGoal(goal.id)
+                    }
+                  }}
+                >
+                  <Trash2 size={14} />
+                </IconButton>
+              </li>
+            ))}
+          </ul>
+        </Card>
       )}
 
       <p className="footnote">
@@ -344,8 +393,9 @@ function EmergencyCard() {
 
   const toggleActive = async () => {
     const next = !isActive
-    await saveSettings({ ...settings, emergencyActive: next })
-    notify(next ? 'Emergency saving resumed' : 'Emergency saving paused', 'success')
+    if (await saveSettings({ ...settings, emergencyActive: next })) {
+      notify(next ? 'Emergency saving resumed' : 'Emergency saving paused', 'success')
+    }
   }
 
   const apply = async () => {
@@ -354,13 +404,17 @@ function EmergencyCard() {
       return
     }
     setSaving(true)
-    await saveSettings({
+    const settingsSaved = await saveSettings({
       ...settings,
       emergencyMode: mode,
       emergencyMonths: months,
       emergencyIncludeVariable: includeVariable,
       emergencyManualTargetCents: mode === 'manual' ? targetCents : 0
     })
+    if (!settingsSaved) {
+      setSaving(false)
+      return
+    }
     if (goal) {
       await updateGoal(goal.id, { targetCents, fundingAccountIds: selectedIds })
     } else {
@@ -551,13 +605,9 @@ function GoalDialog({ goal, onClose }: { goal: GoalWithProgress | null; onClose:
     }
 
     setSaving(true)
-    if (goal) {
-      await updateGoal(goal.id, input)
-    } else {
-      await createGoal(input)
-    }
+    const ok = goal ? await updateGoal(goal.id, input) : await createGoal(input)
     setSaving(false)
-    onClose()
+    if (ok) onClose()
   }
 
   return (

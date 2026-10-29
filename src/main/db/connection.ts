@@ -2,7 +2,7 @@ import Database from 'better-sqlite3'
 import { app } from 'electron'
 import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { DB_FILE, adoptLegacyDatabase as adoptLegacy } from './legacy'
+import { DB_FILE, adoptLegacyDatabase as adoptLegacy, type AdoptionResult } from './legacy'
 import { migrate } from './migrations'
 
 let instance: Database.Database | null = null
@@ -11,7 +11,7 @@ export function databasePath(): string {
   return join(app.getPath('userData'), DB_FILE)
 }
 
-export function adoptLegacyDatabase(): boolean {
+export function adoptLegacyDatabase(): AdoptionResult {
   return adoptLegacy(app.getPath('appData'), app.getPath('userData'))
 }
 

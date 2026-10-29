@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type Database from 'better-sqlite3'
 import type { CsvEntry, CsvIssue } from '@shared/csv'
+import { signedAmountError } from '@shared/kinds'
 
 type Db = Database.Database
 
@@ -65,6 +66,15 @@ export function mergeEntries(
   const accountsById = new Map(accounts.map((account) => [account.id, account]))
   const resolved: { entry: CsvEntry; accountId: string }[] = []
   for (const entry of entries) {
+    // Defence in depth: the parser derives the sign from the kind, so a row
+    // that still contradicts its kind arrived from another caller and is
+    // reported rather than written.
+    const signProblem = signedAmountError(entry.kind, entry.amountCents)
+    if (signProblem) {
+      issues.push({ line: entry.line, message: `row ${entry.line}: ${signProblem}` })
+      continue
+    }
+
     const nameMatches = accounts.filter((account) => key(account.name) === key(entry.accountName))
     let candidates = nameMatches
     if (entry.institution) {

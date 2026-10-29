@@ -20,7 +20,10 @@ const api: FinanceApi = {
 
   createAccount: (input: AccountInput) => invoke('account:create', input),
   updateAccount: (id: string, input: Partial<AccountInput>) => invoke('account:update', id, input),
-  deleteAccount: (id: string) => invoke('account:delete', id),
+  deleteAccount: (id: string, options?: { withEntries?: boolean }) =>
+    invoke('account:delete', id, options),
+  archiveAccount: (id: string, archived: boolean) => invoke('account:archive', id, archived),
+  accountEntryCount: (id: string) => invoke('account:entry-count', id),
 
   createBill: (input: BillInput) => invoke('bill:create', input),
   updateBill: (id: string, input: Partial<BillInput>) => invoke('bill:update', id, input),
@@ -29,6 +32,7 @@ const api: FinanceApi = {
   createGoal: (input: GoalInput) => invoke('goal:create', input),
   updateGoal: (id: string, input: Partial<GoalInput>) => invoke('goal:update', id, input),
   deleteGoal: (id: string) => invoke('goal:delete', id),
+  archiveGoal: (id: string, archived: boolean) => invoke('goal:archive', id, archived),
 
   createTransaction: (input: TransactionInput) => invoke('transaction:create', input),
   updateTransaction: (id: string, input: TransactionPatch) =>

@@ -53,11 +53,16 @@ export function TransactionsGrid({
 
       const patch: TransactionPatch = {}
       if (next.occurredOn !== previous.occurredOn) patch.occurredOn = next.occurredOn
-      if (next.accountId !== previous.accountId) patch.accountId = next.accountId
       if (next.category !== previous.category) patch.category = next.category
       if (next.memo !== previous.memo) patch.memo = next.memo
-      if (next.kind !== previous.kind) patch.kind = next.kind
       if (next.amountCents !== previous.amountCents) patch.amountCents = next.amountCents
+
+      // Both legs of a transfer are one movement of money: the repository mirrors the
+      // date, amount and text onto the other leg, but the accounts are fixed.
+      if (!previous.transferGroupId && next.accountId !== previous.accountId) {
+        patch.accountId = next.accountId
+      }
+      if (!previous.transferGroupId && next.kind !== previous.kind) patch.kind = next.kind
 
       if (Object.keys(patch).length > 0) void updateTransaction(next.id, patch)
     }
@@ -77,6 +82,7 @@ export function TransactionsGrid({
         key: 'accountId',
         name: 'Account',
         width: 150,
+        editable: (row: TransactionRow) => !row.transferGroupId,
         renderCell: ({ row }) => row.accountName,
         renderEditCell: ({ row, onRowChange }) => (
           <select
@@ -97,6 +103,7 @@ export function TransactionsGrid({
         key: 'kind',
         name: 'Kind',
         width: 118,
+        editable: (row: TransactionRow) => !row.transferGroupId,
         renderCell: ({ row }) => (
           <span className={`chip chip-${row.kind}`}>{TRANSACTION_KIND_LABEL[row.kind]}</span>
         ),

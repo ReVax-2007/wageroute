@@ -26,8 +26,8 @@ The `[1.1.0]` block in [CHANGELOG.md](../CHANGELOG.md) is the inventory; it is r
 
 | Field | Value |
 | --- | --- |
-| App version | **undecided** — no work is queued yet |
-| Database schema | `6` (no migration queued) |
+| App version | **undecided** — at least a minor bump once the audit batches land |
+| Database schema | `6` (no migration queued in this batch) |
 | Backup format written | `6` |
 | Backup format accepted | `2`, `3`, `4`, `5`, `6` |
 | `package.json` today | `1.1.0` — bump it **inside** the release branch, never before |
@@ -37,6 +37,21 @@ A patch is the default for fixes with no schema change; anything that adds a mig
 ---
 
 ## Queued
+
+### Data integrity and safe saves — batch 1 of 4 from the 2026-10-29 audit
+
+The first of four batches that clear [AUDIT-2026-10-29.md](../AUDIT-2026-10-29.md). No schema change: everything here is a rule, a guard or a state the UI can now reach.
+
+- **Archive instead of delete, for accounts and goals.** Both screens list archived rows in their own card with **Restore**; an archived account leaves every total, the Safe-to-Spend pool and the allocator but keeps its own balance and history, and an archived goal gets no slice of a paycheck, no funded progress and no earmark in the pool. Deleting a goal is a second, deliberate step from the archived list.
+- **Account deletion counts its entries.** `RemoveAccountDialog` asks the main process how many entries the account holds and offers *Archive instead* / *Delete account and N entries* / Cancel. `deleteAccount` refuses a delete with entries unless `withEntries` is passed, and that path soft-deletes both legs of every transfer touching the account.
+- **One sign rule for money.** `src/shared/kinds.ts` is the single table: income positive, expense/bill payment/transfer/goal funding/investment negative, adjustment either. The CSV parser derives the sign, the importer reports rows that still contradict their kind, and `createTransaction` normalises on write. `updateTransaction` refuses to turn an entry into a transfer or a transfer leg into something else, and mirrors date/amount/text edits onto the paired leg. The spreadsheet makes **Account** and **Kind** read-only on transfer rows.
+- **Dialogs close only on success.** Every store mutation returns `Promise<boolean>`; the account, bill, goal, entry and payment dialogs stay open with their error when a save fails. Writes run through one serial queue, and `saveSettings` rolls back its optimistic value on failure.
+- **Legacy adoption is atomic and verified** (`src/main/db/legacy.ts`): header check, staged copy, `PRAGMA quick_check` on a read-only handle, sidecars renamed first, cleanup on failure, and a dialog that says the old folder was left untouched.
+- **CSV import fails loudly on an unclosed quote**, naming the line the quote starts on.
+- **Exports read the whole ledger** (`listAllTransactions`) instead of the 500-row screen snapshot, and are written `0600`.
+- **Tests:** four new files — `src/shared/kinds.test.ts`, `src/shared/csv.test.ts`, `src/main/db/legacy.test.ts`, `src/main/db/ledger-guards.test.ts` — 25 cases, `npm test` at **98 tests across twelve files**.
+
+Verification: `npm test`, `npm run typecheck` and `npm run build` clean; the built app launched on a disposable `CFFIXED_USER_HOME` profile and driven over CDP — archive → archived card → restore for both an account and a goal, the remove dialog reading *"its 2 entries"* with all three choices, and the goal dialog staying open on a blank name then closing after a successful save.
 
 ### Running version in the app
 

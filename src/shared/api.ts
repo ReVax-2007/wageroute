@@ -99,7 +99,13 @@ export interface FinanceApi {
 
   createAccount(input: AccountInput): Promise<void>
   updateAccount(id: string, input: Partial<AccountInput>): Promise<void>
-  deleteAccount(id: string): Promise<void>
+  /**
+   * Deletes an account. An account with entries is refused unless `withEntries`
+   * is set, because deleting it alone would hide those entries from every total.
+   */
+  deleteAccount(id: string, options?: { withEntries?: boolean }): Promise<void>
+  archiveAccount(id: string, archived: boolean): Promise<void>
+  accountEntryCount(id: string): Promise<number>
 
   createBill(input: BillInput): Promise<void>
   updateBill(id: string, input: Partial<BillInput>): Promise<void>
@@ -108,6 +114,7 @@ export interface FinanceApi {
   createGoal(input: GoalInput): Promise<void>
   updateGoal(id: string, input: Partial<GoalInput>): Promise<void>
   deleteGoal(id: string): Promise<void>
+  archiveGoal(id: string, archived: boolean): Promise<void>
 
   createTransaction(input: TransactionInput): Promise<void>
   updateTransaction(id: string, input: TransactionPatch): Promise<void>

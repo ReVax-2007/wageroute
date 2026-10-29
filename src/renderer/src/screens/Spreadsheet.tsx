@@ -159,9 +159,9 @@ function EntryDialog({ onClose }: { onClose: () => void }) {
     }
 
     setSaving(true)
-    await createTransaction(input)
+    const ok = await createTransaction(input)
     setSaving(false)
-    onClose()
+    if (ok) onClose()
   }
 
   const signHint =
