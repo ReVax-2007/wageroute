@@ -296,6 +296,62 @@ DROP TABLE bills_v5_old;
 CREATE INDEX idx_bills_sync ON bills(user_id, updated_at);
 `
 
+/**
+ * v7 links a round-up sweep to the purchase that caused it, makes the ledger's
+ * hot sort an index instead of a temp B-tree, and clears settings rows that no
+ * build reads any more.
+ *
+ * `round_up_source_id` is the id of the expense (not its transfer group), so
+ * editing or deleting that expense can find and rewrite or remove the sweep in
+ * the same transaction. It deliberately carries no FOREIGN KEY clause for the
+ * same reason as `transfer_group_id`: both legs point at a row that is
+ * soft-deleted with them, and a hard constraint would only make restore order
+ * matter.
+ *
+ * The index replaces the v1 partial index. The snapshot query filters
+ * `user_id = ?` and `deleted_at IS NULL` and sorts by `occurred_on DESC,
+ * created_at DESC`; with `deleted_at` as the second key column SQLite can use
+ * the index for the equality and the whole ORDER BY, so the temp B-tree
+ * disappears.
+ *
+ * `bill_reserves` is the wall's lifecycle: one row per bill per calendar month
+ * saying the money was carried by a cheque (`reserved`) and whether a matching
+ * bill payment later cleared it (`paid`). It replaces the old behaviour where
+ * every cheque re-reserved every bill and no payment ever released anything.
+ */
+const SCHEMA_V7 = `
+ALTER TABLE transactions ADD COLUMN round_up_source_id TEXT;
+
+CREATE INDEX idx_transactions_round_up_source ON transactions(round_up_source_id)
+  WHERE round_up_source_id IS NOT NULL;
+
+DROP INDEX idx_transactions_user_date;
+
+CREATE INDEX idx_transactions_user_date
+  ON transactions(user_id, deleted_at, occurred_on DESC, created_at DESC);
+
+CREATE TABLE bill_reserves (
+  id            TEXT PRIMARY KEY NOT NULL,
+  user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  bill_id       TEXT NOT NULL REFERENCES bills(id) ON DELETE CASCADE,
+  paycheck_id   TEXT NOT NULL REFERENCES paychecks(id) ON DELETE CASCADE,
+  cycle         TEXT NOT NULL CHECK (length(cycle) = 7),
+  amount_cents  INTEGER NOT NULL CHECK (amount_cents >= 0),
+  state         TEXT NOT NULL DEFAULT 'reserved' CHECK (state IN ('reserved','paid')),
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL,
+  deleted_at    TEXT,
+  revision      INTEGER NOT NULL DEFAULT 1
+) STRICT;
+
+CREATE INDEX idx_bill_reserves_cycle
+  ON bill_reserves(user_id, bill_id, cycle) WHERE deleted_at IS NULL;
+CREATE INDEX idx_bill_reserves_paycheck ON bill_reserves(paycheck_id);
+
+DELETE FROM settings
+ WHERE key IN ('emergencyAccountIds', 'insurance_floor_cents', 'round_up_enabled');
+`
+
 export const MIGRATIONS: readonly Migration[] = [
   {
     version: 1,
@@ -332,6 +388,12 @@ export const MIGRATIONS: readonly Migration[] = [
     rebuildsReferencedTable: true,
     up: (db) => {
       db.exec(SCHEMA_V6)
+    }
+  },
+  {
+    version: 7,
+    up: (db) => {
+      db.exec(SCHEMA_V7)
     }
   }
 ]

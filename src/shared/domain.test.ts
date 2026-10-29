@@ -274,7 +274,9 @@ test('chronology engine prompts only for unconfirmed past-due bills', () => {
       id: 'rent',
       name: 'Rent',
       amountCents: 185000,
+      frequency: 'monthly' as const,
       dueDay: 1,
+      nextDueOn: null,
       category: 'Housing',
       accountId: 'checking',
       isActive: true,
@@ -284,7 +286,9 @@ test('chronology engine prompts only for unconfirmed past-due bills', () => {
       id: 'internet',
       name: 'Internet',
       amountCents: 6000,
+      frequency: 'monthly' as const,
       dueDay: 20,
+      nextDueOn: null,
       category: 'Utilities',
       accountId: 'checking',
       isActive: true,
@@ -294,7 +298,9 @@ test('chronology engine prompts only for unconfirmed past-due bills', () => {
       id: 'paused',
       name: 'Paused bill',
       amountCents: 5000,
+      frequency: 'monthly' as const,
       dueDay: 1,
+      nextDueOn: null,
       category: 'Bills',
       accountId: null,
       isActive: false,
@@ -304,9 +310,9 @@ test('chronology engine prompts only for unconfirmed past-due bills', () => {
 
   const payments = [
     // Rent paid a few days before its due date still counts for the cycle.
-    { billId: 'rent', occurredOn: '2026-09-28' },
+    { billId: 'rent', occurredOn: '2026-09-28', amountCents: -185000 },
     // A category-only expense must not silence Internet.
-    { billId: null, occurredOn: '2026-10-20' }
+    { billId: null, occurredOn: '2026-10-20', amountCents: -6000 }
   ]
 
   const prompts = dueBillPrompts({ bills, payments, todayISO: '2026-10-27' })
@@ -322,6 +328,39 @@ test('chronology engine prompts only for unconfirmed past-due bills', () => {
     todayISO: '2026-10-20'
   })
   assert.equal(onDueDay.length, 0)
+})
+
+test('a part payment is surfaced with what is already matched, not hidden', () => {
+  const bill = {
+    id: 'rent',
+    name: 'Rent',
+    amountCents: 185000,
+    frequency: 'monthly' as const,
+    dueDay: 1,
+    nextDueOn: null,
+    category: 'Housing',
+    accountId: null,
+    isActive: true,
+    autopay: false
+  }
+
+  const [partial] = dueBillPrompts({
+    bills: [bill],
+    payments: [{ billId: 'rent', occurredOn: '2026-10-02', amountCents: -85000 }],
+    todayISO: '2026-10-05'
+  })
+  assert.equal(partial.billId, 'rent')
+  assert.equal(partial.paidCents, 85000, 'the payment counts toward this cycle')
+
+  const settled = dueBillPrompts({
+    bills: [bill],
+    payments: [
+      { billId: 'rent', occurredOn: '2026-10-02', amountCents: -85000 },
+      { billId: 'rent', occurredOn: '2026-10-04', amountCents: -100000 }
+    ],
+    todayISO: '2026-10-05'
+  })
+  assert.deepEqual(settled, [], 'two parts that add up to the bill close the prompt')
 })
 
 test('round-up sweeps the remainder to the next increment, never the exact amount', () => {

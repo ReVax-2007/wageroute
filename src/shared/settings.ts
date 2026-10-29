@@ -1,3 +1,4 @@
+import { isISODate } from './dates'
 import { clampPercent } from './money'
 import type {
   AppSettings,
@@ -11,6 +12,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   currency: 'USD',
   payCadence: 'biweekly',
   paydayLabel: '',
+  payAnchorDate: null,
   defaultDepositAccountId: null,
   savingsPercent: 20,
   investmentPercent: 15,
@@ -69,6 +71,7 @@ export function parseSettings(record: Record<string, string>): AppSettings {
         ? (cadence as PayCadence)
         : DEFAULT_SETTINGS.payCadence,
     paydayLabel: (record.paydayLabel ?? '').trim(),
+    payAnchorDate: isISODate(record.payAnchorDate) ? record.payAnchorDate : null,
     defaultDepositAccountId:
       record.defaultDepositAccountId && record.defaultDepositAccountId.length > 0
         ? record.defaultDepositAccountId
@@ -109,6 +112,7 @@ export function settingsToRecord(settings: AppSettings): Record<string, string> 
     currency: settings.currency,
     payCadence: settings.payCadence,
     paydayLabel: settings.paydayLabel,
+    payAnchorDate: settings.payAnchorDate ?? '',
     defaultDepositAccountId: settings.defaultDepositAccountId ?? '',
     savingsPercent: String(settings.savingsPercent),
     investmentPercent: String(settings.investmentPercent),

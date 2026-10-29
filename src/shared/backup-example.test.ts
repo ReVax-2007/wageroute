@@ -18,6 +18,7 @@ test('examples/backup.example.json parses as a valid backup', () => {
   assert.equal(payload.tables.goals.length, 1)
   assert.equal(payload.tables.paychecks.length, 1)
   assert.equal(payload.tables.allocations.length, 3)
+  assert.equal(payload.tables.bill_reserves.length, 1)
   assert.equal(payload.tables.transactions.length, 4)
   assert.equal(payload.tables.settings.length, 3)
 })
@@ -47,5 +48,9 @@ test('the example keeps its cross-table links intact', () => {
   }
   for (const allocation of tables.allocations) {
     assert.ok(paycheckIds.has(allocation.paycheck_id), `allocation ${allocation.label} links to a paycheck`)
+  }
+  for (const reserve of tables.bill_reserves) {
+    assert.ok(billIds.has(reserve.bill_id), 'reserve links to a bill in the file')
+    assert.ok(paycheckIds.has(reserve.paycheck_id), 'reserve links to a paycheck in the file')
   }
 })

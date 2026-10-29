@@ -177,6 +177,26 @@ test('a bill on the last check reserves there and nowhere else', () => {
   assert.equal(billFundingReserveCents({ ...bill, paycheckDate: '2026-03-19' }), 120_000)
   assert.equal(
     billFundingReserveCents({ ...bill, paycheckDate: '2026-03-31' }),
+    reservePerPaycheckCents(120_000, 'monthly', 'biweekly'),
+    'without a payday anchor a third check carries the spread, never nothing'
+  )
+
+  // With an anchor the third October check is genuinely extra: the two
+  // guaranteed slots already carried the month.
+  assert.equal(
+    billFundingReserveCents({
+      ...bill,
+      paycheckDate: '2026-10-16',
+      payAnchorDate: '2026-10-02'
+    }),
+    120_000
+  )
+  assert.equal(
+    billFundingReserveCents({
+      ...bill,
+      paycheckDate: '2026-10-30',
+      payAnchorDate: '2026-10-02'
+    }),
     0,
     'the optional third check neither funds nor double-pays'
   )

@@ -1,13 +1,11 @@
-import { addDaysISO, daysBetweenISO, nextDueDateISO, previousDueDateISO } from './dates'
+import { addDaysISO, daysBetweenISO } from './dates'
+import { nextBillOccurrence, previousBillOccurrence, type RecurringBill } from './occurrences'
 
 /** How early a payment is allowed to land and still count for the same cycle. */
 const EARLY_WINDOW_DAYS = 5
 
-export interface PromptBill {
-  id: string
+export interface PromptBill extends RecurringBill {
   name: string
-  amountCents: number
-  dueDay: number
   category: string
   accountId: string | null
   isActive: boolean
@@ -17,6 +15,7 @@ export interface PromptBill {
 export interface PromptPayment {
   billId: string | null
   occurredOn: string
+  amountCents: number
 }
 
 export interface BillPrompt {
@@ -28,13 +27,17 @@ export interface BillPrompt {
   autopay: boolean
   dueOn: string
   daysLate: number
+  /** Money already matched against this cycle; anything below the bill is partial. */
+  paidCents: number
 }
 
 /**
- * Chronology engine: an active bill whose latest due date has passed with no
- * matching payment in the cycle window is considered unconfirmed. Payments are
- * matched by bill_id, not category, so an unrelated "Housing" expense never
- * silences the prompt.
+ * Chronology engine: an active bill whose latest occurrence has passed without
+ * enough matching payment is considered unconfirmed. The occurrence comes from
+ * the shared recurrence engine, so a weekly bill is checked weekly and an annual
+ * bill once a year. Payments are matched by bill id and summed, so a token
+ * adjustment no longer silences a full bill, and a part payment is surfaced as
+ * such instead of disappearing.
  */
 export function dueBillPrompts(input: {
   bills: readonly PromptBill[]
@@ -46,18 +49,20 @@ export function dueBillPrompts(input: {
   for (const bill of input.bills) {
     if (!bill.isActive) continue
 
-    const dueOn = previousDueDateISO(bill.dueDay, input.todayISO)
+    const dueOn = previousBillOccurrence(bill, input.todayISO)
     if (dueOn >= input.todayISO) continue
 
-    const nextDueOn = nextDueDateISO(bill.dueDay, input.todayISO)
+    const nextOn = nextBillOccurrence(bill, addDaysISO(dueOn, 1))
     const windowStart = addDaysISO(dueOn, -EARLY_WINDOW_DAYS)
-    const paid = input.payments.some(
-      (payment) =>
-        payment.billId === bill.id &&
-        payment.occurredOn >= windowStart &&
-        payment.occurredOn < nextDueOn
-    )
-    if (paid) continue
+    const paidCents = input.payments
+      .filter(
+        (payment) =>
+          payment.billId === bill.id &&
+          payment.occurredOn >= windowStart &&
+          payment.occurredOn < nextOn
+      )
+      .reduce((total, payment) => total + Math.abs(payment.amountCents), 0)
+    if (paidCents >= bill.amountCents) continue
 
     prompts.push({
       billId: bill.id,
@@ -67,7 +72,8 @@ export function dueBillPrompts(input: {
       accountId: bill.accountId,
       autopay: bill.autopay,
       dueOn,
-      daysLate: daysBetweenISO(dueOn, input.todayISO)
+      daysLate: daysBetweenISO(dueOn, input.todayISO),
+      paidCents
     })
   }
 

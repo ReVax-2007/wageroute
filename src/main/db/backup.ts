@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type Database from 'better-sqlite3'
 import type { ImportCounts, ImportIssue } from '@shared/api'
 import { IMPORT_TABLES, type ImportTable, type ImportTables } from '@shared/importRepair'
+import { parseSettings, settingsToRecord } from '@shared/settings'
 import { SCHEMA_VERSION } from './migrations'
 
 type Db = Database.Database
@@ -22,6 +23,7 @@ const TABLE_LABEL: Record<BackupTable, string> = {
   goals: 'goal',
   paychecks: 'paycheck',
   allocations: 'allocation',
+  bill_reserves: 'bill reserve',
   transactions: 'transaction',
   settings: 'setting'
 }
@@ -54,10 +56,15 @@ const TABLE_COLUMNS: Record<BackupTable, readonly string[]> = {
     'id', 'user_id', 'paycheck_id', 'bucket', 'goal_id', 'label', 'amount_cents',
     'created_at', 'updated_at', 'deleted_at', 'revision'
   ],
+  bill_reserves: [
+    'id', 'user_id', 'bill_id', 'paycheck_id', 'cycle', 'amount_cents', 'state',
+    'created_at', 'updated_at', 'deleted_at', 'revision'
+  ],
   transactions: [
     'id', 'user_id', 'account_id', 'kind', 'amount_cents', 'occurred_on', 'memo',
     'category', 'bill_id', 'goal_id', 'paycheck_id', 'counter_account_id',
-    'transfer_group_id', 'created_at', 'updated_at', 'deleted_at', 'revision'
+    'transfer_group_id', 'round_up_source_id', 'created_at', 'updated_at',
+    'deleted_at', 'revision'
   ],
   settings: ['user_id', 'key', 'value', 'updated_at']
 }
@@ -95,6 +102,9 @@ const TABLE_DEFAULTS: Record<BackupTable, Record<string, SqlValue>> = {
     leisure_cents: 0
   },
   allocations: {},
+  bill_reserves: {
+    state: 'reserved'
+  },
   transactions: {
     memo: '',
     category: 'Uncategorized'
@@ -109,6 +119,13 @@ export function buildBackup(db: Db, userId: string): BackupPayload {
       .prepare(`SELECT * FROM ${table} WHERE user_id = ?`)
       .all(userId) as Record<string, unknown>[]
   }
+  // A row for a key no build reads (pre-rename, deleted features) would ride
+  // along in every backup and come back on restore; the file carries only keys
+  // this build understands.
+  const knownKeys = new Set(Object.keys(settingsToRecord(parseSettings({}))))
+  tables.settings = tables.settings.filter(
+    (row) => typeof row.key === 'string' && knownKeys.has(row.key)
+  )
   return {
     format: 'cash-flow-routing-backup',
     version: SCHEMA_VERSION,
@@ -198,6 +215,7 @@ function emptyCounts(): ImportCounts {
     goals: 0,
     paychecks: 0,
     allocations: 0,
+    bill_reserves: 0,
     transactions: 0,
     settings: 0
   }

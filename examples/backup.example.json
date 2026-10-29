@@ -1,6 +1,6 @@
 {
   "format": "cash-flow-routing-backup",
-  "version": 6,
+  "version": 7,
   "exportedAt": "2026-10-28T12:00:00.000Z",
   "tables": {
     "accounts": [
@@ -158,6 +158,21 @@
         "revision": 1
       }
     ],
+    "bill_reserves": [
+      {
+        "id": "c1e2f3a4-b5c6-4d7e-8f90-1a2b3c4d5e13",
+        "user_id": "11111111-1111-4111-8111-111111111111",
+        "bill_id": "9e5b3a17-6c4f-4d8a-b1e2-3f5a7c9d2e03",
+        "paycheck_id": "8b4e2a6c-5d8f-4a3b-b5c7-9e1f3a6c8d06",
+        "cycle": "2026-10",
+        "amount_cents": 120000,
+        "state": "reserved",
+        "created_at": "2026-10-24T09:00:00.000Z",
+        "updated_at": "2026-10-24T09:00:00.000Z",
+        "deleted_at": null,
+        "revision": 1
+      }
+    ],
     "transactions": [
       {
         "id": "f8a2c4e6-7d9b-4e1a-b3c5-8f2a4d6b9e10",
@@ -237,9 +252,24 @@
       }
     ],
     "settings": [
-      { "user_id": "11111111-1111-4111-8111-111111111111", "key": "currency", "value": "USD", "updated_at": "2026-10-01T09:00:00.000Z" },
-      { "user_id": "11111111-1111-4111-8111-111111111111", "key": "payCadence", "value": "biweekly", "updated_at": "2026-10-01T09:00:00.000Z" },
-      { "user_id": "11111111-1111-4111-8111-111111111111", "key": "savingsPercent", "value": "20", "updated_at": "2026-10-01T09:00:00.000Z" }
+      {
+        "user_id": "11111111-1111-4111-8111-111111111111",
+        "key": "currency",
+        "value": "USD",
+        "updated_at": "2026-10-01T09:00:00.000Z"
+      },
+      {
+        "user_id": "11111111-1111-4111-8111-111111111111",
+        "key": "payCadence",
+        "value": "biweekly",
+        "updated_at": "2026-10-01T09:00:00.000Z"
+      },
+      {
+        "user_id": "11111111-1111-4111-8111-111111111111",
+        "key": "savingsPercent",
+        "value": "20",
+        "updated_at": "2026-10-01T09:00:00.000Z"
+      }
     ]
   }
 }

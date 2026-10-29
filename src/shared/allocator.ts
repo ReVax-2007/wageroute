@@ -38,6 +38,13 @@ export interface AllocatorInput {
   incomeCents: number
   payCadence: PayCadence
   paycheckDate?: string | null
+  /** A known payday; without it weekly/biweekly slots use day-of-month ranges. */
+  payAnchorDate?: string | null
+  /**
+   * Bills already carried by an earlier cheque in this calendar month. A second
+   * cheque in the same cycle must not reserve the same single-check bills again.
+   */
+  reservedBillIds?: readonly string[]
   bills: readonly AllocatorBill[]
   goals: readonly AllocatorGoal[]
   splits: AllocatorSplits
@@ -50,6 +57,7 @@ export type PlanWarning =
   | { code: 'goal_overflow'; overflowCents: number }
   | { code: 'no_bills' }
   | { code: 'no_goals' }
+  | { code: 'goals_account_funded'; overflowCents: number }
   | { code: 'tight_margin'; leisureCents: number }
 
 export interface PriorityReserve {
@@ -102,18 +110,23 @@ export function buildAllocationPlan(input: AllocatorInput): AllocationPlan {
     debtPercent: clampPercent(input.splits.debtPercent)
   }
 
+  const reservedBillIds = new Set(input.reservedBillIds ?? [])
   const priorityReserves = input.bills.map<PriorityReserve>((bill) => ({
     billId: bill.id,
     name: bill.name,
-    reserveCents: billFundingReserveCents({
-      amountCents: bill.amountCents,
-      frequency: bill.frequency,
-      cadence: input.payCadence,
-      dueDay: bill.dueDay ?? 1,
-      fundingStrategy: bill.fundingStrategy,
-      fundingPaycheckIndex: bill.fundingPaycheckIndex,
-      paycheckDate: input.paycheckDate
-    }),
+    reserveCents:
+      (bill.fundingStrategy ?? 'all_checks') !== 'all_checks' && reservedBillIds.has(bill.id)
+        ? 0
+        : billFundingReserveCents({
+            amountCents: bill.amountCents,
+            frequency: bill.frequency,
+            cadence: input.payCadence,
+            dueDay: bill.dueDay ?? 1,
+            fundingStrategy: bill.fundingStrategy,
+            fundingPaycheckIndex: bill.fundingPaycheckIndex,
+            paycheckDate: input.paycheckDate,
+            payAnchorDate: input.payAnchorDate
+          }),
     monthlyCents: monthlyEquivalentCents(bill.amountCents, bill.frequency)
   }))
 
@@ -187,9 +200,12 @@ export function buildAllocationPlan(input: AllocatorInput): AllocationPlan {
 
   if (goalBudget > 0) {
     savingsCents += goalBudget
+    const accountFunded = input.goals.some((goal) => goal.fundedFrom === 'account')
     warnings.push(
       allocatableGoals.length === 0
-        ? { code: 'no_goals' }
+        ? accountFunded
+          ? { code: 'goals_account_funded', overflowCents: goalBudget }
+          : { code: 'no_goals' }
         : { code: 'goal_overflow', overflowCents: goalBudget }
     )
   }

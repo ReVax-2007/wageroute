@@ -28,6 +28,7 @@ export interface ImportCounts {
   goals: number
   paychecks: number
   allocations: number
+  bill_reserves: number
   transactions: number
   settings: number
 }
@@ -77,6 +78,7 @@ export function emptyImportCounts(): ImportCounts {
     goals: 0,
     paychecks: 0,
     allocations: 0,
+    bill_reserves: 0,
     transactions: 0,
     settings: 0
   }

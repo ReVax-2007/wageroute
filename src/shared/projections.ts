@@ -1,4 +1,5 @@
-import { addDaysISO, advanceByFrequency, nextDueDateISO } from './dates'
+import { addDaysISO } from './dates'
+import { billOccurrencesBetween } from './occurrences'
 import type { Frequency } from './types'
 
 export interface ProjectionBill {
@@ -39,24 +40,15 @@ export function projectUpcoming(input: ProjectionInput): ProjectionRow[] {
   const rows: ProjectionRow[] = []
 
   for (const bill of input.bills) {
-    const anchor =
-      bill.nextDueOn && bill.nextDueOn >= input.fromISO
-        ? bill.nextDueOn
-        : nextDueDateISO(bill.dueDay, input.fromISO)
-
-    let cursor = anchor
-    let guard = 0
-    while (cursor <= endISO && guard < 400) {
+    for (const date of billOccurrencesBetween(bill, input.fromISO, endISO)) {
       rows.push({
-        id: `${bill.id}:${cursor}`,
-        date: cursor,
+        id: `${bill.id}:${date}`,
+        date,
         type: 'bill',
         name: bill.name,
         category: bill.category,
         amountCents: bill.amountCents
       })
-      cursor = advanceByFrequency(cursor, bill.frequency)
-      guard += 1
     }
   }
 

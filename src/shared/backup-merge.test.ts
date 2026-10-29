@@ -35,6 +35,7 @@ function payload(tables: Partial<BackupPayload['tables']>): BackupPayload {
       goals: [],
       paychecks: [],
       allocations: [],
+      bill_reserves: [],
       transactions: [],
       settings: [],
       ...tables
