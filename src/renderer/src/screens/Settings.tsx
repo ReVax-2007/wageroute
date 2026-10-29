@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import {
+  Coffee,
   Download,
   FileSpreadsheet,
   HardDrive,
+  Info,
   Moon,
   RefreshCw,
   Sun,
@@ -34,6 +36,7 @@ export function Settings() {
   const resetData = useFinanceStore((state) => state.resetData)
   const go = useFinanceStore((state) => state.go)
   const dbPath = useFinanceStore((state) => state.dbPath)
+  const appInfo = useFinanceStore((state) => state.appInfo)
   const [eraseStep, setEraseStep] = useState<0 | 1 | 2>(0)
   const [paydayDraft, setPaydayDraft] = useState(settings.paydayLabel)
 
@@ -262,6 +265,51 @@ export function Settings() {
             The calculator lives with your sinking funds, next to the goal it targets.
           </p>
           <Button onClick={() => go('goals')}>Open sinking funds</Button>
+        </Card>
+
+        <Card
+          title="About"
+          subtitle="The build you are running, and how to say thanks"
+          actions={<Info size={16} className="stat-icon" />}
+        >
+          <div className="setting-row">
+            <div>
+              <strong>Version</strong>
+              <p className="field-hint">Baked into this bundle, not read from the source tree.</p>
+            </div>
+            <span className="about-value">{appInfo?.version ?? '…'}</span>
+          </div>
+          <div className="setting-row">
+            <div>
+              <strong>Database schema</strong>
+              <p className="field-hint">The last migration this build applies.</p>
+            </div>
+            <span className="about-value">
+              {appInfo ? `v${appInfo.schemaVersion}` : '…'}
+            </span>
+          </div>
+          <div className="setting-row">
+            <div>
+              <strong>Electron</strong>
+              <p className="field-hint">The runtime bundled with this build.</p>
+            </div>
+            <span className="about-value">{appInfo?.electron ?? '…'}</span>
+          </div>
+          <p className="field-hint">
+            WageRoute is free and runs entirely on this machine. If it saves you an afternoon, you
+            can buy me a coffee — the link opens in your browser.
+          </p>
+          <div className="data-actions">
+            <a
+              className="btn btn-ghost btn-md"
+              href="https://buymeacoffee.com/revax"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <Coffee size={15} />
+              Buy me a coffee
+            </a>
+          </div>
         </Card>
 
         <Card

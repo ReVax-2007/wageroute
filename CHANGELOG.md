@@ -8,7 +8,10 @@ All notable changes to WageRoute are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
-Nothing yet. Start the next queue here.
+### Added
+
+- **The running version is shown in the app.** Settings → **About** prints the version baked into the bundle — `app.getVersion()` over a new `app:info` IPC channel, alongside the database schema this build applies and its Electron runtime — and the sidebar footer reads `WageRoute v1.1.0` with the full database path as its tooltip. This is the surface that would have made the last three releases' "an unpublished build that still reports 1.0.2" confusion visible at a glance.
+- **A Buy me a coffee link.** `https://buymeacoffee.com/revax` in Settings → About, a Support section and badge in the README, and a `.github/FUNDING.yml` so GitHub shows its Sponsor button. The in-app link opens in the system browser through the existing `setWindowOpenHandler`: the app denies child windows and never navigates away from the ledger.
 
 ---
 

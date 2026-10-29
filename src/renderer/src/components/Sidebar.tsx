@@ -36,6 +36,7 @@ export function Sidebar() {
   const settings = useFinanceStore((state) => state.settings)
   const saveSettings = useFinanceStore((state) => state.saveSettings)
   const dbPath = useFinanceStore((state) => state.dbPath)
+  const appInfo = useFinanceStore((state) => state.appInfo)
 
   if (!snapshot) return null
 
@@ -120,7 +121,7 @@ export function Sidebar() {
       </div>
 
       <p className="sidebar-foot" title={dbPath}>
-        {dbPath}
+        WageRoute v{appInfo?.version ?? '…'}
       </p>
     </aside>
   )

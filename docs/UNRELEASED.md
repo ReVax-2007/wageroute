@@ -38,7 +38,15 @@ A patch is the default for fixes with no schema change; anything that adds a mig
 
 ## Queued
 
-Nothing merged since `v1.1.0`.
+### Running version in the app
+
+Settings → **About** shows the bundle's own version (`app.getVersion()` via the new `app:info` channel), the schema version it applies and its Electron version; the sidebar footer shows `WageRoute v<version>`. Verification: launched the built app on a disposable profile, `getAppInfo()` returned `{ version: '1.1.0', schemaVersion: 6, electron: '45.1.0' }`, the footer rendered `WageRoute v1.1.0`, and the About card rendered all three values.
+
+### Buy me a coffee
+
+`https://buymeacoffee.com/revax` in Settings → About, plus a README Support section and `.github/FUNDING.yml` (`custom`) for the repository's Sponsor button. Clicking it in the running app left the window on `file://…/renderer/index.html` and opened the address in the system browser (Chrome became frontmost), so the child-window denial and `shell.openExternal` path both worked.
+
+No schema change; both are candidates for a patch or minor bump depending on what else queues up.
 
 ---
 

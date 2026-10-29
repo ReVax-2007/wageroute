@@ -46,6 +46,7 @@ import {
   type BackupPayload
 } from './db/backup'
 import { mergeEntries } from './db/entries'
+import { SCHEMA_VERSION } from './db/migrations'
 import { seedIfEmpty } from './db/seed'
 import * as repo from './db/repositories'
 
@@ -172,6 +173,11 @@ export function registerIpcHandlers(db: Database.Database): void {
 
   ipcMain.handle('snapshot:get', () => repo.getSnapshot(db, userId()))
   ipcMain.handle('db:path', () => databasePath())
+  ipcMain.handle('app:info', () => ({
+    version: app.getVersion(),
+    schemaVersion: SCHEMA_VERSION,
+    electron: process.versions.electron
+  }))
 
   ipcMain.handle('account:create', (_event, input: AccountInput) =>
     repo.createAccount(db, userId(), input)

@@ -165,6 +165,7 @@ Channels are registered once in `src/main/ipc.ts` and exposed through `src/prelo
 | --- | --- | --- | --- |
 | `snapshot:get` | `getSnapshot` | — | Full `Snapshot` |
 | `db:path` | `getDatabasePath` | — | Absolute path |
+| `app:info` | `getAppInfo` | — | `AppInfo`: version, schema version, Electron version |
 | `account:create` | `createAccount` | `AccountInput` | `void` |
 | `account:update` | `updateAccount` | `id`, `Partial<AccountInput>` | `void` |
 | `account:delete` | `deleteAccount` | `id` | `void` |

@@ -16,6 +16,7 @@ const invoke = ipcRenderer.invoke.bind(ipcRenderer)
 const api: FinanceApi = {
   getSnapshot: () => invoke('snapshot:get'),
   getDatabasePath: () => invoke('db:path'),
+  getAppInfo: () => invoke('app:info'),
 
   createAccount: (input: AccountInput) => invoke('account:create', input),
   updateAccount: (id: string, input: Partial<AccountInput>) => invoke('account:update', id, input),

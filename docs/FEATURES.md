@@ -613,7 +613,14 @@ The wizard has three steps — choose file, missing info, review — and the sam
 
 The file path stays in the main process between the two steps — the renderer only ever holds a single-use token. See [docs/IMPORT-EXPORT.md](IMPORT-EXPORT.md#the-import-wizard).
 
-The database path is displayed below the actions and is also shown in the sidebar (with a tooltip for the full path).
+The database path is displayed below the actions. The sidebar footer shows the running version instead — `WageRoute v1.1.0` — with the full database path as its tooltip.
+
+### About
+
+- **Version** — `app.getVersion()`, the version baked into the running bundle, delivered over the `app:info` IPC channel. It is *not* read from the checkout's `package.json` at runtime, so a build launched from `release/` reports the version it was packaged as.
+- **Database schema** — `SCHEMA_VERSION`, the last migration this build applies. A database at a lower `user_version` is migrated on launch; one above it is unsupported.
+- **Electron** — the runtime version the bundle carries, useful when a bug could be a runtime bug.
+- **Buy me a coffee** — an `https://buymeacoffee.com/revax` link with `target="_blank"`. The main process denies in-app windows and hands `http(s)` URLs to the system browser, so the app never navigates away from the ledger.
 
 ### Danger zone
 
