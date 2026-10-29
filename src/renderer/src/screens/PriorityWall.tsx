@@ -57,6 +57,7 @@ export function PriorityWall() {
   const active = activeBills(bills)
   const monthly = monthlyWall(active)
   const perCheck = perPaycheckWall(active, settings.payCadence)
+  const payday = settings.paydayLabel.trim()
   const lastIncome = snapshot.paychecks[0]?.amountCents ?? 0
   const shareOfPaycheck = lastIncome > 0 ? Math.round((perCheck / lastIncome) * 100) : null
 
@@ -95,7 +96,8 @@ export function PriorityWall() {
             <Money cents={perCheck} currency={currency} />
           </p>
           <span className="stat-hint">
-            {PAY_CADENCE_LABEL[settings.payCadence]} pay cycle · averaged
+            {PAY_CADENCE_LABEL[settings.payCadence]} pay cycle
+            {payday ? ` · ${payday}` : ''} · averaged
           </span>
         </div>
         <div className="summary-item">
@@ -215,7 +217,8 @@ export function PriorityWall() {
 
       <p className="footnote">
         Monthly figures are annualised and divided by twelve, so a $600 yearly insurance premium
-        counts as $50 of obligation every month.
+        counts as $50 of obligation every month. A bill funded on one check reserves on that slot
+        of your pay cycle; set the cycle and its payday label in Settings.
       </p>
 
       {editing !== null && (
@@ -416,8 +419,12 @@ function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () => void 
           <p className="field-hint">
             Reserves the whole month&apos;s obligation on the{' '}
             {ordinal(fundingCheckForForm ?? 1)} paycheck
-            {form.fundingStrategy === 'closest_due_date' ? ', closest to the due day' : ''}. Every
-            other paycheck reserves nothing for this bill.
+            {form.fundingStrategy === 'closest_due_date'
+              ? ', closest to the due day'
+              : form.fundingStrategy === 'last_check'
+                ? ', the last check your pay cycle is guaranteed to have every month'
+                : ''}
+            . Every other paycheck reserves nothing for this bill.
           </p>
         )}
       </div>

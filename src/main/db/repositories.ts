@@ -40,7 +40,8 @@ const BILL_FUNDING_STRATEGIES: readonly BillFundingStrategy[] = [
   'all_checks',
   'closest_due_date',
   'specific_check',
-  'first_check'
+  'first_check',
+  'last_check'
 ]
 const FREQUENCIES: readonly Frequency[] = [
   'weekly',

@@ -470,6 +470,8 @@ test('CSV parsing keeps quoted newlines and skips blank rows', () => {
 test('settings default to dark theme, round-up off and auto emergency target', () => {
   const defaults = parseSettings({})
   assert.equal(defaults.theme, 'dark')
+  assert.equal(defaults.paydayLabel, '')
+  assert.equal(defaults.defaultDepositAccountId, null)
   assert.equal(defaults.roundUpEnabled, false)
   assert.equal(defaults.roundUpAccountId, null)
   assert.equal(defaults.roundUpToCents, 100)
@@ -481,6 +483,8 @@ test('settings default to dark theme, round-up off and auto emergency target', (
 
   const parsed = parseSettings({
     theme: 'light',
+    paydayLabel: '  15th and last day  ',
+    defaultDepositAccountId: 'acc-checking',
     roundUpEnabled: 'true',
     roundUpAccountId: 'acc-1',
     roundUpToCents: '200',
@@ -491,6 +495,8 @@ test('settings default to dark theme, round-up off and auto emergency target', (
     emergencyActive: 'false'
   })
   assert.equal(parsed.theme, 'light')
+  assert.equal(parsed.paydayLabel, '15th and last day', 'labels are stored trimmed')
+  assert.equal(parsed.defaultDepositAccountId, 'acc-checking')
   assert.equal(parsed.roundUpEnabled, true)
   assert.equal(parsed.roundUpAccountId, 'acc-1')
   assert.equal(parsed.roundUpToCents, 200)
@@ -502,12 +508,16 @@ test('settings default to dark theme, round-up off and auto emergency target', (
 
   const invalid = parseSettings({
     theme: 'neon',
+    paydayLabel: '   ',
+    defaultDepositAccountId: '',
     roundUpToCents: '300',
     emergencyMode: 'guess',
     emergencyMonths: '18',
     emergencyManualTargetCents: '-1'
   })
   assert.equal(invalid.theme, 'dark')
+  assert.equal(invalid.paydayLabel, '')
+  assert.equal(invalid.defaultDepositAccountId, null, 'an empty pointer means "no default"')
   assert.equal(invalid.roundUpToCents, 100)
   assert.equal(invalid.emergencyMode, 'auto')
   assert.equal(invalid.emergencyMonths, 3)

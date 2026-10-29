@@ -40,6 +40,7 @@ export type BillFundingStrategy =
   | 'closest_due_date'
   | 'specific_check'
   | 'first_check'
+  | 'last_check'
 
 export interface SyncMeta {
   createdAt: string
@@ -261,6 +262,10 @@ export interface PaycheckDraftInput {
 export interface AppSettings {
   currency: string
   payCadence: PayCadence
+  /** Free text naming the paydays, e.g. "15th and last day". Display only. */
+  paydayLabel: string
+  /** Preselected by the allocator; falls back to the first checking account. */
+  defaultDepositAccountId: string | null
   savingsPercent: number
   investmentPercent: number
   goalsPercent: number

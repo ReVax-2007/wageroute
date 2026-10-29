@@ -63,7 +63,13 @@ export function Allocator() {
   useEffect(() => {
     if (!open) return
     const accounts = snapshot?.accounts ?? []
-    const preferred = accounts.find((account) => account.kind === 'checking') ?? accounts[0]
+    const preferred =
+      accounts.find(
+        (account) => account.id === settings.defaultDepositAccountId && !account.isArchived
+      ) ??
+      accounts.find((account) => account.kind === 'checking' && !account.isArchived) ??
+      accounts.find((account) => !account.isArchived) ??
+      accounts[0]
     setStep(1)
     setIncome('')
     setReceivedOn(todayISO())
@@ -123,6 +129,8 @@ export function Allocator() {
   const currency = settings.currency
   const splitTotal = savings + investment + goalsSplit + debtSplit
   const overAllocated = splitTotal > 100
+  const capFor = (percent: number) => Math.max(0, 100 - (splitTotal - percent))
+  const payday = settings.paydayLabel.trim()
   const warnings = incomeCents > 0 ? plan.warnings : []
   const visibleWarnings = overAllocated
     ? warnings.filter((warning) => warning.code !== 'splits_scaled')
@@ -311,6 +319,11 @@ export function Allocator() {
                   Priority Wall, leaving the true surplus to route.
                 </p>
 
+                <p className="field-hint">
+                  {payday ? `Paydays: ${payday} — edit this label in Settings. ` : ''}
+                  The cadence decides which check of the month a single-check bill reserves on.
+                </p>
+
                 {error && <p className="form-error">{error}</p>}
               </section>
             )}
@@ -413,6 +426,7 @@ export function Allocator() {
                     label="Savings"
                     color="var(--savings)"
                     percent={savings}
+                    maxPercent={capFor(savings)}
                     amountCents={plan.savingsCents}
                     currency={currency}
                     onChange={setSavings}
@@ -421,6 +435,7 @@ export function Allocator() {
                     label="Investments"
                     color="var(--investment)"
                     percent={investment}
+                    maxPercent={capFor(investment)}
                     amountCents={plan.investmentCents}
                     currency={currency}
                     onChange={setInvestment}
@@ -429,6 +444,7 @@ export function Allocator() {
                     label="Sinking funds"
                     color="var(--goal)"
                     percent={goalsSplit}
+                    maxPercent={capFor(goalsSplit)}
                     amountCents={plan.goalsCents}
                     currency={currency}
                     onChange={setGoalsSplit}
@@ -437,6 +453,7 @@ export function Allocator() {
                     label="Debt payoff"
                     color="var(--debt)"
                     percent={debtSplit}
+                    maxPercent={capFor(debtSplit)}
                     amountCents={plan.debtCents}
                     currency={currency}
                     onChange={setDebtSplit}
@@ -592,6 +609,7 @@ function SplitRow({
   label,
   color,
   percent,
+  maxPercent,
   amountCents,
   currency,
   onChange
@@ -599,10 +617,13 @@ function SplitRow({
   label: string
   color: string
   percent: number
+  maxPercent: number
   amountCents: number
   currency: string
   onChange: (value: number) => void
 }) {
+  const clamp = (value: number) => Math.min(maxPercent, Math.max(0, Math.round(value || 0)))
+
   return (
     <div className="split-row">
       <span className="split-dot" style={{ background: color }} />
@@ -613,24 +634,22 @@ function SplitRow({
       <input
         type="range"
         min={0}
-        max={100}
+        max={maxPercent}
         step={1}
         value={percent}
         aria-label={`${label} percent`}
         className="split-range"
         style={{ accentColor: color }}
-        onChange={(event) => onChange(Number(event.target.value))}
+        onChange={(event) => onChange(clamp(Number(event.target.value)))}
       />
       <input
         type="number"
         min={0}
-        max={100}
+        max={maxPercent}
         className="percent-input"
         aria-label={`${label} percent`}
         value={percent}
-        onChange={(event) =>
-          onChange(Math.min(100, Math.max(0, Math.round(Number(event.target.value) || 0))))
-        }
+        onChange={(event) => onChange(clamp(Number(event.target.value)))}
       />
       <span className="percent-sign">%</span>
     </div>

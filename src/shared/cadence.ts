@@ -36,7 +36,8 @@ export const BILL_FUNDING_STRATEGY_LABEL: Record<BillFundingStrategy, string> = 
   closest_due_date: 'Closest to the due date',
   specific_check: 'Choose specific paycheck to fund',
   all_checks: 'Reserve from all paychecks',
-  first_check: 'First check of every month'
+  first_check: 'First check of every month',
+  last_check: 'Last check of every month'
 }
 
 /**
@@ -114,6 +115,11 @@ export function reachableCheckIndexes(cadence: PayCadence): number[] {
  * The one paycheck of the month that funds this bill, clamped to a slot that
  * exists every month. Returns null for `all_checks`, where no single check is
  * responsible.
+ *
+ * `last_check` is the last *guaranteed* slot, not the last calendar check: a
+ * monthly payday has one check, a biweekly month can have three but only
+ * two exist every month, and the second is the one that can always carry the
+ * bill. Funding the third would leave the bill unreserved in short months.
  */
 export function fundingCheckIndex(input: {
   cadence: PayCadence
@@ -123,6 +129,7 @@ export function fundingCheckIndex(input: {
 }): number | null {
   if (input.fundingStrategy === 'all_checks') return null
   if (input.fundingStrategy === 'first_check') return 1
+  if (input.fundingStrategy === 'last_check') return GUARANTEED_CHECKS_PER_MONTH[input.cadence]
 
   const requested =
     input.fundingStrategy === 'closest_due_date'
@@ -135,7 +142,7 @@ export function fundingCheckIndex(input: {
 /**
  * What one paycheck must set aside for a bill.
  *
- * `all_checks` spreads the year's cost over every paycheck. The three
+ * `all_checks` spreads the year's cost over every paycheck. The four
  * single-check strategies move that same money onto one paycheck per month —
  * they never multiply it — so a month's total reserve is
  * {@link monthlyEquivalentCents} under every strategy and the Priority Wall
