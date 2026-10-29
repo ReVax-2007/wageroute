@@ -12,10 +12,15 @@ It is a planning and ledger tool, not a bank connection. There is no account lin
 
 > Version 1.0.2 · single user · macOS and Windows · unsigned developer builds
 
+## Support
+
+If WageRoute is useful to you, you can [buy me a coffee](https://buymeacoffee.com/revax).
+
 ---
 
 ## Contents
 
+- [Support](#support)
 - [What it does](#what-it-does)
 - [Design rules](#design-rules)
 - [Screens](#screens)
