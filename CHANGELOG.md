@@ -8,9 +8,15 @@ All notable changes to WageRoute are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
-Target: **1.1.0**. The queued work adds database schema versions 4, 5 and 6, and [any schema migration is at least a minor bump](docs/RELEASING.md#semver-policy), so this is not a patch release.
+Nothing yet. Start the next queue here.
 
-The import-wizard and documentation items below are on `main` after the `v1.0.2` tag (`7fce57b`). The dedicated-accounts work (schema 4) merged as PR #13 (`76283d4`), and the bill-funding, goal-funding and account-colour work (schema 5) merged as PR #16 (`100bc65`). The last-check, pay-cycle and split-cap work (schema 6) merged as PR #18 (`ec07dae`).
+---
+
+## [1.1.0] - 2026-10-29
+
+Tag `v1.1.0`. Schema **3 → 4 → 5 → 6**; backups written at version 6, versions 2–6 accepted. Installers: `WageRoute-1.1.0-arm64.dmg`, `WageRoute-1.1.0.dmg` (Intel), `WageRoute Setup 1.1.0.exe`.
+
+This is a minor release because every schema migration is at least a minor bump ([semver policy](docs/RELEASING.md#semver-policy)). Everything in this section merged after `v1.0.2` (`7fce57b`) and had no installer before it: the import wizard as PR #12 (`8b25329`), dedicated accounts (schema 4) as PR #13 (`76283d4`), bill funding strategies, goal-owned funders and account colours (schema 5) as PR #16 (`100bc65`), and the last-check, pay-cycle and split-cap work (schema 6) as PR #18 (`ec07dae`).
 
 ### Added
 
@@ -61,9 +67,9 @@ The import-wizard and documentation items below are on `main` after the `v1.0.2`
 - **The new UI has now been driven in a running app.** Launched built arm64 bundles against a disposable profile (`CFFIXED_USER_HOME=/tmp/...`) with `--remote-debugging-port`, and walked every new surface through the Chrome DevTools Protocol: the first-run card, the account create and edit dialogs with both new controls and their conditional hints, the row badges, the Total wealth tile and strip, the goal card's progress and funding-source chip, and the tri-state safe-to-spend choice surviving a round trip through IPC into SQLite and back (the badge disappears with *Always count it* and returns with *Automatic*). This is how the −$3,000 double deduction under **Fixed** was found — type-check and the test suite were green while the composed number was wrong. Screenshot capture and assistive access remain denied on this machine, so the *appearance* is still unverified even though the *behaviour* is. No component tests exist; the verification was manual and will not re-run itself.
 - **The schema-5 surfaces were driven in the built app too, and the walk found real defects.** Over CDP against a disposable profile: the four numbered funding options in the bill dialog and their derived hint, the "Which paycheck?" field appearing only for cadences with more than one slot, the wall's "Nth check only" row, the **Funded by** dropdown and its **"Let several accounts add up together"** tick list (including `(funds That Goal)` and the empty state), the goal card's per-account balance list, and the eight colour swatches plus **Automatic colour**. The walk caught a picker still labelled **"Held in"** while writing `fundingAccountIds` — relabelled **"Funded by"** with an accurate hint — and verified that the wizard's step-2 total matches the chosen strategy to the cent. Screenshot capture and assistive access remain denied, so appearance is still unverified and no component test re-runs any of this.
 - **The import wizard's rendered flow is still not driven.** Its detection and repair rules are tested as pure code, but the wizard opens a native file picker that the DevTools Protocol cannot reach, so opening a file from the dialog by hand is still somebody's job.
-- **Only the arm64 macOS artifact has been launched** — on the development machine, against a copy of the live database for the migration check and then against the live database itself after install. The x64 DMG builds (with a node-gyp warning about the space in the path) and the Linux and Windows formats on the queued branch have never been started by anyone.
-- **The installed build still reports version 1.0.2** while carrying schema 5, because the version bump happens on the release branch. Nothing about that bundle's name, `Info.plist` or DMG filename distinguishes it from the released 1.0.2; only `PRAGMA user_version` does. (The schema-6 build has the same problem and has not even been installed over the top yet — it was launched from `release/mac-arm64`.)
-- **v5 and v6 backups are refused by older builds.** The backup format version rises with the schema, so a file exported from the next release cannot be imported by 1.0.2 (or by a build carrying only schema 4 or 5). There is no downgrade path for a version-6 database.
+- **Only the arm64 macOS installer has been launched.** The 1.1.0 arm64 DMG was mounted, its volume name confirmed, and the bundled app run from `release/mac-arm64` against a disposable profile built from a **copy** of the live database: it migrated that copy 5→6 with identical counts, a clean `integrity_check`, no foreign-key violations and the same wall figures ($492.69 due / $227.40 set aside). The x64 DMG builds and reports the right version but has never been started, and the Windows installer is produced by CI and has never been run by anyone.
+- **1.1.0 has not been installed over the app.** `/Applications/WageRoute.app` is still the schema-5 build that reports 1.0.2, so the real `wageroute.db` is still schema 5; the migration 1.1.0 performs was checked against a copy. Nothing about that installed bundle's `Info.plist` or filename distinguishes it from released 1.0.2 — only `PRAGMA user_version` does. Installing 1.1.0 over it is a separate, owner-approved step, because it migrates the live ledger irreversibly.
+- **v5 and v6 backups are refused by older builds.** The backup format version rises with the schema, so a file exported from 1.1.0 cannot be imported by 1.0.2 (or by a build carrying only schema 4 or 5). There is no downgrade path for a version-6 database.
 - **A single-check strategy can exceed the paycheck that carries it.** Under *Closest to the due date*, *A specific paycheck*, *First check of every month* or *Last check of every month*, one check may be asked for several bills' whole-month obligations at once. That is the point of the option, but it turns a previously covered wall into a visible shortfall on that date; the allocator reports the shortfall rather than smoothing it.
 - **`last_check` is not "the last cheque I got".** In a biweekly month with three checks, a bill on `last_check` funds on the second, so a user reading the label literally is surprised once a quarter. The alternative — funding on the third check — would leave the bill unreserved in every two-check month, which the reserve model cannot allow; the dialog hint states the rule in words.
 - **A dedicated account's progress can fall silently.** Spending from it lowers the goal with no warning; that is the point of "the balance is the progress", and it is the trade-off ADR 0007 accepts.
@@ -109,7 +115,8 @@ Tag `ad56de9`. First stable release, schema 3, importer accepting backup version
 - The documentation set: `docs/ARCHITECTURE.md`, `DATA-MODEL.md`, `FEATURES.md`, `IMPORT-EXPORT.md`, `DEPLOYMENT.md`, `DEVELOPMENT.md`, `RELEASING.md`, `SECURITY.md` and ADRs 0001–0005.
 - Source-available licence, protected `main`, pull-request-only merges and `verify` CI.
 
-[Unreleased]: https://github.com/ReVax-2007/wageroute/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/ReVax-2007/wageroute/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/ReVax-2007/wageroute/releases/tag/v1.1.0
 [1.0.2]: https://github.com/ReVax-2007/wageroute/releases/tag/v1.0.2
 [1.0.1]: https://github.com/ReVax-2007/wageroute/releases/tag/v1.0.1
 [1.0.0]: https://github.com/ReVax-2007/wageroute/releases/tag/v1.0.0
