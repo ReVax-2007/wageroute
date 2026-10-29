@@ -36,7 +36,7 @@ This document describes what is actually implemented, what the trust boundaries 
 | `1.0.x` | No | Superseded. 1.0.2 carries schema 3 and cannot open a 1.1.0 database; upgrade instead of patching. |
 | Older app versions | No | No security backports; upgrade or restore a backup |
 | Backups with schema `1` | No | Rejected by the importer |
-| Databases with `user_version` ahead of the app | Unsupported | A schema 6 database opened by an older build is not migrated down; use the newer app |
+| Databases with `user_version` ahead of the app | Refused | `SchemaTooNewError` at launch: a dialog names the newer schema, the app quits and the file is untouched |
 
 There is no long-term-support branch, no patch guarantee and no CVE process. This is a personal finance tool, not a regulated product.
 
@@ -190,6 +190,21 @@ The database and its sidecar files inherit the process umask and directory ACLs.
 - Encrypt backups before moving them off the machine (for example with an encrypted archive or `age`).
 - Quit the app before copying the database. Copy `.db`, `-wal` and `-shm` together.
 - Do not sync the **live** `WageRoute` folder. Syncing a WAL-mode SQLite database across devices can corrupt it or resurrect old data.
+
+---
+
+## Application shell hardening
+
+The packaged binary is not a general-purpose Node runtime, and it does not expose developer tooling:
+
+- **Electron fuses** (`electron-builder.yml`, applied before the ad-hoc signature): `runAsNode` off, `NODE_OPTIONS` off, `--inspect` off, cookie encryption on, embedded ASAR integrity validation on, and `onlyLoadAppFromAsar` on. A renamed `WageRoute` binary cannot be used to run arbitrary Node code, and an unpacked or modified `app.asar` fails the integrity check instead of loading.
+- **No in-app developer tools.** The packaged window is created with `devTools: false`.
+- **No default menu.** Electron's stock menu carries Reload, Force Reload and Toggle Developer Tools. The packaged build installs a minimal macOS app/edit/window menu (so Copy, Paste and Select All keep their shortcuts) and sets no application menu at all on other platforms.
+- **The renderer runs sandboxed** with `contextIsolation: true` and `nodeIntegration: false`; the only bridge is the typed `window.api` object.
+- **A newer database is refused, not guessed at.** `migrate()` raises `SchemaTooNewError` when `user_version` exceeds the schema this build applies, the app shows a dialog naming the problem and quits, and the file is left untouched. An older build cannot write to a schema it does not understand.
+- **Repository refusals are typed.** `RepositoryError` carries a code (`VALIDATION`, `NOT_FOUND`, `CONFLICT`, `STATE`) that survives IPC through an encoded marker, so the UI can distinguish "the record is gone" from "the input is wrong" without parsing prose.
+
+Signing remains ad-hoc only — see [Known weaknesses](#known-weaknesses). Fuses and ASAR integrity protect the shape of the bundle, not its authenticity.
 
 ---
 

@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3'
 import { buildAllocationPlan } from '@shared/allocator'
 import type { CommittedPaycheck } from '@shared/api'
 import { isISODate } from '@shared/dates'
+import { RepositoryError } from '@shared/errors'
 import type { ImportChoice, ImportChoiceTable } from '@shared/importRepair'
 import { normalizeSignedCents, signedAmountError } from '@shared/kinds'
 import { parseSettings } from '@shared/settings'
@@ -69,10 +70,10 @@ function nowISO(): string {
 }
 
 function assertText(value: unknown, label: string, max = 160): string {
-  if (typeof value !== 'string') throw new Error(`${label} must be text`)
+  if (typeof value !== 'string') throw new RepositoryError('VALIDATION', `${label} must be text`)
   const trimmed = value.trim()
-  if (!trimmed) throw new Error(`${label} is required`)
-  if (trimmed.length > max) throw new Error(`${label} is too long`)
+  if (!trimmed) throw new RepositoryError('VALIDATION', `${label} is required`)
+  if (trimmed.length > max) throw new RepositoryError('VALIDATION', `${label} is too long`)
   return trimmed
 }
 
@@ -88,24 +89,24 @@ interface CentsOptions {
 
 function assertCents(value: unknown, label: string, options: CentsOptions = {}): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new Error(`${label} must be a number`)
+    throw new RepositoryError('VALIDATION', `${label} must be a number`)
   }
   const cents = Math.round(value)
-  if (!Number.isSafeInteger(cents)) throw new Error(`${label} is out of range`)
-  if (!options.allowNegative && cents < 0) throw new Error(`${label} cannot be negative`)
-  if (!options.allowZero && cents === 0) throw new Error(`${label} cannot be zero`)
+  if (!Number.isSafeInteger(cents)) throw new RepositoryError('VALIDATION', `${label} is out of range`)
+  if (!options.allowNegative && cents < 0) throw new RepositoryError('VALIDATION', `${label} cannot be negative`)
+  if (!options.allowZero && cents === 0) throw new RepositoryError('VALIDATION', `${label} cannot be zero`)
   return cents
 }
 
 function assertOneOf<T extends string>(value: unknown, allowed: readonly T[], label: string): T {
   if (typeof value !== 'string' || !allowed.includes(value as T)) {
-    throw new Error(`Invalid ${label}`)
+    throw new RepositoryError('VALIDATION', `Invalid ${label}`)
   }
   return value as T
 }
 
 function assertDate(value: unknown, label: string): string {
-  if (!isISODate(value)) throw new Error(`${label} must be a date in YYYY-MM-DD form`)
+  if (!isISODate(value)) throw new RepositoryError('VALIDATION', `${label} must be a date in YYYY-MM-DD form`)
   return value
 }
 
@@ -149,7 +150,7 @@ function requireAccount(db: Db, userId: string, accountId: string): { id: string
   const row = db
     .prepare('SELECT id, kind FROM accounts WHERE id = ? AND user_id = ? AND deleted_at IS NULL')
     .get(accountId, userId) as { id: string; kind: AccountKind } | undefined
-  if (!row) throw new Error('Account not found')
+  if (!row) throw new RepositoryError('NOT_FOUND', 'Account not found')
   return row
 }
 
@@ -161,7 +162,7 @@ function requireGoal(db: Db, userId: string, goalId: string): { id: string; name
   const row = db
     .prepare('SELECT id, name FROM goals WHERE id = ? AND user_id = ? AND deleted_at IS NULL')
     .get(goalId, userId) as { id: string; name: string } | undefined
-  if (!row) throw new Error('Goal not found')
+  if (!row) throw new RepositoryError('NOT_FOUND', 'Goal not found')
   return row
 }
 
@@ -181,7 +182,7 @@ export function getUser(db: Db, userId: string): User {
        FROM users WHERE id = ? AND deleted_at IS NULL`
     )
     .get(userId) as User | undefined
-  if (!row) throw new Error('Local user is missing')
+  if (!row) throw new RepositoryError('NOT_FOUND', 'Local user is missing')
   return row
 }
 
@@ -189,7 +190,7 @@ export function getLocalUserId(db: Db): string {
   const row = db
     .prepare('SELECT id FROM users WHERE deleted_at IS NULL ORDER BY created_at LIMIT 1')
     .get() as { id: string } | undefined
-  if (!row) throw new Error('No local user has been seeded')
+  if (!row) throw new RepositoryError('NOT_FOUND', 'No local user has been seeded')
   return row.id
 }
 
@@ -431,7 +432,8 @@ export function deleteAccount(
   const ts = nowISO()
   const entries = accountEntryCount(db, userId, id)
   if (entries > 0 && !options.withEntries) {
-    throw new Error(
+    throw new RepositoryError(
+      'CONFLICT',
       'That account still has entries — archive it to keep them, or delete it with its entries'
     )
   }
@@ -799,7 +801,7 @@ function applyFundingAccounts(
   for (const accountId of keep) {
     requireAccount(db, userId, accountId)
     if (link.run(goalId, ts, accountId, userId).changes === 0) {
-      throw new Error('Archived accounts cannot fund a goal')
+      throw new RepositoryError('STATE', 'Archived accounts cannot fund a goal')
     }
   }
 }
@@ -841,6 +843,9 @@ export function updateGoal(
   patch: Partial<GoalInput>
 ): void {
   if (patch.accountId) requireAccount(db, userId, patch.accountId)
+  // updateRow no-ops on a missing row, so without this a dangling
+  // dedicated_goal_id could be written for a goal that does not exist.
+  requireGoal(db, userId, id)
 
   db.transaction(() => {
     updateRow(db, 'goals', id, userId, {
@@ -1034,9 +1039,9 @@ export function createTransaction(db: Db, userId: string, input: TransactionInpu
   const account = requireAccount(db, userId, input.accountId)
 
   if (kind === 'transfer') {
-    if (!input.counterAccountId) throw new Error('Transfers need a destination account')
+    if (!input.counterAccountId) throw new RepositoryError('VALIDATION', 'Transfers need a destination account')
     if (input.counterAccountId === input.accountId) {
-      throw new Error('Choose two different accounts')
+      throw new RepositoryError('VALIDATION', 'Choose two different accounts')
     }
     requireAccount(db, userId, input.counterAccountId)
     const counterAccountId = input.counterAccountId
@@ -1140,7 +1145,7 @@ export function updateTransaction(
         memo: string
       }
     | undefined
-  if (!existing) throw new Error('Entry not found')
+  if (!existing) throw new RepositoryError('NOT_FOUND', 'Entry not found')
 
   if (existing.roundUpSourceId) {
     // A sweep is derived: its amount, date and account are whatever the purchase
@@ -1151,13 +1156,13 @@ export function updateTransaction(
       patch.accountId !== undefined ||
       patch.kind !== undefined
     ) {
-      throw new Error('This is a round-up sweep — edit the purchase it came from instead')
+      throw new RepositoryError('CONFLICT', 'This is a round-up sweep — edit the purchase it came from instead')
     }
   }
 
   if (existing.groupId) {
     if (patch.accountId || patch.kind) {
-      throw new Error('Paired transfers keep their accounts — delete and re-enter to change them')
+      throw new RepositoryError('CONFLICT', 'Paired transfers keep their accounts — delete and re-enter to change them')
     }
     const magnitude =
       patch.amountCents === undefined
@@ -1192,10 +1197,10 @@ export function updateTransaction(
   // A transfer only exists as a pair. Turning a single row into one (or one leg
   // into something else) would strand the other side of the ledger.
   if (nextKind === 'transfer' && existing.kind !== 'transfer') {
-    throw new Error('Transfers need two accounts — delete this entry and record a transfer instead')
+    throw new RepositoryError('CONFLICT', 'Transfers need two accounts — delete this entry and record a transfer instead')
   }
   if (existing.kind === 'transfer' && nextKind !== 'transfer') {
-    throw new Error('Paired transfers keep their kind — delete and re-enter to change it')
+    throw new RepositoryError('CONFLICT', 'Paired transfers keep their kind — delete and re-enter to change it')
   }
 
   const patchTouchesAmount = patch.amountCents !== undefined || patch.kind !== undefined
@@ -1203,7 +1208,7 @@ export function updateTransaction(
   if (patch.amountCents !== undefined) {
     nextAmount = assertCents(patch.amountCents, 'Amount', { allowNegative: true, allowZero: true })
     const signProblem = signedAmountError(nextKind, nextAmount)
-    if (signProblem) throw new Error(signProblem)
+    if (signProblem) throw new RepositoryError('VALIDATION', signProblem)
   } else if (patch.kind !== undefined) {
     // Changing only the kind flips the stored sign to match it.
     nextAmount = normalizeSignedCents(nextKind, nextAmount)
@@ -1447,7 +1452,7 @@ export function commitPaycheck(
   const payCadence = assertOneOf(input.payCadence, PAY_CADENCES, 'pay cadence')
   const source = optionalText(input.source, 'Source', 80) ?? 'Paycheck'
   const depositAccountId = input.depositAccountId
-  if (!depositAccountId) throw new Error('Choose the account this paycheck landed in')
+  if (!depositAccountId) throw new RepositoryError('VALIDATION', 'Choose the account this paycheck landed in')
   requireAccount(db, userId, depositAccountId)
 
   // A double-click or a re-entry of the same deposit would reserve the wall
@@ -1461,7 +1466,8 @@ export function commitPaycheck(
       )
       .get(userId, depositAccountId, incomeCents, receivedOn)
     if (duplicate) {
-      throw new Error(
+      throw new RepositoryError(
+        'CONFLICT',
         'A paycheck of this amount already exists on this date in this account. Confirm the second deposit if it really is separate.'
       )
     }

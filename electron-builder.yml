@@ -10,7 +10,20 @@ files:
 asarUnpack:
   - '**/*.node'
 npmRebuild: true
-afterPack: scripts/adhoc-sign.js
+# Runs after fuses are flipped and after electron-builder's signing step, so
+# the ad-hoc signature covers the final binary. Signing in afterPack would be
+# invalidated by the fuse flip that follows it.
+afterSign: scripts/adhoc-sign.js
+# Flipped before the ad-hoc signature in scripts/adhoc-sign.js. The packaged
+# binary is a ledger, not a Node runtime: it must not be launchable as node,
+# must not read NODE_OPTIONS or --inspect, and must load only the signed asar.
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
 mac:
   category: public.app-category.finance
   identity: null

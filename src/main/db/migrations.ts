@@ -400,8 +400,24 @@ export const MIGRATIONS: readonly Migration[] = [
 
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version
 
+export class SchemaTooNewError extends Error {
+  readonly code = 'SCHEMA_TOO_NEW'
+
+  constructor(readonly found: number, readonly supported: number) {
+    super(
+      `This database was created by a newer WageRoute (schema ${found}); ` +
+        `this build understands schema ${supported}.`
+    )
+    this.name = 'SchemaTooNewError'
+  }
+}
+
 export function migrate(db: Database.Database): void {
   const current = db.pragma('user_version', { simple: true }) as number
+  // A forward-only migration cannot read a schema it has never seen. Refusing
+  // here keeps the file untouched instead of letting queries fail one toast at
+  // a time — and stops a write from landing on a schema this build misreads.
+  if (current > SCHEMA_VERSION) throw new SchemaTooNewError(current, SCHEMA_VERSION)
   const hadForeignKeys = (db.pragma('foreign_keys', { simple: true }) as number) === 1
 
   for (const migration of MIGRATIONS) {

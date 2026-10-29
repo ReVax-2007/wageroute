@@ -11,6 +11,9 @@ import type {
   TransactionPatch
 } from '@shared/types'
 
+// Errors travel as messages: contextBridge does not carry custom properties on
+// a rejected promise, so a RepositoryError's code is encoded into the message
+// by the main process and decoded by `decodeError` where it is displayed.
 const invoke = ipcRenderer.invoke.bind(ipcRenderer)
 
 const api: FinanceApi = {

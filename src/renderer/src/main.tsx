@@ -1,6 +1,6 @@
 import { Component, StrictMode, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
-import 'react-data-grid/lib/styles.css'
+import { apiErrorMessage } from '@shared/errors'
 import './styles/tokens.css'
 import './styles/app.css'
 import App from './App'
@@ -22,7 +22,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { message: string
   override state: { message: string | null } = { message: null }
 
   static getDerivedStateFromError(error: unknown) {
-    return { message: error instanceof Error ? error.message : String(error) }
+    return { message: apiErrorMessage(error) }
   }
 
   override render() {

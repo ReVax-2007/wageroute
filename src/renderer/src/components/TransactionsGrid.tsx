@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
+import 'react-data-grid/lib/styles.css'
 import { Trash2 } from 'lucide-react'
 import {
   DataGrid,

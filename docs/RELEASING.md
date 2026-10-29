@@ -295,7 +295,7 @@ A normal branch push does **not** build installers. That is deliberate: packagin
 - It does not lint. There is no linter configured.
 - It does not test on Linux.
 - It does not smoke-test the packaged app. It proves the bundle was produced, not that it launches.
-- It does not sign with a real identity or notarize. macOS artifacts get an ad-hoc signature from the afterPack hook; Windows artifacts are unsigned.
+- It does not sign with a real identity or notarize. macOS artifacts get an ad-hoc signature from the afterSign hook; Windows artifacts are unsigned.
 - It does not create a GitHub Release, tag or changelog.
 - It does not compute checksums.
 - It does not publish anywhere. `npm run dist:*` passes `--publish never`, because electron-builder treats a tag build as an implicit publish request and fails when `GH_TOKEN` is absent. Artifacts expire according to the repository's retention setting (GitHub's default is 90 days).
@@ -307,7 +307,7 @@ Artifacts are downloaded from the workflow run page. They are zip files containi
 
 ## Code signing and notarization
 
-**Current state: ad-hoc macOS signature only.** Every macOS build is explicitly re-signed ad-hoc by `scripts/adhoc-sign.js` (electron-builder `afterPack` hook, driven by `identity: null` in `electron-builder.yml`). There is no certificate, notarization step, entitlements file or signing secret.
+**Current state: ad-hoc macOS signature only.** Every macOS build is explicitly re-signed ad-hoc by `scripts/adhoc-sign.js` (electron-builder `afterSign` hook, driven by `identity: null` in `electron-builder.yml`). There is no certificate, notarization step, entitlements file or signing secret.
 
 ### macOS
 
@@ -324,7 +324,7 @@ Practical workarounds, in order of convenience:
 3. Install via **Homebrew** (`brew install --cask ReVax-2007/wageroute/wageroute`) or **curl** — see [DEPLOYMENT.md](DEPLOYMENT.md#homebrew-tap). A curl download carries no quarantine attribute, so Gatekeeper never checks it. Homebrew does quarantine, so its first launch still needs option 1 unless you clear the flag with option 4.
 4. `sudo xattr -rd com.apple.quarantine /Applications/WageRoute.app` (only for a build you trust; it removes a real protection). This needs your password. Without `sudo` the same command fails with EPERM on browser-downloaded apps, which also carry the `com.apple.provenance` attribute; prefer options 1–3.
 
-Apple Silicon requires at least an ad-hoc signature for the executable to run, and an *invalid* signature produces the "damaged" dialog rather than the "cannot be verified" one. electron-builder's default no-identity path leaves the bundle with a broken signature, which is why the build re-signs it explicitly with `codesign --force --deep --sign -` in the afterPack hook. Ad-hoc is not notarization and does not satisfy Gatekeeper for downloaded copies. Verify the artifact on a clean machine rather than assuming a local launch proves it will open elsewhere.
+Apple Silicon requires at least an ad-hoc signature for the executable to run, and an *invalid* signature produces the "damaged" dialog rather than the "cannot be verified" one. electron-builder's default no-identity path leaves the bundle with a broken signature, which is why the build re-signs it explicitly with `codesign --force --deep --sign -` in the afterSign hook. It runs **after** electron-builder applies the electron fuses: flipping a fuse rewrites the binary and invalidates any signature made before it, so a hook on `afterPack` would leave the shipped bundle invalid. Ad-hoc is not notarization and does not satisfy Gatekeeper for downloaded copies. Verify the artifact on a clean machine rather than assuming a local launch proves it will open elsewhere.
 
 To ship properly you need:
 
