@@ -15,6 +15,7 @@ import type {
   Bill,
   BillFundingStrategy,
   BillInput,
+  BillReserve,
   Frequency,
   Goal,
   GoalFundingSource,
@@ -232,6 +233,7 @@ export function listImportChoices(
 // path must never interpolate user input here.
 const WIPE_TABLES = [
   'allocations',
+  'bill_reserves',
   'transactions',
   'paychecks',
   'goals',
@@ -585,7 +587,103 @@ export function updateBill(
 }
 
 export function deleteBill(db: Db, userId: string, id: string): void {
-  softDelete(db, 'bills', id, userId)
+  db.transaction(() => {
+    softDeleteBillReserves(db, userId, { billId: id })
+    softDelete(db, 'bills', id, userId)
+  })()
+}
+
+// ------------------------------------------------------------ bill reserves
+
+function softDeleteBillReserves(
+  db: Db,
+  userId: string,
+  filter: { billId?: string; paycheckId?: string }
+): void {
+  const ts = nowISO()
+  const column = filter.billId ? 'bill_id' : 'paycheck_id'
+  const value = filter.billId ?? filter.paycheckId
+  db.prepare(
+    `UPDATE bill_reserves
+     SET deleted_at = ?, updated_at = ?, revision = revision + 1
+     WHERE ${column} = ? AND user_id = ? AND deleted_at IS NULL`
+  ).run(ts, ts, value, userId)
+}
+
+export function listBillReserves(db: Db, userId: string): BillReserve[] {
+  return db
+    .prepare(
+      `SELECT id, user_id AS userId, bill_id AS billId, paycheck_id AS paycheckId,
+              cycle, amount_cents AS amountCents, state,
+              created_at AS createdAt, updated_at AS updatedAt,
+              deleted_at AS deletedAt, revision
+       FROM bill_reserves
+       WHERE user_id = ? AND deleted_at IS NULL
+       ORDER BY cycle DESC, created_at DESC`
+    )
+    .all(userId) as BillReserve[]
+}
+
+/**
+ * Single-check bills an earlier cheque in this cycle already carried. A second
+ * cheque in the same month must route its surplus, not reserve the same bills
+ * again. `all_checks` bills are spread deliberately and are not deduplicated.
+ */
+export function reservedBillIdsFor(db: Db, userId: string, cycle: string): string[] {
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT r.bill_id AS id
+       FROM bill_reserves r
+       JOIN bills b ON b.id = r.bill_id
+       WHERE r.user_id = ? AND r.cycle = ? AND r.deleted_at IS NULL
+         AND b.funding_strategy <> 'all_checks'`
+    )
+    .all(userId, cycle) as { id: string }[]
+  return rows.map((row) => row.id)
+}
+
+function recordBillReserves(
+  db: Db,
+  userId: string,
+  paycheckId: string,
+  cycle: string,
+  reserves: readonly { billId: string; reserveCents: number }[]
+): void {
+  const ts = nowISO()
+  const insert = db.prepare(
+    `INSERT INTO bill_reserves
+       (id, user_id, bill_id, paycheck_id, cycle, amount_cents, state,
+        created_at, updated_at, deleted_at, revision)
+     VALUES (?, ?, ?, ?, ?, ?, 'reserved', ?, ?, NULL, 1)`
+  )
+  for (const reserve of reserves) {
+    if (reserve.reserveCents <= 0) continue
+    insert.run(
+      randomUUID(),
+      userId,
+      reserve.billId,
+      paycheckId,
+      cycle,
+      reserve.reserveCents,
+      ts,
+      ts
+    )
+  }
+}
+
+function setBillReserveState(
+  db: Db,
+  userId: string,
+  billId: string,
+  occurredOn: string,
+  state: BillReserve['state']
+): void {
+  const ts = nowISO()
+  db.prepare(
+    `UPDATE bill_reserves
+     SET state = ?, updated_at = ?, revision = revision + 1
+     WHERE user_id = ? AND bill_id = ? AND cycle = ? AND deleted_at IS NULL AND state <> ?`
+  ).run(state, ts, userId, billId, occurredOn.slice(0, 7), state)
 }
 
 // ---------------------------------------------------------------- goals
@@ -827,6 +925,7 @@ export interface NewTransactionInput {
   paycheckId?: string | null
   counterAccountId?: string | null
   transferGroupId?: string | null
+  roundUpSourceId?: string | null
 }
 
 export function insertTransactionRow(db: Db, userId: string, input: NewTransactionInput): string {
@@ -836,8 +935,8 @@ export function insertTransactionRow(db: Db, userId: string, input: NewTransacti
     `INSERT INTO transactions
        (id, user_id, account_id, kind, amount_cents, occurred_on, memo, category,
         bill_id, goal_id, paycheck_id, counter_account_id, transfer_group_id,
-        created_at, updated_at, deleted_at, revision)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1)`
+        round_up_source_id, created_at, updated_at, deleted_at, revision)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1)`
   ).run(
     id,
     userId,
@@ -852,6 +951,7 @@ export function insertTransactionRow(db: Db, userId: string, input: NewTransacti
     input.paycheckId ?? null,
     input.counterAccountId ?? null,
     input.transferGroupId ?? null,
+    input.roundUpSourceId ?? null,
     ts,
     ts
   )
@@ -861,11 +961,21 @@ export function insertTransactionRow(db: Db, userId: string, input: NewTransacti
 /**
  * Round-up is a real sweep, not a note: it posts a paired transfer so the
  * spending account and the destination both move by the rounded cents.
+ *
+ * Both legs carry the id of the expense that caused them, so a later edit or
+ * delete of that expense can find the sweep instead of leaving it behind.
  */
 function applyRoundUp(
   db: Db,
   userId: string,
-  input: { accountId: string; accountKind: AccountKind; amountCents: number; occurredOn: string; memo: string }
+  input: {
+    sourceId: string
+    accountId: string
+    accountKind: AccountKind
+    amountCents: number
+    occurredOn: string
+    memo: string
+  }
 ): void {
   const settings = parseSettings(readSettings(db, userId))
   if (!settings.roundUpEnabled || !settings.roundUpAccountId) return
@@ -894,7 +1004,8 @@ function applyRoundUp(
     memo,
     category: 'Round-up',
     counterAccountId: settings.roundUpAccountId,
-    transferGroupId: groupId
+    transferGroupId: groupId,
+    roundUpSourceId: input.sourceId
   })
   insertTransactionRow(db, userId, {
     accountId: settings.roundUpAccountId,
@@ -904,7 +1015,8 @@ function applyRoundUp(
     memo,
     category: 'Round-up',
     counterAccountId: input.accountId,
-    transferGroupId: groupId
+    transferGroupId: groupId,
+    roundUpSourceId: input.sourceId
   })
 }
 
@@ -970,12 +1082,17 @@ export function createTransaction(db: Db, userId: string, input: TransactionInpu
     })
     if (kind === 'expense' && amountCents < 0) {
       applyRoundUp(db, userId, {
+        sourceId: id,
         accountId: input.accountId,
         accountKind: account.kind,
         amountCents,
         occurredOn,
         memo
       })
+    }
+    // A bill payment closes the wall's reservation for that cycle.
+    if (input.billId && (kind === 'bill_payment' || kind === 'expense')) {
+      setBillReserveState(db, userId, input.billId, occurredOn, 'paid')
     }
     return id
   })()
@@ -1005,14 +1122,38 @@ export function updateTransaction(
 
   const existing = db
     .prepare(
-      `SELECT transfer_group_id AS groupId, amount_cents AS amountCents, kind
+      `SELECT transfer_group_id AS groupId, round_up_source_id AS roundUpSourceId,
+              bill_id AS billId, amount_cents AS amountCents, kind, account_id AS accountId,
+              occurred_on AS occurredOn, memo
        FROM transactions
        WHERE id = ? AND user_id = ? AND deleted_at IS NULL`
     )
     .get(id, userId) as
-    | { groupId: string | null; amountCents: number; kind: TransactionKind }
+    | {
+        groupId: string | null
+        roundUpSourceId: string | null
+        billId: string | null
+        amountCents: number
+        kind: TransactionKind
+        accountId: string
+        occurredOn: string
+        memo: string
+      }
     | undefined
   if (!existing) throw new Error('Entry not found')
+
+  if (existing.roundUpSourceId) {
+    // A sweep is derived: its amount, date and account are whatever the purchase
+    // says. Editing either leg directly would desync the pair from its source.
+    if (
+      patch.amountCents !== undefined ||
+      patch.occurredOn !== undefined ||
+      patch.accountId !== undefined ||
+      patch.kind !== undefined
+    ) {
+      throw new Error('This is a round-up sweep — edit the purchase it came from instead')
+    }
+  }
 
   if (existing.groupId) {
     if (patch.accountId || patch.kind) {
@@ -1068,27 +1209,84 @@ export function updateTransaction(
     nextAmount = normalizeSignedCents(nextKind, nextAmount)
   }
 
-  updateRow(db, 'transactions', id, userId, {
-    account_id: patch.accountId,
-    kind: patch.kind === undefined ? undefined : nextKind,
-    amount_cents: patchTouchesAmount ? nextAmount : undefined,
-    occurred_on:
-      patch.occurredOn === undefined ? undefined : assertDate(patch.occurredOn, 'Date'),
-    memo: patch.memo === undefined ? undefined : optionalText(patch.memo, 'Memo', 240) ?? '',
-    category:
-      patch.category === undefined
-        ? undefined
-        : optionalText(patch.category, 'Category', 60) ?? 'Uncategorized'
-  })
+  const nextOccurredOn =
+    patch.occurredOn === undefined ? existing.occurredOn : assertDate(patch.occurredOn, 'Date')
+  const nextMemo = patch.memo === undefined ? existing.memo : optionalText(patch.memo, 'Memo', 240) ?? ''
+  const nextAccountId = patch.accountId ?? existing.accountId
+
+  db.transaction(() => {
+    updateRow(db, 'transactions', id, userId, {
+      account_id: patch.accountId,
+      kind: patch.kind === undefined ? undefined : nextKind,
+      amount_cents: patchTouchesAmount ? nextAmount : undefined,
+      occurred_on: patch.occurredOn === undefined ? undefined : nextOccurredOn,
+      memo: patch.memo === undefined ? undefined : nextMemo,
+      category:
+        patch.category === undefined
+          ? undefined
+          : optionalText(patch.category, 'Category', 60) ?? 'Uncategorized'
+    })
+
+    // A purchase's sweep is derived from it: remove the old pair, then let the
+    // same rule that created it decide whether a new one is still owed.
+    if (patchTouchesAmount || patch.occurredOn !== undefined || patch.accountId !== undefined) {
+      removeRoundUpFor(db, userId, id)
+      if (nextKind === 'expense' && nextAmount < 0) {
+        const account = requireAccount(db, userId, nextAccountId)
+        applyRoundUp(db, userId, {
+          sourceId: id,
+          accountId: nextAccountId,
+          accountKind: account.kind,
+          amountCents: nextAmount,
+          occurredOn: nextOccurredOn,
+          memo: nextMemo
+        })
+      }
+    }
+
+    // Editing a bill payment re-opens its old cycle and closes the new one, so
+    // the wall never shows a bill as paid on a date it no longer covers.
+    if (
+      existing.billId &&
+      (patchTouchesAmount || patch.kind !== undefined || patch.occurredOn !== undefined)
+    ) {
+      setBillReserveState(db, userId, existing.billId, existing.occurredOn, 'reserved')
+      if (nextKind === 'bill_payment' || nextKind === 'expense') {
+        setBillReserveState(db, userId, existing.billId, nextOccurredOn, 'paid')
+      }
+    }
+  })()
+}
+
+/**
+ * Soft-deletes every sweep leg that a purchase spawned. The source row stays;
+ * the next edit is free to create a fresh, correct sweep.
+ */
+function removeRoundUpFor(db: Db, userId: string, sourceId: string): void {
+  const ts = nowISO()
+  db.prepare(
+    `UPDATE transactions
+     SET deleted_at = ?, updated_at = ?, revision = revision + 1
+     WHERE round_up_source_id = ? AND user_id = ? AND deleted_at IS NULL`
+  ).run(ts, ts, sourceId, userId)
 }
 
 export function deleteTransaction(db: Db, userId: string, id: string): void {
   const existing = db
     .prepare(
-      `SELECT transfer_group_id AS groupId FROM transactions
+      `SELECT transfer_group_id AS groupId, round_up_source_id AS roundUpSourceId,
+              bill_id AS billId, occurred_on AS occurredOn
+       FROM transactions
        WHERE id = ? AND user_id = ? AND deleted_at IS NULL`
     )
-    .get(id, userId) as { groupId: string | null } | undefined
+    .get(id, userId) as
+    | {
+        groupId: string | null
+        roundUpSourceId: string | null
+        billId: string | null
+        occurredOn: string
+      }
+    | undefined
 
   if (existing?.groupId) {
     db.transaction(() => {
@@ -1099,7 +1297,15 @@ export function deleteTransaction(db: Db, userId: string, id: string): void {
     return
   }
 
-  softDelete(db, 'transactions', id, userId)
+  // Deleting a purchase takes its sweep with it; a sweep that no longer
+  // corresponds to spending would quietly move money to savings.
+  db.transaction(() => {
+    removeRoundUpFor(db, userId, id)
+    softDelete(db, 'transactions', id, userId)
+    if (existing?.billId) {
+      setBillReserveState(db, userId, existing.billId, existing.occurredOn, 'reserved')
+    }
+  })()
 }
 
 // ---------------------------------------------------------------- paychecks
@@ -1244,7 +1450,25 @@ export function commitPaycheck(
   if (!depositAccountId) throw new Error('Choose the account this paycheck landed in')
   requireAccount(db, userId, depositAccountId)
 
+  // A double-click or a re-entry of the same deposit would reserve the wall
+  // twice and add phantom income. The renderer asks before passing the flag.
+  if (!input.allowDuplicate) {
+    const duplicate = db
+      .prepare(
+        `SELECT id FROM paychecks
+         WHERE user_id = ? AND deleted_at IS NULL
+           AND deposit_account_id = ? AND amount_cents = ? AND received_on = ?`
+      )
+      .get(userId, depositAccountId, incomeCents, receivedOn)
+    if (duplicate) {
+      throw new Error(
+        'A paycheck of this amount already exists on this date in this account. Confirm the second deposit if it really is separate.'
+      )
+    }
+  }
+
   const settings = parseSettings(readSettings(db, userId))
+  const cycle = receivedOn.slice(0, 7)
   const bills = listBills(db, userId).filter((bill) => bill.isActive)
   const goals = listGoals(db, userId).filter(
     (goal) => !goal.isArchived && !(goal.isEmergency && !settings.emergencyActive)
@@ -1254,6 +1478,8 @@ export function commitPaycheck(
     incomeCents,
     payCadence,
     paycheckDate: receivedOn,
+    payAnchorDate: settings.payAnchorDate,
+    reservedBillIds: reservedBillIdsFor(db, userId, cycle),
     bills,
     goals,
     splits: input.splits,
@@ -1289,8 +1515,8 @@ export function commitPaycheck(
     }
   ]
 
-  const run = db.transaction(() =>
-    insertPaycheckRecord(db, userId, {
+  const run = db.transaction(() => {
+    const paycheckId = insertPaycheckRecord(db, userId, {
       incomeCents: plan.incomeCents,
       receivedOn,
       source,
@@ -1302,7 +1528,13 @@ export function commitPaycheck(
       allocations: lines,
       recordIncome: true
     })
-  )
+    // A shortfall means the wall was not fully funded, so no per-bill claim is
+    // recorded; the next cheque gets another chance instead of a false receipt.
+    if (plan.shortfallCents === 0) {
+      recordBillReserves(db, userId, paycheckId, cycle, plan.priorityReserves)
+    }
+    return paycheckId
+  })
 
   return { paycheckId: run(), plan }
 }
@@ -1317,6 +1549,7 @@ export function getSnapshot(db: Db, userId: string): Snapshot {
     bills: listBills(db, userId),
     goals: listGoals(db, userId),
     transactions: listTransactions(db, userId),
-    paychecks: listPaychecks(db, userId)
+    paychecks: listPaychecks(db, userId),
+    billReserves: listBillReserves(db, userId)
   }
 }

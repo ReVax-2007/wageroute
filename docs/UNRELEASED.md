@@ -27,9 +27,9 @@ The `[1.1.0]` block in [CHANGELOG.md](../CHANGELOG.md) is the inventory; it is r
 | Field | Value |
 | --- | --- |
 | App version | **undecided** — at least a minor bump once the audit batches land |
-| Database schema | `6` (no migration queued in this batch) |
-| Backup format written | `6` |
-| Backup format accepted | `2`, `3`, `4`, `5`, `6` |
+| Database schema | `7` — the v7 upgrade is queued in batch 2 |
+| Backup format written | `7` |
+| Backup format accepted | `2`, `3`, `4`, `5`, `6`, `7` |
 | `package.json` today | `1.1.0` — bump it **inside** the release branch, never before |
 
 A patch is the default for fixes with no schema change; anything that adds a migration is at least a minor bump ([semver policy](RELEASING.md#semver-policy)).
@@ -52,6 +52,22 @@ The first of four batches that clear [AUDIT-2026-10-29.md](../AUDIT-2026-10-29.m
 - **Tests:** four new files — `src/shared/kinds.test.ts`, `src/shared/csv.test.ts`, `src/main/db/legacy.test.ts`, `src/main/db/ledger-guards.test.ts` — 25 cases, `npm test` at **98 tests across twelve files**.
 
 Verification: `npm test`, `npm run typecheck` and `npm run build` clean; the built app launched on a disposable `CFFIXED_USER_HOME` profile and driven over CDP — archive → archived card → restore for both an account and a goal, the remove dialog reading *"its 2 entries"* with all three choices, and the goal dialog staying open on a blank name then closing after a successful save.
+
+### Priority Wall lifecycle and money truth — batch 2 of 4 from the 2026-10-29 audit
+
+The second batch, and the first with a schema change. Clears L-09, L-10, L-14, C-07, C-29, C-31 (wall lifecycle and the occurrence engine), L-11, L-12, L-13 (allocation honesty), L-01/P-65 (committed meter), L-06 (per-check numbers), L-15 (obsolete settings) and PF-5 (ledger index).
+
+- **Schema 7 adds `bill_reserves`.** One row per bill per month: `cycle` (`YYYY-MM`), `amount_cents`, `state` (`reserved`/`paid`). A fully funded route writes the rows; a shortfalling route writes none. The wall shows **Reserved this month** / **Paid this month** chips, a second cheque in the month does not re-claim a single-check bill, a bill payment flips the claim to `paid`, and editing or deleting the payment re-opens the month. Deleting a bill soft-deletes its claims.
+- **Reserves travel.** `bill_reserves` is in `TABLE_COLUMNS`, `TABLE_DEFAULTS`, the importer's allowlist and the example backup; the settings export now keeps only keys the current build reads.
+- **One recurrence engine.** `src/shared/occurrences.ts` (weekly, biweekly, monthly, quarterly, annual, semimonthly; anchored on `next_due_on`) now feeds the chronology prompts, the 90-day projection and the wall. Month-end bills clamp instead of drifting.
+- **A pay schedule anchor.** `settings.payAnchorDate` is a real payday; `nextPaydayISO` projects weekly/biweekly checks from it, and the wall's next-check column and date use it. The free-text payday label stays display-only.
+- **Partial payments surface.** The prompt reads "X of Y already matched" and logs only the remainder.
+- **Duplicate deposit guard.** Same amount/date/account is refused by `commitPaycheck`; the allocator asks and passes `allowDuplicate` only after **Route it anyway**.
+- **Honest plan copy.** Allocator step 3 states it records a plan and does not move money or pay bills; dashboard's committed meter is now `pool − safeToSpend` over the pool, with a >100% variant.
+- **Settings cleanup.** v7 deletes the draft keys `emergencyAccountIds`, `insurance_floor_cents`, `round_up_enabled`; the live `roundUpEnabled` key is untouched.
+- **Tests:** two new files — `src/shared/occurrences.test.ts`, `src/main/db/reserves.test.ts` — 17 cases, plus the partial-payment prompt case and the v7 migration test. `npm test` is now **115 tests across fourteen files**.
+
+Verification: `npm test` (115), `npm run typecheck` and `npm run build` clean; the built app launched on a disposable `CFFIXED_USER_HOME` profile (`/tmp/wageroute-b2`) with schema 7 applied. Over CDP: set the anchor to `2026-10-02`, put Rent on *first check*, routed $4,000 on 2026-10-02 and again on 2026-10-16 — Rent reserved $1,850.00 once and $0 on the second cheque, while `all_checks` bills carried their spread each time; the wall rendered **Reserved on the next check $175.38** with **Oct 30 · Biweekly**, a **Paid this month** chip on Rent after a payment and **Reserved this month** on the others. Re-entering the same $4,000/2026-10-02 deposit produced the duplicate warning and **Route it anyway**; a $48.00 part payment on Car insurance showed *"$48.00 of $148.00 already matched"* with **Yes, log the rest**, and confirming wrote exactly $100.00 and closed the prompt. Dashboard meter read **18% of spendable cash is already spoken for**; Settings rendered the anchor date field.
 
 ### Running version in the app
 

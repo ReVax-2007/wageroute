@@ -9,7 +9,6 @@ import { Button, Card, EmptyState, Money, Progress } from '../components/ui'
 import {
   ACCOUNT_KIND_LABEL,
   activeBills,
-  cashOnHand,
   creditAvailableCents,
   creditOwedCents,
   goalsSummary,
@@ -20,7 +19,6 @@ import {
 } from '../lib/finance'
 import {
   selectCashOnHandCents,
-  selectFundedGoalsCents,
   selectMonthlyWallCents,
   selectPoolEarmarkedGoalsCents,
   selectSafeToSpendCents,
@@ -56,7 +54,6 @@ export function Dashboard() {
   const cash = useFinanceStore(selectCashOnHandCents)
   const pool = useFinanceStore(selectSafeToSpendPoolCents)
   const earmarked = useFinanceStore(selectPoolEarmarkedGoalsCents)
-  const fundedGoals = useFinanceStore(selectFundedGoalsCents)
   const monthlyPriority = useFinanceStore(selectMonthlyWallCents)
 
   if (!snapshot) return null
@@ -68,12 +65,18 @@ export function Dashboard() {
   const goals = goalsSummary(snapshot.goals)
   const activeGoals = snapshot.goals.filter((goal) => !goal.isArchived)
   const last = latestPaycheck(snapshot.paychecks)
-  const cashBalances = cashOnHand(snapshot.accounts)
   const wealthSplit = wealthBuckets(snapshot.accounts)
   const recent = snapshot.transactions.slice(0, 6)
 
-  const committed = monthlyPriority + fundedGoals
-  const committedShare = cashBalances > 0 ? Math.min(1, committed / cashBalances) : 0
+  const committed = Math.max(0, pool - safeToSpend)
+  const committedShare = pool > 0 ? committed / pool : 0
+  const committedPercent = Math.round(committedShare * 100)
+  const committedLabel =
+    pool <= 0 && committed === 0
+      ? 'No spendable cash is tracked yet.'
+      : committedShare > 1
+        ? `${committedPercent}% of spendable cash is committed — more than you have`
+        : `${committedPercent}% of spendable cash is already spoken for`
 
   const monthKey = todayISO().slice(0, 7)
   const routing = monthRoutingBreakdown(snapshot.paychecks, monthKey)
@@ -159,11 +162,9 @@ export function Dashboard() {
             Cash you can spend without touching a bill or a funded goal.
           </p>
           <div className="safe-meter" aria-hidden="true">
-            <span style={{ width: `${Math.round(committedShare * 100)}%` }} />
+            <span style={{ width: `${Math.min(100, committedPercent)}%` }} />
           </div>
-          <p className="safe-meter-note">
-            {Math.round(committedShare * 100)}% of cash is already spoken for
-          </p>
+          <p className="safe-meter-note">{committedLabel}</p>
         </div>
 
         <dl className="safe-breakdown">

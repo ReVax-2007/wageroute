@@ -186,6 +186,6 @@ test('when every goal has its own account the goal budget falls through to savin
 
   assert.deepEqual(result.goalFundings, [])
   assert.equal(result.goalsCents, 0)
-  assert.ok(result.warnings.some((warning) => warning.code === 'no_goals'))
+  assert.ok(result.warnings.some((warning) => warning.code === 'goals_account_funded'))
   assert.equal(allocated(result), result.incomeCents)
 })

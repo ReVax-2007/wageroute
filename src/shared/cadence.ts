@@ -87,6 +87,69 @@ export function paycheckIndexInMonth(dateISO: string, cadence: PayCadence): numb
   }
 }
 
+const MS_PER_DAY = 86_400_000
+
+function epochDay(dateISO: string): number {
+  const year = Number.parseInt(dateISO.slice(0, 4), 10)
+  const month = Number.parseInt(dateISO.slice(5, 7), 10)
+  const day = Number.parseInt(dateISO.slice(8, 10), 10)
+  return Math.floor(Date.UTC(year, month - 1, day) / MS_PER_DAY)
+}
+
+function isoFromEpochDay(day: number): string {
+  return new Date(day * MS_PER_DAY).toISOString().slice(0, 10)
+}
+
+/**
+ * Which paycheck of the month a date is, using a real payday series rather than
+ * day-of-month ranges.
+ *
+ * With an anchor (any known payday) weekly and biweekly paydays are projected
+ * exactly, so a 15th/30th biweekly earner's second check is the 30th — the
+ * day-range approximation would call that the third check and the check would
+ * reserve nothing for bills assigned to the second. A date that is not itself a
+ * payday snaps back to the most recent one in the series.
+ */
+export function paydayIndexInMonth(
+  dateISO: string,
+  cadence: PayCadence,
+  anchorDateISO?: string | null
+): number {
+  if (!anchorDateISO) return paycheckIndexInMonth(dateISO, cadence)
+  if (cadence !== 'weekly' && cadence !== 'biweekly') {
+    return paycheckIndexInMonth(dateISO, cadence)
+  }
+
+  const step = cadence === 'weekly' ? 7 : 14
+  const anchor = epochDay(anchorDateISO)
+  const day = epochDay(dateISO)
+  const sinceAnchor = ((day - anchor) % step + step) % step
+  const payday = day - sinceAnchor
+
+  const dayOfMonthNumber = Number.parseInt(dateISO.slice(8, 10), 10)
+  const monthStart = day - (dayOfMonthNumber - 1)
+  const offsetAtStart = ((monthStart - anchor) % step + step) % step
+  const firstPayday = monthStart + (offsetAtStart === 0 ? 0 : step - offsetAtStart)
+  if (firstPayday > payday) return 1
+  return Math.floor((payday - firstPayday) / step) + 1
+}
+
+/** The next payday on or after `fromISO`, or null without an anchor. */
+export function nextPaydayISO(
+  fromISO: string,
+  cadence: PayCadence,
+  anchorDateISO?: string | null
+): string | null {
+  if (!anchorDateISO) return null
+  const step = cadence === 'weekly' ? 7 : cadence === 'biweekly' ? 14 : null
+  if (step === null) return null
+  const anchor = epochDay(anchorDateISO)
+  const from = epochDay(fromISO)
+  const offset = ((from - anchor) % step + step) % step
+  const next = offset === 0 ? from : from + (step - offset)
+  return isoFromEpochDay(next)
+}
+
 /** The slot whose representative day is nearest the bill's due day. Ties go earlier. */
 export function closestCheckIndexToDue(dueDay: number, cadence: PayCadence): number {
   const anchors = CHECK_SLOT_ANCHORS[cadence]
@@ -151,6 +214,9 @@ export function fundingCheckIndex(input: {
  *
  * `paycheckDate` is required for the single-check strategies. Without it the
  * position in the month is unknowable, so the bill falls back to the spread.
+ * `payAnchorDate` turns the slot into a real position in the payday series;
+ * without it the day-of-month approximation is used, and a check outside the
+ * guaranteed slots carries the spread instead of silently reserving nothing.
  */
 export function billFundingReserveCents(input: {
   amountCents: number
@@ -160,6 +226,7 @@ export function billFundingReserveCents(input: {
   fundingStrategy?: BillFundingStrategy
   fundingPaycheckIndex?: number | null
   paycheckDate?: string | null
+  payAnchorDate?: string | null
 }): number {
   const strategy = input.fundingStrategy ?? 'all_checks'
   const spread = reservePerPaycheckCents(input.amountCents, input.frequency, input.cadence)
@@ -174,7 +241,18 @@ export function billFundingReserveCents(input: {
   })
   if (fundingIndex === null) return spread
 
-  return paycheckIndexInMonth(input.paycheckDate, input.cadence) === fundingIndex
+  const guaranteed = GUARANTEED_CHECKS_PER_MONTH[input.cadence]
+  if (input.payAnchorDate) {
+    return paydayIndexInMonth(input.paycheckDate, input.cadence, input.payAnchorDate) ===
+      fundingIndex
+      ? monthlyEquivalentCents(input.amountCents, input.frequency)
+      : 0
+  }
+
+  const index = paycheckIndexInMonth(input.paycheckDate, input.cadence)
+  if (index > guaranteed) return spread
+
+  return index === fundingIndex
     ? monthlyEquivalentCents(input.amountCents, input.frequency)
     : 0
 }

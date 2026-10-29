@@ -12,6 +12,7 @@ import {
   Upload
 } from 'lucide-react'
 import { PAY_CADENCE_LABEL } from '@shared/cadence'
+import { isISODate } from '@shared/dates'
 import type { PayCadence, RoundUpIncrementCents, ThemePreference } from '@shared/types'
 import { roundUpRemainderCents } from '@shared/transfers'
 import { Button, Card, Field, Modal, Segmented, Switch } from '../components/ui'
@@ -39,10 +40,15 @@ export function Settings() {
   const appInfo = useFinanceStore((state) => state.appInfo)
   const [eraseStep, setEraseStep] = useState<0 | 1 | 2>(0)
   const [paydayDraft, setPaydayDraft] = useState(settings.paydayLabel)
+  const [anchorDraft, setAnchorDraft] = useState(settings.payAnchorDate ?? '')
 
   useEffect(() => {
     setPaydayDraft(settings.paydayLabel)
   }, [settings.paydayLabel])
+
+  useEffect(() => {
+    setAnchorDraft(settings.payAnchorDate ?? '')
+  }, [settings.payAnchorDate])
 
   if (!snapshot) return null
 
@@ -125,6 +131,27 @@ export function Settings() {
                 onBlur={() => {
                   const next = paydayDraft.trim()
                   if (next !== settings.paydayLabel) update({ paydayLabel: next })
+                }}
+              />
+            </Field>
+            <Field
+              label="Pay schedule anchor"
+              hint="Any one real payday. Keeps the wall's next-check date on the right weekday. Leave blank to spread evenly."
+            >
+              <input
+                className="input"
+                type="date"
+                value={anchorDraft}
+                onChange={(event) => {
+                  const next = event.target.value
+                  setAnchorDraft(next)
+                  if (next === '') {
+                    if (settings.payAnchorDate !== null) update({ payAnchorDate: null })
+                    return
+                  }
+                  if (isISODate(next) && next !== settings.payAnchorDate) {
+                    update({ payAnchorDate: next })
+                  }
                 }}
               />
             </Field>

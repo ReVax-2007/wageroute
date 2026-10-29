@@ -57,8 +57,8 @@ test('v6 rebuilds bills, keeps every row and restores enforcement', () => {
   const db = v5Database()
   migrate(db)
 
-  assert.equal(SCHEMA_VERSION, 6)
-  assert.equal(db.pragma('user_version', { simple: true }), 6)
+  assert.equal(SCHEMA_VERSION, 7)
+  assert.equal(db.pragma('user_version', { simple: true }), 7)
   assert.equal(db.pragma('foreign_keys', { simple: true }), 1, 'enforcement is back on')
   assert.deepEqual(db.pragma('foreign_key_check'), [])
   assert.equal(db.pragma('integrity_check', { simple: true }), 'ok')
@@ -117,6 +117,73 @@ test('a dangling bill reference aborts the upgrade instead of being written', ()
     () => db.prepare('UPDATE bills SET funding_strategy = ?').run('last_check'),
     /CHECK/i,
     'the bills table was not left half-rebuilt'
+  )
+  db.close()
+})
+
+test('v7 links round-ups, creates the wall lifecycle and drops dead settings', () => {
+  const db = new Database(':memory:')
+  db.pragma('foreign_keys = ON')
+  migrateThrough(db, 6)
+  db.prepare(
+    `INSERT INTO users (id, display_name, created_at, updated_at)
+     VALUES (?, 'Tester', ?, ?)`
+  ).run(USER_ID, TS, TS)
+  db.prepare(
+    `INSERT INTO accounts (id, user_id, name, kind, created_at, updated_at)
+     VALUES (?, ?, 'Everyday Checking', 'checking', ?, ?)`
+  ).run(ACCOUNT_ID, USER_ID, TS, TS)
+  db.prepare(
+    `INSERT INTO bills (id, user_id, name, amount_cents, frequency, due_day, created_at, updated_at)
+     VALUES (?, ?, 'Rent', 185000, 'monthly', 1, ?, ?)`
+  ).run(BILL_ID, USER_ID, TS, TS)
+  db.prepare(
+    `INSERT INTO paychecks (id, user_id, amount_cents, received_on, health, created_at, updated_at)
+     VALUES ('pay-1', ?, 240000, '2026-10-24', 'covered', ?, ?)`
+  ).run(USER_ID, TS, TS)
+  for (const key of ['emergencyAccountIds', 'insurance_floor_cents', 'round_up_enabled', 'currency']) {
+    db.prepare(
+      `INSERT INTO settings (user_id, key, value, updated_at) VALUES (?, ?, 'x', ?)`
+    ).run(USER_ID, key, TS)
+  }
+
+  migrate(db)
+
+  const columns = (
+    db.prepare('PRAGMA table_info(transactions)').all() as { name: string }[]
+  ).map((column) => column.name)
+  assert.ok(columns.includes('round_up_source_id'), 'the sweep points at its purchase')
+
+  const keys = (
+    db.prepare('SELECT key FROM settings ORDER BY key').all() as { key: string }[]
+  ).map((row) => row.key)
+  assert.deepEqual(keys, ['currency'], 'only keys this build reads survive')
+
+  db.prepare(
+    `INSERT INTO bill_reserves
+       (id, user_id, bill_id, paycheck_id, cycle, amount_cents, state, created_at, updated_at)
+     VALUES ('r1', ?, ?, 'pay-1', '2026-10', 185000, 'reserved', ?, ?)`
+  ).run(USER_ID, BILL_ID, TS, TS)
+  assert.equal(
+    (db.prepare('SELECT COUNT(*) AS n FROM bill_reserves').get() as { n: number }).n,
+    1
+  )
+
+  const plan = db
+    .prepare(
+      `EXPLAIN QUERY PLAN
+       SELECT * FROM transactions
+       WHERE user_id = ? AND deleted_at IS NULL
+       ORDER BY occurred_on DESC, created_at DESC`
+    )
+    .all(USER_ID) as { detail: string }[]
+  assert.ok(
+    plan.some((step) => step.detail.includes('idx_transactions_user_date')),
+    'the ledger sort is served by the index'
+  )
+  assert.ok(
+    !plan.some((step) => step.detail.includes('TEMP B-TREE')),
+    'no temp B-tree for the snapshot order'
   )
   db.close()
 })

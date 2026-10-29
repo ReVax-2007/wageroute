@@ -31,6 +31,8 @@ function warningText(warning: PlanWarning, currency: string): string {
       return 'Your Priority Wall is empty. Add recurring bills so they are protected before leisure.'
     case 'no_goals':
       return 'No sinking funds exist yet, so the goal share flowed into savings.'
+    case 'goals_account_funded':
+      return `Your goals are funded by their own accounts, so the ${formatMoney(warning.overflowCents, currency)} goal share went to savings instead. Add a goal that draws from the pool to route it here.`
     case 'tight_margin':
       return `Only ${formatMoney(warning.leisureCents, currency)} is left guilt-free after this plan.`
     default:
@@ -59,6 +61,7 @@ export function Allocator() {
   const [debtSplit, setDebtSplit] = useState(0)
   const [wholeDollars, setWholeDollars] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [confirmedDuplicate, setConfirmedDuplicate] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -93,6 +96,30 @@ export function Allocator() {
       ),
     [snapshot?.goals, settings.emergencyActive]
   )
+  // A second cheque in the same month must not reserve single-check bills that
+  // an earlier cheque already carried.
+  const reservedBillIds = useMemo(
+    () =>
+      (snapshot?.billReserves ?? [])
+        .filter((reserve) => reserve.cycle === receivedOn.slice(0, 7))
+        .map((reserve) => reserve.billId),
+    [snapshot?.billReserves, receivedOn]
+  )
+
+  const duplicate = useMemo(
+    () =>
+      (snapshot?.paychecks ?? []).find(
+        (paycheck) =>
+          paycheck.receivedOn === receivedOn &&
+          paycheck.amountCents === incomeCents &&
+          paycheck.depositAccountId === accountId
+      ) ?? null,
+    [snapshot?.paychecks, receivedOn, incomeCents, accountId]
+  )
+
+  useEffect(() => {
+    setConfirmedDuplicate(false)
+  }, [receivedOn, incomeCents, accountId])
 
   const plan = useMemo(
     () =>
@@ -100,6 +127,8 @@ export function Allocator() {
         incomeCents,
         payCadence: cadence,
         paycheckDate: receivedOn,
+        payAnchorDate: settings.payAnchorDate,
+        reservedBillIds,
         bills,
         goals: activeGoals,
         splits: {
@@ -114,6 +143,8 @@ export function Allocator() {
       incomeCents,
       cadence,
       receivedOn,
+      settings.payAnchorDate,
+      reservedBillIds,
       bills,
       activeGoals,
       savings,
@@ -161,6 +192,11 @@ export function Allocator() {
       setError(`Splits add up to ${splitTotal}% of the surplus. Bring them to 100% or less.`)
       return
     }
+    if (duplicate && !confirmedDuplicate) {
+      setConfirmedDuplicate(true)
+      setError(null)
+      return
+    }
 
     setError(null)
     const splits = {
@@ -184,7 +220,8 @@ export function Allocator() {
       depositAccountId: accountId,
       payCadence: cadence,
       splits,
-      wholeDollarBuckets: wholeDollars
+      wholeDollarBuckets: wholeDollars,
+      allowDuplicate: confirmedDuplicate
     })
 
     if (!ok) setError('The paycheck was not routed. See the message at the bottom of the window.')
@@ -421,6 +458,12 @@ export function Allocator() {
                   <Sparkles size={26} className="surplus-icon" />
                 </div>
 
+                <p className="wizard-hint">
+                  This records a plan against your deposit. WageRoute does not move money between
+                  accounts or pay bills for you — the deposit stays where it landed until you
+                  transfer it yourself.
+                </p>
+
                 <div className="split-list">
                   <SplitRow
                     label="Savings"
@@ -526,6 +569,14 @@ export function Allocator() {
                   </div>
                 )}
 
+                {duplicate && (
+                  <Warning tone="danger">
+                    A paycheck of {formatMoney(incomeCents, currency)} was already routed on{' '}
+                    {receivedOn} into this account. Routing it again adds the income a second time
+                    and reserves the wall twice.
+                  </Warning>
+                )}
+
                 {error && <p className="form-error">{error}</p>}
               </section>
             )}
@@ -584,9 +635,13 @@ export function Allocator() {
               >
                 {overAllocated
                   ? 'Splits exceed 100%'
-                  : incomeCents > 0
-                    ? `Route ${formatMoney(incomeCents, currency)}`
-                    : 'Route paycheck'}
+                  : duplicate
+                    ? confirmedDuplicate
+                      ? 'Confirm duplicate'
+                      : 'Route it anyway'
+                    : incomeCents > 0
+                      ? `Route ${formatMoney(incomeCents, currency)}`
+                      : 'Route paycheck'}
               </Button>
             )}
           </div>

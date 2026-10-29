@@ -4,12 +4,15 @@ import {
   BILL_FUNDING_STRATEGY_LABEL,
   FREQUENCY_LABEL,
   PAY_CADENCE_LABEL,
+  billFundingReserveCents,
   fundingCheckIndex,
   monthlyEquivalentCents,
+  nextPaydayISO,
   reachableCheckIndexes,
   reservePerPaycheckCents
 } from '@shared/cadence'
-import { centsToEditable, parseMoneyToCents } from '@shared/money'
+import { formatDateLabel, todayISO } from '@shared/dates'
+import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
 import type { Bill, BillFundingStrategy, BillInput, Frequency, PayCadence } from '@shared/types'
 import { Button, Card, EmptyState, Field, IconButton, Modal, Money } from '../components/ui'
 import { activeBills, monthlyWall, perPaycheckWall } from '../lib/finance'
@@ -58,8 +61,38 @@ export function PriorityWall() {
   const monthly = monthlyWall(active)
   const perCheck = perPaycheckWall(active, settings.payCadence)
   const payday = settings.paydayLabel.trim()
+  const anchor = settings.payAnchorDate
+  const nextCheck = anchor
+    ? nextPaydayISO(todayISO(), settings.payCadence, anchor)
+    : null
+  const monthlyKey = todayISO().slice(0, 7)
+  const reservesThisMonth = snapshot.billReserves.filter(
+    (reserve) => reserve.cycle === monthlyKey
+  )
+  const reserveStateOf = (billId: string): 'paid' | 'reserved' | null => {
+    const rows = reservesThisMonth.filter((reserve) => reserve.billId === billId)
+    if (rows.some((reserve) => reserve.state === 'paid')) return 'paid'
+    return rows.length > 0 ? 'reserved' : null
+  }
+  const nextCheckReserve = (bill: Bill): number =>
+    billFundingReserveCents({
+      amountCents: bill.amountCents,
+      frequency: bill.frequency,
+      cadence: settings.payCadence,
+      dueDay: bill.dueDay,
+      fundingStrategy: bill.fundingStrategy,
+      fundingPaycheckIndex: bill.fundingPaycheckIndex,
+      paycheckDate: nextCheck,
+      payAnchorDate: anchor
+    })
+  const nextCheckTotal = nextCheck
+    ? active.reduce((total, bill) => total + nextCheckReserve(bill), 0)
+    : null
   const lastIncome = snapshot.paychecks[0]?.amountCents ?? 0
-  const shareOfPaycheck = lastIncome > 0 ? Math.round((perCheck / lastIncome) * 100) : null
+  const shareOfPaycheck =
+    lastIncome > 0 && nextCheckTotal !== null
+      ? Math.round((nextCheckTotal / lastIncome) * 100)
+      : null
 
   const remove = (bill: Bill) => {
     if (window.confirm(`Remove "${bill.name}" from the Priority Wall?`)) {
@@ -88,16 +121,28 @@ export function PriorityWall() {
           <p className="summary-value">
             <Money cents={monthly} currency={currency} />
           </p>
-          <span className="stat-hint">Smoothed across cadences</span>
+          <span className="stat-hint">
+            {reservesThisMonth.length > 0
+              ? `${formatMoney(
+                  reservesThisMonth.reduce((total, reserve) => total + reserve.amountCents, 0),
+                  currency
+                )} reserved this month · ${reservesThisMonth.filter((reserve) => reserve.state === 'paid').length} paid`
+              : 'Smoothed across cadences'}
+          </span>
         </div>
         <div className="summary-item">
-          <span className="stat-label">Reserved per paycheck</span>
+          <span className="stat-label">
+            {nextCheck ? 'Reserved on the next check' : 'Reserved per paycheck'}
+          </span>
           <p className="summary-value">
-            <Money cents={perCheck} currency={currency} />
+            <Money cents={nextCheckTotal ?? perCheck} currency={currency} />
           </p>
           <span className="stat-hint">
-            {PAY_CADENCE_LABEL[settings.payCadence]} pay cycle
-            {payday ? ` · ${payday}` : ''} · averaged
+            {nextCheck
+              ? `${formatDateLabel(nextCheck)} · ${PAY_CADENCE_LABEL[settings.payCadence]}`
+              : `${PAY_CADENCE_LABEL[settings.payCadence]} pay cycle${payday ? ` · ${payday}` : ''}`}
+            {' · '}
+            averages <Money cents={perCheck} currency={currency} /> per check
           </span>
         </div>
         <div className="summary-item">
@@ -133,7 +178,7 @@ export function PriorityWall() {
                 <th>Amount</th>
                 <th>Cadence</th>
                 <th>Due</th>
-                <th className="right">Per paycheck</th>
+                <th className="right">{nextCheck ? 'Next check' : 'Per paycheck'}</th>
                 <th className="right">Monthly</th>
                 <th aria-label="Actions" />
               </tr>
@@ -146,6 +191,12 @@ export function PriorityWall() {
                     <div className="cell-sub">
                       {bill.category}
                       {bill.autopay ? ' · autopay' : ''}
+                      {reserveStateOf(bill.id) === 'paid' && (
+                        <span className="chip chip-quiet">Paid this month</span>
+                      )}
+                      {reserveStateOf(bill.id) === 'reserved' && (
+                        <span className="chip chip-quiet">Reserved this month</span>
+                      )}
                       {!bill.isActive && <span className="chip chip-quiet chip-inactive">Bill inactive</span>}
                     </div>
                   </td>
@@ -157,19 +208,22 @@ export function PriorityWall() {
                   <td className="right">
                     <Money
                       cents={
-                        bill.fundingStrategy === 'all_checks'
-                          ? reservePerPaycheckCents(
-                              bill.amountCents,
-                              bill.frequency,
-                              settings.payCadence
-                            )
-                          : monthlyEquivalentCents(bill.amountCents, bill.frequency)
+                        nextCheck
+                          ? nextCheckReserve(bill)
+                          : bill.fundingStrategy === 'all_checks'
+                            ? reservePerPaycheckCents(
+                                bill.amountCents,
+                                bill.frequency,
+                                settings.payCadence
+                              )
+                            : monthlyEquivalentCents(bill.amountCents, bill.frequency)
                       }
                       currency={currency}
                     />
                     {bill.fundingStrategy !== 'all_checks' && (
                       <div className="cell-sub chip-funding">
-                        {ordinal(fundingCheckFor(bill, settings.payCadence) ?? 1)} check only
+                        {ordinal(fundingCheckFor(bill, settings.payCadence) ?? 1)} check
+                        {nextCheck ? ' of the month' : ' only'}
                       </div>
                     )}
                   </td>
@@ -217,8 +271,9 @@ export function PriorityWall() {
 
       <p className="footnote">
         Monthly figures are annualised and divided by twelve, so a $600 yearly insurance premium
-        counts as $50 of obligation every month. A bill funded on one check reserves on that slot
-        of your pay cycle; set the cycle and its payday label in Settings.
+        counts as $50 of obligation every month. A bill funded on one check reserves that whole
+        month on its check. Set a known payday in Settings and the wall shows the exact reserve
+        for the next real check instead of an average.
       </p>
 
       {editing !== null && (

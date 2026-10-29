@@ -171,6 +171,24 @@ export interface PaycheckWithAllocations extends Paycheck {
   allocations: Allocation[]
 }
 
+/**
+ * Money the wall has already set aside for one bill in one calendar month.
+ * `reserved` means the cheque carried it; `paid` means a matching bill payment
+ * was recorded. A second cheque in the same cycle must not reserve it again.
+ */
+export type BillReserveState = 'reserved' | 'paid'
+
+export interface BillReserve extends SyncMeta {
+  id: string
+  userId: string
+  billId: string
+  paycheckId: string
+  /** Calendar month being funded, `YYYY-MM`. */
+  cycle: string
+  amountCents: number
+  state: BillReserveState
+}
+
 export interface Snapshot {
   user: User
   settings: Record<string, string>
@@ -179,6 +197,7 @@ export interface Snapshot {
   goals: GoalWithProgress[]
   transactions: TransactionRow[]
   paychecks: PaycheckWithAllocations[]
+  billReserves: BillReserve[]
 }
 
 export interface AccountInput {
@@ -257,6 +276,8 @@ export interface PaycheckDraftInput {
   payCadence: PayCadence
   splits: AllocatorSplitsInput
   wholeDollarBuckets: boolean
+  /** Set only after the user confirms a likely double entry. */
+  allowDuplicate?: boolean
 }
 
 export interface AppSettings {
@@ -264,6 +285,12 @@ export interface AppSettings {
   payCadence: PayCadence
   /** Free text naming the paydays, e.g. "15th and last day". Display only. */
   paydayLabel: string
+  /**
+   * A known payday. Weekly and biweekly slots are projected from it instead of
+   * guessed from day-of-month ranges, so a 15th/30th earner's two checks each
+   * reserve the bills assigned to them.
+   */
+  payAnchorDate: string | null
   /** Preselected by the allocator; falls back to the first checking account. */
   defaultDepositAccountId: string | null
   savingsPercent: number

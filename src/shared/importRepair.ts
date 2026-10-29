@@ -6,6 +6,7 @@ export type ImportTable =
   | 'goals'
   | 'paychecks'
   | 'allocations'
+  | 'bill_reserves'
   | 'transactions'
   | 'settings'
 
@@ -15,6 +16,7 @@ export const IMPORT_TABLES: readonly ImportTable[] = [
   'goals',
   'paychecks',
   'allocations',
+  'bill_reserves',
   'transactions',
   'settings'
 ]
@@ -47,6 +49,7 @@ const KIND_ACCOUNT = ['checking', 'savings', 'cash', 'investment', 'credit']
 const KIND_FREQUENCY = ['weekly', 'biweekly', 'semimonthly', 'monthly', 'quarterly', 'annual']
 const KIND_HEALTH = ['covered', 'tight', 'shortfall']
 const KIND_BUCKET = ['priority', 'savings', 'investment', 'goal', 'debt', 'leisure']
+const KIND_RESERVE = ['reserved', 'paid']
 const KIND_TRANSACTION = [
   'income',
   'expense',
@@ -87,6 +90,11 @@ const REQUIRED_FIELDS: Record<ImportTable, readonly FieldSpec[]> = {
     { column: 'bucket', label: 'Bucket', input: 'enum', options: KIND_BUCKET },
     { column: 'amount_cents', label: 'Allocated amount', input: 'money', min: 0 }
   ],
+  bill_reserves: [
+    { column: 'cycle', label: 'Reserve month', input: 'text' },
+    { column: 'amount_cents', label: 'Reserved amount', input: 'money', min: 0 },
+    { column: 'state', label: 'Reserve state', input: 'enum', options: KIND_RESERVE }
+  ],
   transactions: [
     { column: 'kind', label: 'Transaction type', input: 'enum', options: KIND_TRANSACTION },
     { column: 'amount_cents', label: 'Amount', input: 'money' },
@@ -116,6 +124,10 @@ const REFERENCE_FIELDS: Record<ImportTable, readonly FieldSpec[]> = {
     { column: 'paycheck_id', label: 'Paycheck', input: 'ref', refTable: 'paychecks', nullable: false },
     { column: 'goal_id', label: 'Goal', input: 'ref', refTable: 'goals', nullable: true }
   ],
+  bill_reserves: [
+    { column: 'bill_id', label: 'Bill', input: 'ref', refTable: 'bills', nullable: false },
+    { column: 'paycheck_id', label: 'Paycheck', input: 'ref', refTable: 'paychecks', nullable: false }
+  ],
   transactions: [
     { column: 'account_id', label: 'Posting account', input: 'ref', refTable: 'accounts', nullable: false },
     { column: 'bill_id', label: 'Bill', input: 'ref', refTable: 'bills', nullable: true },
@@ -132,6 +144,7 @@ const TABLE_NOUN: Record<ImportTable, string> = {
   goals: 'goal',
   paychecks: 'paycheck',
   allocations: 'allocation',
+  bill_reserves: 'bill reserve',
   transactions: 'transaction',
   settings: 'setting'
 }

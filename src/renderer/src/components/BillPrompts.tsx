@@ -30,10 +30,12 @@ export function BillPrompts() {
   const markPaid = (prompt: BillPrompt) => {
     const accountId = prompt.accountId ?? fallbackAccount?.id
     if (!accountId) return
+    const remainingCents = Math.max(0, prompt.amountCents - prompt.paidCents)
+    if (remainingCents === 0) return
     void createTransaction({
       accountId,
       kind: 'bill_payment',
-      amountCents: -prompt.amountCents,
+      amountCents: -remainingCents,
       occurredOn: prompt.dueOn,
       memo: prompt.name,
       category: prompt.category,
@@ -69,9 +71,15 @@ export function BillPrompts() {
                   {prompt.daysLate === 1 ? '1 day past due' : `${prompt.daysLate} days past due`}
                   {prompt.autopay ? ' · autopay' : ''}
                 </span>
+                {prompt.paidCents > 0 && (
+                  <span className="prompt-due">
+                    {formatMoney(prompt.paidCents, settings.currency)} of{' '}
+                    {formatMoney(prompt.amountCents, settings.currency)} already matched
+                  </span>
+                )}
               </div>
               <span className="prompt-amount num">
-                {formatMoney(prompt.amountCents, settings.currency)}
+                {formatMoney(prompt.amountCents - prompt.paidCents, settings.currency)}
               </span>
               <div className="prompt-actions">
                 <Button
@@ -82,7 +90,7 @@ export function BillPrompts() {
                   title={accountId ? 'Log this bill as paid' : 'No account available'}
                   onClick={() => markPaid(prompt)}
                 >
-                  Yes, it cleared
+                  {prompt.paidCents > 0 ? 'Yes, log the rest' : 'Yes, it cleared'}
                 </Button>
                 <Button
                   variant="quiet"
