@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { poolEarmarkedGoalsCents, safeToSpendPoolCents, totalWealthCents } from '@shared/accounts'
-import type { ImportCounts, ImportPreview } from '@shared/api'
+import type { AppInfo, ImportCounts, ImportPreview } from '@shared/api'
 import type { ImportAnswer } from '@shared/importRepair'
 import { DEFAULT_SETTINGS, parseSettings } from '@shared/settings'
 import type {
@@ -29,6 +29,7 @@ interface FinanceState {
   snapshot: Snapshot | null
   settings: AppSettings
   dbPath: string
+  appInfo: AppInfo | null
   screen: Screen
   allocatorOpen: boolean
   importPreview: ImportPreview | null
@@ -106,6 +107,7 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
     snapshot: null,
     settings: DEFAULT_SETTINGS,
     dbPath: '',
+    appInfo: null,
     screen: 'dashboard',
     allocatorOpen: false,
     importPreview: null,
@@ -116,14 +118,16 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
 
     init: async () => {
       try {
-        const [snapshot, dbPath] = await Promise.all([
+        const [snapshot, dbPath, appInfo] = await Promise.all([
           window.api.getSnapshot(),
-          window.api.getDatabasePath()
+          window.api.getDatabasePath(),
+          window.api.getAppInfo()
         ])
         set({
           snapshot,
           settings: parseSettings(snapshot.settings),
           dbPath,
+          appInfo,
           status: 'ready'
         })
       } catch (error) {

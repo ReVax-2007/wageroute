@@ -82,9 +82,20 @@ export function emptyImportCounts(): ImportCounts {
   }
 }
 
+/**
+ * What the installed bundle reports about itself. `version` comes from
+ * `app.getVersion()` — the value baked into the build, not `package.json` on disk.
+ */
+export interface AppInfo {
+  version: string
+  schemaVersion: number
+  electron: string
+}
+
 export interface FinanceApi {
   getSnapshot(): Promise<Snapshot>
   getDatabasePath(): Promise<string>
+  getAppInfo(): Promise<AppInfo>
 
   createAccount(input: AccountInput): Promise<void>
   updateAccount(id: string, input: Partial<AccountInput>): Promise<void>

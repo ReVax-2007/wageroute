@@ -27,6 +27,7 @@ It is a planning and ledger tool, not a bank connection. There is no account lin
 - [Deployment status](#deployment-status)
 - [Project layout](#project-layout)
 - [Documentation](#documentation)
+- [Support](#support)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -223,7 +224,13 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full status matrix and the 
 | [docs/UNRELEASED.md](docs/UNRELEASED.md) | The running queue for the next release, its blockers and its checklist |
 | [docs/decisions/README.md](docs/decisions/README.md) | Architecture decision records for the load-bearing choices |
 
-Related repositories: [ReVax-2007/homebrew-wageroute](https://github.com/ReVax-2007/homebrew-wageroute) — the official Homebrew tap (cask, install/update docs); bumped to each release per [docs/RELEASING.md](docs/RELEASING.md#release-checklist). |
+Related repositories: [ReVax-2007/homebrew-wageroute](https://github.com/ReVax-2007/homebrew-wageroute) — the official Homebrew tap (cask, install/update docs); bumped to each release per [docs/RELEASING.md](docs/RELEASING.md#release-checklist).
+
+## Support
+
+WageRoute is free, with no account, no telemetry and no paid tier. If it earns its place in your month, you can buy me a coffee — the same link is in the app under **Settings → About**.
+
+[![Buy me a coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-support-ffdd00?style=flat-square&logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/revax)
 
 ## Contributing
 
