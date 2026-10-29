@@ -16,7 +16,7 @@
 | Backup format | writes `6`, accepts `2`–`6` |
 | Assets | `WageRoute-1.1.0-arm64.dmg`, `WageRoute-1.1.0.dmg` (Intel), `WageRoute.Setup.1.1.0.exe`, `SHA256SUMS.txt` |
 | Homebrew | `ReVax-2007/homebrew-wageroute` at `1.1.0` (`7850918`) |
-| Verification | arm64 build launched and migrated a **copy** of the live schema-5 database 5→6 with identical counts and unchanged wall figures ($492.69 / $227.40); Intel DMG and Windows installer never launched |
+| Verification | arm64 build launched and migrated a **copy** of the live schema-5 database 5→6 with identical counts and unchanged wall figures ($492.69 / $227.40); installed over the live app on 2026-10-29 (snapshot in `.local-backups/2026-10-29-pre-1.1.0-install/`, old bundle in `.local-quarantine/2026-10-29-pre-1.1.0-install/`), live `wageroute.db` now at `user_version` 6 with every count unchanged; Intel DMG and Windows installer never launched |
 
 The `[1.1.0]` block in [CHANGELOG.md](../CHANGELOG.md) is the inventory; it is released now and is not repeated here.
 
@@ -55,7 +55,7 @@ Held out of 1.1.0 on purpose: the branch has never had a green CI run and its ar
 ## Open gaps carried forward
 
 1. **The import wizard's rendered flow has never been opened.** Its detection and repair rules are tested as pure code, but the wizard begins with a native file picker that CDP cannot reach. Someone has to pick a real file and walk the questions by hand.
-2. **1.1.0 has not been installed over the live app.** `/Applications/WageRoute.app` is still the schema-5 build reporting 1.0.2, so the live `wageroute.db` is still schema 5; the 5→6 migration was checked against a copy. Installing migrates the live ledger irreversibly and needs a fresh `sqlite3 .backup` snapshot, the old bundle moved aside, and owner approval.
+2. **Homebrew's receipt is stale.** 1.1.0 was installed manually from the published arm64 DMG, which carries no quarantine flag, so the app opens without the Gatekeeper prompt but the cask receipt still says `1.0.2`. `brew list --versions wageroute` will disagree with the app until the next `brew upgrade --cask wageroute` — which re-installs the same 1.1.0 and, because brew downloads it, does apply quarantine.
 3. **Only the arm64 macOS installer has been launched.** The Intel DMG and the Windows installer have never been started.
 4. **The builds are unsigned.** macOS is ad-hoc signed only, so downloaders need right-click → Open; Windows shows SmartScreen. Signing and notarization remain undone; see [RELEASING.md](RELEASING.md#code-signing-and-notarization).
 
