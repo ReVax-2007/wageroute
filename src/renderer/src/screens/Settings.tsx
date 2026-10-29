@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Download,
   FileSpreadsheet,
@@ -9,7 +9,8 @@ import {
   Trash2,
   Upload
 } from 'lucide-react'
-import type { RoundUpIncrementCents, ThemePreference } from '@shared/types'
+import { PAY_CADENCE_LABEL } from '@shared/cadence'
+import type { PayCadence, RoundUpIncrementCents, ThemePreference } from '@shared/types'
 import { roundUpRemainderCents } from '@shared/transfers'
 import { Button, Card, Field, Modal, Segmented, Switch } from '../components/ui'
 import { useFinanceStore } from '../store/useFinanceStore'
@@ -19,6 +20,8 @@ const INCREMENTS: { value: string; label: string; cents: RoundUpIncrementCents }
   { value: '200', label: '$2', cents: 200 },
   { value: '500', label: '$5', cents: 500 }
 ]
+
+const CADENCES = Object.keys(PAY_CADENCE_LABEL) as PayCadence[]
 
 export function Settings() {
   const settings = useFinanceStore((state) => state.settings)
@@ -32,12 +35,18 @@ export function Settings() {
   const go = useFinanceStore((state) => state.go)
   const dbPath = useFinanceStore((state) => state.dbPath)
   const [eraseStep, setEraseStep] = useState<0 | 1 | 2>(0)
+  const [paydayDraft, setPaydayDraft] = useState(settings.paydayLabel)
+
+  useEffect(() => {
+    setPaydayDraft(settings.paydayLabel)
+  }, [settings.paydayLabel])
 
   if (!snapshot) return null
 
   const savingsAccounts = snapshot.accounts.filter(
     (account) => account.kind === 'savings' && !account.isArchived
   )
+  const depositAccounts = snapshot.accounts.filter((account) => !account.isArchived)
   const sampleSweepCents = roundUpRemainderCents(1240, settings.roundUpToCents)
 
   const update = (patch: Partial<typeof settings>) => {
@@ -82,6 +91,61 @@ export function Settings() {
           <p className="field-hint">
             System follows your macOS or Windows appearance setting and switches live.
           </p>
+        </Card>
+
+        <Card
+          title="Paycheck"
+          subtitle="How often you are paid, what to call paydays and where the money lands"
+        >
+          <div className="form-grid compact">
+            <Field label="Pay cadence" hint="Sets the Priority Wall's per-check figures">
+              <select
+                className="select"
+                value={settings.payCadence}
+                onChange={(event) =>
+                  update({ payCadence: event.target.value as PayCadence })
+                }
+              >
+                {CADENCES.map((option) => (
+                  <option key={option} value={option}>
+                    {PAY_CADENCE_LABEL[option]}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Payday label" hint="Free text, shown on the wall">
+              <input
+                className="input"
+                value={paydayDraft}
+                placeholder="15th and last day"
+                onChange={(event) => setPaydayDraft(event.target.value)}
+                onBlur={() => {
+                  const next = paydayDraft.trim()
+                  if (next !== settings.paydayLabel) update({ paydayLabel: next })
+                }}
+              />
+            </Field>
+            <Field
+              label="Default paycheck account"
+              hint="The allocator preselects this when a paycheck arrives"
+              wide
+            >
+              <select
+                className="select"
+                value={settings.defaultDepositAccountId ?? ''}
+                onChange={(event) =>
+                  update({ defaultDepositAccountId: event.target.value || null })
+                }
+              >
+                <option value="">First checking account</option>
+                {depositAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
         </Card>
 
         <Card

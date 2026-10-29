@@ -149,6 +149,8 @@ CREATE INDEX idx_transactions_user_date ON transactions(user_id, occurred_on DES
 
 interface Migration {
   version: number
+  /** Rebuilds a table that other tables reference, so enforcement is suspended. */
+  rebuildsReferencedTable?: boolean
   up: (db: Database.Database) => void
 }
 
@@ -242,7 +244,59 @@ ALTER TABLE bills ADD COLUMN funding_paycheck_index INTEGER;
 ALTER TABLE accounts ADD COLUMN color TEXT;
 `
 
-const MIGRATIONS: readonly Migration[] = [
+/**
+ * v6 adds the fifth funding strategy, `last_check`. It is not additive: the
+ * allowed values live in a CHECK constraint, and SQLite cannot alter one, so
+ * the table is rebuilt.
+ *
+ * `transactions.bill_id` references `bills`, which makes this the documented
+ * twelve-step procedure rather than a plain drop-and-rename: enforcement is
+ * suspended in {@link migrate}, and `legacy_alter_table` is switched on so the
+ * rename leaves the REFERENCES clause in `transactions` alone. Without it the
+ * rename rewrites that clause to point at `bills_v5_old` — even with foreign
+ * keys disabled — and dropping the old table then breaks the ledger. Rows are
+ * copied under the same ids and `PRAGMA foreign_key_check` runs before commit,
+ * so a dangling reference aborts the upgrade instead of being written.
+ */
+const SCHEMA_V6 = `
+ALTER TABLE bills RENAME TO bills_v5_old;
+
+CREATE TABLE bills (
+  id                     TEXT PRIMARY KEY NOT NULL,
+  user_id                TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name                   TEXT NOT NULL,
+  amount_cents           INTEGER NOT NULL CHECK (amount_cents > 0),
+  frequency              TEXT NOT NULL CHECK (frequency IN ('weekly','biweekly','semimonthly','monthly','quarterly','annual')),
+  due_day                INTEGER NOT NULL CHECK (due_day BETWEEN 1 AND 31),
+  category               TEXT NOT NULL DEFAULT 'Bills',
+  account_id             TEXT REFERENCES accounts(id),
+  autopay                INTEGER NOT NULL DEFAULT 0 CHECK (autopay IN (0,1)),
+  is_active              INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
+  next_due_on            TEXT,
+  funding_strategy       TEXT NOT NULL DEFAULT 'all_checks'
+                           CHECK (funding_strategy IN ('all_checks','closest_due_date','specific_check','first_check','last_check')),
+  funding_paycheck_index INTEGER,
+  created_at             TEXT NOT NULL,
+  updated_at             TEXT NOT NULL,
+  deleted_at             TEXT,
+  revision               INTEGER NOT NULL DEFAULT 1
+) STRICT;
+
+INSERT INTO bills
+  (id, user_id, name, amount_cents, frequency, due_day, category, account_id,
+   autopay, is_active, next_due_on, funding_strategy, funding_paycheck_index,
+   created_at, updated_at, deleted_at, revision)
+SELECT id, user_id, name, amount_cents, frequency, due_day, category, account_id,
+       autopay, is_active, next_due_on, funding_strategy, funding_paycheck_index,
+       created_at, updated_at, deleted_at, revision
+FROM bills_v5_old;
+
+DROP TABLE bills_v5_old;
+
+CREATE INDEX idx_bills_sync ON bills(user_id, updated_at);
+`
+
+export const MIGRATIONS: readonly Migration[] = [
   {
     version: 1,
     up: (db) => {
@@ -272,6 +326,13 @@ const MIGRATIONS: readonly Migration[] = [
     up: (db) => {
       db.exec(SCHEMA_V5)
     }
+  },
+  {
+    version: 6,
+    rebuildsReferencedTable: true,
+    up: (db) => {
+      db.exec(SCHEMA_V6)
+    }
   }
 ]
 
@@ -279,12 +340,33 @@ export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version
 
 export function migrate(db: Database.Database): void {
   const current = db.pragma('user_version', { simple: true }) as number
+  const hadForeignKeys = (db.pragma('foreign_keys', { simple: true }) as number) === 1
 
   for (const migration of MIGRATIONS) {
     if (migration.version <= current) continue
-    db.transaction(() => {
-      migration.up(db)
-      db.pragma(`user_version = ${migration.version}`)
-    })()
+    const suspend = migration.rebuildsReferencedTable === true
+    if (suspend) {
+      db.pragma('foreign_keys = OFF')
+      db.pragma('legacy_alter_table = ON')
+    }
+    try {
+      db.transaction(() => {
+        migration.up(db)
+        if (suspend) {
+          const violations = db.pragma('foreign_key_check') as unknown[]
+          if (violations.length > 0) {
+            throw new Error(
+              `Migration ${migration.version} left ${violations.length} dangling foreign key(s)`
+            )
+          }
+        }
+        db.pragma(`user_version = ${migration.version}`)
+      })()
+    } finally {
+      if (suspend) {
+        db.pragma('legacy_alter_table = OFF')
+        if (hadForeignKeys) db.pragma('foreign_keys = ON')
+      }
+    }
   }
 }

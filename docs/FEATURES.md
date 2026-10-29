@@ -34,7 +34,7 @@ The sidebar has six destinations and one global action:
 | Sinking funds | `goals` | Goals and emergency calculator |
 | Accounts | `accounts` | Banks and credit |
 | Spreadsheet | `ledger` | Ledger and projections |
-| Settings | `settings` | Theme, round-up, data |
+| Settings | `settings` | Pay cycle and payday label, default paycheck account, theme, round-up, data |
 | **Route a paycheck** | — | Opens the allocator wizard over any screen |
 
 The sidebar also shows a light/dark switch, cash on hand, the number of tracked accounts and the database path. Navigation is local state; there is no URL routing. The selected screen is not persisted across launches.
@@ -131,10 +131,10 @@ See [Bill prompts](#bill-prompts) below. The prompt card appears above the stat 
 | Figure | Formula |
 | --- | --- |
 | Locked every month | `Σ round(bill.amount × billPeriodsPerYear / 12)` over active bills |
-| Reserved per paycheck | `Σ billFundingReserveCents(bill, payCadence)` over active bills — the spread for `all_checks` bills plus the full month on the one funding check for the three single-check strategies |
+| Reserved per paycheck | `Σ billFundingReserveCents(bill, payCadence)` over active bills — the spread for `all_checks` bills plus the full month on the one funding check for the four single-check strategies |
 | Active bills | Count of active bills; hint shows paused count and, when a paycheck exists, `perCheck / lastPaycheck.amount` as a percentage |
 
-The two figures answer different questions and are deliberately not the same arithmetic: *locked every month* is the obligation, *reserved per paycheck* is what leaves this particular paycheck. Averaging is what makes a $600 yearly premium look like $50 a month instead of a shock.
+The two figures answer different questions and are deliberately not the same arithmetic: *locked every month* is the obligation, *reserved per paycheck* is what leaves this particular paycheck. Averaging is what makes a $600 yearly premium look like $50 a month instead of a shock. The reserved figure's hint names the cycle and, when one is set, the free-text payday label ("Biweekly pay cycle · 15th and last day"); the label is display only.
 
 Cadence constants:
 
@@ -167,7 +167,7 @@ Actions:
 
 Fields: name, amount, cadence, due day (1–31), category, paid-from account, autopay checkbox, **Funding schedule** and — when it is needed — **Which paycheck?**.
 
-Funding schedule offers the four choices in this order, numbered so the list reads as an answer rather than a set of labels:
+Funding schedule offers the five choices in this order, numbered so the list reads as an answer rather than a set of labels:
 
 | # | Option | What it does |
 | --- | --- | --- |
@@ -175,8 +175,9 @@ Funding schedule offers the four choices in this order, numbered so the list rea
 | 2 | **Choose specific paycheck to fund** | Shows a second field, **Which paycheck?**, listing only the slots this pay cadence is certain to produce each month (1st/2nd for biweekly, 1st–4th for weekly, only 1st for monthly) |
 | 3 | **Reserve from all paychecks** | The default. The year's cost is spread evenly over every paycheck, so nothing lumps onto one check |
 | 4 | **First check of every month** | The month's obligation always lands on the 1st paycheck |
+| 5 | **Last check of every month** | The month's obligation lands on the last check the cadence is *guaranteed* to have — the 2nd for biweekly, the 4th for weekly, the 2nd for semimonthly. Biweekly months with a 3rd check still fund on the 2nd, so a short month cannot leave the bill unreserved |
 
-Whatever is chosen, the month is collected exactly once — a strategy moves the money, it never multiplies it. Under 1, 2 and 4 a $50 weekly bill asks $216.67 from one check rather than the $50 instance that happens to fall there.
+Whatever is chosen, the month is collected exactly once — a strategy moves the money, it never multiplies it. Under 1, 2, 4 and 5 a $50 weekly bill asks $216.67 from one check rather than the $50 instance that happens to fall there.
 
 The "Which paycheck?" field only appears for option 2 and only when the pay cadence has more than one guaranteed slot. A live hint under the field names the paycheck that will actually fund the bill (for example, "Reserves the whole month's obligation on the 2nd paycheck, closest to the due day"), and disappears for option 3.
 
@@ -187,7 +188,7 @@ Validation:
 - due day is coerced to a number and clamped by the repository;
 - category defaults to `Bills`;
 - account is optional;
-- funding schedule is one of the four enum values; `funding_paycheck_index` is only read for option 2 and is clamped to a guaranteed slot on write.
+- funding schedule is one of the five enum values; `funding_paycheck_index` is only read for option 2 and is clamped to a guaranteed slot on write.
 
 New bills get `nextDueOn = null`. Editing preserves the existing `nextDueOn` unless it is explicitly changed.
 
@@ -412,10 +413,10 @@ Fields:
 - paycheck amount (large currency input; Enter advances when positive);
 - pay date (defaults to today);
 - source (defaults to “Payroll”);
-- deposit account (defaults to the first checking account, else the first account);
+- deposit account (defaults to the account chosen in Settings → Paycheck, falling back to the first non-archived checking account, then the first non-archived account);
 - pay cadence (defaults to the saved cadence).
 
-The step also previews the wall reserve: “Next we hold back X for the Priority Wall”.
+The step also previews the wall reserve: “Next we hold back X for the Priority Wall”, and, when a payday label is set, names the paydays — “Paydays: 15th and last day — edit this label in Settings.”
 
 Validation before advancing: the amount must be greater than zero. The commit also requires a deposit account.
 
@@ -440,7 +441,7 @@ Four percentage controls, each with a slider and a number input:
 - sinking funds;
 - debt payoff.
 
-All are clamped to 0–100 by the component and by the domain layer.
+All are clamped to 0–100 by the component and by the domain layer. The component also caps each control at **100 minus the other three**, so the four can never total more than 100%: with debt at 90, the other three sliders stop at 10 and typing 100 into savings snaps to 10. Space freed by one bucket is immediately available to the others.
 
 The panel shows:
 
@@ -452,7 +453,7 @@ The panel shows:
 - goals funded from this check, with remaining need;
 - plan warnings.
 
-If the splits add up to more than 100%, the route button is disabled and labelled “Splits exceed 100%”. The pure allocator would scale them proportionally, but the UI prevents that state.
+If the splits add up to more than 100%, the route button is disabled and labelled “Splits exceed 100%”. The pure allocator would scale them proportionally, but the per-control cap means the UI cannot reach that state; the guard stays for imported or hand-written settings that already total more.
 
 ### The algorithm
 
@@ -585,6 +586,12 @@ Rules enforced at write time:
 - the sweep is `increment − (|amount| mod increment)`, and zero when the amount is already divisible;
 - the sweep is a paired transfer with category `Round-up` and memo `Round-up · <original memo>`;
 - only newly created negative expenses trigger it. Editing an existing expense, importing entries and logging a bill payment do not.
+
+### Paycheck
+
+- **Pay cadence** — weekly, biweekly, semimonthly or monthly. It is the same setting the Priority Wall and the allocator read; the wall's summary line and the allocator's step-1 hint name it.
+- **Payday label** — free text such as `15th and last day`. It is a label, not arithmetic: it appears next to the cadence on the wall and in the allocator's step-1 hint, and never changes a reserve. Saved on blur, trimmed, and an all-blank value clears it.
+- **Default paycheck account** — the deposit account the allocator preselects. The list offers active accounts plus **First checking account**, which restores the built-in fallback. An archived or deleted pointer falls back to the first non-archived checking account rather than failing.
 
 ### Data
 

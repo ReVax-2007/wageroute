@@ -222,8 +222,9 @@ Anything else that is missing or unusable — no `name`, an out-of-range `due_da
 | `2` | Accepted; missing v3 columns receive fallbacks |
 | `3` | Accepted; the two v4 account columns arrive as `NULL` |
 | `4` | Accepted; `accounts.color` arrives as `NULL` (the type colour), `bills.funding_strategy` arrives as `all_checks` and `funding_paycheck_index` as `NULL` |
-| `5` | Accepted |
-| `> 5` | Rejected: “This backup came from a newer version (schema N)” |
+| `5` | Accepted; nothing new to fall back on — version 6 added no column |
+| `6` | Accepted |
+| `> 6` | Rejected: “This backup came from a newer version (schema N)” |
 | Non-integer | Rejected: “Backup has no version number” |
 
 `bills.funding_strategy` is `NOT NULL` with a schema default, so it needs an entry in the importer's per-table defaults (`TABLE_DEFAULTS`): the importer lists every allowlisted column explicitly, and without the fallback an older file that omits the key would insert `NULL` and trip the constraint. That is the same failure fixed for `accounts.sort_order` in `2024f7f`, so the new column is covered by the same regression test rather than a new one.

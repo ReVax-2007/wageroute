@@ -54,7 +54,7 @@ npm run postinstall
 | --- | --- | --- |
 | `npm run dev` | `electron-vite dev` | Dev server, main/preload rebuild, hot renderer reload |
 | `npm start` | `electron-vite preview` | Run the production bundles in `out/` |
-| `npm test` | `node --import tsx --test` (seven files listed explicitly) | Domain, cadence, accounts, importer, backup-example, merge and repository tests |
+| `npm test` | `node --import tsx --test` (eight files listed explicitly) | Domain, cadence, accounts, importer, backup-example, merge, migration and repository tests |
 | `npm run typecheck` | node + web type checks | Both TypeScript projects |
 | `npm run typecheck:node` | `tsc --noEmit -p tsconfig.node.json` | Main, preload, shared, config |
 | `npm run typecheck:web` | `tsc --noEmit -p tsconfig.json` | Renderer and shared |
@@ -202,7 +202,7 @@ Seven files run by `npm test` through `node --test` with `tsx` as the loader —
 | File | Style | Covers |
 | --- | --- | --- |
 | `domain.test.ts` | pure functions | money parsing and formatting boundaries; month-end date clamping and due-date derivation; allocator priority, shortfall, scaling, goal ordering, whole-dollar sweeping and the balance identity; debt as a surplus bucket; bill prompt chronology and early-payment window; round-up remainders and transfer legs; emergency variable averaging, essentials, target and coverage; settings defaults, corrupt input and round-trip serialization; CSV quoting, parsing, bank-style dates, duplicate headers and transfer rejection |
-| `cadence.test.ts` | pure functions | which paycheck slot a date falls in for each pay cadence; the check closest to a due day, ties going earlier; which slots a month is certain to contain; an unreachable target is clamped rather than dropped; `all_checks` has no single funding check; a single-check bill carries the **month** ($50 weekly → $216.67) on one check and nothing on the other; every strategy's monthly total equals the obligation it owes; no paycheck date means the spread, never the clock |
+| `cadence.test.ts` | pure functions | which paycheck slot a date falls in for each pay cadence; the check closest to a due day, ties going earlier; which slots a month is certain to contain; an unreachable target is clamped rather than dropped; `last_check` lands on the last guaranteed slot and nowhere else; `all_checks` has no single funding check; a single-check bill carries the **month** ($50 weekly → $216.67) on one check and nothing on the other; every strategy's monthly total equals the obligation it owes; no paycheck date means the spread, never the clock |
 | `importRepair.test.ts` | pure functions | a clean backup needs nothing; each missing, invalid or dangling value becomes exactly one question; nullable versus required references; answers repair rows, unanswered rows are dropped rather than thrown; a still-invalid answer drops with the validation message; clearing a nullable reference is a valid answer; rows inside one file can satisfy each other's references; the accounts↔goals cycle is answerable in one pass; unmatched CSV account names collapse to one question each |
 | `accounts.test.ts` | pure functions | the explicit Safe-to-spend choice versus the kind default; a dedicated account staying out of the spendable pool; archived accounts counting for nothing; credit subtracting from total wealth; wealth buckets partitioning the total exactly; the allocator skipping an account-funded goal and the leftover falling to savings |
 | `backup-merge.test.ts` | **real in-memory SQLite** | schema-defaulted columns import with the default instead of failing NOT NULL; one unusable row is reported rather than aborting the file; a settings row without a key is skipped; existing values survive while missing timestamps fill in; a dedicated account and its goal survive an export/import round trip; CSV names mapped in the wizard land on the chosen account; an unmapped name is left out once and the rest still imports; a mapping whose account disappeared reports the row instead of throwing |
@@ -302,7 +302,7 @@ Do not expose `ipcRenderer`, `require`, `fs` or raw SQL to the renderer.
 
 ## Adding a schema migration
 
-Migrations are append-only. Never modify a `SCHEMA_V*` string once its version has shipped (`SCHEMA_V1`–`SCHEMA_V3` are released); databases in the field have already run them.
+Migrations are append-only. Never modify a `SCHEMA_V*` string once its version has shipped (`SCHEMA_V1`–`SCHEMA_V5` are released); databases in the field have already run them.
 
 ### Procedure
 
@@ -322,6 +322,25 @@ Migrations are append-only. Never modify a `SCHEMA_V*` string once its version h
 Version 4 is the model for an additive migration: two nullable `ALTER TABLE ADD COLUMN` statements and a partial index, no backfill, and no downgrade path. Existing rows read `NULL` in both columns, which the shared rules treat as "no explicit choice", so behaviour is unchanged until the user opts in.
 
 Version 5 adds one column that is *not* nullable — `bills.funding_strategy TEXT NOT NULL DEFAULT 'all_checks'` — which is the cheaper of the two shapes for existing rows (SQLite fills the default in place, no table rebuild) but is exactly the case that needs the importer default described in step 4. Every released bill lands on `all_checks`, the strategy that reproduces the pre-v5 reserve arithmetic, so the upgrade moves no number.
+
+Version 6 is the rebuild model, and the first one on a table that another table references. `bills.funding_strategy` is a CHECKed enum, SQLite cannot alter a CHECK, and `transactions.bill_id` points at `bills`, so the v2 recipe alone is not enough. What works in this build of better-sqlite3:
+
+```sql
+-- executed with foreign_keys = OFF AND legacy_alter_table = ON, both set
+-- OUTSIDE the transaction (both pragmas are no-ops inside one):
+ALTER TABLE bills RENAME TO bills_v5_old;
+CREATE TABLE bills ( ... widened CHECK ... );
+INSERT INTO bills SELECT ... FROM bills_v5_old;
+DROP TABLE bills_v5_old;
+CREATE INDEX idx_bills_sync ON bills (...);
+```
+
+- Without `legacy_alter_table = ON`, the bundled engine rewrites `transactions.bill_id REFERENCES bills(id)` to point at `bills_v5_old` during the rename — even with `foreign_keys = OFF` — and the `DROP` then fails or leaves the ledger dangling.
+- `PRAGMA defer_foreign_keys = ON` does **not** substitute for this; it still fails at `COMMIT`.
+- The migration is marked `rebuildsReferencedTable: true` in `MIGRATIONS`. The runner then suspends foreign keys, turns legacy mode on, runs `PRAGMA foreign_key_check` inside the transaction before setting `user_version` (a violation throws and rolls the whole version back), and restores both pragmas in `finally`.
+- `src/main/db/migrations.test.ts` pins it: rows, defaults and the index survive; the widened value is accepted and a bogus one rejected; a referenced bill still cannot be deleted; a pre-seeded dangling `bill_id` makes the migration throw and roll back.
+
+The same pattern applies to any future CHECK widening on a referenced table. `allocations` (v2) was safe without it; `accounts` or `bills` are not.
 
 ### Pointing at another table
 
@@ -345,7 +364,7 @@ The same "no declared key" precedent applies to `transactions.transfer_group_id`
   4. rename the new table;
   5. recreate indexes.
 - The migration loop wraps each version in a transaction and sets `user_version` inside it.
-- With foreign keys enabled, a rebuild is safe only when no other table references the table being dropped. `allocations` was safe; `accounts` would not be.
+- With foreign keys enabled, a rebuild is safe only when no other table references the table being dropped. `allocations` (v2) was safe; `bills` (v6) was not, and needed `legacy_alter_table` — see the v6 recipe above. `accounts` would need the same.
 
 ### Backup compatibility
 

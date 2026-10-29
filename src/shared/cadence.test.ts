@@ -105,7 +105,8 @@ test('every strategy reserves the same total across a month', () => {
       'all_checks',
       'closest_due_date',
       'first_check',
-      'specific_check'
+      'specific_check',
+      'last_check'
     ] as const) {
       // One bill has one funding target; the month is the set of paychecks around it.
       const target = strategy === 'specific_check' ? slots.at(-1) ?? 1 : null
@@ -142,6 +143,44 @@ function dayOfSlot(cadence: PayCadence, slot: number): number {
   if (cadence === 'weekly') return slot * 7 - 3
   return slot === 1 ? 5 : 20
 }
+
+test('the last check is the final slot every month is guaranteed to have', () => {
+  assert.equal(
+    fundingCheckIndex({ cadence: 'monthly', dueDay: 10, fundingStrategy: 'last_check' }),
+    1,
+    'a monthly payday has one check, which is both first and last'
+  )
+  assert.equal(
+    fundingCheckIndex({ cadence: 'semimonthly', dueDay: 10, fundingStrategy: 'last_check' }),
+    2
+  )
+  assert.equal(
+    fundingCheckIndex({ cadence: 'biweekly', dueDay: 10, fundingStrategy: 'last_check' }),
+    2,
+    'a third biweekly check exists in some months only, so it can never carry a bill'
+  )
+  assert.equal(
+    fundingCheckIndex({ cadence: 'weekly', dueDay: 10, fundingStrategy: 'last_check' }),
+    4
+  )
+})
+
+test('a bill on the last check reserves there and nowhere else', () => {
+  const bill = {
+    amountCents: 120_000,
+    frequency: 'monthly' as const,
+    cadence: 'biweekly' as const,
+    dueDay: 28,
+    fundingStrategy: 'last_check' as const
+  }
+  assert.equal(billFundingReserveCents({ ...bill, paycheckDate: '2026-03-05' }), 0)
+  assert.equal(billFundingReserveCents({ ...bill, paycheckDate: '2026-03-19' }), 120_000)
+  assert.equal(
+    billFundingReserveCents({ ...bill, paycheckDate: '2026-03-31' }),
+    0,
+    'the optional third check neither funds nor double-pays'
+  )
+})
 
 test('without a paycheck date the reserve falls back to the spread, never the clock', () => {
   const input = {

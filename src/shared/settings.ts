@@ -10,6 +10,8 @@ import type {
 export const DEFAULT_SETTINGS: AppSettings = {
   currency: 'USD',
   payCadence: 'biweekly',
+  paydayLabel: '',
+  defaultDepositAccountId: null,
   savingsPercent: 20,
   investmentPercent: 15,
   goalsPercent: 15,
@@ -66,6 +68,11 @@ export function parseSettings(record: Record<string, string>): AppSettings {
       cadence && PAY_CADENCES.includes(cadence as PayCadence)
         ? (cadence as PayCadence)
         : DEFAULT_SETTINGS.payCadence,
+    paydayLabel: (record.paydayLabel ?? '').trim(),
+    defaultDepositAccountId:
+      record.defaultDepositAccountId && record.defaultDepositAccountId.length > 0
+        ? record.defaultDepositAccountId
+        : DEFAULT_SETTINGS.defaultDepositAccountId,
     savingsPercent: percentage('savingsPercent', DEFAULT_SETTINGS.savingsPercent),
     investmentPercent: percentage('investmentPercent', DEFAULT_SETTINGS.investmentPercent),
     goalsPercent: percentage('goalsPercent', DEFAULT_SETTINGS.goalsPercent),
@@ -101,6 +108,8 @@ export function settingsToRecord(settings: AppSettings): Record<string, string> 
   return {
     currency: settings.currency,
     payCadence: settings.payCadence,
+    paydayLabel: settings.paydayLabel,
+    defaultDepositAccountId: settings.defaultDepositAccountId ?? '',
     savingsPercent: String(settings.savingsPercent),
     investmentPercent: String(settings.investmentPercent),
     goalsPercent: String(settings.goalsPercent),

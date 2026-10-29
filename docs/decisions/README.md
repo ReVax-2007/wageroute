@@ -13,10 +13,11 @@ Short, dated records of the choices that are expensive to reverse. Each ADR stat
 | [0007](0007-dedicated-accounts-balance-is-progress.md) | A dedicated account's balance is the goal's progress | Accepted |
 | [0008](0008-one-check-carries-the-month.md) | One paycheck can carry a whole month's bill obligation | Accepted |
 | [0009](0009-the-goal-chooses-its-funding-accounts.md) | The goal chooses its funding accounts, one or several | Accepted |
+| [0011](0011-the-pay-cycle-is-a-setting.md) | The pay cycle is a setting, and its last check is guaranteed | Accepted |
 
-Number `0010` is reserved for the still-undecided "restore from file" mode (replace rather than merge); do not use it for another decision.
+Number `0010` is reserved for the still-undecided "restore from file" mode (replace rather than merge); do not use it for another decision. The gap in the sequence is deliberate.
 
-[ADR 0008](0008-one-check-carries-the-month.md) and [ADR 0009](0009-the-goal-chooses-its-funding-accounts.md) both change what a released screen means, so neither is a bug fix: 0008 replaces one reserve rule with four, and 0009 moves the funding relation off settings and onto the goal. Both are unmerged work on this branch and ship together with schema version 5.
+[ADR 0008](0008-one-check-carries-the-month.md) and [ADR 0009](0009-the-goal-chooses-its-funding-accounts.md) both change what a released screen means, so neither is a bug fix: 0008 replaces one reserve rule with four, and 0009 moves the funding relation off settings and onto the goal. Both shipped together with schema version 5 (PR #16, `100bc65`). [ADR 0011](0011-the-pay-cycle-is-a-setting.md) adds the fifth collector, makes the pay cycle editable in Settings, and carries schema version 6.
 
 ## Conventions
 
