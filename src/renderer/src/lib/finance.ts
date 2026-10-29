@@ -79,8 +79,9 @@ export function goalsSummary(goals: readonly GoalWithProgress[]): {
   fundedCents: number
   progress: number
 } {
-  const targetCents = goals.reduce((total, goal) => total + goal.targetCents, 0)
-  const fundedCents = goals.reduce((total, goal) => total + goal.fundedCents, 0)
+  const active = goals.filter((goal) => !goal.isArchived)
+  const targetCents = active.reduce((total, goal) => total + goal.targetCents, 0)
+  const fundedCents = active.reduce((total, goal) => total + goal.fundedCents, 0)
   return {
     targetCents,
     fundedCents,
@@ -89,7 +90,9 @@ export function goalsSummary(goals: readonly GoalWithProgress[]): {
 }
 
 export function fundedGoalsCents(goals: readonly GoalWithProgress[]): number {
-  return goals.reduce((total, goal) => total + goal.fundedCents, 0)
+  return goals
+    .filter((goal) => !goal.isArchived)
+    .reduce((total, goal) => total + goal.fundedCents, 0)
 }
 
 export interface RoutingBreakdown {

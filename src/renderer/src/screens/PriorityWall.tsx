@@ -285,13 +285,9 @@ function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () => void 
     }
 
     setSaving(true)
-    if (bill) {
-      await updateBill(bill.id, input)
-    } else {
-      await createBill(input)
-    }
+    const ok = bill ? await updateBill(bill.id, input) : await createBill(input)
     setSaving(false)
-    onClose()
+    if (ok) onClose()
   }
 
   return (

@@ -89,7 +89,7 @@ export function Allocator() {
   const activeGoals = useMemo(
     () =>
       (snapshot?.goals ?? []).filter(
-        (goal) => !(goal.isEmergency && !settings.emergencyActive)
+        (goal) => !goal.isArchived && !(goal.isEmergency && !settings.emergencyActive)
       ),
     [snapshot?.goals, settings.emergencyActive]
   )

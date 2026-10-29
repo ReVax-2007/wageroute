@@ -1,4 +1,4 @@
-import { app, BrowserWindow, session, shell } from 'electron'
+import { app, BrowserWindow, dialog, session, shell } from 'electron'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { adoptLegacyDatabase, closeDatabase, getDatabase } from './db/connection'
@@ -71,7 +71,14 @@ if (!hasLock) {
       if (existsSync(iconPath)) app.dock?.setIcon(iconPath)
     }
 
-    adoptLegacyDatabase()
+    const adoption = adoptLegacyDatabase()
+    if (adoption.error) {
+      dialog.showErrorBox(
+        'Could not move your old data',
+        `${adoption.error}\n\nYour Cash Flow Routing data has been left exactly where it was. ` +
+          'Nothing in WageRoute was changed.'
+      )
+    }
     const db = getDatabase()
     if (app.isPackaged) {
       seedIfEmpty(db)

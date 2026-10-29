@@ -4,6 +4,7 @@ import { buildAllocationPlan } from '@shared/allocator'
 import type { CommittedPaycheck } from '@shared/api'
 import { isISODate } from '@shared/dates'
 import type { ImportChoice, ImportChoiceTable } from '@shared/importRepair'
+import { normalizeSignedCents, signedAmountError } from '@shared/kinds'
 import { parseSettings } from '@shared/settings'
 import { roundUpRemainderCents, transferLegs } from '@shared/transfers'
 import type {
@@ -400,9 +401,64 @@ export function updateAccount(
   })
 }
 
-export function deleteAccount(db: Db, userId: string, id: string): void {
+export interface DeleteAccountOptions {
+  /**
+   * Also remove every entry in the account (and both legs of any transfer that
+   * touches it). Without this a delete is refused, because leaving the entries
+   * behind makes them vanish from every total while still sitting in the grid.
+   */
+  withEntries?: boolean
+}
+
+export function accountEntryCount(db: Db, userId: string, id: string): number {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS total FROM transactions
+       WHERE account_id = ? AND user_id = ? AND deleted_at IS NULL`
+    )
+    .get(id, userId) as { total: number }
+  return row.total
+}
+
+export function deleteAccount(
+  db: Db,
+  userId: string,
+  id: string,
+  options: DeleteAccountOptions = {}
+): void {
   const ts = nowISO()
+  const entries = accountEntryCount(db, userId, id)
+  if (entries > 0 && !options.withEntries) {
+    throw new Error(
+      'That account still has entries — archive it to keep them, or delete it with its entries'
+    )
+  }
+
   db.transaction(() => {
+    if (entries > 0) {
+      // A transfer leg is meaningless without its twin, so every group that
+      // touches this account goes as a pair.
+      const groups = db
+        .prepare(
+          `SELECT DISTINCT transfer_group_id AS groupId FROM transactions
+           WHERE account_id = ? AND user_id = ? AND deleted_at IS NULL
+             AND transfer_group_id IS NOT NULL`
+        )
+        .all(id, userId) as { groupId: string }[]
+      for (const group of groups) {
+        db.prepare(
+          `UPDATE transactions
+           SET deleted_at = ?, updated_at = ?, revision = revision + 1
+           WHERE transfer_group_id = ? AND user_id = ? AND deleted_at IS NULL`
+        ).run(ts, ts, group.groupId, userId)
+      }
+      db.prepare(
+        `UPDATE transactions
+         SET deleted_at = ?, updated_at = ?, revision = revision + 1
+         WHERE account_id = ? AND user_id = ? AND deleted_at IS NULL`
+      ).run(ts, ts, id, userId)
+    }
+
     db.prepare(
       'UPDATE bills SET account_id = NULL, updated_at = ?, revision = revision + 1 WHERE account_id = ? AND user_id = ?'
     ).run(ts, id, userId)
@@ -414,6 +470,15 @@ export function deleteAccount(db: Db, userId: string, id: string): void {
     ).run(ts, id, userId)
     softDelete(db, 'accounts', id, userId)
   })()
+}
+
+export function setAccountArchived(
+  db: Db,
+  userId: string,
+  id: string,
+  archived: boolean
+): void {
+  updateRow(db, 'accounts', id, userId, { is_archived: archived ? 1 : 0 })
 }
 
 // ---------------------------------------------------------------- bills
@@ -711,25 +776,43 @@ export function deleteGoal(db: Db, userId: string, id: string): void {
   })()
 }
 
+/**
+ * Archive keeps the goal, its allocations and its history, and stops the
+ * allocator from funding it. Unlike a delete it can be undone.
+ */
+export function setGoalArchived(
+  db: Db,
+  userId: string,
+  id: string,
+  archived: boolean
+): void {
+  updateRow(db, 'goals', id, userId, { is_archived: archived ? 1 : 0 })
+}
+
 // ---------------------------------------------------------------- transactions
+
+const TRANSACTION_SELECT = `
+  SELECT t.id, t.user_id AS userId, t.account_id AS accountId, t.kind,
+         t.amount_cents AS amountCents, t.occurred_on AS occurredOn, t.memo, t.category,
+         t.bill_id AS billId, t.goal_id AS goalId, t.paycheck_id AS paycheckId,
+         t.counter_account_id AS counterAccountId, t.transfer_group_id AS transferGroupId,
+         t.created_at AS createdAt,
+         t.updated_at AS updatedAt, t.deleted_at AS deletedAt, t.revision,
+         a.name AS accountName
+  FROM transactions t
+  JOIN accounts a ON a.id = t.account_id
+  WHERE t.user_id = ? AND t.deleted_at IS NULL
+  ORDER BY t.occurred_on DESC, t.created_at DESC`
 
 export function listTransactions(db: Db, userId: string, limit = 500): TransactionRow[] {
   return db
-    .prepare(
-      `SELECT t.id, t.user_id AS userId, t.account_id AS accountId, t.kind,
-              t.amount_cents AS amountCents, t.occurred_on AS occurredOn, t.memo, t.category,
-              t.bill_id AS billId, t.goal_id AS goalId, t.paycheck_id AS paycheckId,
-              t.counter_account_id AS counterAccountId, t.transfer_group_id AS transferGroupId,
-              t.created_at AS createdAt,
-              t.updated_at AS updatedAt, t.deleted_at AS deletedAt, t.revision,
-              a.name AS accountName
-       FROM transactions t
-       JOIN accounts a ON a.id = t.account_id
-       WHERE t.user_id = ? AND t.deleted_at IS NULL
-       ORDER BY t.occurred_on DESC, t.created_at DESC
-       LIMIT ?`
-    )
+    .prepare(`${TRANSACTION_SELECT} LIMIT ?`)
     .all(userId, limit) as TransactionRow[]
+}
+
+/** Every live entry, for exports. The grid keeps its own capped query. */
+export function listAllTransactions(db: Db, userId: string): TransactionRow[] {
+  return db.prepare(TRANSACTION_SELECT).all(userId) as TransactionRow[]
 }
 
 export interface NewTransactionInput {
@@ -827,10 +910,12 @@ function applyRoundUp(
 
 export function createTransaction(db: Db, userId: string, input: TransactionInput): string {
   const kind = assertOneOf(input.kind, TRANSACTION_KINDS, 'transaction kind')
-  const amountCents = assertCents(input.amountCents, 'Amount', {
-    allowNegative: true,
-    allowZero: false
-  })
+  // The kind decides the sign: income can never post negative and an expense
+  // can never post positive, whatever the caller typed.
+  const amountCents = normalizeSignedCents(
+    kind,
+    assertCents(input.amountCents, 'Amount', { allowNegative: true, allowZero: false })
+  )
   const occurredOn = assertDate(input.occurredOn, 'Date')
   const memo = optionalText(input.memo, 'Memo', 240) ?? ''
   const category = optionalText(input.category, 'Category', 60) ?? 'Uncategorized'
@@ -920,10 +1005,13 @@ export function updateTransaction(
 
   const existing = db
     .prepare(
-      `SELECT transfer_group_id AS groupId, amount_cents AS amountCents FROM transactions
+      `SELECT transfer_group_id AS groupId, amount_cents AS amountCents, kind
+       FROM transactions
        WHERE id = ? AND user_id = ? AND deleted_at IS NULL`
     )
-    .get(id, userId) as { groupId: string | null; amountCents: number } | undefined
+    .get(id, userId) as
+    | { groupId: string | null; amountCents: number; kind: TransactionKind }
+    | undefined
   if (!existing) throw new Error('Entry not found')
 
   if (existing.groupId) {
@@ -956,16 +1044,34 @@ export function updateTransaction(
     return
   }
 
+  const nextKind =
+    patch.kind === undefined
+      ? existing.kind
+      : assertOneOf(patch.kind, TRANSACTION_KINDS, 'transaction kind')
+  // A transfer only exists as a pair. Turning a single row into one (or one leg
+  // into something else) would strand the other side of the ledger.
+  if (nextKind === 'transfer' && existing.kind !== 'transfer') {
+    throw new Error('Transfers need two accounts — delete this entry and record a transfer instead')
+  }
+  if (existing.kind === 'transfer' && nextKind !== 'transfer') {
+    throw new Error('Paired transfers keep their kind — delete and re-enter to change it')
+  }
+
+  const patchTouchesAmount = patch.amountCents !== undefined || patch.kind !== undefined
+  let nextAmount = existing.amountCents
+  if (patch.amountCents !== undefined) {
+    nextAmount = assertCents(patch.amountCents, 'Amount', { allowNegative: true, allowZero: true })
+    const signProblem = signedAmountError(nextKind, nextAmount)
+    if (signProblem) throw new Error(signProblem)
+  } else if (patch.kind !== undefined) {
+    // Changing only the kind flips the stored sign to match it.
+    nextAmount = normalizeSignedCents(nextKind, nextAmount)
+  }
+
   updateRow(db, 'transactions', id, userId, {
     account_id: patch.accountId,
-    kind:
-      patch.kind === undefined
-        ? undefined
-        : assertOneOf(patch.kind, TRANSACTION_KINDS, 'transaction kind'),
-    amount_cents:
-      patch.amountCents === undefined
-        ? undefined
-        : assertCents(patch.amountCents, 'Amount', { allowNegative: true, allowZero: true }),
+    kind: patch.kind === undefined ? undefined : nextKind,
+    amount_cents: patchTouchesAmount ? nextAmount : undefined,
     occurred_on:
       patch.occurredOn === undefined ? undefined : assertDate(patch.occurredOn, 'Date'),
     memo: patch.memo === undefined ? undefined : optionalText(patch.memo, 'Memo', 240) ?? '',
@@ -1141,7 +1247,7 @@ export function commitPaycheck(
   const settings = parseSettings(readSettings(db, userId))
   const bills = listBills(db, userId).filter((bill) => bill.isActive)
   const goals = listGoals(db, userId).filter(
-    (goal) => !(goal.isEmergency && !settings.emergencyActive)
+    (goal) => !goal.isArchived && !(goal.isEmergency && !settings.emergencyActive)
   )
 
   const plan = buildAllocationPlan({

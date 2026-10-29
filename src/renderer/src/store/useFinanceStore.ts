@@ -47,25 +47,28 @@ interface FinanceState {
   notify: (text: string, tone?: Notice['tone']) => void
   dismissNotice: () => void
 
-  createAccount: (input: AccountInput) => Promise<void>
-  updateAccount: (id: string, input: Partial<AccountInput>) => Promise<void>
-  deleteAccount: (id: string) => Promise<void>
+  createAccount: (input: AccountInput) => Promise<boolean>
+  updateAccount: (id: string, input: Partial<AccountInput>) => Promise<boolean>
+  deleteAccount: (id: string, withEntries?: boolean) => Promise<boolean>
+  archiveAccount: (id: string, archived: boolean) => Promise<boolean>
+  accountEntryCount: (id: string) => Promise<number>
   adjustAccountBalance: (
     account: AccountWithBalance,
     targetBalanceCents: number,
     occurredOn: string
-  ) => Promise<void>
-  createBill: (input: BillInput) => Promise<void>
-  updateBill: (id: string, input: Partial<BillInput>) => Promise<void>
-  deleteBill: (id: string) => Promise<void>
-  createGoal: (input: GoalInput) => Promise<void>
-  updateGoal: (id: string, input: Partial<GoalInput>) => Promise<void>
-  deleteGoal: (id: string) => Promise<void>
-  createTransaction: (input: TransactionInput) => Promise<void>
-  updateTransaction: (id: string, patch: TransactionPatch) => Promise<void>
-  deleteTransaction: (id: string) => Promise<void>
+  ) => Promise<boolean>
+  createBill: (input: BillInput) => Promise<boolean>
+  updateBill: (id: string, input: Partial<BillInput>) => Promise<boolean>
+  deleteBill: (id: string) => Promise<boolean>
+  createGoal: (input: GoalInput) => Promise<boolean>
+  updateGoal: (id: string, input: Partial<GoalInput>) => Promise<boolean>
+  deleteGoal: (id: string) => Promise<boolean>
+  archiveGoal: (id: string, archived: boolean) => Promise<boolean>
+  createTransaction: (input: TransactionInput) => Promise<boolean>
+  updateTransaction: (id: string, patch: TransactionPatch) => Promise<boolean>
+  deleteTransaction: (id: string) => Promise<boolean>
   commitPaycheck: (input: PaycheckDraftInput) => Promise<boolean>
-  saveSettings: (next: AppSettings) => Promise<void>
+  saveSettings: (next: AppSettings) => Promise<boolean>
   exportBackup: () => Promise<void>
   exportCsv: () => Promise<void>
   openImport: () => Promise<void>
@@ -85,20 +88,41 @@ function messageOf(error: unknown): string {
 }
 
 export const useFinanceStore = create<FinanceState>((set, get) => {
+  // Writes run one at a time so a fast second edit cannot land before the first
+  // and overwrite it by arrival order.
+  let queue: Promise<unknown> = Promise.resolve()
+  const enqueue = <T,>(task: () => Promise<T>): Promise<T> => {
+    const next = queue.then(task, task)
+    queue = next.catch(() => undefined)
+    return next
+  }
+
+  /**
+   * Runs a write and then refreshes the snapshot. A failed write returns false
+   * and leaves the state alone; a write that *committed* but could not be read
+   * back returns true, because the data is safe and the caller should close.
+   */
   const run = async (task: () => Promise<unknown>, success?: string): Promise<boolean> => {
     set({ busy: true })
     try {
-      await task()
-      const snapshot = await window.api.getSnapshot()
-      set({ snapshot, settings: parseSettings(snapshot.settings) })
-      if (success) get().notify(success, 'success')
-      return true
+      await enqueue(task)
     } catch (error) {
       get().notify(messageOf(error), 'error')
       return false
     } finally {
+      // The write is done (or failed); the refresh below must not keep the
+      // whole app disabled if it is slow.
       set({ busy: false })
     }
+
+    try {
+      const snapshot = await window.api.getSnapshot()
+      set({ snapshot, settings: parseSettings(snapshot.settings) })
+      if (success) get().notify(success, 'success')
+    } catch (error) {
+      get().notify(`Saved, but the screen could not refresh — ${messageOf(error)}`, 'error')
+    }
+    return true
   }
 
   return {
@@ -161,22 +185,26 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
       set({ notice: null })
     },
 
-    createAccount: async (input) => {
-      await run(() => window.api.createAccount(input), 'Account added')
-    },
-    updateAccount: async (id, input) => {
-      await run(() => window.api.updateAccount(id, input), 'Account updated')
-    },
-    deleteAccount: async (id) => {
-      await run(() => window.api.deleteAccount(id), 'Account removed')
-    },
+    createAccount: (input) => run(() => window.api.createAccount(input), 'Account added'),
+    updateAccount: (id, input) => run(() => window.api.updateAccount(id, input), 'Account updated'),
+    deleteAccount: (id, withEntries = false) =>
+      run(
+        () => window.api.deleteAccount(id, { withEntries }),
+        withEntries ? 'Account and its entries removed' : 'Account removed'
+      ),
+    archiveAccount: (id, archived) =>
+      run(
+        () => window.api.archiveAccount(id, archived),
+        archived ? 'Account archived' : 'Account restored'
+      ),
+    accountEntryCount: (id) => window.api.accountEntryCount(id),
     adjustAccountBalance: async (account, targetBalanceCents, occurredOn) => {
       const delta = Math.round(targetBalanceCents) - account.balanceCents
       if (delta === 0) {
         get().notify('That balance is already correct')
-        return
+        return true
       }
-      await run(
+      return run(
         () =>
           window.api.createTransaction({
             accountId: account.id,
@@ -189,33 +217,21 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
         'Balance adjusted'
       )
     },
-    createBill: async (input) => {
-      await run(() => window.api.createBill(input), 'Bill locked into the wall')
-    },
-    updateBill: async (id, input) => {
-      await run(() => window.api.updateBill(id, input), 'Bill updated')
-    },
-    deleteBill: async (id) => {
-      await run(() => window.api.deleteBill(id), 'Bill removed from the wall')
-    },
-    createGoal: async (input) => {
-      await run(() => window.api.createGoal(input), 'Goal created')
-    },
-    updateGoal: async (id, input) => {
-      await run(() => window.api.updateGoal(id, input), 'Goal updated')
-    },
-    deleteGoal: async (id) => {
-      await run(() => window.api.deleteGoal(id), 'Goal archived')
-    },
-    createTransaction: async (input) => {
-      await run(() => window.api.createTransaction(input), 'Entry added')
-    },
-    updateTransaction: async (id, patch) => {
-      await run(() => window.api.updateTransaction(id, patch), 'Entry saved')
-    },
-    deleteTransaction: async (id) => {
-      await run(() => window.api.deleteTransaction(id), 'Entry removed')
-    },
+    createBill: (input) => run(() => window.api.createBill(input), 'Bill locked into the wall'),
+    updateBill: (id, input) => run(() => window.api.updateBill(id, input), 'Bill updated'),
+    deleteBill: (id) => run(() => window.api.deleteBill(id), 'Bill removed from the wall'),
+    createGoal: (input) => run(() => window.api.createGoal(input), 'Goal created'),
+    updateGoal: (id, input) => run(() => window.api.updateGoal(id, input), 'Goal updated'),
+    deleteGoal: (id) => run(() => window.api.deleteGoal(id), 'Goal deleted'),
+    archiveGoal: (id, archived) =>
+      run(
+        () => window.api.archiveGoal(id, archived),
+        archived ? 'Goal archived — restore it any time' : 'Goal restored'
+      ),
+    createTransaction: (input) => run(() => window.api.createTransaction(input), 'Entry added'),
+    updateTransaction: (id, patch) =>
+      run(() => window.api.updateTransaction(id, patch), 'Entry saved'),
+    deleteTransaction: (id) => run(() => window.api.deleteTransaction(id), 'Entry removed'),
 
     commitPaycheck: async (input) => {
       const ok = await run(() => window.api.commitPaycheck(input), 'Paycheck routed')
@@ -224,11 +240,17 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
     },
 
     saveSettings: async (next) => {
+      const previous = get().settings
       set({ settings: next })
       try {
-        await window.api.saveSettings(next)
+        await enqueue(() => window.api.saveSettings(next))
+        return true
       } catch (error) {
+        // Settings are applied optimistically; a failed save must not leave the
+        // screen showing a split the database never received.
+        set({ settings: previous })
         get().notify(messageOf(error), 'error')
+        return false
       }
     },
 

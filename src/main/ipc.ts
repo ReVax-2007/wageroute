@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent } from 'electron'
 import { randomUUID } from 'node:crypto'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type Database from 'better-sqlite3'
 import type {
@@ -113,6 +113,18 @@ async function pickImportFile(win: BrowserWindow | null): Promise<string | null>
 }
 
 function readImportText(path: string): string {
+  // Check the file on disk first: reading a FIFO or device node would block or
+  // grow without bound before the size guard below ever ran.
+  let size: number
+  try {
+    const stat = statSync(path)
+    if (!stat.isFile()) throw new Error('That path is not a file')
+    size = stat.size
+  } catch {
+    throw new Error('That file could not be read')
+  }
+  if (size > MAX_IMPORT_BYTES) throw new Error('That file is too large')
+
   let text: string
   try {
     text = readFileSync(path, 'utf8')
@@ -185,8 +197,20 @@ export function registerIpcHandlers(db: Database.Database): void {
   ipcMain.handle('account:update', (_event, id: unknown, patch: Partial<AccountInput>) =>
     repo.updateAccount(db, userId(), requireId(id), patch)
   )
-  ipcMain.handle('account:delete', (_event, id: unknown) =>
-    repo.deleteAccount(db, userId(), requireId(id))
+  ipcMain.handle('account:delete', (_event, id: unknown, options: unknown) =>
+    repo.deleteAccount(db, userId(), requireId(id), {
+      withEntries:
+        typeof options === 'object' &&
+        options !== null &&
+        (options as { withEntries?: unknown }).withEntries === true
+    })
+  )
+  ipcMain.handle('account:archive', (_event, id: unknown, archived: unknown) =>
+    repo.setAccountArchived(db, userId(), requireId(id), archived === true)
+  )
+  ipcMain.handle(
+    'account:entry-count',
+    (_event, id: unknown) => repo.accountEntryCount(db, userId(), requireId(id))
   )
 
   ipcMain.handle('bill:create', (_event, input: BillInput) => repo.createBill(db, userId(), input))
@@ -200,6 +224,9 @@ export function registerIpcHandlers(db: Database.Database): void {
     repo.updateGoal(db, userId(), requireId(id), patch)
   )
   ipcMain.handle('goal:delete', (_event, id: unknown) => repo.deleteGoal(db, userId(), requireId(id)))
+  ipcMain.handle('goal:archive', (_event, id: unknown, archived: unknown) =>
+    repo.setGoalArchived(db, userId(), requireId(id), archived === true)
+  )
 
   ipcMain.handle('transaction:create', (_event, input: TransactionInput) =>
     repo.createTransaction(db, userId(), input)
@@ -230,7 +257,9 @@ export function registerIpcHandlers(db: Database.Database): void {
     if (result.canceled || !result.filePath) return null
 
     const payload = buildBackup(db, userId())
-    writeFileSync(result.filePath, backupToJson(payload), 'utf8')
+    // A backup is the user's whole financial history in readable JSON; keep it
+    // private to their account rather than inheriting the umask.
+    writeFileSync(result.filePath, backupToJson(payload), { encoding: 'utf8', mode: 0o600 })
     return result.filePath
   })
 
@@ -244,12 +273,15 @@ export function registerIpcHandlers(db: Database.Database): void {
     const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options)
     if (result.canceled || !result.filePath) return null
 
-    const snapshot = repo.getSnapshot(db, userId())
-    writeFileSync(
-      result.filePath,
-      transactionsToCsv(snapshot.transactions, snapshot.accounts, snapshot.user.currency),
-      'utf8'
-    )
+    // The grid is capped at 500 rows; an export that silently stopped there
+    // would hand back a truncated ledger that looks complete.
+    const transactions = repo.listAllTransactions(db, userId())
+    const accounts = repo.listAccounts(db, userId())
+    const { currency } = repo.getUser(db, userId())
+    writeFileSync(result.filePath, transactionsToCsv(transactions, accounts, currency), {
+      encoding: 'utf8',
+      mode: 0o600
+    })
     return result.filePath
   })
 

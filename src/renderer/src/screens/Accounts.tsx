@@ -1,10 +1,12 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
+  Archive,
   ArrowRightLeft,
   CreditCard,
   Landmark,
   Pencil,
   Plus,
+  RotateCcw,
   SlidersHorizontal,
   Trash2
 } from 'lucide-react'
@@ -54,13 +56,18 @@ function safeToSpendChoice(account: AccountWithBalance | null): SafeToSpendChoic
 export function Accounts() {
   const snapshot = useFinanceStore((state) => state.snapshot)
   const settings = useFinanceStore((state) => state.settings)
-  const deleteAccount = useFinanceStore((state) => state.deleteAccount)
+  const archiveAccount = useFinanceStore((state) => state.archiveAccount)
   const [editing, setEditing] = useState<AccountWithBalance | 'new' | null>(null)
   const [adjusting, setAdjusting] = useState<AccountWithBalance | null>(null)
   const [paying, setPaying] = useState<AccountWithBalance | null>(null)
+  const [removing, setRemoving] = useState<AccountWithBalance | null>(null)
 
   const active = useMemo(
     () => (snapshot?.accounts ?? []).filter((account) => !account.isArchived),
+    [snapshot]
+  )
+  const archived = useMemo(
+    () => (snapshot?.accounts ?? []).filter((account) => account.isArchived),
     [snapshot]
   )
 
@@ -89,15 +96,7 @@ export function Accounts() {
   const creditCards = active.filter((account) => account.kind === 'credit').length
   const wealth = totalWealthCents(snapshot.accounts)
 
-  const remove = (account: AccountWithBalance) => {
-    if (
-      window.confirm(
-        `Remove "${account.name}"? Its entries stay in the ledger, and the account stops counting toward your balances.`
-      )
-    ) {
-      void deleteAccount(account.id)
-    }
-  }
+  const remove = (account: AccountWithBalance) => setRemoving(account)
 
   return (
     <>
@@ -245,6 +244,12 @@ export function Accounts() {
                           <IconButton label="Edit account" onClick={() => setEditing(account)}>
                             <Pencil size={14} />
                           </IconButton>
+                          <IconButton
+                            label={`Archive ${account.name}`}
+                            onClick={() => void archiveAccount(account.id, true)}
+                          >
+                            <Archive size={14} />
+                          </IconButton>
                           <IconButton label="Remove account" danger onClick={() => remove(account)}>
                             <Trash2 size={14} />
                           </IconButton>
@@ -257,6 +262,36 @@ export function Accounts() {
             )
           })}
         </div>
+      )}
+
+      {archived.length > 0 && (
+        <Card
+          title="Archived accounts"
+          subtitle="Kept for their history and left out of every total. Restore one to use it again."
+        >
+          <ul className="account-list">
+            {archived.map((account) => (
+              <li key={account.id} className="account-row">
+                <Archive size={15} className="muted" />
+                <div className="account-name">
+                  <span className="cell-strong">{account.name}</span>
+                  <span className="account-meta">
+                    {ACCOUNT_KIND_LABEL[account.kind]} · archived
+                  </span>
+                </div>
+                <div className="account-figures">
+                  <Money cents={account.balanceCents} currency={currency} />
+                </div>
+                <IconButton
+                  label={`Restore ${account.name}`}
+                  onClick={() => void archiveAccount(account.id, false)}
+                >
+                  <RotateCcw size={14} />
+                </IconButton>
+              </li>
+            ))}
+          </ul>
+        </Card>
       )}
 
       <p className="footnote">
@@ -274,7 +309,83 @@ export function Accounts() {
         <AdjustBalanceDialog account={adjusting} onClose={() => setAdjusting(null)} />
       )}
       {paying && <PayCardDialog card={paying} onClose={() => setPaying(null)} />}
+      {removing && <RemoveAccountDialog account={removing} onClose={() => setRemoving(null)} />}
     </>
+  )
+}
+
+function RemoveAccountDialog({
+  account,
+  onClose
+}: {
+  account: AccountWithBalance
+  onClose: () => void
+}) {
+  const deleteAccount = useFinanceStore((state) => state.deleteAccount)
+  const archiveAccount = useFinanceStore((state) => state.archiveAccount)
+  const accountEntryCount = useFinanceStore((state) => state.accountEntryCount)
+  const [entries, setEntries] = useState<number | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    let live = true
+    void accountEntryCount(account.id).then((count) => {
+      if (live) setEntries(count)
+    })
+    return () => {
+      live = false
+    }
+  }, [account.id, accountEntryCount])
+
+  const archive = async () => {
+    setSaving(true)
+    const ok = await archiveAccount(account.id, true)
+    setSaving(false)
+    if (ok) onClose()
+  }
+
+  const remove = async () => {
+    setSaving(true)
+    const ok = await deleteAccount(account.id, true)
+    setSaving(false)
+    if (ok) onClose()
+  }
+
+  const entryWord = entries === 1 ? '1 entry' : `${entries ?? '…'} entries`
+
+  return (
+    <Modal
+      title={`Remove ${account.name}?`}
+      subtitle="Archiving keeps every entry and can be undone. Deleting with its entries cannot."
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="quiet" onClick={onClose}>
+            Cancel
+          </Button>
+          {entries !== null && entries > 0 && (
+            <Button variant="danger" onClick={remove} disabled={saving}>
+              Delete account and {entryWord}
+            </Button>
+          )}
+          {entries === 0 && (
+            <Button variant="danger" onClick={remove} disabled={saving}>
+              Delete account
+            </Button>
+          )}
+          <Button variant="primary" onClick={archive} disabled={saving}>
+            Archive instead
+          </Button>
+        </>
+      }
+    >
+      <p>
+        Archiving stops the account counting toward balances and Safe to Spend, but its{' '}
+        {entries === null ? 'entries' : entryWord} stay in the ledger and it can be restored from
+        the Archived list. Deleting removes the account and everything recorded in it from every
+        total.
+      </p>
+    </Modal>
   )
 }
 
@@ -335,8 +446,9 @@ function AccountDialog({
     const purposeFields = { dedicatedGoalId, inSafeToSpend, color: form.color || null }
 
     setSaving(true)
+    let ok: boolean
     if (account) {
-      await updateAccount(account.id, {
+      ok = await updateAccount(account.id, {
         name: form.name.trim(),
         kind: form.kind,
         institution: form.institution.trim(),
@@ -361,10 +473,10 @@ function AccountDialog({
         creditLimitCents: isCredit ? limitTyped : null,
         ...purposeFields
       }
-      await createAccount(input)
+      ok = await createAccount(input)
     }
     setSaving(false)
-    onClose()
+    if (ok) onClose()
   }
 
   return (
@@ -554,9 +666,9 @@ function AdjustBalanceDialog({
     }
     const target = isCredit ? -Math.abs(typed) : typed
     setSaving(true)
-    await adjustAccountBalance(account, target, occurredOn)
+    const ok = await adjustAccountBalance(account, target, occurredOn)
     setSaving(false)
-    onClose()
+    if (ok) onClose()
   }
 
   return (
@@ -630,7 +742,7 @@ function PayCardDialog({ card, onClose }: { card: AccountWithBalance; onClose: (
       return
     }
     setSaving(true)
-    await createTransaction({
+    const ok = await createTransaction({
       accountId: fromId,
       counterAccountId: card.id,
       kind: 'transfer',
@@ -640,7 +752,7 @@ function PayCardDialog({ card, onClose }: { card: AccountWithBalance; onClose: (
       category: 'Credit payment'
     })
     setSaving(false)
-    onClose()
+    if (ok) onClose()
   }
 
   return (

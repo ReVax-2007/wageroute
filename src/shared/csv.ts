@@ -1,3 +1,4 @@
+import { normalizeSignedCents } from './kinds'
 import { centsToEditable, parseMoneyToCents } from './money'
 import type { Account, TransactionKind, TransactionRow } from './types'
 
@@ -16,6 +17,8 @@ export function parseCsv(text: string): string[][] {
   let row: string[] = []
   let field = ''
   let quoted = false
+  let line = 1
+  let quoteStartLine = 1
 
   const endField = (): void => {
     row.push(field)
@@ -38,24 +41,35 @@ export function parseCsv(text: string): string[][] {
           quoted = false
         }
       } else {
+        if (char === '\n') line += 1
         field += char
       }
       continue
     }
     if (char === '"' && field === '') {
       quoted = true
+      quoteStartLine = line
     } else if (char === ',') {
       endField()
     } else if (char === '\r') {
       if (source[index + 1] === '\n') index += 1
+      line += 1
       endRow()
     } else if (char === '\n') {
+      line += 1
       endRow()
     } else {
       field += char
     }
   }
 
+  // An unclosed quote would silently fold every remaining row into one field,
+  // so the import has to fail loudly instead of dropping rows.
+  if (quoted) {
+    throw new Error(
+      `That CSV has an unclosed quote that starts on line ${quoteStartLine} — fix the file and try again`
+    )
+  }
   if (field !== '' || row.length > 0) endRow()
   return rows
 }
@@ -251,7 +265,9 @@ export function parseEntriesCsv(text: string): CsvEntryParse {
       kind,
       category: cell('category') || 'Uncategorized',
       memo: cell('memo'),
-      amountCents
+      // A file that states the kind but writes an unsigned amount is common;
+      // the kind decides the sign so an expense can never import as income.
+      amountCents: normalizeSignedCents(kind, amountCents)
     })
   }
 
