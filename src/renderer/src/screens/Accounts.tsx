@@ -197,7 +197,9 @@ export function Accounts() {
                           style={account.color ? { background: account.color } : undefined}
                         />
                         <div className="account-name">
-                          <span className="cell-strong">{account.name}</span>
+                          <span className="cell-strong" title={account.name}>
+                            {account.name}
+                          </span>
                           <span className="account-meta">
                             {ACCOUNT_KIND_LABEL[account.kind]}
                             {isCredit && limit !== null
@@ -274,7 +276,9 @@ export function Accounts() {
               <li key={account.id} className="account-row">
                 <Archive size={15} className="muted" />
                 <div className="account-name">
-                  <span className="cell-strong">{account.name}</span>
+                  <span className="cell-strong" title={account.name}>
+                    {account.name}
+                  </span>
                   <span className="account-meta">
                     {ACCOUNT_KIND_LABEL[account.kind]} · archived
                   </span>
@@ -504,6 +508,7 @@ function AccountDialog({
           <input
             className="input"
             autoFocus
+            maxLength={60}
             value={form.name}
             placeholder="Tangerine Chequing"
             onChange={(event) => setForm({ ...form, name: event.target.value })}
@@ -568,7 +573,11 @@ function AccountDialog({
           </Field>
         )}
 
-        <Field label="Mine only for" wide hint="Leave as Nothing to keep it a general account">
+        <Field
+          label="Mine only for"
+          wide
+          hint="Leave as Nothing in particular to keep it a general account"
+        >
           <select
             className="select"
             value={form.dedicatedGoalId}

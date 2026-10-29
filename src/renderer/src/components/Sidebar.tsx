@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from 'react'
 import {
   Landmark,
   LayoutDashboard,
@@ -14,10 +15,11 @@ import {
 } from 'lucide-react'
 import { totalWealthCents } from '@shared/accounts'
 import { formatMoneyCompact } from '@shared/money'
+import type { AppSettings } from '@shared/types'
 import mark from '../assets/wageroute-mark.png'
 import { cashOnHand } from '../lib/finance'
 import { useFinanceStore, type Screen } from '../store/useFinanceStore'
-import { Button, Switch } from './ui'
+import { Button } from './ui'
 
 const NAV: { id: Screen; label: string; hint: string; icon: LucideIcon }[] = [
   { id: 'dashboard', label: 'Overview', hint: 'Balances and activity', icon: LayoutDashboard },
@@ -28,6 +30,24 @@ const NAV: { id: Screen; label: string; hint: string; icon: LucideIcon }[] = [
   { id: 'settings', label: 'Settings', hint: 'Theme and data', icon: SettingsIcon }
 ]
 
+const THEMES: { value: AppSettings['theme']; label: string }[] = [
+  { value: 'system', label: 'System' },
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' }
+]
+
+/** Follows the OS preference live, without freezing it when the user toggles. */
+function usePrefersLight(): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      const media = window.matchMedia('(prefers-color-scheme: light)')
+      media.addEventListener('change', onChange)
+      return () => media.removeEventListener('change', onChange)
+    },
+    () => window.matchMedia('(prefers-color-scheme: light)').matches
+  )
+}
+
 export function Sidebar() {
   const screen = useFinanceStore((state) => state.screen)
   const go = useFinanceStore((state) => state.go)
@@ -37,16 +57,16 @@ export function Sidebar() {
   const saveSettings = useFinanceStore((state) => state.saveSettings)
   const dbPath = useFinanceStore((state) => state.dbPath)
   const appInfo = useFinanceStore((state) => state.appInfo)
+  const prefersLight = usePrefersLight()
 
   if (!snapshot) return null
 
   const isLight =
-    settings.theme === 'light' ||
-    (settings.theme === 'system' &&
-      window.matchMedia('(prefers-color-scheme: light)').matches)
+    settings.theme === 'light' || (settings.theme === 'system' && prefersLight)
 
-  const setLight = (next: boolean) => {
-    void saveSettings({ ...settings, theme: next ? 'light' : 'dark' })
+  const setTheme = (theme: AppSettings['theme']) => {
+    if (theme === settings.theme) return
+    void saveSettings({ ...settings, theme })
   }
 
   return (
@@ -95,9 +115,27 @@ export function Sidebar() {
       <div className="sidebar-theme">
         <span className="sidebar-theme-label">
           {isLight ? <Sun size={14} /> : <Moon size={14} />}
-          {isLight ? 'Light mode' : 'Dark mode'}
+          <span>Theme</span>
+          <span className="sidebar-theme-state">
+            {settings.theme === 'system' ? `System · ${isLight ? 'light' : 'dark'}` : settings.theme}
+          </span>
         </span>
-        <Switch checked={isLight} onChange={setLight} label="Light mode" />
+        <div className="theme-options" role="radiogroup" aria-label="Theme">
+          {THEMES.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              role="radio"
+              aria-checked={settings.theme === option.value}
+              className={
+                settings.theme === option.value ? 'theme-option active' : 'theme-option'
+              }
+              onClick={() => setTheme(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="sidebar-stat">
@@ -121,7 +159,7 @@ export function Sidebar() {
       </div>
 
       <p className="sidebar-foot" title={dbPath}>
-        WageRoute v{appInfo?.version ?? '…'}
+        {appInfo ? `WageRoute v${appInfo.version}` : 'WageRoute'}
       </p>
     </aside>
   )

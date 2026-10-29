@@ -1,7 +1,118 @@
-import { useEffect, type ButtonHTMLAttributes, type ReactNode } from 'react'
+import {
+  useEffect,
+  useId,
+  useRef,
+  type ButtonHTMLAttributes,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode
+} from 'react'
 import { X } from 'lucide-react'
 import { formatMoney, formatMoneyCompact } from '@shared/money'
 import { useFinanceStore } from '../store/useFinanceStore'
+
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+function visibleFocusables(panel: HTMLElement): HTMLElement[] {
+  return [...panel.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
+    (element) => element.getClientRects().length > 0
+  )
+}
+
+/**
+ * One focus model for every dialog: focus moves inside on open, Tab and
+ * Shift-Tab stay inside, Escape closes, the page behind cannot scroll, and
+ * focus returns to whatever opened it. The close callback is read through a ref
+ * so an inline arrow function does not restart the effect on every render.
+ */
+export function useDialog(onClose: () => void, active = true) {
+  const panelRef = useRef<HTMLDivElement>(null)
+  const closeRef = useRef(onClose)
+  const returnToRef = useRef<HTMLElement | null>(null)
+  const wasActive = useRef(active)
+  closeRef.current = onClose
+  // Captured during render, before autoFocus moves into the panel. A dialog
+  // that mounts once and opens later captures the trigger on the transition.
+  if (active && !wasActive.current && typeof document !== 'undefined') {
+    returnToRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null
+  }
+  wasActive.current = active
+  if (returnToRef.current === null && typeof document !== 'undefined') {
+    returnToRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null
+  }
+
+  useEffect(() => {
+    if (!active) return
+    const panel = panelRef.current
+    const returnTo = returnToRef.current
+
+    if (panel && !panel.contains(document.activeElement)) {
+      const body = panel.querySelector<HTMLElement>('.modal-body, .allocator-body') ?? panel
+      const field = body.querySelector<HTMLElement>(
+        'input:not([type="hidden"]), select, textarea'
+      )
+      ;(field ?? panel).focus()
+    }
+
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        closeRef.current()
+        return
+      }
+      if (event.key !== 'Tab' || !panel) return
+
+      const items = visibleFocusables(panel)
+      if (items.length === 0) {
+        event.preventDefault()
+        panel.focus()
+        return
+      }
+      const first = items[0]
+      const last = items[items.length - 1]
+      const active = document.activeElement
+      if (event.shiftKey) {
+        if (active === first || active === panel) {
+          event.preventDefault()
+          last.focus()
+        }
+      } else if (active === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    document.addEventListener('keydown', handleKey)
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    document.documentElement.classList.add('dialog-open')
+    return () => {
+      document.removeEventListener('keydown', handleKey)
+      document.body.style.overflow = previousOverflow
+      document.documentElement.classList.remove('dialog-open')
+      returnTo?.focus()
+    }
+  }, [active])
+
+  return panelRef
+}
+
+/** Closes only when the press both started and ended on the backdrop itself. */
+export function backdropHandlers(onClose: () => void) {
+  let downOnBackdrop = false
+  return {
+    onMouseDown: (event: ReactMouseEvent<HTMLDivElement>) => {
+      downOnBackdrop = event.target === event.currentTarget
+    },
+    onClick: (event: ReactMouseEvent<HTMLDivElement>) => {
+      if (downOnBackdrop && event.target === event.currentTarget) onClose()
+      downOnBackdrop = false
+    }
+  }
+}
+
 
 export function Card({
   title,
@@ -131,31 +242,26 @@ export function Modal({
   footer?: ReactNode
   wide?: boolean
 }) {
-  useEffect(() => {
-    const handleKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', handleKey)
-    return () => window.removeEventListener('keydown', handleKey)
-  }, [onClose])
+  const panelRef = useDialog(onClose)
+  const backdrop = backdropHandlers(onClose)
+  const titleId = useId()
+  const subtitleId = useId()
 
   return (
-    <div
-      className="modal-backdrop"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
-    >
+    <div className="modal-backdrop" {...backdrop}>
       <div
+        ref={panelRef}
         className={wide ? 'modal modal-wide' : 'modal'}
         role="dialog"
         aria-modal="true"
-        aria-label={title}
+        aria-labelledby={titleId}
+        aria-describedby={subtitle ? subtitleId : undefined}
+        tabIndex={-1}
       >
         <header className="modal-head">
           <div>
-            <h2>{title}</h2>
-            {subtitle && <p>{subtitle}</p>}
+            <h2 id={titleId}>{title}</h2>
+            {subtitle && <p id={subtitleId}>{subtitle}</p>}
           </div>
           <IconButton label="Close" onClick={onClose}>
             <X size={17} />
@@ -265,15 +371,29 @@ export function EmptyState({
 export function Toast() {
   const notice = useFinanceStore((state) => state.notice)
   const dismiss = useFinanceStore((state) => state.dismissNotice)
+  const pause = useFinanceStore((state) => state.pauseNotice)
+  const resume = useFinanceStore((state) => state.resumeNotice)
   if (!notice) return null
+
+  const isError = notice.tone === 'error'
   return (
-    <button
-      type="button"
-      className={notice.tone === 'error' ? 'toast toast-error' : 'toast'}
-      onClick={dismiss}
-      role="status"
+    <div
+      className={isError ? 'toast toast-error' : 'toast'}
+      role={isError ? 'alert' : 'status'}
+      onMouseEnter={pause}
+      onMouseLeave={resume}
+      onFocus={pause}
+      onBlur={resume}
     >
-      {notice.text}
-    </button>
+      <span className="toast-text">{notice.text}</span>
+      <button
+        type="button"
+        className="toast-close"
+        aria-label="Dismiss notification"
+        onClick={dismiss}
+      >
+        <X size={14} />
+      </button>
+    </div>
   )
 }

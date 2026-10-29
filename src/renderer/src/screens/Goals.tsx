@@ -106,7 +106,7 @@ export function Goals() {
                 <div className="goal-top">
                   <span className="goal-dot" style={{ background: goal.color }} />
                   <div className="goal-title">
-                    <h3>{goal.name}</h3>
+                    <h3 title={goal.name}>{goal.name}</h3>
                     <p>
                       {goal.targetDate
                         ? `Target ${formatDateLong(goal.targetDate)}`
@@ -388,7 +388,15 @@ function EmergencyCard() {
 
   const changeMode = (next: EmergencyMode) => {
     setMode(next)
-    if (next === 'manual' && !manual.trim()) setManual(centsToEditable(autoTarget))
+    if (next === 'manual' && !manual.trim()) {
+      setManual(
+        centsToEditable(
+          settings.emergencyManualTargetCents > 0
+            ? settings.emergencyManualTargetCents
+            : autoTarget
+        )
+      )
+    }
   }
 
   const toggleActive = async () => {
@@ -409,7 +417,10 @@ function EmergencyCard() {
       emergencyMode: mode,
       emergencyMonths: months,
       emergencyIncludeVariable: includeVariable,
-      emergencyManualTargetCents: mode === 'manual' ? targetCents : 0
+      // The manual target is a saved preference: switching to automatic keeps
+      // the number so switching back does not lose it.
+      emergencyManualTargetCents:
+        mode === 'manual' ? targetCents : settings.emergencyManualTargetCents
     })
     if (!settingsSaved) {
       setSaving(false)
@@ -631,6 +642,7 @@ function GoalDialog({ goal, onClose }: { goal: GoalWithProgress | null; onClose:
           <input
             className="input"
             autoFocus
+            maxLength={60}
             value={form.name}
             placeholder="Tattoo Fund"
             onChange={(event) => setForm({ ...form, name: event.target.value })}

@@ -83,7 +83,11 @@ export function TransactionsGrid({
         name: 'Account',
         width: 150,
         editable: (row: TransactionRow) => !row.transferGroupId,
-        renderCell: ({ row }) => row.accountName,
+        renderCell: ({ row }) => (
+          <span className="grid-account" title={row.accountName}>
+            {row.accountName}
+          </span>
+        ),
         renderEditCell: ({ row, onRowChange }) => (
           <select
             className="grid-editor"

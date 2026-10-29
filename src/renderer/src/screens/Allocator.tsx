@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 import { AlertTriangle, ArrowLeft, ArrowRight, Sparkles, X } from 'lucide-react'
 import { buildAllocationPlan, type PlanWarning } from '@shared/allocator'
 import { PAY_CADENCE_LABEL } from '@shared/cadence'
 import { todayISO } from '@shared/dates'
 import { formatMoney, parseMoneyToCents } from '@shared/money'
 import type { PayCadence } from '@shared/types'
-import { Button, Money } from '../components/ui'
+import { backdropHandlers, Button, Money, useDialog } from '../components/ui'
 import { activeBills } from '../lib/finance'
 import { useFinanceStore } from '../store/useFinanceStore'
 
@@ -48,6 +48,15 @@ export function Allocator() {
   const commitPaycheck = useFinanceStore((state) => state.commitPaycheck)
   const saveSettings = useFinanceStore((state) => state.saveSettings)
   const busy = useFinanceStore((state) => state.busy)
+
+  // A routing write must finish before Escape or a backdrop click hides it.
+  const closeIfIdle = () => {
+    if (!busy) close()
+  }
+  const panelRef = useDialog(closeIfIdle, open)
+  const backdrop = backdropHandlers(closeIfIdle)
+  const titleId = useId()
+  const subtitleId = useId()
 
   const [step, setStep] = useState<Step>(1)
   const [income, setIncome] = useState('')
@@ -224,29 +233,39 @@ export function Allocator() {
       allowDuplicate: confirmedDuplicate
     })
 
-    if (!ok) setError('The paycheck was not routed. See the message at the bottom of the window.')
+    if (!ok) {
+      setError(
+        'The paycheck was not routed — nothing was saved. The message at the bottom explains why.'
+      )
+    }
   }
 
   return (
-    <div
-      className="allocator-backdrop"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !busy) close()
-      }}
-    >
+    <div className="allocator-backdrop" {...backdrop}>
       <div
+        ref={panelRef}
         className="allocator-panel"
         role="dialog"
         aria-modal="true"
-        aria-label="Route a paycheck"
+        aria-labelledby={titleId}
+        aria-describedby={subtitleId}
+        tabIndex={-1}
       >
         <header className="allocator-head">
           <div>
             <p className="eyebrow">Paycheck allocator</p>
-            <h2>Route this paycheck</h2>
-            <p className="page-sub">Bills first. Surplus second. Guilt-free last.</p>
+            <h2 id={titleId}>Route this paycheck</h2>
+            <p id={subtitleId} className="page-sub">
+              Bills first. Surplus second. Guilt-free last.
+            </p>
           </div>
-          <button type="button" className="icon-btn" onClick={close} aria-label="Close">
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={closeIfIdle}
+            disabled={busy}
+            aria-label="Close"
+          >
             <X size={18} />
           </button>
         </header>
@@ -361,7 +380,11 @@ export function Allocator() {
                   The cadence decides which check of the month a single-check bill reserves on.
                 </p>
 
-                {error && <p className="form-error">{error}</p>}
+                {error && (
+                  <p className="form-error" role="alert">
+                    {error}
+                  </p>
+                )}
               </section>
             )}
 
@@ -553,7 +576,7 @@ export function Allocator() {
                 )}
 
                 {visibleWarnings.length > 0 && (
-                  <div className="warnings">
+                  <div className="warnings" role="status" aria-live="polite">
                     {visibleWarnings.map((warning) => (
                       <Warning
                         key={warning.code}
@@ -570,14 +593,18 @@ export function Allocator() {
                 )}
 
                 {duplicate && (
-                  <Warning tone="danger">
+                  <Warning tone="danger" alert>
                     A paycheck of {formatMoney(incomeCents, currency)} was already routed on{' '}
                     {receivedOn} into this account. Routing it again adds the income a second time
                     and reserves the wall twice.
                   </Warning>
                 )}
 
-                {error && <p className="form-error">{error}</p>}
+                {error && (
+                  <p className="form-error" role="alert">
+                    {error}
+                  </p>
+                )}
               </section>
             )}
           </div>
@@ -651,9 +678,17 @@ export function Allocator() {
   )
 }
 
-function Warning({ tone, children }: { tone: 'warn' | 'danger'; children: ReactNode }) {
+function Warning({
+  tone,
+  alert = false,
+  children
+}: {
+  tone: 'warn' | 'danger'
+  alert?: boolean
+  children: ReactNode
+}) {
   return (
-    <div className={`warning ${tone}`}>
+    <div className={`warning ${tone}`} role={alert ? 'alert' : undefined}>
       <AlertTriangle size={16} />
       <span>{children}</span>
     </div>

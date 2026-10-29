@@ -87,7 +87,6 @@ export function ImportWizard() {
   const step = useFinanceStore((state) => state.importStep)
   const busy = useFinanceStore((state) => state.busy)
   const goStep = useFinanceStore((state) => state.goImportStep)
-  const openImport = useFinanceStore((state) => state.openImport)
   const closeImport = useFinanceStore((state) => state.closeImport)
   const runImport = useFinanceStore((state) => state.runImport)
   const [draft, setDraft] = useState<Record<string, { value: string; skip: boolean }>>({})
@@ -239,22 +238,37 @@ export function ImportWizard() {
         {STEPS.map((entry) => {
           const state =
             entry.id < currentStep ? 'done' : entry.id === currentStep ? 'active' : 'todo'
-          return (
-            <button
-              key={entry.id}
-              type="button"
-              className={`wizard-step-chip ${state}`}
-              aria-current={entry.id === currentStep ? 'step' : undefined}
-              disabled={busy || entry.id >= currentStep}
-              onClick={() =>
-                entry.id === 1
-                  ? void openImport()
-                  : goStep(entry.id === 2 ? 'fix' : 'review')
-              }
-            >
+          const label = (
+            <>
               <span className="wizard-step-number">{entry.id}</span>
               <span>{entry.label}</span>
-            </button>
+            </>
+          )
+          // Only the current step and a step you can return to are focusable;
+          // nothing here reopens the file picker and discards the draft.
+          if (entry.id === currentStep) {
+            return (
+              <span key={entry.id} className={`wizard-step-chip ${state}`} aria-current="step">
+                {label}
+              </span>
+            )
+          }
+          if (entry.id === 2 && currentStep === 3 && problems.length > 0) {
+            return (
+              <button
+                key={entry.id}
+                type="button"
+                className={`wizard-step-chip ${state}`}
+                onClick={() => goStep('fix')}
+              >
+                {label}
+              </button>
+            )
+          }
+          return (
+            <span key={entry.id} className={`wizard-step-chip ${state}`}>
+              {label}
+            </span>
           )
         })}
       </nav>
