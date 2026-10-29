@@ -539,6 +539,18 @@ textarea {
   background: transparent;
 }
 
+.chip-inactive {
+  margin-left: 6px;
+}
+
+.chip-funding {
+  color: var(--accent);
+}
+
+.hint-below {
+  margin-top: 4px;
+}
+
 .chip-income {
   color: var(--accent);
   background: var(--accent-soft);
@@ -869,6 +881,16 @@ input[type='date'] {
 
 .swatch.active {
   box-shadow: 0 0 0 2px var(--text);
+}
+
+/* "Automatic" swatch: no colour chosen, the account kind decides */
+
+.swatch-auto {
+  background: linear-gradient(
+    135deg,
+    var(--panel-3) 0 50%,
+    var(--border-strong) 50% 100%
+  );
 }
 
 /* -------------------------------------------------------------- modals */
@@ -2705,6 +2727,97 @@ select.grid-editor {
   color: var(--savings);
   background: rgba(76, 194, 255, 0.12);
   border-color: rgba(76, 194, 255, 0.24);
+}
+
+/* Goal funding-account picker (one account, or several adding up) */
+
+.funding-account-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--inset-plate);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.funding-account-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+.funding-account-name {
+  flex: 1;
+  color: var(--text);
+}
+
+.funding-account-balance {
+  font-size: 12px;
+  text-align: right;
+}
+
+.funding-many {
+  margin-top: -4px;
+  margin-bottom: 4px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.emergency-pause {
+  margin-bottom: 20px;
+}
+
+.emergency-pause-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chip-paused {
+  color: var(--warn);
+  background: var(--warn-soft);
+  border-color: rgba(245, 189, 74, 0.26);
+  font-weight: 600;
+}
+
+/* Per-account breakdown under a goal that is funded by balances */
+
+.goal-accounts {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  list-style: none;
+  background: var(--inset-plate);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.goal-accounts li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.goal-account-name {
+  flex: 1;
+  color: var(--text-dim);
+}
+
+.goal-account-balance {
+  font-size: 12px;
+}
+
+/* Emergency paused state — dim the progress bar colour */
+
+.emergency-card.paused .emergency-target .num {
+  color: var(--text-muted);
 }
 
 .chip-funded {

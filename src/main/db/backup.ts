@@ -30,13 +30,14 @@ const TABLE_LABEL: Record<BackupTable, string> = {
 const TABLE_COLUMNS: Record<BackupTable, readonly string[]> = {
   accounts: [
     'id', 'user_id', 'name', 'kind', 'institution', 'starting_balance_cents',
-    'credit_limit_cents', 'dedicated_goal_id', 'in_safe_to_spend',
+    'credit_limit_cents', 'color', 'dedicated_goal_id', 'in_safe_to_spend',
     'is_archived', 'sort_order', 'created_at', 'updated_at',
     'deleted_at', 'revision'
   ],
   bills: [
     'id', 'user_id', 'name', 'amount_cents', 'frequency', 'due_day', 'category',
-    'account_id', 'autopay', 'is_active', 'next_due_on', 'created_at', 'updated_at',
+    'account_id', 'autopay', 'is_active', 'next_due_on', 'funding_strategy',
+    'funding_paycheck_index', 'created_at', 'updated_at',
     'deleted_at', 'revision'
   ],
   goals: [
@@ -78,7 +79,8 @@ const TABLE_DEFAULTS: Record<BackupTable, Record<string, SqlValue>> = {
   bills: {
     category: 'Bills',
     autopay: 0,
-    is_active: 1
+    is_active: 1,
+    funding_strategy: 'all_checks'
   },
   goals: {
     priority: 100,

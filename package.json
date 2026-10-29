@@ -11,7 +11,7 @@
   "scripts": {
     "dev": "electron-vite dev",
     "start": "electron-vite preview",
-    "test": "node --import tsx --test src/shared/domain.test.ts src/shared/accounts.test.ts src/shared/backup-example.test.ts src/shared/backup-merge.test.ts src/shared/importRepair.test.ts src/main/db/dedicated-accounts.test.ts",
+    "test": "node --import tsx --test src/shared/domain.test.ts src/shared/cadence.test.ts src/shared/accounts.test.ts src/shared/backup-example.test.ts src/shared/backup-merge.test.ts src/shared/importRepair.test.ts src/main/db/dedicated-accounts.test.ts",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "tsc --noEmit -p tsconfig.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",

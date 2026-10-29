@@ -1,18 +1,22 @@
 import { useState } from 'react'
 import { Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react'
 import {
+  BILL_FUNDING_STRATEGY_LABEL,
   FREQUENCY_LABEL,
   PAY_CADENCE_LABEL,
+  fundingCheckIndex,
   monthlyEquivalentCents,
+  reachableCheckIndexes,
   reservePerPaycheckCents
 } from '@shared/cadence'
 import { centsToEditable, parseMoneyToCents } from '@shared/money'
-import type { Bill, BillInput, Frequency } from '@shared/types'
+import type { Bill, BillFundingStrategy, BillInput, Frequency, PayCadence } from '@shared/types'
 import { Button, Card, EmptyState, Field, IconButton, Modal, Money } from '../components/ui'
 import { activeBills, monthlyWall, perPaycheckWall } from '../lib/finance'
 import { useFinanceStore } from '../store/useFinanceStore'
 
 const FREQUENCIES = Object.keys(FREQUENCY_LABEL) as Frequency[]
+const FUNDING_STRATEGIES = Object.keys(BILL_FUNDING_STRATEGY_LABEL) as BillFundingStrategy[]
 
 function ordinal(day: number): string {
   const mod100 = day % 100
@@ -27,6 +31,16 @@ function ordinal(day: number): string {
     default:
       return `${day}th`
   }
+}
+
+/** Which paycheck of the month actually reserves for this bill; null for 'all_checks'. */
+function fundingCheckFor(bill: Bill, cadence: PayCadence): number | null {
+  return fundingCheckIndex({
+    cadence,
+    dueDay: bill.dueDay,
+    fundingStrategy: bill.fundingStrategy,
+    fundingPaycheckIndex: bill.fundingPaycheckIndex
+  })
 }
 
 export function PriorityWall() {
@@ -80,7 +94,9 @@ export function PriorityWall() {
           <p className="summary-value">
             <Money cents={perCheck} currency={currency} />
           </p>
-          <span className="stat-hint">{PAY_CADENCE_LABEL[settings.payCadence]} pay cycle</span>
+          <span className="stat-hint">
+            {PAY_CADENCE_LABEL[settings.payCadence]} pay cycle · averaged
+          </span>
         </div>
         <div className="summary-item">
           <span className="stat-label">Active bills</span>
@@ -128,6 +144,7 @@ export function PriorityWall() {
                     <div className="cell-sub">
                       {bill.category}
                       {bill.autopay ? ' · autopay' : ''}
+                      {!bill.isActive && <span className="chip chip-quiet chip-inactive">Bill inactive</span>}
                     </div>
                   </td>
                   <td>
@@ -137,13 +154,22 @@ export function PriorityWall() {
                   <td className="muted">{ordinal(bill.dueDay)}</td>
                   <td className="right">
                     <Money
-                      cents={reservePerPaycheckCents(
-                        bill.amountCents,
-                        bill.frequency,
-                        settings.payCadence
-                      )}
+                      cents={
+                        bill.fundingStrategy === 'all_checks'
+                          ? reservePerPaycheckCents(
+                              bill.amountCents,
+                              bill.frequency,
+                              settings.payCadence
+                            )
+                          : monthlyEquivalentCents(bill.amountCents, bill.frequency)
+                      }
                       currency={currency}
                     />
+                    {bill.fundingStrategy !== 'all_checks' && (
+                      <div className="cell-sub chip-funding">
+                        {ordinal(fundingCheckFor(bill, settings.payCadence) ?? 1)} check only
+                      </div>
+                    )}
                   </td>
                   <td className="right muted">
                     <Money
@@ -153,6 +179,15 @@ export function PriorityWall() {
                   </td>
                   <td>
                     <div className="row-actions">
+                      {!bill.isActive && (
+                        <Button
+                          size="sm"
+                          variant="quiet"
+                          onClick={() => void updateBill(bill.id, { isActive: true })}
+                        >
+                          Resume bill
+                        </Button>
+                      )}
                       <button
                         type="button"
                         className={bill.isActive ? 'switch on' : 'switch'}
@@ -192,6 +227,7 @@ export function PriorityWall() {
 
 function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () => void }) {
   const snapshot = useFinanceStore((state) => state.snapshot)
+  const cadence = useFinanceStore((state) => state.settings.payCadence)
   const createBill = useFinanceStore((state) => state.createBill)
   const updateBill = useFinanceStore((state) => state.updateBill)
 
@@ -204,10 +240,20 @@ function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () => void 
     category: bill?.category ?? 'Bills',
     accountId: bill?.accountId ?? accounts[0]?.id ?? '',
     autopay: bill?.autopay ?? true,
-    isActive: bill?.isActive ?? true
+    isActive: bill?.isActive ?? true,
+    fundingStrategy: bill?.fundingStrategy ?? ('all_checks' as BillFundingStrategy),
+    fundingPaycheckIndex: bill?.fundingPaycheckIndex ? String(bill.fundingPaycheckIndex) : '1'
   })
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+
+  const checkSlots = reachableCheckIndexes(cadence)
+  const fundingCheckForForm = fundingCheckIndex({
+    cadence,
+    dueDay: Number(form.dueDay) || 1,
+    fundingStrategy: form.fundingStrategy,
+    fundingPaycheckIndex: Number(form.fundingPaycheckIndex) || 1
+  })
 
   const submit = async () => {
     const amountCents = parseMoneyToCents(form.amount)
@@ -229,7 +275,10 @@ function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () => void 
       accountId: form.accountId || null,
       autopay: form.autopay,
       isActive: form.isActive,
-      nextDueOn: bill?.nextDueOn ?? null
+      nextDueOn: bill?.nextDueOn ?? null,
+      fundingStrategy: form.fundingStrategy,
+      fundingPaycheckIndex:
+        form.fundingStrategy === 'specific_check' ? Number(form.fundingPaycheckIndex) || 1 : null
     }
 
     setSaving(true)
@@ -323,6 +372,54 @@ function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () => void 
             ))}
           </select>
         </Field>
+        <Field
+          label="Funding schedule"
+          hint="Which paycheck sets this bill's money aside. One check a month carries the whole month's obligation; it never pays it twice."
+          wide
+        >
+          <select
+            className="select"
+            value={form.fundingStrategy}
+            onChange={(event) =>
+              setForm({ ...form, fundingStrategy: event.target.value as BillFundingStrategy })
+            }
+          >
+            {FUNDING_STRATEGIES.map((strategy, index) => (
+              <option key={strategy} value={strategy}>
+                {index + 1}. {BILL_FUNDING_STRATEGY_LABEL[strategy]}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        {form.fundingStrategy === 'specific_check' && checkSlots.length > 1 && (
+          <Field
+            label="Which paycheck?"
+            hint={`${PAY_CADENCE_LABEL[cadence]} pay gives ${checkSlots.length} paychecks every month`}
+            wide
+          >
+            <select
+              className="select"
+              value={form.fundingPaycheckIndex}
+              onChange={(event) => setForm({ ...form, fundingPaycheckIndex: event.target.value })}
+            >
+              {checkSlots.map((slot) => (
+                <option key={slot} value={String(slot)}>
+                  {ordinal(slot)} paycheck of the month
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
+
+        {form.fundingStrategy !== 'all_checks' && form.fundingStrategy !== 'specific_check' && (
+          <p className="field-hint">
+            Reserves the whole month&apos;s obligation on the{' '}
+            {ordinal(fundingCheckForForm ?? 1)} paycheck
+            {form.fundingStrategy === 'closest_due_date' ? ', closest to the due day' : ''}. Every
+            other paycheck reserves nothing for this bill.
+          </p>
+        )}
       </div>
 
       <div className="check-row">
@@ -340,9 +437,14 @@ function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () => void 
             checked={form.isActive}
             onChange={(event) => setForm({ ...form, isActive: event.target.checked })}
           />
-          Reserve money from every paycheck
+          Active bill
         </label>
       </div>
+      {!form.isActive && (
+        <p className="field-hint hint-below">
+          Bill inactive · excluded from the wall and from every paycheck until you resume it.
+        </p>
+      )}
 
       {error && <p className="form-error">{error}</p>}
     </Modal>

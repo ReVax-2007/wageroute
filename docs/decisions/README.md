@@ -11,8 +11,12 @@ Short, dated records of the choices that are expensive to reverse. Each ADR stat
 | [0005](0005-wageroute-rename.md) | Rename to WageRoute and adopt legacy data | Accepted |
 | [0006](0006-import-wizard-asks-instead-of-failing.md) | Imports ask instead of failing: preview/confirm wizard with per-row repair | Accepted |
 | [0007](0007-dedicated-accounts-balance-is-progress.md) | A dedicated account's balance is the goal's progress | Accepted |
+| [0008](0008-one-check-carries-the-month.md) | One paycheck can carry a whole month's bill obligation | Accepted |
+| [0009](0009-the-goal-chooses-its-funding-accounts.md) | The goal chooses its funding accounts, one or several | Accepted |
 
-Number `0008` is reserved for the still-undecided "restore from file" mode (replace rather than merge); do not use it for another decision.
+Number `0010` is reserved for the still-undecided "restore from file" mode (replace rather than merge); do not use it for another decision.
+
+[ADR 0008](0008-one-check-carries-the-month.md) and [ADR 0009](0009-the-goal-chooses-its-funding-accounts.md) both change what a released screen means, so neither is a bug fix: 0008 replaces one reserve rule with four, and 0009 moves the funding relation off settings and onto the goal. Both are unmerged work on this branch and ship together with schema version 5.
 
 ## Conventions
 

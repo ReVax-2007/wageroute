@@ -32,10 +32,10 @@ This document describes what is actually implemented, what the trust boundaries 
 
 | Version | Supported | Notes |
 | --- | --- | --- |
-| `1.0.x` | Yes | Current line; fixes land here. 1.0.2 carries schema 3; schema 4 arrives with the next release. |
+| `1.0.x` | Yes | Current line; fixes land here. 1.0.2 carries schema 3; schema 4 and 5 arrive with the next release. |
 | Older app versions | No | No security backports; upgrade or restore a backup |
 | Backups with schema `1` | No | Rejected by the importer |
-| Databases with `user_version` ahead of the app | Unsupported | A schema 4 database opened by an older build is not migrated down; use the newer app |
+| Databases with `user_version` ahead of the app | Unsupported | A schema 5 database opened by an older build is not migrated down; use the newer app |
 
 There is no long-term-support branch, no patch guarantee and no CVE process. This is a personal finance tool, not a regulated product.
 

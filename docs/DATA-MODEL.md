@@ -1,6 +1,6 @@
 # Data model
 
-WageRoute stores everything in one SQLite database, `wageroute.db`, using `STRICT` tables, integer cents, UUID text keys and ISO-8601 timestamps. This document describes the schema at version 4, the semantics of each column, the derived values the app computes at read time, and the invariants that keep the ledger coherent.
+WageRoute stores everything in one SQLite database, `wageroute.db`, using `STRICT` tables, integer cents, UUID text keys and ISO-8601 timestamps. This document describes the schema at version 5, the semantics of each column, the derived values the app computes at read time, and the invariants that keep the ledger coherent.
 
 Source of truth: [`src/main/db/migrations.ts`](../src/main/db/migrations.ts). Read model assembly: [`src/main/db/repositories.ts`](../src/main/db/repositories.ts).
 
@@ -127,6 +127,7 @@ Writes use `INSERT ... ON CONFLICT(user_id, key) DO UPDATE`. Reads return the ra
 | `credit_limit_cents` | INTEGER | nullable, CHECK null or ≥ 0 | Added in v3; credit cards only in practice |
 | `dedicated_goal_id` | TEXT | nullable, **no FK**, partial index | Added in v4. The goal whose progress this account's balance *is*; validated in the repository |
 | `in_safe_to_spend` | INTEGER | nullable, CHECK null / 0 / 1 | Added in v4. Tri-state: `NULL` = derive from `kind` |
+| `color` | TEXT | nullable | Added in v5. Hex swatch chosen in the account dialog; `NULL` = the colour implied by `kind` |
 | `is_archived` | INTEGER | NOT NULL, default 0, CHECK 0/1 | |
 | `sort_order` | INTEGER | NOT NULL, default 0 | |
 | `created_at` | TEXT | NOT NULL | |
@@ -158,12 +159,34 @@ Semantics:
 | `autopay` | INTEGER | NOT NULL, default 0, CHECK 0/1 | Informational |
 | `is_active` | INTEGER | NOT NULL, default 1, CHECK 0/1 | Paused bills stop reserving |
 | `next_due_on` | TEXT | nullable | Optional explicit anchor for projections |
+| `funding_strategy` | TEXT | NOT NULL, default `'all_checks'`, CHECK in `all_checks,closest_due_date,specific_check,first_check` | Added in v5. Which paycheck of the month sets the money aside |
+| `funding_paycheck_index` | INTEGER | nullable | Added in v5. Only used by `specific_check`: the 1-based paycheck the user picked |
 | `created_at` | TEXT | NOT NULL | |
 | `updated_at` | TEXT | NOT NULL | |
 | `deleted_at` | TEXT | nullable | |
 | `revision` | INTEGER | NOT NULL, default 1 | |
 
 `next_due_on` is not advanced automatically when a bill is marked paid. Projections use it only when it is on or after the projection start date; otherwise they derive the next occurrence from `due_day`.
+
+Funding is a **monthly obligation, collected once**. `funding_strategy` decides *which* paycheck holds back that money, never *how much* the month owes:
+
+| Strategy | Reserve on the funding paycheck | Reserve on every other paycheck |
+| --- | --- | --- |
+| `all_checks` | `reservePerPaycheckCents` (the year's cost ÷ paychecks per year) | same, every paycheck |
+| `closest_due_date` | `monthlyEquivalentCents` (the whole month) | nothing |
+| `first_check` | `monthlyEquivalentCents` | nothing |
+| `specific_check` | `monthlyEquivalentCents` on `funding_paycheck_index` | nothing |
+
+The three single-check strategies move the month's money onto one paycheck; they never multiply it, so the Priority Wall totals the same under all four. A $50 weekly bill therefore asks **$216.67** from one check rather than the $50 instance that happens to fall there.
+
+Which paycheck is "the funding one" is a calendar approximation, because WageRoute knows the date printed on the paycheck, not the employer's payday table:
+
+- `CHECK_SLOT_ANCHORS` gives each cadence the day-of-month its slots represent (monthly `16`; semimonthly `8, 23`; biweekly `7, 21, 30`; weekly `4, 11, 18, 25, 30`), and `paycheckIndexInMonth(date, cadence)` maps a date back into those same ranges.
+- `GUARANTEED_CHECKS_PER_MONTH` (monthly 1, semimonthly 2, biweekly 2, weekly 4) is what a month is *certain* to contain. A target outside it is clamped to the last guaranteed slot, so a bill can never be assigned to a 5th weekly check that only appears in some months and then silently stop reserving.
+- `closest_due_date` picks the slot whose anchor is nearest `due_day`, ties going to the earlier slot.
+- Without a paycheck date to compare against, a single-check bill falls back to the spread. The clock is never consulted, so the same input always gives the same number.
+
+All of this lives in `src/shared/cadence.ts` and is covered by `src/shared/cadence.test.ts`. See [ADR 0008](decisions/0008-one-check-carries-the-month.md).
 
 ### `goals`
 
@@ -176,7 +199,7 @@ Semantics:
 | `target_date` | TEXT | nullable | Optional deadline |
 | `priority` | INTEGER | NOT NULL, default 100 | Lower is funded first |
 | `color` | TEXT | NOT NULL, default `'#34D399'` | Hex string used by the UI |
-| `account_id` | TEXT | nullable, FK accounts | Informational “held in” |
+| `account_id` | TEXT | nullable, FK accounts | Deposit account — where the finished lump is spent. Never measures progress |
 | `is_emergency` | INTEGER | NOT NULL, default 0, CHECK 0/1 | Added in v3 |
 | `is_archived` | INTEGER | NOT NULL, default 0, CHECK 0/1 | |
 | `created_at` | TEXT | NOT NULL | |
@@ -196,7 +219,9 @@ SUM(accounts.starting_balance_cents + transactions total)
 WHERE dedicated_goal_id = goal.id AND is_archived = 0 AND deleted_at IS NULL
 ```
 
-`GoalWithProgress.fundedFrom` reports which one is live, and `dedicatedAccountNames` lists the contributing accounts. Several accounts may feed one goal; their balances add and the total is clamped at zero.
+`GoalWithProgress.fundedFrom` reports which one is live, and `dedicatedAccounts` lists each contributing account with its own balance. Several accounts may feed one goal; their balances add and the total is clamped at zero.
+
+The **goal owns the relation**, even though the pointer is stored on the account row. `GoalInput.fundingAccountIds` is the write path: the list is applied inside the same transaction as the goal row, unticked accounts are released and ticked ones are bound, so creating a goal and choosing its funders is one call and the two numbers can never disagree. An omitted list leaves the dedication alone; an empty list is an explicit choice to count allocations instead. An account funds exactly one goal — ticking an account that already feeds another goal moves it, and the other goal falls back to its allocations. An unknown or archived account fails the whole save rather than half-applying it. See [ADR 0009](decisions/0009-the-goal-chooses-its-funding-accounts.md).
 
 Consequences:
 
@@ -309,7 +334,7 @@ None of the following are stored. They are recomputed from rows.
 | Goal funded | Dedicated account present → `SUM(live dedicated balances)`, clamped at 0; otherwise `SUM(allocations.amount_cents)` where bucket `goal`, matching goal, non-deleted | `listGoals` |
 | Goal remaining | `max(0, target_cents − fundedCents)` | `listGoals` |
 | Monthly wall | `SUM(round(amount × billPeriodsPerYear / 12))` over active bills | `cadence.ts` |
-| Per-paycheck wall | `SUM(round(amount × billPeriodsPerYear / payPeriodsPerYear))` | `cadence.ts` |
+| Per-paycheck wall | `SUM(billFundingReserveCents(bill, cadence, paycheckDate))` — the spread under `all_checks`, otherwise `monthlyEquivalentCents` on the one funding check and `0` on every other check | `cadence.ts` |
 | Spendable pool | Sum of non-archived balances where `countsInSafeToSpend` holds (`in_safe_to_spend`, else not dedicated and kind in `checking,savings,cash`) | `accounts.ts` |
 | Pool-earmarked goals | `SUM(fundedCents)` for goals whose `fundedFrom` is `allocations`; account-funded goals are already outside the pool | `poolEarmarkedGoalsCents` |
 | Safe to Spend | Spendable pool − monthly wall − pool-earmarked goals | `useFinanceStore.ts` |
@@ -354,6 +379,7 @@ Stored in `settings.value` as text. Defaults and validation live in `src/shared/
 | `emergencyMonths` | number | `3` | Integer 1–12, else 3 |
 | `emergencyIncludeVariable` | boolean | `true` | |
 | `emergencyManualTargetCents` | number | `0` | Positive integer, else 0 |
+| `emergencyActive` | boolean | `true` | When false the allocator stops routing surplus into the emergency fund; the fund's target and progress stay visible |
 
 Unknown keys are preserved by an import but ignored by `parseSettings`. Settings imported from a backup never overwrite existing local keys (`INSERT OR IGNORE`).
 
@@ -369,8 +395,9 @@ Migrations run inside a transaction per version and are tracked by `PRAGMA user_
 | **2** | Rebuilds `allocations` to add `debt` to the bucket CHECK | SQLite cannot alter a CHECK constraint; the table is copied, dropped and renamed |
 | **3** | Adds `accounts.credit_limit_cents`, `goals.is_emergency`, `transactions.transfer_group_id`, a transfer-group index, and flags existing goals named “Emergency Fund” | Credit tracking, emergency fund, paired transfers |
 | **4** | Adds `accounts.dedicated_goal_id` (no foreign key, plus a partial index) and `accounts.in_safe_to_spend` as a nullable tri-state | Dedicated accounts, per-account Safe to Spend. Both default to NULL, so pre-v4 rows keep their previous behaviour |
+| **5** | Adds `bills.funding_strategy` (`NOT NULL DEFAULT 'all_checks'`, CHECKed enum), `bills.funding_paycheck_index` (nullable) and `accounts.color` (nullable) | Bill funding schedule, per-bill paycheck choice, user-chosen account colour. Every existing bill lands on `all_checks`, which is exactly the pre-v5 behaviour, so no number moves on an upgraded database |
 
-`SCHEMA_VERSION` is derived from the last migration and is reported in JSON backups. Backups with a higher version are rejected. Backups older than version 2 are rejected; versions 2, 3 and 4 are accepted.
+`SCHEMA_VERSION` is derived from the last migration and is reported in JSON backups. Backups with a higher version are rejected. Backups older than version 2 are rejected; versions 2, 3, 4 and 5 are accepted.
 
 Migration procedure for future work is in [DEVELOPMENT.md](DEVELOPMENT.md#adding-a-schema-migration).
 
@@ -389,6 +416,8 @@ These should hold after every successful mutation.
 8. **Soft delete visibility.** All list queries filter `deleted_at IS NULL`; snapshots never include deleted rows.
 9. **One local user.** `getLocalUserId` selects the earliest non-deleted user.
 10. **Currency display.** Every formatted amount uses `settings.currency`, not `users.currency`.
+11. **One account funds one goal.** `accounts.dedicated_goal_id` holds a single goal, so binding an account elsewhere releases the previous goal, which falls back to its allocation rows. `applyFundingAccounts` does the release and the binding inside the goal's own transaction.
+12. **A month is collected once.** For any bill and cadence, the reserves across a calendar month sum to that month's obligation — `monthlyEquivalentCents` under the three single-check strategies, the spread under `all_checks`. A strategy changes *which* paycheck pays, never *how much*.
 
 ## Retention and soft deletes
 

@@ -90,7 +90,7 @@ Dropping is per row: a bill with three problems is one card, and leaving it out 
 
 ### What the wizard cannot fix
 
-Rows that satisfy every question but still break a database rule — a `CHECK` on a column the wizard does not police, a foreign key to a row that vanished between the two steps — are caught per row inside the merge transaction and returned as `issues` with a row description (`account “Weekend Fun”: CHECK constraint failed: kind`). The transaction still commits everything else.
+Rows that satisfy every question but still break a database rule — a `CHECK` on a column the wizard does not police, such as `bills.funding_strategy`, a foreign key to a row that vanished between the two steps — are caught per row inside the merge transaction and returned as `issues` with a row description (`account “Weekend Fun”: CHECK constraint failed: kind`). The transaction still commits everything else.
 
 
 ---
@@ -102,7 +102,7 @@ A backup is a single JSON object:
 ```json
 {
   "format": "cash-flow-routing-backup",
-  "version": 4,
+  "version": 5,
   "exportedAt": "2026-10-27T18:22:04.871Z",
   "tables": {
     "accounts": [],
@@ -121,7 +121,7 @@ A backup is a single JSON object:
 | Field | Required | Rule |
 | --- | --- | --- |
 | `format` | Yes | Must equal `cash-flow-routing-backup` |
-| `version` | Yes | Integer, 2 to 4, not greater than the current schema version |
+| `version` | Yes | Integer, 2 to 5, not greater than the current schema version |
 | `exportedAt` | No | String; defaults to `""` when absent |
 | `tables` | Yes | Object containing table arrays |
 
@@ -133,8 +133,8 @@ Seven tables are exported and accepted. Each row carries the full column set bel
 
 | Table | Accepted columns |
 | --- | --- |
-| `accounts` | `id`, `user_id`, `name`, `kind`, `institution`, `starting_balance_cents`, `credit_limit_cents`, `dedicated_goal_id`, `in_safe_to_spend`, `is_archived`, `sort_order`, `created_at`, `updated_at`, `deleted_at`, `revision` |
-| `bills` | `id`, `user_id`, `name`, `amount_cents`, `frequency`, `due_day`, `category`, `account_id`, `autopay`, `is_active`, `next_due_on`, `created_at`, `updated_at`, `deleted_at`, `revision` |
+| `accounts` | `id`, `user_id`, `name`, `kind`, `institution`, `starting_balance_cents`, `credit_limit_cents`, `color`, `dedicated_goal_id`, `in_safe_to_spend`, `is_archived`, `sort_order`, `created_at`, `updated_at`, `deleted_at`, `revision` |
+| `bills` | `id`, `user_id`, `name`, `amount_cents`, `frequency`, `due_day`, `category`, `account_id`, `autopay`, `is_active`, `next_due_on`, `funding_strategy`, `funding_paycheck_index`, `created_at`, `updated_at`, `deleted_at`, `revision` |
 | `goals` | `id`, `user_id`, `name`, `target_cents`, `target_date`, `priority`, `color`, `account_id`, `is_emergency`, `is_archived`, `created_at`, `updated_at`, `deleted_at`, `revision` |
 | `paychecks` | `id`, `user_id`, `amount_cents`, `received_on`, `source`, `deposit_account_id`, `priority_cents`, `surplus_cents`, `leisure_cents`, `health`, `created_at`, `updated_at`, `deleted_at`, `revision` |
 | `allocations` | `id`, `user_id`, `paycheck_id`, `bucket`, `goal_id`, `label`, `amount_cents`, `created_at`, `updated_at`, `deleted_at`, `revision` |
@@ -170,7 +170,7 @@ This allows hand-written or selectively exported files. A complete, importable f
 ```json
 {
   "format": "cash-flow-routing-backup",
-  "version": 4,
+  "version": 5,
   "tables": {
     "transactions": [
       {
@@ -221,9 +221,12 @@ Anything else that is missing or unusable — no `name`, an out-of-range `due_da
 | `< 2` | Rejected: “Backups older than schema 2 are not supported” |
 | `2` | Accepted; missing v3 columns receive fallbacks |
 | `3` | Accepted; the two v4 account columns arrive as `NULL` |
-| `4` | Accepted |
-| `> 4` | Rejected: “This backup came from a newer version (schema N)” |
+| `4` | Accepted; `accounts.color` arrives as `NULL` (the type colour), `bills.funding_strategy` arrives as `all_checks` and `funding_paycheck_index` as `NULL` |
+| `5` | Accepted |
+| `> 5` | Rejected: “This backup came from a newer version (schema N)” |
 | Non-integer | Rejected: “Backup has no version number” |
+
+`bills.funding_strategy` is `NOT NULL` with a schema default, so it needs an entry in the importer's per-table defaults (`TABLE_DEFAULTS`): the importer lists every allowlisted column explicitly, and without the fallback an older file that omits the key would insert `NULL` and trip the constraint. That is the same failure fixed for `accounts.sort_order` in `2024f7f`, so the new column is covered by the same regression test rather than a new one.
 
 ---
 
@@ -563,7 +566,7 @@ Rows are inserted even if they fall outside the UI's 500-row snapshot window; th
 ```json
 {
   "format": "cash-flow-routing-backup",
-  "version": 4,
+  "version": 5,
   "tables": {
     "settings": [
       { "key": "currency", "value": "CAD" },
@@ -613,7 +616,7 @@ The header is found at row 4. Both rows import as entries. The first becomes an 
 ```json
 {
   "format": "cash-flow-routing-backup",
-  "version": 4,
+  "version": 5,
   "tables": {
     "accounts": [{ "id": "acc-1", "name": "Cheque", "kind": "checking" }],
     "bills": [{ "id": "bill-1", "name": "Rent", "frequency": "monthly", "due_day": 45, "account_id": "acc-gone" }]

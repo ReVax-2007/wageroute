@@ -12,6 +12,7 @@ import type {
   AccountWithBalance,
   Allocation,
   Bill,
+  BillFundingStrategy,
   BillInput,
   Frequency,
   Goal,
@@ -35,6 +36,12 @@ import type {
 type Db = Database.Database
 
 const ACCOUNT_KINDS: readonly AccountKind[] = ['checking', 'savings', 'cash', 'investment', 'credit']
+const BILL_FUNDING_STRATEGIES: readonly BillFundingStrategy[] = [
+  'all_checks',
+  'closest_due_date',
+  'specific_check',
+  'first_check'
+]
 const FREQUENCIES: readonly Frequency[] = [
   'weekly',
   'biweekly',
@@ -294,6 +301,7 @@ export function listAccounts(db: Db, userId: string): AccountWithBalance[] {
       `SELECT a.id, a.user_id AS userId, a.name, a.kind, a.institution,
               a.starting_balance_cents AS startingBalanceCents,
               a.credit_limit_cents AS creditLimitCents,
+              a.color,
               a.dedicated_goal_id AS dedicatedGoalId,
               a.in_safe_to_spend AS inSafeToSpend,
               a.is_archived AS isArchived, a.sort_order AS sortOrder,
@@ -320,9 +328,9 @@ export function createAccount(db: Db, userId: string, input: AccountInput): stri
   db.prepare(
     `INSERT INTO accounts
        (id, user_id, name, kind, institution, starting_balance_cents, credit_limit_cents,
-        dedicated_goal_id, in_safe_to_spend,
+        color, dedicated_goal_id, in_safe_to_spend,
         is_archived, sort_order, created_at, updated_at, deleted_at, revision)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, NULL, 1)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, NULL, 1)`
   ).run(
     id,
     userId,
@@ -336,6 +344,7 @@ export function createAccount(db: Db, userId: string, input: AccountInput): stri
     input.creditLimitCents === undefined || input.creditLimitCents === null
       ? null
       : assertCents(input.creditLimitCents, 'Credit limit', { allowZero: true }),
+    optionalText(input.color, 'Color', 30),
     dedicatedGoalId,
     flagColumn(input.inSafeToSpend),
     input.sortOrder ?? 0,
@@ -372,6 +381,12 @@ export function updateAccount(
         : patch.creditLimitCents === null
           ? null
           : assertCents(patch.creditLimitCents, 'Credit limit', { allowZero: true }),
+    color:
+      patch.color === undefined
+        ? undefined
+        : patch.color
+          ? assertText(patch.color, 'Color', 30)
+          : null,
     dedicated_goal_id:
       patch.dedicatedGoalId === undefined
         ? undefined
@@ -412,6 +427,8 @@ const BILL_SELECT = `
   SELECT id, user_id AS userId, name, amount_cents AS amountCents, frequency,
          due_day AS dueDay, category, account_id AS accountId, autopay,
          is_active AS isActive, next_due_on AS nextDueOn,
+         funding_strategy AS fundingStrategy,
+         funding_paycheck_index AS fundingPaycheckIndex,
          created_at AS createdAt, updated_at AS updatedAt,
          deleted_at AS deletedAt, revision
   FROM bills`
@@ -433,11 +450,16 @@ export function createBill(db: Db, userId: string, input: BillInput): string {
   const accountId = input.accountId ? optionalText(input.accountId, 'Account') : null
   if (accountId) requireAccount(db, userId, accountId)
 
+  const fundingStrategy = input.fundingStrategy
+    ? assertOneOf(input.fundingStrategy, BILL_FUNDING_STRATEGIES, 'funding strategy')
+    : 'all_checks'
+
   db.prepare(
     `INSERT INTO bills
        (id, user_id, name, amount_cents, frequency, due_day, category, account_id,
-        autopay, is_active, next_due_on, created_at, updated_at, deleted_at, revision)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1)`
+        autopay, is_active, next_due_on, funding_strategy, funding_paycheck_index,
+        created_at, updated_at, deleted_at, revision)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1)`
   ).run(
     id,
     userId,
@@ -450,6 +472,8 @@ export function createBill(db: Db, userId: string, input: BillInput): string {
     input.autopay ? 1 : 0,
     input.isActive === false ? 0 : 1,
     input.nextDueOn ? assertDate(input.nextDueOn, 'Next due date') : null,
+    fundingStrategy,
+    input.fundingPaycheckIndex ?? null,
     ts,
     ts
   )
@@ -484,7 +508,13 @@ export function updateBill(
         ? undefined
         : patch.nextDueOn
           ? assertDate(patch.nextDueOn, 'Next due date')
-          : null
+          : null,
+    funding_strategy:
+      patch.fundingStrategy === undefined
+        ? undefined
+        : assertOneOf(patch.fundingStrategy, BILL_FUNDING_STRATEGIES, 'funding strategy'),
+    funding_paycheck_index:
+      patch.fundingPaycheckIndex === undefined ? undefined : patch.fundingPaycheckIndex
   })
 }
 
@@ -496,7 +526,7 @@ export function deleteBill(db: Db, userId: string, id: string): void {
 
 type GoalRow = Omit<
   GoalWithProgress,
-  'isArchived' | 'isEmergency' | 'fundedCents' | 'fundedFrom' | 'dedicatedAccountNames'
+  'isArchived' | 'isEmergency' | 'fundedCents' | 'fundedFrom' | 'dedicatedAccounts'
 > & {
   isArchived: number
   isEmergency: number
@@ -505,6 +535,7 @@ type GoalRow = Omit<
 
 interface DedicatedAccountRow {
   dedicatedGoalId: string
+  id: string
   name: string
   balanceCents: number
 }
@@ -531,7 +562,7 @@ export function listGoals(db: Db, userId: string): GoalWithProgress[] {
   // GROUP_CONCAT so account names containing commas survive.
   const dedicated = db
     .prepare(
-      `SELECT dedicated_goal_id AS dedicatedGoalId, name,
+      `SELECT dedicated_goal_id AS dedicatedGoalId, id, name,
               starting_balance_cents + COALESCE((
                 SELECT SUM(t.amount_cents) FROM transactions t
                 WHERE t.account_id = accounts.id AND t.deleted_at IS NULL
@@ -566,11 +597,47 @@ export function listGoals(db: Db, userId: string): GoalWithProgress[] {
       isArchived: row.isArchived === 1,
       isEmergency: row.isEmergency === 1,
       fundedFrom,
-      dedicatedAccountNames: sources.map((source) => source.name),
+      dedicatedAccounts: sources.map((source) => ({
+        id: source.id,
+        name: source.name,
+        balanceCents: source.balanceCents
+      })),
       fundedCents,
       remainingCents: Math.max(0, row.targetCents - fundedCents)
     }
   })
+}
+
+/**
+ * Points exactly this set of accounts at the goal. An account funds one goal
+ * only, so a tick that already belonged to another goal moves here — the dialog
+ * names that goal before the change is saved. Callers run this inside the same
+ * transaction as the goal write, so a save is all-or-nothing.
+ */
+function applyFundingAccounts(
+  db: Db,
+  userId: string,
+  goalId: string,
+  accountIds: readonly string[]
+): void {
+  const ts = nowISO()
+  const keep = new Set(accountIds)
+  db.prepare(
+    `UPDATE accounts SET dedicated_goal_id = NULL, updated_at = ?, revision = revision + 1
+     WHERE dedicated_goal_id = ? AND user_id = ? AND deleted_at IS NULL`
+  ).run(ts, goalId, userId)
+  if (keep.size === 0) return
+
+  const link = db.prepare(
+    `UPDATE accounts SET dedicated_goal_id = ?, updated_at = ?, revision = revision + 1
+     WHERE id = ? AND user_id = ? AND deleted_at IS NULL AND is_archived = 0`
+  )
+  for (const accountId of keep) {
+    requireAccount(db, userId, accountId)
+    if (link.run(goalId, ts, accountId, userId).changes === 0) {
+      throw new Error('Archived accounts cannot fund a goal')
+    }
+  }
 }
 
 export function createGoal(db: Db, userId: string, input: GoalInput): string {
@@ -579,24 +646,27 @@ export function createGoal(db: Db, userId: string, input: GoalInput): string {
   const accountId = input.accountId ? optionalText(input.accountId, 'Account') : null
   if (accountId) requireAccount(db, userId, accountId)
 
-  db.prepare(
-    `INSERT INTO goals
-       (id, user_id, name, target_cents, target_date, priority, color, account_id,
-        is_emergency, is_archived, created_at, updated_at, deleted_at, revision)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, NULL, 1)`
-  ).run(
-    id,
-    userId,
-    assertText(input.name, 'Goal name'),
-    assertCents(input.targetCents, 'Goal target'),
-    input.targetDate ? assertDate(input.targetDate, 'Target date') : null,
-    assertPriority(input.priority),
-    input.color ? assertText(input.color, 'Color', 20) : '#34D399',
-    accountId,
-    input.isEmergency ? 1 : 0,
-    ts,
-    ts
-  )
+  db.transaction(() => {
+    db.prepare(
+      `INSERT INTO goals
+         (id, user_id, name, target_cents, target_date, priority, color, account_id,
+          is_emergency, is_archived, created_at, updated_at, deleted_at, revision)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, NULL, 1)`
+    ).run(
+      id,
+      userId,
+      assertText(input.name, 'Goal name'),
+      assertCents(input.targetCents, 'Goal target'),
+      input.targetDate ? assertDate(input.targetDate, 'Target date') : null,
+      assertPriority(input.priority),
+      input.color ? assertText(input.color, 'Color', 20) : '#34D399',
+      accountId,
+      input.isEmergency ? 1 : 0,
+      ts,
+      ts
+    )
+    if (input.fundingAccountIds) applyFundingAccounts(db, userId, id, input.fundingAccountIds)
+  })()
   return id
 }
 
@@ -608,21 +678,26 @@ export function updateGoal(
 ): void {
   if (patch.accountId) requireAccount(db, userId, patch.accountId)
 
-  updateRow(db, 'goals', id, userId, {
-    name: patch.name === undefined ? undefined : assertText(patch.name, 'Goal name'),
-    target_cents:
-      patch.targetCents === undefined ? undefined : assertCents(patch.targetCents, 'Goal target'),
-    target_date:
-      patch.targetDate === undefined
-        ? undefined
-        : patch.targetDate
-          ? assertDate(patch.targetDate, 'Target date')
-          : null,
-    priority: patch.priority === undefined ? undefined : assertPriority(patch.priority),
-    color: patch.color === undefined ? undefined : assertText(patch.color, 'Color', 20),
-    account_id: patch.accountId === undefined ? undefined : patch.accountId || null,
-    is_emergency: patch.isEmergency === undefined ? undefined : patch.isEmergency ? 1 : 0
-  })
+  db.transaction(() => {
+    updateRow(db, 'goals', id, userId, {
+      name: patch.name === undefined ? undefined : assertText(patch.name, 'Goal name'),
+      target_cents:
+        patch.targetCents === undefined ? undefined : assertCents(patch.targetCents, 'Goal target'),
+      target_date:
+        patch.targetDate === undefined
+          ? undefined
+          : patch.targetDate
+            ? assertDate(patch.targetDate, 'Target date')
+            : null,
+      priority: patch.priority === undefined ? undefined : assertPriority(patch.priority),
+      color: patch.color === undefined ? undefined : assertText(patch.color, 'Color', 20),
+      account_id: patch.accountId === undefined ? undefined : patch.accountId || null,
+      is_emergency: patch.isEmergency === undefined ? undefined : patch.isEmergency ? 1 : 0
+    })
+    if (patch.fundingAccountIds) {
+      applyFundingAccounts(db, userId, id, patch.fundingAccountIds)
+    }
+  })()
 }
 
 export function deleteGoal(db: Db, userId: string, id: string): void {
@@ -1062,12 +1137,16 @@ export function commitPaycheck(
   if (!depositAccountId) throw new Error('Choose the account this paycheck landed in')
   requireAccount(db, userId, depositAccountId)
 
+  const settings = parseSettings(readSettings(db, userId))
   const bills = listBills(db, userId).filter((bill) => bill.isActive)
-  const goals = listGoals(db, userId)
+  const goals = listGoals(db, userId).filter(
+    (goal) => !(goal.isEmergency && !settings.emergencyActive)
+  )
 
   const plan = buildAllocationPlan({
     incomeCents,
     payCadence,
+    paycheckDate: receivedOn,
     bills,
     goals,
     splits: input.splits,

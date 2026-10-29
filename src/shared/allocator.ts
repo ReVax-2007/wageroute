@@ -1,12 +1,15 @@
-import { monthlyEquivalentCents, reservePerPaycheckCents } from './cadence'
+import { billFundingReserveCents, monthlyEquivalentCents } from './cadence'
 import { clampPercent, floorToDollarCents, percentOf } from './money'
-import type { Frequency, GoalFundingSource, PayCadence, PlanHealth } from './types'
+import type { BillFundingStrategy, Frequency, GoalFundingSource, PayCadence, PlanHealth } from './types'
 
 export interface AllocatorBill {
   id: string
   name: string
   amountCents: number
   frequency: Frequency
+  dueDay?: number
+  fundingStrategy?: BillFundingStrategy
+  fundingPaycheckIndex?: number | null
 }
 
 export interface AllocatorGoal {
@@ -34,6 +37,7 @@ export interface AllocatorSplits {
 export interface AllocatorInput {
   incomeCents: number
   payCadence: PayCadence
+  paycheckDate?: string | null
   bills: readonly AllocatorBill[]
   goals: readonly AllocatorGoal[]
   splits: AllocatorSplits
@@ -101,7 +105,15 @@ export function buildAllocationPlan(input: AllocatorInput): AllocationPlan {
   const priorityReserves = input.bills.map<PriorityReserve>((bill) => ({
     billId: bill.id,
     name: bill.name,
-    reserveCents: reservePerPaycheckCents(bill.amountCents, bill.frequency, input.payCadence),
+    reserveCents: billFundingReserveCents({
+      amountCents: bill.amountCents,
+      frequency: bill.frequency,
+      cadence: input.payCadence,
+      dueDay: bill.dueDay ?? 1,
+      fundingStrategy: bill.fundingStrategy,
+      fundingPaycheckIndex: bill.fundingPaycheckIndex,
+      paycheckDate: input.paycheckDate
+    }),
     monthlyCents: monthlyEquivalentCents(bill.amountCents, bill.frequency)
   }))
 

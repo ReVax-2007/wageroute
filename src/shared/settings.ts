@@ -22,7 +22,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   emergencyMode: 'auto',
   emergencyMonths: 3,
   emergencyIncludeVariable: true,
-  emergencyManualTargetCents: 0
+  emergencyManualTargetCents: 0,
+  emergencyActive: true
 }
 
 const PAY_CADENCES: readonly PayCadence[] = ['weekly', 'biweekly', 'semimonthly', 'monthly']
@@ -91,7 +92,8 @@ export function parseSettings(record: Record<string, string>): AppSettings {
     emergencyManualTargetCents:
       Number.isFinite(manualTarget) && manualTarget > 0
         ? Math.round(manualTarget)
-        : DEFAULT_SETTINGS.emergencyManualTargetCents
+        : DEFAULT_SETTINGS.emergencyManualTargetCents,
+    emergencyActive: bool('emergencyActive', DEFAULT_SETTINGS.emergencyActive)
   }
 }
 
@@ -111,7 +113,8 @@ export function settingsToRecord(settings: AppSettings): Record<string, string> 
     emergencyMode: settings.emergencyMode,
     emergencyMonths: String(settings.emergencyMonths),
     emergencyIncludeVariable: String(settings.emergencyIncludeVariable),
-    emergencyManualTargetCents: String(settings.emergencyManualTargetCents)
+    emergencyManualTargetCents: String(settings.emergencyManualTargetCents),
+    emergencyActive: String(settings.emergencyActive)
   }
 }
 

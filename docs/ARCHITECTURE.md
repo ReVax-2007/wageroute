@@ -200,10 +200,12 @@ Notes:
 | Module | Responsibility | Key exports |
 | --- | --- | --- |
 | `allocator.ts` | Deterministic paycheck routing | `buildAllocationPlan`, `AllocationPlan`, `PlanWarning` |
-| `cadence.ts` | Frequency smoothing | `monthlyEquivalentCents`, `reservePerPaycheckCents`, labels |
+| `cadence.ts` | Frequency smoothing and which paycheck funds a bill | `monthlyEquivalentCents`, `reservePerPaycheckCents`, `billFundingReserveCents`, `fundingCheckIndex`, `paycheckIndexInMonth`, `reachableCheckIndexes`, labels |
 | `dates.ts` | Calendar-safe ISO helpers | `todayISO`, `addMonthsISO`, `nextDueDateISO`, `previousDueDateISO`, `advanceByFrequency` |
 | `money.ts` | Parsing, formatting, rounding | `parseMoneyToCents`, `centsToEditable`, `formatMoney`, `percentOf`, `floorToDollarCents` |
 | `emergency.ts` | Emergency target and coverage | `averageMonthlyVariableCents`, `emergencyMonthlyEssentialsCents`, `recommendedEmergencyTargetCents`, `emergencyCoverageMonths` |
+| `accounts.ts` | Spendable pool and wealth rules | `countsInSafeToSpend`, `safeToSpendPoolCents`, `poolEarmarkedGoalsCents`, `totalWealthCents`, `wealthBuckets` |
+| `importRepair.ts` | Import problem detection and repair rules | `findImportProblems`, `applyImportAnswers`, `validateFieldValue`, `findUnmappedAccounts`, `buildAccountMap` |
 | `projections.ts` | 90-day bill/goal forecast | `projectUpcoming` |
 | `billPrompts.ts` | Past-due bill detection | `dueBillPrompts` |
 | `transfers.ts` | Paired legs and round-up remainder | `transferLegs`, `roundUpRemainderCents` |

@@ -1,5 +1,15 @@
 import { useState } from 'react'
-import { CalendarDays, Landmark, LifeBuoy, Pencil, Plus, Target, Trash2 } from 'lucide-react'
+import {
+  CalendarDays,
+  Landmark,
+  LifeBuoy,
+  Pause,
+  Pencil,
+  Play,
+  Plus,
+  Target,
+  Trash2
+} from 'lucide-react'
 import { formatDateLong, monthsUntil, todayISO } from '@shared/dates'
 import {
   EMERGENCY_MONTH_OPTIONS,
@@ -9,7 +19,7 @@ import {
   recommendedEmergencyTargetCents
 } from '@shared/emergency'
 import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
-import type { EmergencyMode, GoalInput, GoalWithProgress } from '@shared/types'
+import type { AccountWithBalance, EmergencyMode, GoalInput, GoalWithProgress } from '@shared/types'
 import {
   Button,
   Card,
@@ -26,6 +36,15 @@ import { activeBills, monthlyWall } from '../lib/finance'
 import { useFinanceStore } from '../store/useFinanceStore'
 
 const COLORS = ['#38BDF8', '#FBBF24', '#A78BFA', '#34D399', '#F472B6', '#FB923C']
+
+/** Only money you can actually reach can back a fund. */
+function fundableAccounts(accounts: readonly AccountWithBalance[]): AccountWithBalance[] {
+  return accounts.filter(
+    (account) =>
+      !account.isArchived &&
+      (account.kind === 'savings' || account.kind === 'checking' || account.kind === 'cash')
+  )
+}
 
 export function Goals() {
   const snapshot = useFinanceStore((state) => state.snapshot)
@@ -94,7 +113,8 @@ export function Goals() {
                         ? `Target ${formatDateLong(goal.targetDate)}`
                         : 'No deadline set'}
                     </p>
-                  </div>                  <IconButton label="Edit goal" onClick={() => setEditing(goal)}>
+                  </div>
+                  <IconButton label="Edit goal" onClick={() => setEditing(goal)}>
                     <Pencil size={15} />
                   </IconButton>
                   <IconButton label="Archive goal" danger onClick={() => remove(goal)}>
@@ -114,11 +134,26 @@ export function Goals() {
                   <span>{formatMoney(remaining, currency)} to go</span>
                 </div>
 
+                {goal.dedicatedAccounts.length > 0 && (
+                  <ul className="goal-accounts">
+                    {goal.dedicatedAccounts.map((account) => (
+                      <li key={account.id}>
+                        <span className="goal-account-name">{account.name}</span>
+                        <span className="goal-account-balance num muted">
+                          {formatMoney(account.balanceCents, currency)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
                 <div className="goal-foot">
-                  {goal.fundedFrom === 'account' && (
+                  {goal.dedicatedAccounts.length > 0 && (
                     <span className="chip chip-funded">
                       <Landmark size={12} />
-                      {goal.dedicatedAccountNames.join(', ') || 'Dedicated account'}
+                      {goal.dedicatedAccounts.length === 1
+                        ? 'Dedicated account'
+                        : `${goal.dedicatedAccounts.length} dedicated accounts`}
                     </span>
                   )}
                   <span className="chip">Priority {goal.priority}</span>
@@ -142,14 +177,121 @@ export function Goals() {
       )}
 
       <p className="footnote">
-        A goal with a dedicated account reads its progress straight from that account&apos;s
-        balance. Every other goal counts the allocations recorded when a paycheck is routed, so
-        moving that money is still your job.
+        A goal reads its progress from the accounts you point at it — one account, or several whose
+        balances add together. Every other goal counts the allocations recorded when a paycheck is
+        routed, so moving that money is still your job.
       </p>
 
       {editing !== null && (
         <GoalDialog goal={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />
       )}
+    </>
+  )
+}
+
+/**
+ * One-or-several account picker. An account that already funds a different goal
+ * is labelled with that goal, because moving it here is a deliberate swap.
+ */
+function FundingAccountsPicker({
+  accounts,
+  goals,
+  currency,
+  value,
+  onChange,
+  label,
+  hint
+}: {
+  accounts: readonly AccountWithBalance[]
+  goals: readonly GoalWithProgress[]
+  currency: string
+  value: string[]
+  onChange: (ids: string[]) => void
+  label: string
+  hint: string
+}) {
+  const [many, setMany] = useState(value.length > 1)
+
+  const goalNameFundedBy = (accountId: string): string | null => {
+    const dedicated = accounts.find((account) => account.id === accountId)?.dedicatedGoalId
+    return goals.find((goal) => goal.id === dedicated)?.name ?? null
+  }
+
+  const chosen = accounts.filter((account) => value.includes(account.id))
+  const combinedCents = chosen.reduce(
+    (total, account) => total + Math.max(0, account.balanceCents),
+    0
+  )
+
+  return (
+    <>
+      <Field label={label} hint={hint} wide>
+        {many ? (
+          accounts.length === 0 ? (
+            <p className="field-hint">No savings, checking or cash account yet.</p>
+          ) : (
+            <div className="funding-account-list">
+              {accounts.map((account) => (
+                <label key={account.id} className="check funding-account-check">
+                  <input
+                    type="checkbox"
+                    checked={value.includes(account.id)}
+                    onChange={() =>
+                      onChange(
+                        value.includes(account.id)
+                          ? value.filter((id) => id !== account.id)
+                          : [...value, account.id]
+                      )
+                    }
+                  />
+                  <span className="funding-account-name">{account.name}</span>
+                  <span className="funding-account-balance num muted">
+                    {formatMoney(Math.max(0, account.balanceCents), currency)}
+                  </span>
+                </label>
+              ))}
+            </div>
+          )
+        ) : (
+          <select
+            className="select"
+            value={value[0] ?? ''}
+            onChange={(event) => onChange(event.target.value ? [event.target.value] : [])}
+          >
+            <option value="">No account — count allocations instead</option>
+            {accounts.map((account) => {
+              const funded = goalNameFundedBy(account.id)
+              return (
+                <option key={account.id} value={account.id}>
+                  {account.name} · {formatMoney(Math.max(0, account.balanceCents), currency)}
+                  {funded ? ` (funds ${funded})` : ''}
+                </option>
+              )
+            })}
+          </select>
+        )}
+      </Field>
+
+      <label className="check funding-many">
+        <input
+          type="checkbox"
+          checked={many}
+          onChange={(event) => {
+            const next = event.target.checked
+            setMany(next)
+            if (!next && value.length > 1) onChange(value.slice(0, 1))
+          }}
+        />
+        Let several accounts add up together
+      </label>
+
+      <p className="field-hint">
+        {chosen.length === 0
+          ? 'No account chosen — progress is counted from the allocations a paycheck routes.'
+          : `${formatMoney(combinedCents, currency)} across ${chosen.length} account${
+              chosen.length === 1 ? '' : 's'
+            } counts as funded.`}
+      </p>
     </>
   )
 }
@@ -171,11 +313,17 @@ function EmergencyCard() {
       ? centsToEditable(settings.emergencyManualTargetCents)
       : ''
   )
+  const [selectedIds, setSelectedIds] = useState<string[]>(
+    goal ? goal.dedicatedAccounts.map((account) => account.id) : []
+  )
   const [saving, setSaving] = useState(false)
 
   if (!snapshot) return null
 
   const currency = settings.currency
+  const isActive = settings.emergencyActive
+  const eligible = fundableAccounts(snapshot.accounts)
+
   const wall = monthlyWall(activeBills(snapshot.bills))
   const variable = averageMonthlyVariableCents(snapshot.transactions, todayISO())
   const essentials = emergencyMonthlyEssentialsCents({
@@ -188,11 +336,16 @@ function EmergencyCard() {
   const targetCents = mode === 'manual' ? Math.max(0, manualCents ?? 0) : autoTarget
   const funded = goal?.fundedCents ?? 0
   const coverage = emergencyCoverageMonths(funded, essentials)
-  const targetMonths = months
 
   const changeMode = (next: EmergencyMode) => {
     setMode(next)
     if (next === 'manual' && !manual.trim()) setManual(centsToEditable(autoTarget))
+  }
+
+  const toggleActive = async () => {
+    const next = !isActive
+    await saveSettings({ ...settings, emergencyActive: next })
+    notify(next ? 'Emergency saving resumed' : 'Emergency saving paused', 'success')
   }
 
   const apply = async () => {
@@ -206,21 +359,22 @@ function EmergencyCard() {
       emergencyMode: mode,
       emergencyMonths: months,
       emergencyIncludeVariable: includeVariable,
-      emergencyManualTargetCents:
-        mode === 'manual' ? targetCents : Math.max(0, manualCents ?? 0)
+      emergencyManualTargetCents: mode === 'manual' ? targetCents : 0
     })
     if (goal) {
-      await updateGoal(goal.id, { targetCents })
+      await updateGoal(goal.id, { targetCents, fundingAccountIds: selectedIds })
     } else {
-      await createGoal({
+      const input: GoalInput = {
         name: 'Emergency Fund',
         targetCents,
         targetDate: null,
         priority: 1,
         color: '#38BDF8',
-        accountId: null,
-        isEmergency: true
-      })
+        accountId: selectedIds[0] ?? null,
+        isEmergency: true,
+        fundingAccountIds: selectedIds
+      }
+      await createGoal(input)
     }
     setSaving(false)
   }
@@ -229,9 +383,31 @@ function EmergencyCard() {
     <Card
       title="Emergency fund"
       subtitle="Three to six months of essentials, calculated from your own numbers"
-      className="emergency-card"
+      className={isActive ? 'emergency-card' : 'emergency-card paused'}
       actions={<LifeBuoy size={17} className="stat-icon" />}
     >
+      <div className="setting-row emergency-pause">
+        <div>
+          <strong>Save towards it every paycheck</strong>
+          <p className="field-hint">
+            {isActive
+              ? 'Active · the allocator routes a slice of every surplus here before leisure.'
+              : 'Paused · no paycheck sets money aside for it until you resume.'}
+          </p>
+        </div>
+        <div className="emergency-pause-actions">
+          {!isActive && <span className="chip chip-paused">Saving paused</span>}
+          <Button
+            variant={isActive ? 'quiet' : 'primary'}
+            size="sm"
+            icon={isActive ? <Pause size={13} /> : <Play size={13} />}
+            onClick={() => void toggleActive()}
+          >
+            {isActive ? 'Pause' : 'Resume saving'}
+          </Button>
+        </div>
+      </div>
+
       <div className="emergency-grid">
         <div className="emergency-controls">
           <Segmented<EmergencyMode>
@@ -283,9 +459,19 @@ function EmergencyCard() {
 
           <p className="field-hint">
             {mode === 'auto'
-              ? `Target = ${targetMonths} × monthly essentials`
+              ? `Target = ${months} × monthly essentials`
               : 'Manual target replaces the calculation until you switch back.'}
           </p>
+
+          <FundingAccountsPicker
+            accounts={eligible}
+            goals={snapshot.goals}
+            currency={currency}
+            value={selectedIds}
+            onChange={setSelectedIds}
+            label="Funded by"
+            hint="Tick the account that holds the emergency money. Several accounts add together; tick none and progress is counted from allocations."
+          />
         </div>
 
         <div className="emergency-figures">
@@ -302,7 +488,7 @@ function EmergencyCard() {
             <Money cents={essentials} currency={currency} />
           </div>
           <div className="emergency-target">
-            <span>{mode === 'auto' ? `${targetMonths}-month target` : 'Manual target'}</span>
+            <span>{mode === 'auto' ? `${months}-month target` : 'Manual target'}</span>
             <Money cents={targetCents} currency={currency} />
           </div>
 
@@ -310,6 +496,7 @@ function EmergencyCard() {
           <p className="emergency-coverage">
             <strong>{coverage.toFixed(1)} months</strong> covered
             {goal ? '' : ' · no emergency goal yet'}
+            {isActive ? '' : ' · saving paused'}
           </p>
 
           <Button variant="primary" onClick={() => void apply()} disabled={saving}>
@@ -323,6 +510,7 @@ function EmergencyCard() {
 
 function GoalDialog({ goal, onClose }: { goal: GoalWithProgress | null; onClose: () => void }) {
   const snapshot = useFinanceStore((state) => state.snapshot)
+  const settings = useFinanceStore((state) => state.settings)
   const createGoal = useFinanceStore((state) => state.createGoal)
   const updateGoal = useFinanceStore((state) => state.updateGoal)
 
@@ -335,6 +523,9 @@ function GoalDialog({ goal, onClose }: { goal: GoalWithProgress | null; onClose:
     color: goal?.color ?? COLORS[0],
     accountId: goal?.accountId ?? ''
   })
+  const [fundingIds, setFundingIds] = useState<string[]>(
+    goal ? goal.dedicatedAccounts.map((account) => account.id) : []
+  )
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -355,7 +546,8 @@ function GoalDialog({ goal, onClose }: { goal: GoalWithProgress | null; onClose:
       targetDate: form.targetDate || null,
       priority: Number(form.priority) || 100,
       color: form.color,
-      accountId: form.accountId || null
+      accountId: form.accountId || null,
+      fundingAccountIds: fundingIds
     }
 
     setSaving(true)
@@ -420,21 +612,36 @@ function GoalDialog({ goal, onClose }: { goal: GoalWithProgress | null; onClose:
             onChange={(event) => setForm({ ...form, priority: event.target.value })}
           />
         </Field>
-        <Field label="Held in">
-          <select
-            className="select"
-            value={form.accountId}
-            onChange={(event) => setForm({ ...form, accountId: event.target.value })}
-          >
-            <option value="">Not assigned</option>
-            {accounts.map((account) => (
-              <option key={account.id} value={account.id}>
-                {account.name}
-              </option>
-            ))}
-          </select>
-        </Field>
       </div>
+
+      <FundingAccountsPicker
+        accounts={fundableAccounts(accounts)}
+        goals={snapshot?.goals ?? []}
+        currency={settings.currency}
+        value={fundingIds}
+        onChange={setFundingIds}
+        label="Funded by"
+        hint="Point an account at this goal and its balance becomes the progress."
+      />
+
+      <Field
+        label="Deposit account"
+        hint="Where the lump lands when the goal is done. It does not measure progress."
+        wide
+      >
+        <select
+          className="select"
+          value={form.accountId}
+          onChange={(event) => setForm({ ...form, accountId: event.target.value })}
+        >
+          <option value="">Not assigned</option>
+          {accounts.map((account) => (
+            <option key={account.id} value={account.id}>
+              {account.name}
+            </option>
+          ))}
+        </select>
+      </Field>
 
       <div className="field">
         <span className="field-label">Colour</span>

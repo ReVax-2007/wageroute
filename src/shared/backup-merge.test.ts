@@ -120,12 +120,15 @@ test('rows missing schema-defaulted columns import with the column default, not 
   assert.equal(account.is_archived, 0)
   assert.equal(account.starting_balance_cents, 0)
   assert.equal(account.credit_limit_cents, null)
+  assert.equal(account.color, null, 'no colour chosen means the account type still paints it')
   assert.equal(account.revision, 1)
 
   const bill = db.prepare('SELECT * FROM bills WHERE id = ?').get('bill-1') as Record<string, unknown>
   assert.equal(bill.category, 'Bills')
   assert.equal(bill.autopay, 0)
   assert.equal(bill.is_active, 1)
+  assert.equal(bill.funding_strategy, 'all_checks', 'a pre-v5 bill keeps the spread it always had')
+  assert.equal(bill.funding_paycheck_index, null)
 
   const goal = db.prepare('SELECT * FROM goals WHERE id = ?').get('goal-1') as Record<string, unknown>
   assert.equal(goal.priority, 100)
