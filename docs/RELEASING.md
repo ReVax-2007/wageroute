@@ -32,11 +32,11 @@ WageRoute has three independent version numbers. Confusing them is the most comm
 
 | Version | Where it lives | Current value | What it means |
 | --- | --- | --- | --- |
-| App version | `package.json` → `version` | `1.0.2` | The build users install. Drives installer names, macOS bundle version and release tags. |
+| App version | `package.json` → `version` | `1.1.0` | The build users install. Drives installer names, macOS bundle version and release tags. |
 | Database schema version | `src/main/db/migrations.ts` → `SCHEMA_VERSION`, stored in SQLite `PRAGMA user_version` | `6` | The shape of the on-disk database. Changes only when a migration is added. |
 | Backup format version | Written into every JSON backup, equal to `SCHEMA_VERSION` | `6` | The newest backup the app writes. The reader accepts versions `2`, `3`, `4`, `5` and `6`. |
 
-`package.json` still says `1.0.2` on `main` even though commits after that tag have landed, so between releases the **commit SHA** is the only reliable identifier of a build. Bump the version as part of the release, never before. The schema and backup numbers above are the **working tree**: every build users have installed is still schema 3, and schemas 4–6 first ship with 1.1.0.
+`package.json` reads `1.1.0` at the moment of the 1.1.0 release; between releases it keeps the last released number even though newer commits have landed, so the **commit SHA** is the only reliable identifier of an un-released build. Bump the version as part of the release, never before. Every build users had before 1.1.0 was schema 3; 1.1.0 is the first installer carrying schemas 4, 5 and 6.
 
 The source of truth for the app version is `package.json`. `npm` updates `package-lock.json` with it; electron-builder reads it when naming artifacts and writing bundle metadata.
 
@@ -74,7 +74,10 @@ Tags use the `v` prefix and match the app version exactly: `v1.0.0`. The CI work
 | `1` or missing | Rejected: `Backups older than schema 2 are not supported` |
 | `2` | Accepted; missing columns receive documented defaults |
 | `3` | Accepted |
-| `4+` | Rejected: `This backup came from a newer version` |
+| `4` | Accepted; `accounts.color`, `funding_strategy` and `funding_paycheck_index` receive defaults |
+| `5` | Accepted; version 6 added no column |
+| `6` | Accepted; the newest format this app writes |
+| `> 6` | Rejected: `This backup came from a newer version` |
 
 Imports are additive and idempotent. Re-importing the same file skips rows that already exist by UUID. See [IMPORT-EXPORT.md](IMPORT-EXPORT.md).
 
@@ -120,7 +123,7 @@ Run this before building anything you intend to distribute. It is intentionally 
 - [ ] The packaged app opens the expected database path.
 - [ ] The version shown in the installer and app metadata matches `package.json`.
 
-> **Current stale artifact:** `release/` contains `Cash Flow Routing-0.1.0-arm64.dmg`, produced before the rename. It is ignored by git but easy to grab by mistake. Move it out of `release/` before packaging; do not distribute it under the WageRoute name.
+> **Stale artifacts:** `release/` is overwritten by every local build and is never cleaned automatically. Before packaging a release, move the whole folder aside (the 1.1.0 build used `.local-quarantine/2026-10-29-pre-1.1.0-release/`) so an older DMG cannot be uploaded under the new name.
 
 ---
 
@@ -159,7 +162,7 @@ npm run dist                # build + installers for the current platform
 | --- | --- |
 | `dev` | electron-vite dev server with HMR |
 | `start` | preview the production build |
-| `test` | `node --import tsx --test src/shared/domain.test.ts` |
+| `test` | `node --import tsx --test` over the eight test files listed in `package.json` |
 | `typecheck:node` | main, preload, shared, config |
 | `typecheck:web` | renderer and shared |
 | `typecheck` | both projects |
@@ -222,22 +225,22 @@ out/
 
 ```text
 release/
-├── WageRoute-1.0.2-arm64.dmg
-├── WageRoute-1.0.2-arm64.dmg.blockmap
-├── WageRoute-1.0.2-x64.dmg
-├── WageRoute-1.0.2-x64.dmg.blockmap
+├── WageRoute-1.1.0-arm64.dmg
+├── WageRoute-1.1.0-arm64.dmg.blockmap
+├── WageRoute-1.1.0.dmg            # Intel; the default x64 name carries no -x64 infix
+├── WageRoute-1.1.0.dmg.blockmap
 ├── mac-arm64/WageRoute.app
 └── mac/WageRoute.app            # when an x64 build runs
 ```
 
-Exact file names follow electron-builder's `productName-version-arch` pattern. The `.blockmap` files are useful only to an auto-updater; there is none today.
+Exact file names follow electron-builder's default `productName-version` naming; only non-default architectures get a suffix, so arm64 is `-arm64` and the Intel x64 build has no infix. The `.blockmap` files are useful only to an auto-updater; there is none today.
 
 **Windows** — `win.target` requests `nsis` for `x64` and `arm64`:
 
 ```text
 release/
-├── WageRoute Setup 1.0.2.exe
-└── WageRoute Setup 1.0.2.exe.blockmap
+├── WageRoute Setup 1.1.0.exe
+└── WageRoute Setup 1.1.0.exe.blockmap
 ```
 
 NSIS is configured as a per-user install (`perMachine: false`), not one-click, with a selectable directory and a desktop shortcut. Per-user installs do not require administrator rights and put the app under the user's profile.
@@ -463,7 +466,7 @@ CI uploads workflow artifacts only. Creating a release is a manual, deliberate s
 4. Paste the release notes from the template below.
 5. Attach:
    - `WageRoute-1.1.0-arm64.dmg`
-   - `WageRoute-1.1.0-x64.dmg` (if built and verified)
+   - `WageRoute-1.1.0.dmg` (Intel x64)
    - `WageRoute Setup 1.1.0.exe`
    - `SHA256SUMS.txt`
 6. Mark as **pre-release** only if you do not intend this build as the default download.
@@ -570,8 +573,8 @@ If the fix requires a schema change, it is not a patch. Follow the schema proced
 ```markdown
 # WageRoute 1.1.0
 
-Released: 2026-11-04
-Schema: 3 (unchanged) · Backups: accepts 2–3
+Released: 2026-10-29
+Schema: 6 (migrates 3 → 4 → 5 → 6) · Backups: accepts 2–6
 
 ## Highlights
 
@@ -591,14 +594,14 @@ Schema: 3 (unchanged) · Backups: accepts 2–3
 
 ## Data and compatibility
 
-- Database schema: unchanged / migrated from 2 to 3.
-- Backups from version X are accepted; backups from version Y are rejected.
+- Database schema: 3 → 4 → 5 → 6, automatic on first launch, forward-only.
+- Backups from versions 2–6 are accepted; a backup written by 1.1.0 cannot be imported by 1.0.2.
 - Existing data: preserved / requires the following step.
 
 ## Upgrade notes
 
 - Back up before installing. See docs/DEPLOYMENT.md.
-- macOS (Homebrew): `brew upgrade --cask wageroute` — nothing else to do.
+- macOS (Homebrew): `brew upgrade --cask ReVax-2007/wageroute/wageroute` — nothing else to do.
 - macOS (manual DMG): the build is unsigned; right-click → Open on first launch. Zero-prompt alternative: `curl -LO <dmg-url>` instead of a browser download.
 - Windows: SmartScreen will warn; choose More info → Run anyway.
 
@@ -606,6 +609,7 @@ Schema: 3 (unchanged) · Backups: accepts 2–3
 
 SHA-256:
 - WageRoute-1.1.0-arm64.dmg — ...
+- WageRoute-1.1.0.dmg — ...
 - WageRoute Setup 1.1.0.exe — ...
 ```
 

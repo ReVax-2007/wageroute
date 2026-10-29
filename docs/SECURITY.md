@@ -32,7 +32,8 @@ This document describes what is actually implemented, what the trust boundaries 
 
 | Version | Supported | Notes |
 | --- | --- | --- |
-| `1.0.x` | Yes | Current line; fixes land here. 1.0.2 carries schema 3; schemas 4, 5 and 6 arrive with the next release. |
+| `1.1.x` | Yes | Current line; fixes land here. 1.1.0 carries schema 6 and writes backup format 6. |
+| `1.0.x` | No | Superseded. 1.0.2 carries schema 3 and cannot open a 1.1.0 database; upgrade instead of patching. |
 | Older app versions | No | No security backports; upgrade or restore a backup |
 | Backups with schema `1` | No | Rejected by the importer |
 | Databases with `user_version` ahead of the app | Unsupported | A schema 6 database opened by an older build is not migrated down; use the newer app |
