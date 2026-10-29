@@ -41,8 +41,9 @@ export function Spreadsheet() {
           <p className="eyebrow">Spreadsheet</p>
           <h1 className="page-title">Every number, one grid</h1>
           <p className="page-sub">
-            Click a cell to edit it in place. Dates, accounts, categories and amounts all write
-            straight to the local ledger.
+            {tab === 'ledger'
+              ? 'Double-click a cell to edit it in place. Dates, accounts, categories and amounts write straight to the local ledger.'
+              : `A read-only forecast of the next ${HORIZON_DAYS} days of bills and goal deadlines, built from your own numbers.`}
           </p>
         </div>
         <Button variant="primary" icon={<Plus size={16} />} onClick={() => setAdding(true)}>

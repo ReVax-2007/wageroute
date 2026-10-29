@@ -59,8 +59,11 @@ export default function App() {
 
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#main-content">
+        Skip to content
+      </a>
       <Sidebar />
-      <main className="workspace">
+      <main id="main-content" className="workspace" tabIndex={-1}>
         <div className="page">
           {screen === 'dashboard' && <Dashboard />}
           {screen === 'wall' && <PriorityWall />}

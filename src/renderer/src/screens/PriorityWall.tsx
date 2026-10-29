@@ -171,23 +171,26 @@ export function PriorityWall() {
             }
           />
         ) : (
-          <table className="table wall-table">
-            <thead>
-              <tr>
-                <th>Bill</th>
-                <th>Amount</th>
-                <th>Cadence</th>
-                <th>Due</th>
-                <th className="right">{nextCheck ? 'Next check' : 'Per paycheck'}</th>
-                <th className="right">Monthly</th>
-                <th aria-label="Actions" />
-              </tr>
-            </thead>
-            <tbody>
-              {bills.map((bill) => (
-                <tr key={bill.id} className={bill.isActive ? undefined : 'inactive'}>
-                  <td>
-                    <div className="cell-strong">{bill.name}</div>
+          <div className="table-scroll">
+            <table className="table wall-table">
+              <thead>
+                <tr>
+                  <th>Bill</th>
+                  <th>Amount</th>
+                  <th>Cadence</th>
+                  <th>Due</th>
+                  <th className="right">{nextCheck ? 'Next check' : 'Per paycheck'}</th>
+                  <th className="right">Monthly</th>
+                  <th aria-label="Actions" />
+                </tr>
+              </thead>
+              <tbody>
+                {bills.map((bill) => (
+                  <tr key={bill.id} className={bill.isActive ? undefined : 'inactive'}>
+                    <td>
+                      <div className="cell-strong" title={bill.name}>
+                        {bill.name}
+                      </div>
                     <div className="cell-sub">
                       {bill.category}
                       {bill.autopay ? ' · autopay' : ''}
@@ -264,8 +267,9 @@ export function PriorityWall() {
                   </td>
                 </tr>
               ))}
-            </tbody>
-          </table>
+              </tbody>
+            </table>
+          </div>
         )}
       </Card>
 
@@ -366,6 +370,7 @@ function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () => void 
           <input
             className="input"
             autoFocus
+            maxLength={60}
             value={form.name}
             placeholder="Rent"
             onChange={(event) => setForm({ ...form, name: event.target.value })}

@@ -564,7 +564,7 @@ Validation:
 - amount required and non-zero;
 - transfers require a different destination account.
 
-Transfers create both legs. Expenses may trigger round-up. The dialog closes after the store refresh; errors appear in the dialog before it closes.
+Transfers create both legs, and an expense may trigger a round-up. The dialog closes only once the store has confirmed the write; a rejected save keeps the dialog open with its error in place.
 
 ### Empty states
 
@@ -577,7 +577,7 @@ Transfers create both legs. Expenses may trigger round-up. The dialog closes aft
 
 ### Appearance
 
-Dark, Light or System. System listens to `prefers-color-scheme` and switches live. The resolved theme is written to `document.documentElement.dataset.theme` and cached in `localStorage['cfr-theme']` so the next launch paints the right palette immediately. Settings remain the source of truth.
+Three choices in the sidebar, presented as a radio group — **System**, **Light**, **Dark** — with the resolved state printed beside the label (`System · light`). System follows `prefers-color-scheme` and switches live across a running app, because the preference is read through `useSyncExternalStore` rather than sampled once at startup. The resolved theme is written to `document.documentElement.dataset.theme` and cached in `localStorage['cfr-theme']` so the next launch paints the right palette immediately. Settings remain the source of truth; the cache is only a first-paint hint.
 
 ### Round-up
 
@@ -686,9 +686,21 @@ It rejects more than two decimals, non-numeric text, an empty string (returns `n
 
 ### Toasts and confirmations
 
-- Success and error messages are toasts, auto-dismissed after 4.2 seconds; clicking one dismisses it early.
+- Success messages are toasts, auto-dismissed after 4.2 seconds; errors stay until dismissed, because an error is a fact the user has to read. Hovering or focusing a toast pauses its timer, so it does not vanish mid-read.
+- A toast is a live region — `role="status"` for success, `role="alert"` for errors — with a dedicated **Dismiss notification** button. Its text is selectable, so an error can be copied into a bug report.
 - Destructive actions use the native `window.confirm` dialog: deleting accounts, bills, goals and transactions.
 - Import uses a confirmation before opening the file picker.
+
+### Keyboard, focus and dialogs
+
+- **One dialog model.** Every dialog — account, bill, goal, entry, erase, allocator — is built on the same `useDialog` hook: focus moves into the panel on open, Tab and Shift+Tab cycle within it, Escape closes it, the page behind is scroll-locked, and focus returns to the element that opened it.
+- **Named by their heading.** `Modal` and the allocator panel set `aria-labelledby` to their visible `<h2>` and `aria-describedby` to their subtitle, using generated ids, so a screen reader announces the dialog's real name rather than a duplicated `aria-label`.
+- **Backdrop clicks are deliberate.** A dialog closes only when the press *starts and ends* on the backdrop, so a drag that begins inside the panel and releases outside does not discard the form.
+- **The allocator cannot be dismissed mid-write.** While a route is saving, Escape, the backdrop and the close button do nothing; the write finishes or fails visibly first.
+- **Skip to content.** The first Tab from the window chrome reveals a **Skip to content** link that jumps to the workspace, bypassing the sidebar.
+- **Visible focus everywhere.** `:focus-visible` draws a two-pixel accent ring on every interactive control, including the spreadsheet's cell editor and the allocator's income field.
+- **Import wizard steps are labels.** Only a step you can actually navigate back to is a button; the current step is a non-interactive `aria-current="step"` marker, so clicking a step marker can never reopen the native file picker.
+- **Per-row pending state.** Logging a bill payment disables only that prompt's buttons and shows *Logging…* there; the other prompts stay usable.
 
 ### Theme propagation
 
@@ -713,9 +725,10 @@ All domain dates are constructed as UTC dates from `YYYY-MM-DD` strings. “Toda
 | Round-up sweeps | Implemented | Expense creation only |
 | Bill payment prompts | Implemented | Session-only snooze |
 | 90-day projections | Implemented | Bills and goal deadlines |
-| Dark/light/system themes | Implemented | |
+| Dark/light/system themes | Implemented | Tri-state, follows `prefers-color-scheme` live |
 | JSON backup, partial JSON import | Implemented | Additive |
-| CSV export and entries import | Implemented | CSV export limited to 500 rows |
+| CSV export and entries import | Implemented | Export covers the whole ledger |
+| Keyboard dialogs and focus management | Implemented | Trap, Escape, focus restore, skip link, named headings |
 | Multi-currency display | Partial | Currency setting exists; no selector and no conversion |
 | Bank connections / statement sync | Not implemented | Manual entry and file import only |
 | Recurring transaction generation | Not implemented | Bills are a reserve model |
@@ -749,7 +762,7 @@ All domain dates are constructed as UTC dates from `YYYY-MM-DD` strings. “Toda
 | Unrelated expense in the same category | Does not silence a prompt |
 | Edit a paired transfer's account or kind | Rejected with an explanation |
 | Delete one transfer leg | Both legs are soft-deleted |
-| Delete an account with transactions | Transactions remain; references are nulled |
+| Delete an account with transactions | The dialog counts them and needs an explicit **Delete account and N entries**; **Archive instead** keeps everything |
 | Archived account | Hidden from cash/credit totals and most pickers |
 | Credit card overpaid | Displays zero owed; available credit is capped at the limit |
 | Round-up destination is the source account | No sweep |

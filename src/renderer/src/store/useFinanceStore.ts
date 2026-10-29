@@ -46,6 +46,8 @@ interface FinanceState {
   snoozeBill: (billId: string) => void
   notify: (text: string, tone?: Notice['tone']) => void
   dismissNotice: () => void
+  pauseNotice: () => void
+  resumeNotice: () => void
 
   createAccount: (input: AccountInput) => Promise<boolean>
   updateAccount: (id: string, input: Partial<AccountInput>) => Promise<boolean>
@@ -177,11 +179,25 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
     notify: (text, tone = 'success') => {
       if (noticeTimer) clearTimeout(noticeTimer)
       set({ notice: { text, tone } })
+      // Successes are transient; an error stays until it is read or dismissed.
+      noticeTimer =
+        tone === 'error' ? undefined : setTimeout(() => set({ notice: null }), 4200)
+    },
+
+    pauseNotice: () => {
+      if (noticeTimer) clearTimeout(noticeTimer)
+      noticeTimer = undefined
+    },
+
+    resumeNotice: () => {
+      if (noticeTimer) clearTimeout(noticeTimer)
+      if (!get().notice || get().notice?.tone === 'error') return
       noticeTimer = setTimeout(() => set({ notice: null }), 4200)
     },
 
     dismissNotice: () => {
       if (noticeTimer) clearTimeout(noticeTimer)
+      noticeTimer = undefined
       set({ notice: null })
     },
 

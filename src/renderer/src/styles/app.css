@@ -42,7 +42,27 @@ textarea {
 }
 
 ::selection {
-  background: rgba(61, 220, 151, 0.28);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.skip-link {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 200;
+  padding: 9px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-radius: 9px;
+  transform: translateY(-160%);
+  transition: transform 0.14s ease;
+}
+
+.skip-link:focus-visible {
+  transform: translateY(0);
 }
 
 .num {
@@ -493,6 +513,12 @@ textarea {
 
 .wall-table td {
   white-space: nowrap;
+}
+
+.table-scroll {
+  margin: 0 -20px;
+  padding: 0 20px;
+  overflow-x: auto;
 }
 
 .wall-table tr.inactive {
@@ -1004,9 +1030,12 @@ input[type='date'] {
   bottom: 22px;
   left: 50%;
   z-index: 90;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   transform: translateX(-50%);
   max-width: min(560px, calc(100vw - 48px));
-  padding: 10px 18px;
+  padding: 7px 8px 7px 18px;
   font-size: 13px;
   color: var(--text);
   text-align: left;
@@ -1014,8 +1043,32 @@ input[type='date'] {
   border: 1px solid var(--border-strong);
   border-radius: 999px;
   box-shadow: var(--shadow-soft);
-  cursor: pointer;
   animation: toast-in 0.2s ease;
+}
+
+.toast-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.toast-close {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  padding: 0;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.toast-close:hover {
+  color: var(--text);
+  background: var(--tint);
 }
 
 .toast-error {
@@ -2237,6 +2290,7 @@ select.grid-editor {
   gap: 8px;
   padding: 8px 10px;
   font-size: 12px;
+  text-align: left;
   color: var(--text-muted);
   background: transparent;
   border: 1px solid var(--border);
@@ -2248,6 +2302,10 @@ select.grid-editor {
     color 0.14s ease;
 }
 
+span.wizard-step-chip {
+  cursor: default;
+}
+
 .wizard-step-chip:disabled {
   cursor: default;
   opacity: 0.6;
@@ -2255,8 +2313,8 @@ select.grid-editor {
 
 .wizard-step-chip.active {
   color: var(--text);
-  background: rgba(61, 220, 151, 0.08);
-  border-color: rgba(61, 220, 151, 0.4);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
 .wizard-step-chip.done {
@@ -2283,7 +2341,7 @@ select.grid-editor {
 
 .wizard-step-chip.done .wizard-step-number {
   color: var(--accent);
-  background: rgba(61, 220, 151, 0.18);
+  background: var(--accent-soft);
 }
 
 .wizard-step {
@@ -2411,7 +2469,7 @@ select.grid-editor {
 
 .account-summary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
   margin-bottom: 16px;
 }
@@ -2632,9 +2690,8 @@ select.grid-editor {
 
 .sidebar-theme {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  flex-direction: column;
+  gap: 8px;
   margin-bottom: 10px;
   padding: 10px 12px;
   font-size: 12px;
@@ -2648,6 +2705,42 @@ select.grid-editor {
   display: flex;
   align-items: center;
   gap: 7px;
+}
+
+.sidebar-theme-state {
+  margin-left: auto;
+  font-size: 11px;
+  text-transform: capitalize;
+}
+
+.theme-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 3px;
+  background: var(--inset);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.theme-option {
+  padding: 5px 0;
+  font-size: 11.5px;
+  font-weight: 550;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.theme-option:hover {
+  color: var(--text);
+}
+
+.theme-option.active {
+  color: var(--text);
+  background: var(--raised);
 }
 
 /* ------------------------------------------------------ emergency fund */
@@ -2911,6 +3004,10 @@ select.grid-editor {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .account-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .dashboard-grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -2979,4 +3076,46 @@ select.grid-editor {
   .bank-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* ------------------------------------------------------- keyboard focus */
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.modal:focus-visible,
+.allocator-panel:focus-visible,
+.workspace:focus-visible {
+  outline: none;
+}
+
+.dialog-open .workspace {
+  overflow: hidden;
+}
+
+.alloc-income:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.grid-account {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wall-table td:first-child {
+  min-width: 190px;
+  max-width: 280px;
+  white-space: normal;
+}
+
+.account-name .cell-strong,
+.goal-title h3 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

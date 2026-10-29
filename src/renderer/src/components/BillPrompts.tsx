@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Check, Clock } from 'lucide-react'
 import { dueBillPrompts, type BillPrompt } from '@shared/billPrompts'
 import { formatDateLabel, todayISO } from '@shared/dates'
@@ -11,7 +12,7 @@ export function BillPrompts() {
   const snoozed = useFinanceStore((state) => state.snoozedBillIds)
   const snoozeBill = useFinanceStore((state) => state.snoozeBill)
   const createTransaction = useFinanceStore((state) => state.createTransaction)
-  const busy = useFinanceStore((state) => state.busy)
+  const [pendingKey, setPendingKey] = useState<string | null>(null)
 
   if (!snapshot) return null
 
@@ -27,12 +28,14 @@ export function BillPrompts() {
   const fallbackAccount =
     openAccounts.find((account) => account.kind === 'checking') ?? openAccounts[0] ?? null
 
-  const markPaid = (prompt: BillPrompt) => {
+  const markPaid = async (prompt: BillPrompt) => {
     const accountId = prompt.accountId ?? fallbackAccount?.id
     if (!accountId) return
     const remainingCents = Math.max(0, prompt.amountCents - prompt.paidCents)
     if (remainingCents === 0) return
-    void createTransaction({
+    const key = `${prompt.billId}:${prompt.dueOn}`
+    setPendingKey(key)
+    await createTransaction({
       accountId,
       kind: 'bill_payment',
       amountCents: -remainingCents,
@@ -41,6 +44,7 @@ export function BillPrompts() {
       category: prompt.category,
       billId: prompt.billId
     })
+    setPendingKey(null)
   }
 
   return (
@@ -59,8 +63,10 @@ export function BillPrompts() {
       <ul className="prompt-list">
         {prompts.map((prompt) => {
           const accountId = prompt.accountId ?? fallbackAccount?.id
+          const key = `${prompt.billId}:${prompt.dueOn}`
+          const pending = pendingKey === key
           return (
-            <li key={`${prompt.billId}:${prompt.dueOn}`} className="prompt-row">
+            <li key={key} className="prompt-row">
               <span className="prompt-icon">
                 <Clock size={16} />
               </span>
@@ -86,16 +92,20 @@ export function BillPrompts() {
                   variant="primary"
                   size="sm"
                   icon={<Check size={14} />}
-                  disabled={busy || !accountId}
+                  disabled={pending || !accountId}
                   title={accountId ? 'Log this bill as paid' : 'No account available'}
-                  onClick={() => markPaid(prompt)}
+                  onClick={() => void markPaid(prompt)}
                 >
-                  {prompt.paidCents > 0 ? 'Yes, log the rest' : 'Yes, it cleared'}
+                  {pending
+                    ? 'Logging…'
+                    : prompt.paidCents > 0
+                      ? 'Yes, log the rest'
+                      : 'Yes, it cleared'}
                 </Button>
                 <Button
                   variant="quiet"
                   size="sm"
-                  disabled={busy}
+                  disabled={pending}
                   onClick={() => snoozeBill(prompt.billId)}
                 >
                   Not yet
