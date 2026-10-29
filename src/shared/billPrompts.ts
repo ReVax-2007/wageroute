@@ -46,6 +46,15 @@ export function dueBillPrompts(input: {
 }): BillPrompt[] {
   const prompts: BillPrompt[] = []
 
+  // Group once instead of scanning every payment for every bill.
+  const byBill = new Map<string, PromptPayment[]>()
+  for (const payment of input.payments) {
+    if (!payment.billId) continue
+    const bucket = byBill.get(payment.billId)
+    if (bucket) bucket.push(payment)
+    else byBill.set(payment.billId, [payment])
+  }
+
   for (const bill of input.bills) {
     if (!bill.isActive) continue
 
@@ -54,12 +63,9 @@ export function dueBillPrompts(input: {
 
     const nextOn = nextBillOccurrence(bill, addDaysISO(dueOn, 1))
     const windowStart = addDaysISO(dueOn, -EARLY_WINDOW_DAYS)
-    const paidCents = input.payments
+    const paidCents = (byBill.get(bill.id) ?? [])
       .filter(
-        (payment) =>
-          payment.billId === bill.id &&
-          payment.occurredOn >= windowStart &&
-          payment.occurredOn < nextOn
+        (payment) => payment.occurredOn >= windowStart && payment.occurredOn < nextOn
       )
       .reduce((total, payment) => total + Math.abs(payment.amountCents), 0)
     if (paidCents >= bill.amountCents) continue

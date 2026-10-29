@@ -1,13 +1,56 @@
-import { app, BrowserWindow, dialog, session, shell } from 'electron'
+import { app, BrowserWindow, dialog, Menu, session, shell } from 'electron'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { adoptLegacyDatabase, closeDatabase, getDatabase } from './db/connection'
+import { SchemaTooNewError } from './db/migrations'
 import { seedDemoIfEmpty, seedIfEmpty } from './db/seed'
 import { registerIpcHandlers } from './ipc'
 
 app.setName('WageRoute')
 
 let mainWindow: BrowserWindow | null = null
+
+/**
+ * A packaged build ships no developer tools and no Electron default menu (which
+ * carries reload, force-reload and toggle-devtools). The macOS edit menu is
+ * rebuilt by hand so copy, paste and select-all keep their shortcuts.
+ */
+function installMenu(): void {
+  if (!app.isPackaged) return
+  if (process.platform !== 'darwin') {
+    Menu.setApplicationMenu(null)
+    return
+  }
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      {
+        label: app.name,
+        submenu: [
+          { role: 'about' },
+          { type: 'separator' },
+          { role: 'hide' },
+          { role: 'hideOthers' },
+          { role: 'unhide' },
+          { type: 'separator' },
+          { role: 'quit' }
+        ]
+      },
+      {
+        label: 'Edit',
+        submenu: [
+          { role: 'undo' },
+          { role: 'redo' },
+          { type: 'separator' },
+          { role: 'cut' },
+          { role: 'copy' },
+          { role: 'paste' },
+          { role: 'selectAll' }
+        ]
+      },
+      { label: 'Window', submenu: [{ role: 'minimize' }, { role: 'zoom' }] }
+    ])
+  )
+}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -23,7 +66,8 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: true,
+      devTools: !app.isPackaged
     }
   })
 
@@ -79,13 +123,29 @@ if (!hasLock) {
           'Nothing in WageRoute was changed.'
       )
     }
-    const db = getDatabase()
+    const db = (() => {
+      try {
+        return getDatabase()
+      } catch (error) {
+        if (error instanceof SchemaTooNewError) {
+          dialog.showErrorBox(
+            'This database is from a newer WageRoute',
+            `${error.message}\n\nThe file was left untouched. Install the newer version to open it.`
+          )
+          app.quit()
+          return null
+        }
+        throw error
+      }
+    })()
+    if (!db) return
     if (app.isPackaged) {
       seedIfEmpty(db)
     } else {
       seedDemoIfEmpty(db)
     }
     registerIpcHandlers(db)
+    installMenu()
 
     createWindow()
 

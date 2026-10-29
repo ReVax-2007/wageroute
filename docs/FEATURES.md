@@ -760,6 +760,7 @@ All domain dates are constructed as UTC dates from `YYYY-MM-DD` strings. “Toda
 | Payment a few days early | Counts for the cycle if within five days of the due date |
 | Payment dated after the due date but before the next cycle | Counts as confirmed |
 | Unrelated expense in the same category | Does not silence a prompt |
+| Impossible calendar date (`2026-02-31`) | Refused before it is written; the message asks for `YYYY-MM-DD` |
 | Edit a paired transfer's account or kind | Rejected with an explanation |
 | Delete one transfer leg | Both legs are soft-deleted |
 | Delete an account with transactions | The dialog counts them and needs an explicit **Delete account and N entries**; **Archive instead** keeps everything |
@@ -773,6 +774,7 @@ All domain dates are constructed as UTC dates from `YYYY-MM-DD` strings. “Toda
 | Import transfer row from CSV | Reported as an issue; use a JSON backup to keep both legs |
 | Import settings that already exist | Local value wins |
 | Import a backup from a newer schema | Rejected with a version message |
+| Open a database written by a newer build | Refused at launch with a dialog; the file is not opened or modified |
 | JSON import with missing sync metadata | Filled with `now` and revision 1 |
 | JSON import with a dangling foreign key | The whole import rolls back |
 | Delete the database file | Packaged: next launch seeds a blank profile with the first-run prompt; development: next launch re-seeds the demo profile |

@@ -14,7 +14,8 @@ import {
   listAccounts,
   listTransactions,
   setAccountArchived,
-  updateTransaction
+  updateTransaction,
+  updateGoal
 } from './repositories'
 
 const USER_ID = '11111111-2222-3333-4444-555555555555'
@@ -196,4 +197,42 @@ test('an archived goal gets no slice of a paycheck', () => {
 
   assert.equal(plan.goalFundings.length, 0)
   assert.equal(getSnapshot(db, USER_ID).goals[0]?.fundedCents, 0)
+})
+
+test('an impossible calendar date is refused on write', () => {
+  const db = freshDb()
+  const chequing = account(db, 'Chequing')
+
+  assert.throws(
+    () =>
+      createTransaction(db, USER_ID, {
+        accountId: chequing,
+        kind: 'expense',
+        amountCents: 4_200,
+        occurredOn: '2026-02-31',
+        category: 'Misc',
+        memo: 'impossible',
+        counterAccountId: null
+      }),
+    /YYYY-MM-DD/
+  )
+  assert.equal(listTransactions(db, USER_ID).length, 0)
+})
+
+test('updating a goal that does not exist changes nothing', () => {
+  const db = freshDb()
+  const chequing = account(db, 'Chequing')
+
+  assert.throws(
+    () =>
+      updateGoal(db, USER_ID, 'missing-goal', {
+        name: 'Ghost',
+        fundingAccountIds: [chequing]
+      }),
+    /Goal not found/
+  )
+  const pointer = db
+    .prepare('SELECT dedicated_goal_id FROM accounts WHERE id = ?')
+    .get(chequing) as { dedicated_goal_id: string | null }
+  assert.equal(pointer.dedicated_goal_id, null, 'no dangling pointer was written')
 })

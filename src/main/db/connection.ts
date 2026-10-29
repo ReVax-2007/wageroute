@@ -28,8 +28,19 @@ export function getDatabase(): Database.Database {
   db.pragma('synchronous = NORMAL')
   db.pragma('foreign_keys = ON')
   db.pragma('busy_timeout = 5000')
+  // A local ledger is read far more than it is written, and the whole dataset
+  // fits in memory for years: keep a 16 MiB page cache, sort in RAM instead of
+  // a temp file, and memory-map the file so reads skip the copy.
+  db.pragma('cache_size = -16000')
+  db.pragma('temp_store = MEMORY')
+  db.pragma('mmap_size = 268435456')
 
-  migrate(db)
+  try {
+    migrate(db)
+  } catch (error) {
+    db.close()
+    throw error
+  }
   instance = db
   return db
 }

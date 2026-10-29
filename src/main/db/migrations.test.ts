@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import Database from 'better-sqlite3'
 import test from 'node:test'
-import { MIGRATIONS, SCHEMA_VERSION, migrate } from './migrations'
+import { MIGRATIONS, SCHEMA_VERSION, SchemaTooNewError, migrate } from './migrations'
 
 const USER_ID = '11111111-2222-3333-4444-555555555555'
 const ACCOUNT_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
@@ -185,5 +185,22 @@ test('v7 links round-ups, creates the wall lifecycle and drops dead settings', (
     !plan.some((step) => step.detail.includes('TEMP B-TREE')),
     'no temp B-tree for the snapshot order'
   )
+  db.close()
+})
+
+test('a database from a newer build is refused, not silently opened', () => {
+  const db = new Database(':memory:')
+  migrateThrough(db, SCHEMA_VERSION)
+  db.pragma('user_version = 99')
+
+  assert.throws(
+    () => migrate(db),
+    (error: unknown) =>
+      error instanceof SchemaTooNewError &&
+      error.code === 'SCHEMA_TOO_NEW' &&
+      error.found === 99 &&
+      error.supported === SCHEMA_VERSION
+  )
+  assert.equal(db.pragma('user_version', { simple: true }), 99, 'the file is left alone')
   db.close()
 })

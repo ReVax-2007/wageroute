@@ -1,15 +1,25 @@
-import { useEffect } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { useFinanceStore } from './store/useFinanceStore'
 import { Sidebar } from './components/Sidebar'
-import { ImportWizard } from './components/ImportWizard'
 import { Toast } from './components/ui'
 import { Dashboard } from './screens/Dashboard'
 import { PriorityWall } from './screens/PriorityWall'
 import { Goals } from './screens/Goals'
 import { Accounts } from './screens/Accounts'
-import { Spreadsheet } from './screens/Spreadsheet'
 import { Settings } from './screens/Settings'
-import { Allocator } from './screens/Allocator'
+
+// The grid engine, the wizard and the allocator are only needed once the user
+// opens them; keeping them out of the entry chunk keeps the dashboard's first
+// paint cheap.
+const Spreadsheet = lazy(() =>
+  import('./screens/Spreadsheet').then((module) => ({ default: module.Spreadsheet }))
+)
+const Allocator = lazy(() =>
+  import('./screens/Allocator').then((module) => ({ default: module.Allocator }))
+)
+const ImportWizard = lazy(() =>
+  import('./components/ImportWizard').then((module) => ({ default: module.ImportWizard }))
+)
 
 export default function App() {
   const init = useFinanceStore((state) => state.init)
@@ -65,16 +75,20 @@ export default function App() {
       <Sidebar />
       <main id="main-content" className="workspace" tabIndex={-1}>
         <div className="page">
-          {screen === 'dashboard' && <Dashboard />}
-          {screen === 'wall' && <PriorityWall />}
-          {screen === 'goals' && <Goals />}
-          {screen === 'accounts' && <Accounts />}
-          {screen === 'ledger' && <Spreadsheet />}
-          {screen === 'settings' && <Settings />}
+          <Suspense fallback={<div className="boot"><div className="boot-mark" /></div>}>
+            {screen === 'dashboard' && <Dashboard />}
+            {screen === 'wall' && <PriorityWall />}
+            {screen === 'goals' && <Goals />}
+            {screen === 'accounts' && <Accounts />}
+            {screen === 'ledger' && <Spreadsheet />}
+            {screen === 'settings' && <Settings />}
+          </Suspense>
         </div>
       </main>
-      <Allocator />
-      <ImportWizard />
+      <Suspense fallback={null}>
+        <Allocator />
+        <ImportWizard />
+      </Suspense>
       <Toast />
     </div>
   )

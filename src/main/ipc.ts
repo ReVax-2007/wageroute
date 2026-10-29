@@ -12,6 +12,7 @@ import type {
 import { emptyImportCounts } from '@shared/api'
 import { parseEntriesCsv, transactionsToCsv, type CsvEntry } from '@shared/csv'
 import { todayISO } from '@shared/dates'
+import { encodeError } from '@shared/errors'
 import {
   applyImportAnswers,
   buildAccountMap,
@@ -55,6 +56,25 @@ const MAX_IMPORT_BYTES = 64 * 1024 * 1024
 function requireId(value: unknown): string {
   if (typeof value !== 'string' || value.length === 0) throw new Error('Invalid id')
   return value
+}
+
+/**
+ * Registers a handler whose thrown errors keep their type across the process
+ * boundary: a RepositoryError's code is encoded into the message so preload can
+ * rebuild it, and anything else is rethrown untouched.
+ */
+function handle(
+  channel: string,
+  listener: (event: IpcMainInvokeEvent, ...args: never[]) => unknown
+): void {
+  ipcMain.handle(channel, async (event, ...args) => {
+    try {
+      return await listener(event, ...(args as never[]))
+    } catch (error) {
+      if (error instanceof Error) throw new Error(encodeError(error))
+      throw error
+    }
+  })
 }
 
 function ownerWindow(event: IpcMainInvokeEvent): BrowserWindow | null {
@@ -183,21 +203,21 @@ export function registerIpcHandlers(db: Database.Database): void {
   // so a value captured once here would go stale.
   const userId = (): string => repo.getLocalUserId(db)
 
-  ipcMain.handle('snapshot:get', () => repo.getSnapshot(db, userId()))
-  ipcMain.handle('db:path', () => databasePath())
-  ipcMain.handle('app:info', () => ({
+  handle('snapshot:get', () => repo.getSnapshot(db, userId()))
+  handle('db:path', () => databasePath())
+  handle('app:info', () => ({
     version: app.getVersion(),
     schemaVersion: SCHEMA_VERSION,
     electron: process.versions.electron
   }))
 
-  ipcMain.handle('account:create', (_event, input: AccountInput) =>
+  handle('account:create', (_event, input: AccountInput) =>
     repo.createAccount(db, userId(), input)
   )
-  ipcMain.handle('account:update', (_event, id: unknown, patch: Partial<AccountInput>) =>
+  handle('account:update', (_event, id: unknown, patch: Partial<AccountInput>) =>
     repo.updateAccount(db, userId(), requireId(id), patch)
   )
-  ipcMain.handle('account:delete', (_event, id: unknown, options: unknown) =>
+  handle('account:delete', (_event, id: unknown, options: unknown) =>
     repo.deleteAccount(db, userId(), requireId(id), {
       withEntries:
         typeof options === 'object' &&
@@ -205,48 +225,48 @@ export function registerIpcHandlers(db: Database.Database): void {
         (options as { withEntries?: unknown }).withEntries === true
     })
   )
-  ipcMain.handle('account:archive', (_event, id: unknown, archived: unknown) =>
+  handle('account:archive', (_event, id: unknown, archived: unknown) =>
     repo.setAccountArchived(db, userId(), requireId(id), archived === true)
   )
-  ipcMain.handle(
+  handle(
     'account:entry-count',
     (_event, id: unknown) => repo.accountEntryCount(db, userId(), requireId(id))
   )
 
-  ipcMain.handle('bill:create', (_event, input: BillInput) => repo.createBill(db, userId(), input))
-  ipcMain.handle('bill:update', (_event, id: unknown, patch: Partial<BillInput>) =>
+  handle('bill:create', (_event, input: BillInput) => repo.createBill(db, userId(), input))
+  handle('bill:update', (_event, id: unknown, patch: Partial<BillInput>) =>
     repo.updateBill(db, userId(), requireId(id), patch)
   )
-  ipcMain.handle('bill:delete', (_event, id: unknown) => repo.deleteBill(db, userId(), requireId(id)))
+  handle('bill:delete', (_event, id: unknown) => repo.deleteBill(db, userId(), requireId(id)))
 
-  ipcMain.handle('goal:create', (_event, input: GoalInput) => repo.createGoal(db, userId(), input))
-  ipcMain.handle('goal:update', (_event, id: unknown, patch: Partial<GoalInput>) =>
+  handle('goal:create', (_event, input: GoalInput) => repo.createGoal(db, userId(), input))
+  handle('goal:update', (_event, id: unknown, patch: Partial<GoalInput>) =>
     repo.updateGoal(db, userId(), requireId(id), patch)
   )
-  ipcMain.handle('goal:delete', (_event, id: unknown) => repo.deleteGoal(db, userId(), requireId(id)))
-  ipcMain.handle('goal:archive', (_event, id: unknown, archived: unknown) =>
+  handle('goal:delete', (_event, id: unknown) => repo.deleteGoal(db, userId(), requireId(id)))
+  handle('goal:archive', (_event, id: unknown, archived: unknown) =>
     repo.setGoalArchived(db, userId(), requireId(id), archived === true)
   )
 
-  ipcMain.handle('transaction:create', (_event, input: TransactionInput) =>
+  handle('transaction:create', (_event, input: TransactionInput) =>
     repo.createTransaction(db, userId(), input)
   )
-  ipcMain.handle('transaction:update', (_event, id: unknown, patch: TransactionPatch) =>
+  handle('transaction:update', (_event, id: unknown, patch: TransactionPatch) =>
     repo.updateTransaction(db, userId(), requireId(id), patch)
   )
-  ipcMain.handle('transaction:delete', (_event, id: unknown) =>
+  handle('transaction:delete', (_event, id: unknown) =>
     repo.deleteTransaction(db, userId(), requireId(id))
   )
 
-  ipcMain.handle('paycheck:commit', (_event, input: PaycheckDraftInput) =>
+  handle('paycheck:commit', (_event, input: PaycheckDraftInput) =>
     repo.commitPaycheck(db, userId(), input)
   )
 
-  ipcMain.handle('settings:save', (_event, settings: AppSettings) =>
+  handle('settings:save', (_event, settings: AppSettings) =>
     repo.writeSettings(db, userId(), settingsToRecord(settings))
   )
 
-  ipcMain.handle('backup:export', async (event) => {
+  handle('backup:export', async (event) => {
     const win = ownerWindow(event)
     const options = {
       title: 'Export a full backup',
@@ -263,7 +283,7 @@ export function registerIpcHandlers(db: Database.Database): void {
     return result.filePath
   })
 
-  ipcMain.handle('csv:export', async (event) => {
+  handle('csv:export', async (event) => {
     const win = ownerWindow(event)
     const options = {
       title: 'Export transactions as CSV',
@@ -285,7 +305,7 @@ export function registerIpcHandlers(db: Database.Database): void {
     return result.filePath
   })
 
-  ipcMain.handle('data:preview', async (event) => {
+  handle('data:preview', async (event) => {
     const path = await pickImportFile(ownerWindow(event))
     if (!path) return null
     const text = readImportText(path)
@@ -335,7 +355,7 @@ export function registerIpcHandlers(db: Database.Database): void {
     } satisfies ImportPreview
   })
 
-  ipcMain.handle('data:confirm', (_event, token: unknown, answers: unknown) => {
+  handle('data:confirm', (_event, token: unknown, answers: unknown) => {
     const pending = takeImport(requireId(token))
     const list = Array.isArray(answers) ? (answers as ImportAnswer[]) : []
     const added = emptyImportCounts()
@@ -383,7 +403,7 @@ export function registerIpcHandlers(db: Database.Database): void {
     } satisfies ImportResult
   })
 
-  ipcMain.handle('data:reset', () => {
+  handle('data:reset', () => {
     repo.wipeAllData(db)
     seedIfEmpty(db)
   })

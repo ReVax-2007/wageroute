@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { poolEarmarkedGoalsCents, safeToSpendPoolCents, totalWealthCents } from '@shared/accounts'
 import type { AppInfo, ImportCounts, ImportPreview } from '@shared/api'
+import { apiErrorMessage } from '@shared/errors'
 import type { ImportAnswer } from '@shared/importRepair'
 import { DEFAULT_SETTINGS, parseSettings } from '@shared/settings'
 import type {
@@ -83,10 +84,7 @@ interface FinanceState {
 let noticeTimer: ReturnType<typeof setTimeout> | undefined
 
 function messageOf(error: unknown): string {
-  const raw = error instanceof Error ? error.message : String(error)
-  return raw
-    .replace(/^Error invoking remote method '[^']+': /, '')
-    .replace(/^Error: /, '')
+  return apiErrorMessage(error)
 }
 
 export const useFinanceStore = create<FinanceState>((set, get) => {
