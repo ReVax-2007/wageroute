@@ -16,6 +16,7 @@ import type {
   TransactionInput,
   TransactionPatch
 } from './types'
+import type { StatementInfo } from './statements'
 
 export interface CommittedPaycheck {
   paycheckId: string
@@ -59,6 +60,10 @@ export interface ImportPreview {
   problems: ImportProblem[]
   /** Local rows a reference can be pointed at. */
   choices: Record<ImportChoiceTable, ImportChoice[]>
+  /** Present when the file is a bank statement rather than an entry list. */
+  statement?: StatementInfo
+  /** Rows the parser already left out, with the line they came from. */
+  issues?: ImportIssue[]
 }
 
 export interface ImportResult {

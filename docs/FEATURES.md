@@ -610,7 +610,7 @@ Three actions:
 
 - **Export full backup** — JSON save dialog, default `~/Documents/wageroute-backup-YYYY-MM-DD.json`.
 - **Export transactions CSV** — CSV save dialog, default `~/Documents/wageroute-transactions-YYYY-MM-DD.csv`. Memo, category, account name and institution are written as text cells with any leading `=`, `+`, `-`, `@`, tab or carriage return prefixed by an apostrophe, so opening the file in a spreadsheet evaluates nothing; amounts stay numeric.
-- **Import data** — open dialog accepting `.json` and `.csv`, then the import wizard.
+- **Import data** — open dialog accepting `.json`, `.csv`, `.ofx` and `.qfx`, then the import wizard. A CSV with no Account column and any OFX/QFX file are read as a bank statement.
 
 Both exports are written to a temporary file, flushed and renamed into place, so a failed or interrupted export leaves the previous file untouched instead of a half-written one. The file is created mode `0600`.
 
@@ -619,6 +619,7 @@ Both exports are written to a temporary file, flushed and renamed into place, so
 The wizard has three steps — choose file, missing info, review — and the same component serves the first-run "Import a backup" button on the dashboard.
 
 - **Missing info** shows one card per row that cannot import as it stands, with an editor per question: text, amount, whole number, date, an enum dropdown, or a dropdown of local rows for a foreign key (with **Leave unlinked** where the column allows NULL). CSV account names that match nothing are grouped into one question per name covering every line that shares it.
+- **Bank statements** (OFX 1.x/2.x, QFX, and any CSV without an Account column) are read as one account's history: the wizard prints the bank, masked account number, covered date range and closing balance, lists lines it left out (bad dates, zero amounts, transfers), and asks a single question — which local account these lines belong to. Nothing is pre-selected and **Import** stays disabled until you answer, because a statement's account number is not a local account name and a guess would post money into the wrong balance.
 - Each card offers **Leave this row out** (or **Leave these lines out** for CSV). Filling an answer in patches the row; leaving it blank drops the row instead of failing the import.
 - **Review** names what is being imported, echoes the values you supplied, and lists everything not imported with every reason on that row plus how to fix the source file. A warning counts rows still incomplete before you confirm.
 - A file with nothing missing skips straight to review, so a clean WageRoute backup is still one click.
@@ -737,7 +738,8 @@ All domain dates are constructed as UTC dates from `YYYY-MM-DD` strings. “Toda
 | 90-day projections | Implemented | Bills and goal deadlines |
 | Dark/light/system themes | Implemented | Tri-state, follows `prefers-color-scheme` live |
 | JSON backup, partial JSON import | Implemented | Additive |
-| CSV export and entries import | Implemented | Export covers the whole ledger |
+| CSV export and entries import | Implemented | Export covers the whole ledger; Debit/Credit columns are read |
+| Bank statement import (OFX/QFX, account-less CSV) | Implemented | Destinations chosen in the wizard; balance shown, not reconciled |
 | Keyboard dialogs and focus management | Implemented | Trap, Escape, focus restore, skip link, named headings |
 | Multi-currency display | Partial | Currency setting exists; no selector and no conversion |
 | Bank connections / statement sync | Not implemented | Manual entry and file import only |

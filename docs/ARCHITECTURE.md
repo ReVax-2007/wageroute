@@ -341,11 +341,14 @@ Both round-up legs share a new `transfer_group_id`. Imported CSV entries call th
 
 ```text
 data:preview
-  ├─ open dialog (JSON or CSV) → null when cancelled
+  ├─ open dialog (JSON, CSV, OFX/QFX) → null when cancelled
   ├─ read file, reject > 64 MiB
-  ├─ .csv  ──► parseEntriesCsv ──► findUnmappedAccounts ──► problems
-  ├─ .json ──► parseBackupJson ──► findImportProblems ──────► problems
-  └─ hold the file under a token, return ImportPreview { token, fileRows, problems, choices }
+  ├─ .ofx/.qfx ──► parseOfxStatement ──► one statement question ──► problems
+  ├─ .csv  ──► parseEntriesCsv
+  │             ├─ with Account column ──► findUnmappedAccounts ──► problems
+  │             └─ without one ─────────► describeCsvStatement ──► one statement question
+  ├─ .json ──► parseBackupJson ──► findImportProblems ──────────► problems
+  └─ hold the file under a token, return ImportPreview { token, fileRows, problems, choices, statement? }
 
 ImportWizard (renderer)
   ├─ step 2: one question per problem, answered or left out
@@ -353,7 +356,7 @@ ImportWizard (renderer)
 
 data:confirm
   ├─ takeImport(token)          ← single use, oldest of 8 evicted
-  ├─ .csv  ──► buildAccountMap ──► mergeEntries ──► result
+  ├─ entries ──► buildAccountMap ──► mergeEntries ──► result
   └─ .json ──► findImportProblems (same pure rules, re-derived)
              ──► applyImportAnswers ──► mergeBackup ──► result
 ```
@@ -361,6 +364,8 @@ data:confirm
 Problem detection is shared, pure code in `src/shared/importRepair.ts`, so the main process re-derives exactly the questions the wizard showed and can trust `table:index` answer keys. Anything still unusable is dropped with a reason rather than thrown, and `mergeBackup` / `mergeEntries` isolate the remaining database errors per row.
 
 JSON import preserves IDs for cross-table links. CSV import creates new UUIDs and resolves accounts by name — or by your mapping in the wizard — because a CSV has no IDs to preserve.
+
+A bank statement (OFX/QFX, or a CSV with no Account column) is an entries file in which every row's account name is blank. The main process builds one synthetic mapping keyed on `accountName: ''` with no pre-selected answer; `buildAccountMap` turns the wizard's choice into `{ '': accountId }`, and `mergeEntries` resolves every line through `Object.hasOwn`. An unanswered statement therefore writes nothing and is reported once, not once per line.
 
 ### Delete an account
 

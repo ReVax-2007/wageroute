@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import { Download } from 'lucide-react'
 import type { ImportCounts } from '@shared/api'
 import type { ImportAnswer, ImportProblem, ImportTable } from '@shared/importRepair'
+import { formatMoney } from '@shared/money'
+import type { StatementInfo } from '@shared/statements'
 import { useFinanceStore } from '../store/useFinanceStore'
 import { Button, Field, Modal } from './ui'
 
@@ -37,6 +39,19 @@ function describeFiles(rows: ImportCounts): string {
     .filter(([, count]) => count > 0)
     .map(([table, count]) => `${count} ${table.replace(/s$/, '')}${count === 1 ? '' : 's'}`)
   return parts.length > 0 ? parts.join(' · ') : 'no rows'
+}
+
+/** What the bank's own file claims, printed so it can be checked against the paper. */
+function statementSummary(info: StatementInfo): string {
+  const parts: string[] = []
+  if (info.bank) parts.push(info.bank)
+  if (info.accountLabel) parts.push(`account ${info.accountLabel}`)
+  if (info.from && info.to) parts.push(`${info.from} → ${info.to}`)
+  if (info.balanceCents !== null) {
+    const on = info.balanceOn ? ` on ${info.balanceOn}` : ''
+    parts.push(`closing balance ${formatMoney(info.balanceCents, info.currency ?? 'USD')}${on}`)
+  }
+  return parts.join(' · ')
 }
 
 /**
@@ -119,6 +134,10 @@ export function ImportWizard() {
   const leaveOutLabel = isLines ? 'Leave these lines out' : 'Leave this row out'
   const fillInLabel = isLines ? 'Fill these lines in instead' : 'Fill this row in instead'
   const leftOutNote = isLines ? 'you chose to leave them out' : 'you chose to leave it out'
+  const parseIssues = preview.issues ?? []
+  // A statement with no account chosen would write nothing, so the confirm
+  // waits for an answer instead of producing an empty import.
+  const statementNeedsAccount = preview.statement !== undefined && empty.length > 0
 
   // The review must promise only what will actually be written: rows the user
   // left out are subtracted from the file's own totals.
@@ -222,7 +241,13 @@ export function ImportWizard() {
     <Modal
       wide
       title="Import your data"
-      subtitle={`${fileNameOf(preview.path)} · ${preview.format === 'entries' ? 'entry list' : 'WageRoute backup'}`}
+      subtitle={`${fileNameOf(preview.path)} · ${
+        preview.statement
+          ? 'bank statement'
+          : preview.format === 'entries'
+            ? 'entry list'
+            : 'WageRoute backup'
+      }`}
       onClose={closeImport}
       footer={
         <>
@@ -237,7 +262,7 @@ export function ImportWizard() {
           )}
           <Button
             variant="primary"
-            disabled={busy}
+            disabled={busy || statementNeedsAccount}
             icon={<Download size={15} />}
             onClick={async () => {
               setImportError(null)
@@ -290,6 +315,21 @@ export function ImportWizard() {
       </nav>
 
       <div className="wizard-step" key={currentStep}>
+        {preview.statement && (
+          <p className="wizard-hint">
+            <strong>Bank statement</strong> · {statementSummary(preview.statement)}
+          </p>
+        )}
+        {parseIssues.length > 0 && (
+          <div className="import-review-list">
+            <strong>Left out while reading</strong>
+            {parseIssues.map((issue, index) => (
+              <p className="import-review-row" key={`${issue.line ?? 'file'}-${index}`}>
+                {issue.message}
+              </p>
+            ))}
+          </div>
+        )}
         {currentStep === 2 && (
           <>
             <p className="wizard-hint">
