@@ -87,7 +87,7 @@ The **Allocator** is a full-screen wizard available from the sidebar or the Over
 | Grid | react-data-grid 7 |
 | Icons | lucide-react |
 | Database | better-sqlite3 13, SQLite in WAL mode |
-| Packaging | electron-builder 26 (DMG, NSIS) |
+| Packaging | electron-builder 26 (DMG, NSIS, portable, zip, AppImage, deb, rpm) |
 | Tests | `node:test` through `tsx` |
 | CI | GitHub Actions: `verify` on Ubuntu for every pull request; tag builds produce macOS + Windows installers |
 
@@ -120,13 +120,15 @@ cp -R /tmp/wageroute-dmg/WageRoute.app /Applications/
 hdiutil detach /tmp/wageroute-dmg
 ```
 
-Windows: download `WageRoute.Setup.<version>-x64.exe` (or `-arm64.exe`); SmartScreen shows “Windows protected your PC” on first run — choose **More info → Run anyway**.
+**Windows:** four formats, all unsigned — the NSIS installer (`WageRoute.Setup.<version>-x64.exe`, or `-arm64.exe`), an MSI (`WageRoute-<version>-x64.msi`) for managed or silent deployment, a portable single-file exe, and an unpack-and-run zip. SmartScreen shows “Windows protected your PC” on first run — choose **More info → Run anyway**. The MSI and the NSIS installer are separate products: uninstall one before installing the other, or Windows will list both.
+
+**Linux:** AppImage (no root, works on any distro — `chmod +x` and run), plus `.deb` for Debian/Ubuntu/Mint and `.rpm` for Fedora/RHEL, in x64 and arm64. All unsigned; a distro package manager may ask you to confirm installation.
 
 Full details, including the Gatekeeper behaviour on each macOS version, are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) and [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Quick start
 
-Requirements: **Node.js 22 or newer** (CI uses 24) and npm. macOS packaging expects Xcode Command Line Tools; Windows packaging is normally done on Windows or in CI.
+Requirements: **Node.js 22 or newer** (CI uses 24) and npm. macOS packaging expects Xcode Command Line Tools; Windows packaging is normally done on Windows or in CI, and the MSI target only builds on Windows because it needs WiX.
 
 ```bash
 npm install          # also rebuilds better-sqlite3 for Electron
@@ -135,7 +137,8 @@ npm test             # domain, accounts, import-repair, backup and repository te
 npm run typecheck    # main/preload and renderer type checks
 npm run build        # typecheck + production bundles in out/
 npm run dist:mac     # DMG for arm64 and x64
-npm run dist:win     # NSIS installer for x64 and arm64
+npm run dist:win     # NSIS, MSI, portable exe and zip for x64 and arm64 (MSI needs Windows)
+npm run dist:linux   # AppImage, deb and rpm for x64 and arm64
 ```
 
 `npm run dev` seeds a demo profile (Alex, with accounts, bills, goals, paychecks and transactions) the first time it launches, so every screen is explorable. Packaged builds are different: first launch creates an empty profile and the dashboard offers **Start from scratch** or **Import a backup**. In both cases the seed never runs again once a user row exists.
@@ -148,7 +151,7 @@ The database file is `wageroute.db` under Electron's per-user data directory:
 | --- | --- |
 | macOS | `~/Library/Application Support/WageRoute/wageroute.db` |
 | Windows | `%APPDATA%\WageRoute\wageroute.db` |
-| Linux (development) | `~/.config/WageRoute/wageroute.db` |
+| Linux | `~/.config/WageRoute/wageroute.db` |
 
 SQLite also creates `wageroute.db-wal` and `wageroute.db-shm` while the app is open. Copy all three together if you copy the database while WageRoute is running.
 

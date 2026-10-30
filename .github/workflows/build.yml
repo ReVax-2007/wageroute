@@ -1,10 +1,19 @@
 name: Build desktop installers
 
+# Packaging runs on demand and on a tag. A tag run attaches every artifact to a
+# draft GitHub Release; publishing that release stays a separate, explicit step.
 on:
   workflow_dispatch:
   push:
     tags:
       - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -13,11 +22,30 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            target: mac
+            name: mac
+            args: --mac
             artifact: release/*.dmg
           - os: windows-latest
-            target: win
-            artifact: release/*.exe
+            name: win
+            args: --win
+            artifact: |
+              release/*.exe
+              release/*.zip
+              release/*.msi
+          - os: ubuntu-latest
+            name: linux-x64
+            args: --linux --x64
+            artifact: |
+              release/*.AppImage
+              release/*.deb
+              release/*.rpm
+          - os: ubuntu-24.04-arm
+            name: linux-arm64
+            args: --linux --arm64
+            artifact: |
+              release/*.AppImage
+              release/*.deb
+              release/*.rpm
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -28,12 +56,103 @@ jobs:
           node-version: 24
           cache: npm
 
+      # Same gate as the `verify` job: nothing is packaged from a tree that has
+      # not passed the tests and both type checks.
       - run: npm ci
       - run: npm test
-      - run: npm run dist:${{ matrix.target }}
+      - run: npm run build
+
+      - run: npx electron-builder ${{ matrix.args }} --publish never
+
+      - name: Install the MSI and launch the app
+        if: matrix.name == 'win'
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem release\*x64.msi | Select-Object -First 1
+          if (!$msi) { throw "no x64 MSI was produced" }
+
+          Start-Process msiexec.exe -Wait -ArgumentList "/i `"$($msi.FullName)`" /qn /l*v msi-install.log"
+          $exe = Join-Path $env:LOCALAPPDATA 'Programs\WageRoute\WageRoute.exe'
+          if (!(Test-Path $exe)) {
+            Get-Content msi-install.log -Tail 60
+            throw "MSI did not install to $exe"
+          }
+
+          # The database is opened during boot, before the window appears, so
+          # its presence proves the packaged app really started.
+          $proc = Start-Process $exe -PassThru
+          $db = Join-Path $env:APPDATA 'WageRoute\wageroute.db'
+          $deadline = (Get-Date).AddSeconds(120)
+          while ((Get-Date) -lt $deadline -and !(Test-Path $db)) { Start-Sleep 2 }
+          if (!(Test-Path $db)) { throw "the app ran but never created $db" }
+          Stop-Process -Id $proc.Id -Force
+          Start-Sleep 5
+
+          # Reinstalling the same MSI must be an upgrade, not a second product.
+          Start-Process msiexec.exe -Wait -ArgumentList "/i `"$($msi.FullName)`" /qn"
+          $entries = @(Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' |
+            ForEach-Object { Get-ItemProperty $_.PSPath } |
+            Where-Object { $_.DisplayName -like 'WageRoute*' })
+          if ($entries.Count -ne 1) { throw "expected one uninstall entry, found $($entries.Count)" }
+
+          Start-Process msiexec.exe -Wait -ArgumentList "/x `"$($msi.FullName)`" /qn"
+          if (Test-Path $exe) { throw "uninstall left the executable behind" }
+          if (Test-Path (Join-Path $env:LOCALAPPDATA 'Programs\WageRoute')) {
+            throw "uninstall left the install directory behind"
+          }
+
+      - name: Launch the packaged app
+        if: matrix.name == 'linux-x64' || matrix.name == 'linux-arm64'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb
+
+          check_boot() {
+            local label="$1" home="$2" bin="$3"
+            HOME="$home" xvfb-run -a --server-args="-screen 0 1280x800x24" \
+              env APPIMAGE_EXTRACT_AND_RUN=1 "$bin" --no-sandbox &
+            local pid=$!
+            local db="$home/.config/WageRoute/wageroute.db"
+            for _ in $(seq 1 60); do
+              [ -f "$db" ] && break
+              sleep 2
+            done
+            kill "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+            if [ ! -f "$db" ]; then
+              echo "$label started but never created its database"
+              exit 1
+            fi
+            echo "$label booted and created its ledger"
+          }
+
+          appimage=$(ls release/*.AppImage | head -1)
+          chmod +x "$appimage"
+          check_boot "AppImage" "$(mktemp -d)" "$appimage"
+
+          deb=$(ls release/*.deb | head -1)
+          dpkg-deb -x "$deb" /tmp/deb-root
+          deb_bin=$(find /tmp/deb-root -name wageroute -type f | head -1)
+          if [ -z "$deb_bin" ]; then
+            echo "the deb contains no wageroute binary"
+            exit 1
+          fi
+          check_boot "deb" "$(mktemp -d)" "$deb_bin"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wageroute-${{ matrix.target }}
+          name: wageroute-${{ matrix.name }}
           path: ${{ matrix.artifact }}
           if-no-files-found: error
+
+      # A draft release keeps the artifacts together without publishing them;
+      # the release notes and the publish step stay under human control.
+      - name: Attach the installers to the draft release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 ||
+            gh release create "$GITHUB_REF_NAME" --draft --title "WageRoute $GITHUB_REF_NAME"
+          gh release upload "$GITHUB_REF_NAME" ${{ matrix.artifact }} --clobber

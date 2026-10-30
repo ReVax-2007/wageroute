@@ -46,6 +46,22 @@ win:
       arch:
         - x64
         - arm64
+    # MSI for managed deployment (Group Policy, Intune, sccm). WiX only runs
+    # on Windows, so this target is built by the windows-latest CI job.
+    - target: msi
+      arch:
+        - x64
+        - arm64
+    # Portable single-file exe and unpack-and-run zip, for users who cannot
+    # or do not want to run an installer. All of these are unsigned.
+    - target: portable
+      arch:
+        - x64
+        - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
 # Pinned so release assets have one predictable name per platform and
 # architecture instead of inheriting electron-builder's per-target defaults.
 dmg:
@@ -57,3 +73,36 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   shortcutName: WageRoute
+msi:
+  artifactName: WageRoute-${version}-${arch}.msi
+  oneClick: false
+  perMachine: false
+  createDesktopShortcut: true
+  shortcutName: WageRoute
+portable:
+  artifactName: WageRoute-${version}-${arch}.portable.exe
+linux:
+  icon: build/icon.png
+  category: Office
+  maintainer: Xavier Voet
+  # AppImage runs on any distro without root; deb and rpm cover the two big
+  # package-manager families. All unsigned; distros may warn on install.
+  target:
+    - target: AppImage
+      arch:
+        - x64
+        - arm64
+    - target: deb
+      arch:
+        - x64
+        - arm64
+    - target: rpm
+      arch:
+        - x64
+        - arm64
+appImage:
+  artifactName: WageRoute-${version}-${arch}.AppImage
+deb:
+  artifactName: WageRoute-${version}-${arch}.deb
+rpm:
+  artifactName: WageRoute-${version}-${arch}.rpm

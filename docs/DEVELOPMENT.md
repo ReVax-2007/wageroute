@@ -61,7 +61,8 @@ npm run postinstall
 | `npm run build` | typecheck + `electron-vite build` | `out/main`, `out/preload`, `out/renderer` |
 | `npm run dist` | build + `electron-builder` | Current platform |
 | `npm run dist:mac` | build + `electron-builder --mac` | DMG, arm64 + x64 |
-| `npm run dist:win` | build + `electron-builder --win` | NSIS, x64 + arm64 |
+| `npm run dist:win` | build + `electron-builder --win` | NSIS + MSI + portable + zip, x64 + arm64 (MSI needs Windows: WiX) |
+| `npm run dist:linux` | build + `electron-builder --linux` | AppImage + deb + rpm, x64 + arm64 |
 
 There is no lint script and no formatter configuration. Consistency is maintained by convention and type checking.
 
@@ -522,7 +523,8 @@ Architecture matters too: an arm64 Electron build needs an arm64 native module. 
 | JSON import fails with a foreign key error | Partial file references rows that are not local or earlier in the file | Include the referenced rows or null the links |
 | Database changes seem lost | App still running and WAL not checkpointed | Quit before copying; copy `.db`, `-wal` and `-shm` |
 | macOS refuses to open a build | Unsigned app, Gatekeeper | Right-click → Open, or sign/notarize |
-| Windows SmartScreen warning | Unsigned NSIS installer | Expected for unsigned builds |
+| Windows SmartScreen warning | Unsigned installer, portable exe or zip | Expected for unsigned builds |
+| Linux package manager warning | Unsigned deb/rpm, unverified AppImage | Expected for unsigned builds; verify the SHA-256 from SHA256SUMS.txt |
 | Dev server port in use | Another Vite process | Stop it; Vite will otherwise choose the next port |
 | TypeScript cannot resolve `@shared` | Alias missing in one config | Update both tsconfigs and `electron.vite.config.ts` |
 | `electron-builder` uses the default icon | Icon path wrong or missing | Confirm `build/icon.icns` and `build/icon.png` |
