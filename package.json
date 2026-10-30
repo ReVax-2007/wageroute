@@ -5,12 +5,14 @@
   "description": "Zero-based paycheck routing for the desktop.",
   "main": "./out/main/index.js",
   "license": "SEE LICENSE IN LICENSE",
+  "packageManager": "npm@11.20.0",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
     "dev": "electron-vite dev",
     "start": "electron-vite preview",
+    "pretest": "node scripts/check-test-list.mjs",
     "test": "node --import tsx --test src/shared/dates.test.ts src/shared/errors.test.ts src/shared/domain.test.ts src/shared/cadence.test.ts src/shared/occurrences.test.ts src/shared/accounts.test.ts src/shared/backup-example.test.ts src/shared/backup-merge.test.ts src/shared/importRepair.test.ts src/shared/kinds.test.ts src/shared/csv.test.ts src/main/db/dedicated-accounts.test.ts src/main/db/migrations.test.ts src/main/db/reserves.test.ts src/main/db/legacy.test.ts src/main/db/maintenance.test.ts src/main/db/ledger-guards.test.ts src/main/files.test.ts",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "tsc --noEmit -p tsconfig.json",

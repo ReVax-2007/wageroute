@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react'
-import { Plus, Sheet } from 'lucide-react'
+import { Landmark, Plus, Sheet } from 'lucide-react'
 import { todayISO } from '@shared/dates'
 import { parseMoneyToCents } from '@shared/money'
 import { projectUpcoming } from '@shared/projections'
 import type { TransactionInput, TransactionKind } from '@shared/types'
-import { Button, Field, Modal, Segmented } from '../components/ui'
+import { Button, EmptyState, Field, Modal, Segmented } from '../components/ui'
 import { ProjectionsGrid } from '../components/ProjectionsGrid'
 import { TransactionsGrid } from '../components/TransactionsGrid'
 import { activeBills, TRANSACTION_KIND_LABEL } from '../lib/finance'
@@ -12,12 +12,18 @@ import { useFinanceStore } from '../store/useFinanceStore'
 
 type SheetTab = 'ledger' | 'projections'
 
-const KINDS = Object.keys(TRANSACTION_KIND_LABEL) as TransactionKind[]
+// A manual entry carries no bill or goal, so the two kinds whose meaning is
+// "close that reservation" or "fund that goal" stay with the flows that know
+// which record is being paid — the Priority Wall prompt and the goal card.
+const KINDS = (Object.keys(TRANSACTION_KIND_LABEL) as TransactionKind[]).filter(
+  (kind) => kind !== 'bill_payment' && kind !== 'goal_funding'
+)
 const HORIZON_DAYS = 90
 
 export function Spreadsheet() {
   const snapshot = useFinanceStore((state) => state.snapshot)
   const settings = useFinanceStore((state) => state.settings)
+  const go = useFinanceStore((state) => state.go)
   const [tab, setTab] = useState<SheetTab>('ledger')
   const [adding, setAdding] = useState(false)
 
@@ -35,6 +41,7 @@ export function Spreadsheet() {
   const currency = settings.currency
   const shown = snapshot.transactions.length
   const hidden = Math.max(0, snapshot.transactionTotal - shown)
+  const liveAccounts = snapshot.accounts.filter((account) => !account.isArchived)
 
   return (
     <>
@@ -48,7 +55,13 @@ export function Spreadsheet() {
               : `A read-only forecast of the next ${HORIZON_DAYS} days of bills and goal deadlines, built from your own numbers.`}
           </p>
         </div>
-        <Button variant="primary" icon={<Plus size={16} />} onClick={() => setAdding(true)}>
+        <Button
+          variant="primary"
+          icon={<Plus size={16} />}
+          onClick={() => setAdding(true)}
+          disabled={liveAccounts.length === 0}
+          title={liveAccounts.length === 0 ? 'Add an account before recording an entry' : undefined}
+        >
           Add entry
         </Button>
       </header>
@@ -56,6 +69,7 @@ export function Spreadsheet() {
       <section className="card sheet-card">
         <header className="sheet-toolbar">
           <Segmented<SheetTab>
+            label="Spreadsheet view"
             value={tab}
             onChange={setTab}
             options={[
@@ -87,19 +101,30 @@ export function Spreadsheet() {
           </p>
         )}
 
-        <div className={`grid-host${tab === 'ledger' && hidden > 0 ? ' has-note' : ''}`}>
+        <div className="grid-host">
           {tab === 'ledger' ? (
-            snapshot.transactions.length === 0 ? (
-              <div className="empty">
-                <div className="empty-icon">
-                  <Sheet size={20} />
-                </div>
-                <h3>No entries yet</h3>
-                <p>Add an expense, a transfer or an adjustment to start the ledger.</p>
-                <Button variant="primary" onClick={() => setAdding(true)}>
-                  Add your first entry
-                </Button>
-              </div>
+            liveAccounts.length === 0 ? (
+              <EmptyState
+                icon={<Landmark size={20} />}
+                title="Add an account first"
+                body="Every ledger entry belongs to an account, so the grid stays empty until there is one to record against."
+                action={
+                  <Button variant="primary" onClick={() => go('accounts')}>
+                    Add your first account
+                  </Button>
+                }
+              />
+            ) : snapshot.transactions.length === 0 ? (
+              <EmptyState
+                icon={<Sheet size={20} />}
+                title="No entries yet"
+                body="Add an expense, a transfer or an adjustment to start the ledger."
+                action={
+                  <Button variant="primary" onClick={() => setAdding(true)}>
+                    Add your first entry
+                  </Button>
+                }
+              />
             ) : (
               <TransactionsGrid
                 rows={snapshot.transactions}

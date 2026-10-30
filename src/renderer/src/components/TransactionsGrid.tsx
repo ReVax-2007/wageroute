@@ -160,7 +160,7 @@ export function TransactionsGrid({
       },
       {
         key: 'actions',
-        name: '',
+        name: 'Actions',
         width: 64,
         renderCell: ({ row }) => (
           <button
@@ -187,7 +187,7 @@ export function TransactionsGrid({
 
   return (
     <DataGrid
-      className="rdg-dark"
+      className="rdg-themed"
       columns={columns}
       rows={orderedRows}
       rowKeyGetter={(row) => row.id}

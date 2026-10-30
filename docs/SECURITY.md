@@ -4,7 +4,7 @@ WageRoute is a **single-user, local-only desktop ledger**. It does not authentic
 
 This document describes what is actually implemented, what the trust boundaries are, what an attacker with local access can do, and which weaknesses are known and accepted. It is deliberately specific; “secure” without a threat model is not useful.
 
-> **Scope:** the application in this repository, versions `1.0.x`. There is no production server, hosted service or multi-tenant deployment to assess.
+> **Scope:** the application in this repository, versions `1.1.x`. There is no production server, hosted service or multi-tenant deployment to assess.
 
 ---
 
@@ -44,11 +44,11 @@ There is no long-term-support branch, no patch guarantee and no CVE process. Thi
 
 ## Reporting a vulnerability
 
-There is no public repository, security mailbox or bug bounty yet. Report privately to the maintainer through the channel you use to receive builds.
+There is no security mailbox or bug bounty yet. Report privately to the maintainer — use **Security → Report a vulnerability** if private reporting is enabled on the repository, otherwise the channel you use to receive builds. Do not open a public issue.
 
 Please include:
 
-- the WageRoute version and schema version (Settings shows the database path; `package.json` shows the app version);
+- the WageRoute version and schema version (Settings → About shows both);
 - operating system and architecture;
 - steps to reproduce, ideally with a **synthetic** ledger;
 - the impact you believe it has;
@@ -236,7 +236,7 @@ connect-src 'self' ws://localhost:* http://localhost:*
 
 The Vite dev server needs both. A packaged build does not: `strictCsp()` in [electron.vite.config.ts](../electron.vite.config.ts) replaces the meta tag during the build with the policy quoted under [Application shell hardening](#application-shell-hardening), which has no inline-script allowance and `connect-src 'self'` only. The shipped page therefore cannot start an inline script or open a connection to a local service, and a compromised renderer has no CSP-sanctioned way to run injected code.
 
-The main process can open an external browser for `http(s)` URLs passed to `window.open`. The UI contains no links and never calls `window.open`, so this is dormant behaviour. If a renderer compromise occurs, that handler is a potential exfiltration path through a URL; it should be restricted to an allowlist or removed if it stays unused.
+The main process can open an external browser for `http(s)` URLs passed to `window.open` (`setWindowOpenHandler` in [src/main/index.ts](../src/main/index.ts)). The one UI link is the static **Buy me a coffee** anchor in Settings, which targets `_blank` and therefore leaves the app through this handler; no other page opens an external URL. If a renderer compromise occurs, that handler is a potential exfiltration path through a URL; it should be restricted to an allowlist or removed if it stays unused.
 
 ---
 
@@ -250,7 +250,7 @@ Current controls:
 - The runtime dependency set is small: React, React DOM, Zustand, react-data-grid, lucide-react and better-sqlite3. The rest is build tooling.
 - `better-sqlite3` is rebuilt against the installed Electron ABI by `postinstall` and unpacked from the asar archive, so the binary that loads is the one built for that app.
 - No runtime CDN, remote font, remote image or remote script is used. The CSP blocks remote origins by default.
-- The repository is recommended to stay private until the source and history have been reviewed for anything that should not be public.
+- The repository is public at `ReVax-2007/wageroute`. The source-available [LICENSE](../LICENSE) keeps commercial redistribution with the licensor, and nothing user-financial is ever committed.
 
 Known gaps:
 
@@ -350,7 +350,7 @@ Likelihood assumes a normal personal installation, not a targeted investigation.
 
 ## Known weaknesses
 
-Listed with severity for this app's context. None are fixed in `1.0.x` unless stated.
+Listed with severity for this app's context. None are fixed in `1.1.x` unless stated.
 
 | Weakness | Severity | Impact | Notes |
 | --- | --- | --- | --- |
@@ -361,7 +361,7 @@ Listed with severity for this app's context. None are fixed in `1.0.x` unless st
 | No dependency audit, SBOM or provenance | **Medium** | Supply-chain issues are found late | `npm ci` and review only |
 | GitHub Actions pinned by major tag | **Medium** | A moved/compromised action tag affects builds | Pin to commit SHAs |
 | No app lock or idle timeout | **Medium** on shared devices | Anyone at an unlocked session can read the ledger | No auth by design |
-| External URL handler is unrestricted | **Low** today | Potential exfiltration if renderer is compromised | No UI links; remove or allowlist |
+| External URL handler is unrestricted | **Low** today | Potential exfiltration if renderer is compromised | Only the Settings support link uses it; remove or allowlist |
 | Default backup path is Documents | **Low–Medium** | May be cloud-synced | User can choose another path |
 | No audit log of edits/deletes | **Low–Medium** | Cannot reconstruct who changed what | Single-user app; backups are the fallback |
 | Error messages may include local paths | **Low** | Reveals username/path to the local user | Not remote |

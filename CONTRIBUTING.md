@@ -55,7 +55,7 @@ For migration or import tests, work on a **copy** of a database, never the live 
 - **Imports stay additive.** Do not turn them into destructive restores or silent overwrites without an accepted ADR.
 - **Delete means soft delete.** Preserve tombstones unless a change explicitly addresses purge/compaction.
 - **No new network calls, telemetry, analytics or crash reporting.** WageRoute is local-only by design.
-- **UI changes are tested manually.** Check both themes, the empty state and the failure path. Include a screenshot in the pull request when appearance changes.
+- **UI changes are tested manually.** Check dark and light, the empty state, the failure path, and the 1060×700 minimum window. Include a screenshot in the pull request when appearance changes.
 - **Documentation is part of the change.** Update the relevant file in `docs/` when behaviour, data, commands or security assumptions change. Load-bearing decisions need an ADR in `docs/decisions/`.
 
 ## Pull requests

@@ -48,6 +48,7 @@ export function Allocator() {
   const commitPaycheck = useFinanceStore((state) => state.commitPaycheck)
   const saveSettings = useFinanceStore((state) => state.saveSettings)
   const busy = useFinanceStore((state) => state.busy)
+  const go = useFinanceStore((state) => state.go)
 
   // A routing write must finish before Escape or a backdrop click hides it.
   const closeIfIdle = () => {
@@ -72,16 +73,22 @@ export function Allocator() {
   const [error, setError] = useState<string | null>(null)
   const [confirmedDuplicate, setConfirmedDuplicate] = useState(false)
 
+  // A paycheck lands in a deposit account, never on a credit card.
+  const depositAccounts = useMemo(
+    () =>
+      (snapshot?.accounts ?? []).filter(
+        (account) =>
+          !account.isArchived && (account.kind === 'checking' || account.kind === 'savings')
+      ),
+    [snapshot?.accounts]
+  )
+
   useEffect(() => {
     if (!open) return
-    const accounts = snapshot?.accounts ?? []
     const preferred =
-      accounts.find(
-        (account) => account.id === settings.defaultDepositAccountId && !account.isArchived
-      ) ??
-      accounts.find((account) => account.kind === 'checking' && !account.isArchived) ??
-      accounts.find((account) => !account.isArchived) ??
-      accounts[0]
+      depositAccounts.find((account) => account.id === settings.defaultDepositAccountId) ??
+      depositAccounts.find((account) => account.kind === 'checking') ??
+      depositAccounts[0]
     setStep(1)
     setIncome('')
     setReceivedOn(todayISO())
@@ -195,10 +202,6 @@ export function Allocator() {
     if (!accountId) {
       setError('Choose the account this money landed in')
       setStep(1)
-      return
-    }
-    if (overAllocated) {
-      setError(`Splits add up to ${splitTotal}% of the surplus. Bring them to 100% or less.`)
       return
     }
     if (duplicate && !confirmedDuplicate) {
@@ -346,12 +349,18 @@ export function Allocator() {
                       value={accountId}
                       onChange={(event) => setAccountId(event.target.value)}
                     >
-                      {snapshot.accounts.map((account) => (
+                      {depositAccounts.length === 0 && <option value="">No account yet</option>}
+                      {depositAccounts.map((account) => (
                         <option key={account.id} value={account.id}>
                           {account.name}
                         </option>
                       ))}
                     </select>
+                    {depositAccounts.length === 0 && (
+                      <span className="field-hint">
+                        Add a checking or savings account, then reopen the allocator.
+                      </span>
+                    )}
                   </label>
                   <label className="field">
                     <span className="field-label">Pay cadence</span>
@@ -368,6 +377,23 @@ export function Allocator() {
                     </select>
                   </label>
                 </div>
+
+                {depositAccounts.length === 0 && (
+                  <div className="setting-empty">
+                    <p className="field-hint">
+                      A paycheck has to land in a checking or savings account, and none exists yet.
+                    </p>
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        close()
+                        go('accounts')
+                      }}
+                    >
+                      Add an account
+                    </Button>
+                  </div>
+                )}
 
                 <p className="wizard-hint">
                   Next we hold back{' '}
@@ -526,7 +552,10 @@ export function Allocator() {
                   />
                 </div>
 
-                <div className={overAllocated ? 'split-check over' : 'split-check'}>
+                <div
+                  className={overAllocated ? 'split-check over' : 'split-check'}
+                  aria-live={overAllocated ? 'polite' : undefined}
+                >
                   <span>Routed {splitTotal}% of the True Surplus</span>
                   <span>
                     {overAllocated
@@ -727,7 +756,7 @@ function SplitRow({
         max={maxPercent}
         step={1}
         value={percent}
-        aria-label={`${label} percent`}
+        aria-label={`${label} percent slider`}
         className="split-range"
         style={{ accentColor: color }}
         onChange={(event) => onChange(clamp(Number(event.target.value)))}

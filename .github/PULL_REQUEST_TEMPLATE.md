@@ -11,7 +11,7 @@
 - [ ] `npm test`
 - [ ] `npm run typecheck`
 - [ ] `npm run build`
-- [ ] Manual UI check (screenshots below, if appearance changed)
+- [ ] Manual UI check in both themes at the 1060×700 minimum window (screenshots below, if appearance changed)
 - [ ] Migration/import tested on a **copy** of a database (if data or schema changed)
 
 ## Data, security and privacy

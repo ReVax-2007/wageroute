@@ -60,7 +60,7 @@ Properties of this decision:
 - **Never overwrite.** Adoption only runs when the new database is absent.
 - **Preserve uncheckpointed commits.** The WAL and SHM are copied with the main file, so recent transactions are not lost.
 - **Run before opening.** The app cannot accidentally create an empty new database first.
-- **No-op when there is nothing to adopt.** A fresh install seeds demo data as before.
+- **No-op when there is nothing to adopt.** A fresh development install seeds the demo profile as before; a packaged install seeds one blank user.
 - **One-shot.** Once `wageroute.db` exists, later changes in the old folder are not re-imported.
 
 ### Compatibility choices
@@ -81,7 +81,7 @@ Properties of this decision:
 
 ### Negative
 
-- **Two application folders can coexist**, each with a database. Users may edit the wrong one. The sidebar and Settings show the live path, which is the mitigation.
+- **Two application folders can coexist**, each with a database. Users may edit the wrong one. The sidebar footer shows the live path as its tooltip and Settings → Data prints it in full, which is the mitigation.
 - **The first launch copies the entire database.** A large ledger means a longer first start and double disk usage until the old folder is cleaned up.
 - **The old folder is never deleted.** That is intentional, but it means deleted data may persist there indefinitely. Cleaning it up is a user decision, not an app action.
 - **The copy is not a merge.** If the user continues using the old app after the rename, those newer changes are invisible to WageRoute. Consolidation requires an export/import, which is additive ([ADR 0003](0003-additive-imports.md)).

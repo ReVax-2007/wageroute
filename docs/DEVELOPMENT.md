@@ -142,6 +142,7 @@ Two projects:
 
 - `tsconfig.node.json` — Node lib, `types: ["node"]`, includes main, preload, shared and the Vite config.
 - `tsconfig.json` — DOM lib, JSX, includes renderer, shared and preload typings; excludes `*.test.ts`.
+- Both enable `noUnusedLocals` and `noUnusedParameters`, so an unused import fails `npm run typecheck` rather than lingering.
 
 Both enable `strict`, `verbatimModuleSyntax`, `isolatedModules` and `noEmit`. Type-only imports must use `import type`, because of `verbatimModuleSyntax`.
 
@@ -205,7 +206,7 @@ When a test requires moving a database aside, move it to a dated quarantine fold
 
 ## Testing
 
-Eighteen files run by `npm test` through `node --test` with `tsx` as the loader — 155 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**.
+Eighteen files run by `npm test` through `node --test` with `tsx` as the loader — 155 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**; the `pretest` guard ([`scripts/check-test-list.mjs`](../scripts/check-test-list.mjs)) fails the run when a `*.test.ts` on disk is missing from that list, or when the list names a file that no longer exists.
 
 | File | Style | Covers |
 | --- | --- | --- |
@@ -321,15 +322,15 @@ Do not expose `ipcRenderer`, `require`, `fs` or raw SQL to the renderer.
 
 ## Adding a schema migration
 
-Migrations are append-only. Never modify a `SCHEMA_V*` string once its version has shipped (`SCHEMA_V1`–`SCHEMA_V5` are released); databases in the field have already run them.
+Migrations are append-only. Never modify a `SCHEMA_V*` string once its version has shipped (`SCHEMA_V1`–`SCHEMA_V7` are released); databases in the field have already run them.
 
 ### Procedure
 
-1. Add a new SQL string, e.g. `SCHEMA_V5`.
-2. Add `{ version: 5, up: (db) => db.exec(SCHEMA_V5) }` to `MIGRATIONS`.
+1. Add a new SQL string, e.g. `SCHEMA_V8`.
+2. Add `{ version: 8, up: (db) => db.exec(SCHEMA_V8) }` to `MIGRATIONS`.
 3. `SCHEMA_VERSION` updates automatically from the last entry.
 4. Update types, repositories, backup allowlists and the seed. A column declared `NOT NULL` with a schema default also needs an entry in `TABLE_DEFAULTS`, or an older backup that omits it inserts `NULL` and aborts that row.
-5. Test against a **copy** of a version-4 database (see [Working safely with data](#working-safely-with-data) — never the live file, and there is no downgrade path):
+5. Test against a **copy** of a version-7 database (see [Working safely with data](#working-safely-with-data) — never the live file, and there is no downgrade path):
    - `PRAGMA user_version` before and after;
    - row counts preserved;
    - new columns present with correct defaults;

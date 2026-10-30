@@ -33,7 +33,7 @@ This document separates what exists from what has been discussed. It also record
 | Manual CSV export and entries import | **Implemented** | Settings → Data |
 | Unsigned installer builds | **Implemented** | Local scripts and GitHub Actions artifacts |
 | CI build on demand / version tag | **Implemented** | `.github/workflows/build.yml` |
-| Published GitHub/GitLab release | **Not implemented** | CI uploads artifacts only |
+| Published GitHub release | **Implemented** | 1.0.0–1.1.0 published on `ReVax-2007/wageroute`; CI uploads the artifacts and the release is assembled by hand |
 | Code signing / notarization | **Not implemented** | No certificates or config |
 | Automatic updates | **Not implemented** | No `electron-updater`, no publish config |
 | Cloud backup | **Not implemented** | No provider, no credentials, no code |
@@ -345,7 +345,7 @@ git push -u origin main
 
 Do not use `git add -A` without reviewing `git status`: a stray backup, exported CSV or `.env` would otherwise be easy to include.
 
-Keep the repository **private** unless you have deliberately reviewed the code and docs for anything you do not want public. A finance app's source can reveal product intent even when it contains no personal data.
+This repository is **public** at `ReVax-2007/wageroute`. The source-available [LICENSE](../LICENSE) keeps commercial redistribution with the licensor, and nothing user-financial is ever committed. If that ever changes, review the code and docs for anything you do not want public before flipping visibility in either direction.
 
 ## Operational checklist
 
@@ -395,4 +395,4 @@ If you only have a JSON backup, launch with an empty/new database and use Settin
 | Cloud backup provider | **Not decided** |
 | Auto-update and release channel | **Not decided** |
 | Code signing identities | **Not decided** |
-| Public vs private hosting | **Recommended private GitHub; not yet actioned** |
+| Public vs private hosting | **Decided: public GitHub** with protected `main`, PR-only merges and the source-available licence |

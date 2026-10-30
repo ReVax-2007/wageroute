@@ -89,7 +89,7 @@ The **Allocator** is a full-screen wizard available from the sidebar or the Over
 | Database | better-sqlite3 13, SQLite in WAL mode |
 | Packaging | electron-builder 26 (DMG, NSIS) |
 | Tests | `node:test` through `tsx` |
-| CI | GitHub Actions, matrix macOS + Windows |
+| CI | GitHub Actions: `verify` on Ubuntu for every pull request; tag builds produce macOS + Windows installers |
 
 The renderer is sandboxed with `contextIsolation: true`, `nodeIntegration: false` and `sandbox: true`. It reaches the main process only through the typed `window.api` bridge.
 
@@ -109,18 +109,18 @@ brew upgrade --cask wageroute          # future updates
 
 Homebrew verifies the DMG against a pinned SHA-256 before installing. To drop the Gatekeeper flag after installing, run `sudo xattr -rd com.apple.quarantine /Applications/WageRoute.app`. `brew uninstall --cask wageroute` removes the app but leaves your data in place.
 
-**DMG (manual):** download `WageRoute-<version>-arm64.dmg` (Apple Silicon) or `WageRoute-<version>.dmg` (Intel) from [GitHub Releases](https://github.com/ReVax-2007/wageroute/releases), drag to Applications, then right-click → **Open** on first launch.
+**DMG (manual):** download `WageRoute-<version>-arm64.dmg` (Apple Silicon) or `WageRoute-<version>-x64.dmg` (Intel) from [GitHub Releases](https://github.com/ReVax-2007/wageroute/releases), drag to Applications, then right-click → **Open** on first launch. (1.1.0 named its Intel file `WageRoute-1.1.0.dmg`; later releases carry the `-x64` suffix.)
 
 **curl (no Gatekeeper prompt at all):** browsers tag downloads with a quarantine flag that triggers Gatekeeper; curl does not. Replace `v1.1.0` below with the latest version from [GitHub Releases](https://github.com/ReVax-2007/wageroute/releases).
 
 ```bash
 curl -LO https://github.com/ReVax-2007/wageroute/releases/download/v1.1.0/WageRoute-1.1.0-arm64.dmg
-hdiutil attach WageRoute-1.1.0-arm64.dmg
-cp -R "/Volumes/WageRoute 1.1.0-arm64/WageRoute.app" /Applications/
-hdiutil detach "/Volumes/WageRoute 1.1.0-arm64"
+hdiutil attach -nobrowse -mountpoint /tmp/wageroute-dmg WageRoute-1.1.0-arm64.dmg
+cp -R /tmp/wageroute-dmg/WageRoute.app /Applications/
+hdiutil detach /tmp/wageroute-dmg
 ```
 
-Windows: download `WageRoute.Setup.<version>.exe`; SmartScreen shows “Windows protected your PC” on first run — choose **More info → Run anyway**.
+Windows: download `WageRoute.Setup.<version>-x64.exe` (or `-arm64.exe`); SmartScreen shows “Windows protected your PC” on first run — choose **More info → Run anyway**.
 
 Full details, including the Gatekeeper behaviour on each macOS version, are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) and [docs/RELEASING.md](docs/RELEASING.md).
 

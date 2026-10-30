@@ -7,6 +7,11 @@ files:
   - out/**/*
   - package.json
   - '!**/*.map'
+# The licence is not part of the asar, so it ships next to the binary where a
+# user can actually read it.
+extraResources:
+  - from: LICENSE
+    to: LICENSE
 asarUnpack:
   - '**/*.node'
 npmRebuild: true
@@ -41,7 +46,12 @@ win:
       arch:
         - x64
         - arm64
+# Pinned so release assets have one predictable name per platform and
+# architecture instead of inheriting electron-builder's per-target defaults.
+dmg:
+  artifactName: WageRoute-${version}-${arch}.dmg
 nsis:
+  artifactName: WageRoute.Setup.${version}-${arch}.exe
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true

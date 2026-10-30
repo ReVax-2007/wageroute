@@ -337,7 +337,6 @@ textarea {
   font-family: var(--mono);
   font-size: 10.5px;
   color: var(--text-muted);
-  opacity: 0.68;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -580,37 +579,43 @@ textarea {
 .chip-income {
   color: var(--accent);
   background: var(--accent-soft);
-  border-color: rgba(61, 220, 151, 0.24);
+  border-color: var(--accent-line);
 }
 
 .chip-expense,
 .chip-bill_payment {
   color: var(--danger-text);
   background: var(--danger-soft);
-  border-color: rgba(255, 107, 122, 0.24);
+  border-color: var(--danger-line);
 }
 
 .chip-transfer {
   color: var(--savings);
-  background: rgba(76, 194, 255, 0.12);
-  border-color: rgba(76, 194, 255, 0.24);
+  background: var(--savings-soft);
+  border-color: var(--savings-line);
 }
 
 .chip-investment {
   color: var(--investment);
-  background: rgba(167, 139, 250, 0.13);
-  border-color: rgba(167, 139, 250, 0.26);
+  background: var(--investment-soft);
+  border-color: var(--investment-line);
 }
 
 .chip-goal_funding {
   color: var(--goal);
   background: var(--warn-soft);
-  border-color: rgba(245, 189, 74, 0.26);
+  border-color: var(--goal-line);
 }
 
 .chip-adjustment {
   color: var(--text-dim);
   background: var(--panel-2);
+}
+
+.chip-overdue {
+  color: var(--danger-text);
+  background: var(--danger-soft);
+  border-color: var(--danger-line);
 }
 
 .health {
@@ -628,19 +633,19 @@ textarea {
 .health-covered {
   color: var(--accent);
   background: var(--accent-soft);
-  border-color: rgba(61, 220, 151, 0.26);
+  border-color: var(--accent-line);
 }
 
 .health-tight {
   color: var(--warn);
   background: var(--warn-soft);
-  border-color: rgba(245, 189, 74, 0.28);
+  border-color: var(--goal-line);
 }
 
 .health-shortfall {
   color: var(--danger);
   background: var(--danger-soft);
-  border-color: rgba(255, 107, 122, 0.3);
+  border-color: var(--danger-line);
 }
 
 /* ------------------------------------------------------------ progress */
@@ -738,11 +743,11 @@ a.btn {
 .btn-danger {
   color: var(--danger);
   background: var(--danger-soft);
-  border-color: rgba(255, 107, 122, 0.28);
+  border-color: var(--danger-line);
 }
 
 .btn-danger:hover:not(:disabled) {
-  background: rgba(255, 107, 122, 0.2);
+  background: color-mix(in srgb, var(--danger) 20%, transparent);
 }
 
 .icon-btn {
@@ -837,7 +842,9 @@ a.btn {
 }
 
 input[type='date'] {
-  color-scheme: dark;
+  /* The native picker icon and panel follow the active palette instead of
+     staying dark in a light field. */
+  color-scheme: inherit;
 }
 
 .form-grid {
@@ -861,7 +868,7 @@ input[type='date'] {
   font-size: 12.5px;
   color: var(--danger-text);
   background: var(--danger-soft);
-  border: 1px solid rgba(255, 107, 122, 0.26);
+  border: 1px solid var(--danger-line);
   border-radius: 9px;
 }
 
@@ -1073,7 +1080,7 @@ input[type='date'] {
 
 .toast-error {
   color: var(--danger-toast);
-  border-color: rgba(255, 107, 122, 0.4);
+  border-color: var(--danger-line);
 }
 
 /* ---------------------------------------------------------------- boot */
@@ -1444,9 +1451,20 @@ input[type='date'] {
 
 /* ---------------------------------------------------------- spreadsheet */
 
+/* The grid screen fills the workspace so the grid can flex into the space the
+   header, toolbar and any disclosure leave behind. */
+.page-sheet {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding-bottom: 28px;
+}
+
 .sheet-card {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
   margin-bottom: 8px;
 }
 
@@ -1476,14 +1494,11 @@ input[type='date'] {
 }
 
 .grid-host {
-  height: calc(100vh - 336px);
-  min-height: 360px;
+  /* The page flexes, so the grid takes whatever height is left rather than
+     subtracting a guessed header height from the viewport. */
+  flex: 1;
+  min-height: 240px;
   background: var(--inset-2);
-}
-
-/* The disclosure line above the ledger takes its own height out of the grid. */
-.grid-host.has-note {
-  height: calc(100vh - 392px);
 }
 
 .grid-host .rdg {
@@ -1518,14 +1533,16 @@ select.grid-editor {
   height: 26px;
 }
 
-/* RDG theme variables (v7 beta) */
-.rdg-dark {
+/* RDG theme variables (v7 beta). The class is theme-neutral: every colour comes
+   from the token set and `color-scheme` is inherited from :root, so the grid
+   follows the light/dark switch like the rest of the app. */
+.rdg-themed {
   --rdg-color: var(--text);
   --rdg-background-color: transparent;
   --rdg-header-background-color: var(--header-bg);
   --rdg-row-hover-background-color: var(--tint-soft);
-  --rdg-row-selected-background-color: rgba(61, 220, 151, 0.08);
-  --rdg-row-selected-hover-background-color: rgba(61, 220, 151, 0.12);
+  --rdg-row-selected-background-color: var(--accent-soft);
+  --rdg-row-selected-hover-background-color: var(--accent-soft-strong);
   --rdg-border-color: var(--border);
   --rdg-header-draggable-background-color: var(--panel-2);
   --rdg-selection-color: var(--accent);
@@ -1535,7 +1552,7 @@ select.grid-editor {
   border: none;
 }
 
-.rdg-dark .rdg-header-row {
+.rdg-themed .rdg-header-row {
   font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -1543,7 +1560,7 @@ select.grid-editor {
   color: var(--text-muted);
 }
 
-.rdg-dark .rdg-cell {
+.rdg-themed .rdg-cell {
   padding-inline: 12px;
 }
 
@@ -1606,21 +1623,6 @@ select.grid-editor {
   align-items: flex-start;
   gap: 11px;
   margin-bottom: 14px;
-}
-
-.step {
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  flex-shrink: 0;
-  margin-top: 1px;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--text-dim);
-  background: var(--panel-3);
-  border: 1px solid var(--border);
-  border-radius: 999px;
 }
 
 .alloc-section-head h3 {
@@ -1745,8 +1747,8 @@ select.grid-editor {
   justify-content: space-between;
   gap: 16px;
   padding: 16px 18px;
-  background: linear-gradient(135deg, rgba(61, 220, 151, 0.13), rgba(76, 194, 255, 0.06));
-  border: 1px solid rgba(61, 220, 151, 0.24);
+  background: linear-gradient(135deg, var(--accent-soft), var(--savings-soft));
+  border: 1px solid var(--accent-line);
   border-radius: 14px;
 }
 
@@ -1842,8 +1844,8 @@ select.grid-editor {
   gap: 16px;
   margin-top: 14px;
   padding: 13px 16px;
-  background: rgba(244, 114, 182, 0.07);
-  border: 1px dashed rgba(244, 114, 182, 0.34);
+  background: var(--leisure-soft);
+  border: 1px dashed var(--leisure-line);
   border-radius: 12px;
 }
 
@@ -1899,13 +1901,13 @@ select.grid-editor {
 .warning.warn {
   color: var(--warn-text);
   background: var(--warn-soft);
-  border: 1px solid rgba(245, 189, 74, 0.28);
+  border: 1px solid var(--goal-line);
 }
 
 .warning.danger {
   color: var(--danger-text);
   background: var(--danger-soft);
-  border: 1px solid rgba(255, 107, 122, 0.3);
+  border: 1px solid var(--danger-line);
 }
 
 .allocator-foot {
@@ -1955,10 +1957,15 @@ select.grid-editor {
   margin-bottom: 16px;
   padding: 24px 26px;
   background:
-    radial-gradient(520px 220px at 12% 0%, rgba(61, 220, 151, 0.12), transparent 70%),
-    linear-gradient(140deg, rgba(61, 220, 151, 0.1), rgba(76, 194, 255, 0.04) 55%, transparent),
+    radial-gradient(520px 220px at 12% 0%, var(--accent-soft), transparent 70%),
+    linear-gradient(
+      140deg,
+      color-mix(in srgb, var(--accent) 10%, transparent),
+      color-mix(in srgb, var(--savings) 4%, transparent) 55%,
+      transparent
+    ),
     var(--panel);
-  border: 1px solid rgba(61, 220, 151, 0.24);
+  border: 1px solid var(--accent-line);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-soft);
 }
@@ -2069,9 +2076,9 @@ select.grid-editor {
   margin-bottom: 16px;
   padding: 20px 26px;
   background:
-    radial-gradient(520px 220px at 12% 0%, rgba(167, 139, 250, 0.12), transparent 70%),
+    radial-gradient(520px 220px at 12% 0%, var(--investment-soft), transparent 70%),
     var(--panel);
-  border: 1px solid rgba(167, 139, 250, 0.24);
+  border: 1px solid var(--investment-line);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-soft);
 }
@@ -2141,9 +2148,9 @@ select.grid-editor {
 .prompt-card {
   margin-bottom: 16px;
   background:
-    linear-gradient(180deg, rgba(245, 189, 74, 0.055), transparent 55%),
+    linear-gradient(180deg, color-mix(in srgb, var(--goal) 6%, transparent), transparent 55%),
     var(--panel);
-  border-color: rgba(245, 189, 74, 0.26);
+  border-color: var(--goal-line);
 }
 
 .prompt-head {
@@ -2164,7 +2171,7 @@ select.grid-editor {
   font-weight: 650;
   color: var(--warn);
   background: var(--warn-soft);
-  border: 1px solid rgba(245, 189, 74, 0.3);
+  border: 1px solid var(--goal-line);
   border-radius: 999px;
 }
 
@@ -2217,6 +2224,16 @@ select.grid-editor {
 .prompt-actions {
   display: flex;
   gap: 8px;
+}
+
+.prompt-blocked {
+  color: var(--warn-text);
+}
+
+/* Snoozed rows stay visible so a dismissed prompt cannot quietly disappear. */
+.prompt-snoozed {
+  border-top: 1px solid var(--border-row);
+  opacity: 0.72;
 }
 
 /* ------------------------------------------------------------- donut */
@@ -2458,7 +2475,7 @@ span.wizard-step-chip {
 .split-check.over {
   color: var(--danger-text);
   background: var(--danger-soft);
-  border-color: rgba(255, 107, 122, 0.3);
+  border-color: var(--danger-line);
 }
 
 .funded-this-check {
@@ -2679,7 +2696,7 @@ span.wizard-step-chip {
   margin-top: 12px;
   padding: 11px 13px;
   background: var(--warn-soft);
-  border: 1px solid rgba(245, 189, 74, 0.28);
+  border: 1px solid var(--goal-line);
   border-radius: 10px;
 }
 
@@ -2763,9 +2780,13 @@ span.wizard-step-chip {
 .emergency-card {
   margin-bottom: 16px;
   background:
-    linear-gradient(180deg, rgba(76, 194, 255, 0.05), transparent 55%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--savings) 5%, transparent),
+      transparent 55%
+    ),
     var(--panel);
-  border-color: rgba(76, 194, 255, 0.22);
+  border-color: var(--savings-line);
 }
 
 .emergency-grid {
@@ -2848,8 +2869,8 @@ span.wizard-step-chip {
 
 .chip-emergency {
   color: var(--savings);
-  background: rgba(76, 194, 255, 0.12);
-  border-color: rgba(76, 194, 255, 0.24);
+  background: var(--savings-soft);
+  border-color: var(--savings-line);
 }
 
 /* Goal funding-account picker (one account, or several adding up) */
@@ -2903,7 +2924,7 @@ span.wizard-step-chip {
 .chip-paused {
   color: var(--warn);
   background: var(--warn-soft);
-  border-color: rgba(245, 189, 74, 0.26);
+  border-color: var(--goal-line);
   font-weight: 600;
 }
 
@@ -2946,7 +2967,7 @@ span.wizard-step-chip {
 .chip-funded {
   color: var(--goal);
   background: var(--warn-soft);
-  border-color: rgba(245, 189, 74, 0.26);
+  border-color: var(--goal-line);
 }
 
 /* --------------------------------------------------------- scrollbars */
@@ -3014,6 +3035,19 @@ span.wizard-step-chip {
 
 /* ---------------------------------------------------------- responsive */
 
+/* Motion is decoration: anyone who asks the OS to reduce it gets the end state
+   immediately instead of pulsing prompts, panel slides and toast entrances. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 @media (max-width: 1180px) {
   .stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3040,7 +3074,9 @@ span.wizard-step-chip {
   }
 }
 
-@media (max-width: 980px) {
+/* The packaged window cannot go below 1060 px wide, so the narrow layout has to
+   start there rather than at a width the app can never reach. */
+@media (max-width: 1100px) {
   .app-shell {
     grid-template-columns: 226px minmax(0, 1fr);
   }

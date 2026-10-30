@@ -64,7 +64,7 @@ Tags use the `v` prefix and match the app version exactly: `v1.0.0`. The CI work
 
 - Migrations are **forward-only and append-only**. `migrate()` runs every migration whose version is greater than `PRAGMA user_version`, each inside a transaction, then advances `user_version`.
 - Opening an older database upgrades it in place. There is no automatic downgrade.
-- The app does **not** explicitly refuse a database whose `user_version` is newer than the app's `SCHEMA_VERSION`. `migrate()` simply finds nothing to run, and the older code then operates against a schema it does not know. This can fail at query time or, worse, write data the newer version misinterprets. **Never open a newer database with an older build.**
+- The app **refuses a database whose `user_version` is newer than the app's `SCHEMA_VERSION`**. `migrate()` raises `SchemaTooNewError` before any window opens; the main process names the problem and quits without writing to the file. Never open a newer database with an older build anyway — the guard protects the file, not your expectations.
 - Schema changes must preserve existing rows unless the migration explicitly rebuilds a table, as the v2 rebuild did. Every migration must be tested against a copy of the previous schema with realistic data.
 
 ### Backups
@@ -76,8 +76,9 @@ Tags use the `v` prefix and match the app version exactly: `v1.0.0`. The CI work
 | `3` | Accepted |
 | `4` | Accepted; `accounts.color`, `funding_strategy` and `funding_paycheck_index` receive defaults |
 | `5` | Accepted; version 6 added no column |
-| `6` | Accepted; the newest format this app writes |
-| `> 6` | Rejected: `This backup came from a newer version` |
+| `6` | Accepted; no `bill_reserves` rows |
+| `7` | Accepted; the newest format this app writes |
+| `> 7` | Rejected: `This backup came from a newer version` |
 
 Imports are additive and idempotent. Re-importing the same file skips rows that already exist by UUID. See [IMPORT-EXPORT.md](IMPORT-EXPORT.md).
 
@@ -227,27 +228,31 @@ out/
 release/
 ├── WageRoute-1.1.0-arm64.dmg
 ├── WageRoute-1.1.0-arm64.dmg.blockmap
-├── WageRoute-1.1.0.dmg            # Intel; the default x64 name carries no -x64 infix
-├── WageRoute-1.1.0.dmg.blockmap
+├── WageRoute-1.1.0-x64.dmg
+├── WageRoute-1.1.0-x64.dmg.blockmap
 ├── mac-arm64/WageRoute.app
 └── mac/WageRoute.app            # when an x64 build runs
 ```
 
-Exact file names follow electron-builder's default `productName-version` naming; only non-default architectures get a suffix, so arm64 is `-arm64` and the Intel x64 build has no infix. The `.blockmap` files are useful only to an auto-updater; there is none today.
+The names are pinned by `dmg.artifactName` in `electron-builder.yml` (`WageRoute-${version}-${arch}.dmg`), so both architectures carry their suffix and a release note can name an asset exactly. The `.blockmap` files are useful only to an auto-updater; there is none today.
 
 **Windows** — `win.target` requests `nsis` for `x64` and `arm64`:
 
 ```text
 release/
-├── WageRoute Setup 1.1.0.exe
-└── WageRoute Setup 1.1.0.exe.blockmap
+├── WageRoute.Setup.1.1.0-x64.exe
+├── WageRoute.Setup.1.1.0-x64.exe.blockmap
+├── WageRoute.Setup.1.1.0-arm64.exe
+└── WageRoute.Setup.1.1.0-arm64.exe.blockmap
 ```
+
+`nsis.artifactName` pins the same pattern (`WageRoute.Setup.${version}-${arch}.exe`) instead of electron-builder's default, which contains spaces and drops the x64 suffix.
 
 NSIS is configured as a per-user install (`perMachine: false`), not one-click, with a selectable directory and a desktop shortcut. Per-user installs do not require administrator rights and put the app under the user's profile.
 
 ### Bundle contents
 
-`files` includes only `out/**/*` and `package.json`, minus source maps. `asarUnpack` extracts `**/*.node`, so the native SQLite binary sits outside the asar archive where it can be loaded. `npmRebuild: true` rebuilds native modules during packaging.
+`files` includes only `out/**/*` and `package.json`, minus source maps. `asarUnpack` extracts `**/*.node`, so the native SQLite binary sits outside the asar archive where it can be loaded. `npmRebuild: true` rebuilds native modules during packaging. `extraResources` copies `LICENSE` beside the app so the licence ships with the bundle.
 
 No database is bundled. On first launch the app seeds one blank local user with default settings if no user row exists, and the dashboard offers a start-from-scratch or import-a-backup path. The demo profile (Alex) is seeded only in development builds (`app.isPackaged` false); it is **not** a release asset.
 
@@ -324,7 +329,7 @@ Practical workarounds, in order of convenience:
 3. Install via **Homebrew** (`brew install --cask ReVax-2007/wageroute/wageroute`) or **curl** — see [DEPLOYMENT.md](DEPLOYMENT.md#homebrew-tap). A curl download carries no quarantine attribute, so Gatekeeper never checks it. Homebrew does quarantine, so its first launch still needs option 1 unless you clear the flag with option 4.
 4. `sudo xattr -rd com.apple.quarantine /Applications/WageRoute.app` (only for a build you trust; it removes a real protection). This needs your password. Without `sudo` the same command fails with EPERM on browser-downloaded apps, which also carry the `com.apple.provenance` attribute; prefer options 1–3.
 
-Apple Silicon requires at least an ad-hoc signature for the executable to run, and an *invalid* signature produces the "damaged" dialog rather than the "cannot be verified" one. electron-builder's default no-identity path leaves the bundle with a broken signature, which is why the build re-signs it explicitly with `codesign --force --deep --sign -` in the afterSign hook. It runs **after** electron-builder applies the electron fuses: flipping a fuse rewrites the binary and invalidates any signature made before it, so a hook on `afterPack` would leave the shipped bundle invalid. Ad-hoc is not notarization and does not satisfy Gatekeeper for downloaded copies. Verify the artifact on a clean machine rather than assuming a local launch proves it will open elsewhere.
+Apple Silicon requires at least an ad-hoc signature for the executable to run, and an *invalid* signature produces the "damaged" dialog rather than the "cannot be verified" one. electron-builder's default no-identity path leaves the bundle with a broken signature, which is why the build re-signs it explicitly with `codesign --force --deep --sign -` in the afterSign hook, then runs `codesign --verify --strict` on the bundle so a failed signature fails the build instead of shipping. (`spctl --assess` is not used: it rejects ad-hoc signatures by design.) The hook runs **after** electron-builder applies the electron fuses: flipping a fuse rewrites the binary and invalidates any signature made before it, so a hook on `afterPack` would leave the shipped bundle invalid. Ad-hoc is not notarization and does not satisfy Gatekeeper for downloaded copies. Verify the artifact on a clean machine rather than assuming a local launch proves it will open elsewhere.
 
 To ship properly you need:
 
@@ -440,7 +445,7 @@ Both matrix jobs must pass. Download the macOS and Windows artifacts. Compare th
 
 ### 9. Publish the release
 
-See [Publishing a GitHub Release](#publishing-a-github-release). Attach the raw installers and checksums, write notes from the template, and mark pre-1.0 builds as pre-release unless you intend them as the default download.
+See [Publishing a GitHub Release](#publishing-a-github-release). Attach the raw installers and checksums, write notes from the template, and mark a build as pre-release only when it is not meant to be the default download.
 
 ### 10. Archive
 
@@ -466,15 +471,16 @@ CI uploads workflow artifacts only. Creating a release is a manual, deliberate s
 4. Paste the release notes from the template below.
 5. Attach:
    - `WageRoute-1.1.0-arm64.dmg`
-   - `WageRoute-1.1.0.dmg` (Intel x64)
-   - `WageRoute Setup 1.1.0.exe`
+   - `WageRoute-1.1.0-x64.dmg` (Intel)
+   - `WageRoute.Setup.1.1.0-x64.exe`
+   - `WageRoute.Setup.1.1.0-arm64.exe`
    - `SHA256SUMS.txt`
 6. Mark as **pre-release** only if you do not intend this build as the default download.
 7. Publish.
 
 Do not attach the workflow artifact zip in place of the raw installers. Do not attach a `.db` file, a personal backup, a CSV export or any file containing real financial data.
 
-If the repository is private, release assets are only visible to people with access. Distribution to anyone else requires sharing the file directly or making the repository/release public deliberately.
+If the repository is private, release assets are only visible to people with access. Distribution to anyone else requires sharing the file directly or making the repository/release public deliberately. This repository is public, so release assets and the source are visible together.
 
 ---
 
@@ -483,7 +489,7 @@ If the repository is private, release assets are only visible to people with acc
 ### App-only change
 
 ```bash
-npm version 0.1.1 --no-git-tag-version
+npm version 1.1.1 --no-git-tag-version
 ```
 
 No schema or backup change. Installers get the new version; the database is untouched.
@@ -498,7 +504,7 @@ No schema or backup change. Installers get the new version; the database is unto
 6. Test: previous-schema database copy → new app → migration → export → import into fresh profile.
 7. Test: new backup → previous app, and confirm the expected rejection.
 8. Decide whether old backups remain importable. The reader currently accepts `2..SCHEMA_VERSION`; keep that window honest.
-9. If the migration rebuilds a table, follow the v2 pattern: create the new table, copy rows, drop the old one, recreate indexes and triggers, inside a transaction.
+9. If the migration rebuilds a table, follow the v6 recipe in [DEVELOPMENT.md](DEVELOPMENT.md#adding-a-schema-migration): `PRAGMA legacy_alter_table = ON` and suspended foreign keys set outside the transaction, recreate indexes, and mark the migration `rebuildsReferencedTable: true` so the runner checks foreign keys before committing. A table nothing references can use the simpler v2 shape: create the new table, copy rows, drop the old one, recreate indexes, inside a transaction.
 10. Do not ship a migration that cannot run on a database containing deleted rows, nulls in nullable columns, or the documented maximum row counts.
 
 ### Electron upgrade
@@ -571,10 +577,10 @@ If the fix requires a schema change, it is not a patch. Follow the schema proced
 ## Release notes template
 
 ```markdown
-# WageRoute 1.1.0
+# WageRoute 1.2.0
 
-Released: 2026-10-29
-Schema: 6 (migrates 3 → 4 → 5 → 6) · Backups: accepts 2–6
+Released: 2026-11-01
+Schema: 7 (migrates 3 → 4 → 5 → 6 → 7) · Backups: accepts 2–7
 
 ## Highlights
 
@@ -594,8 +600,8 @@ Schema: 6 (migrates 3 → 4 → 5 → 6) · Backups: accepts 2–6
 
 ## Data and compatibility
 
-- Database schema: 3 → 4 → 5 → 6, automatic on first launch, forward-only.
-- Backups from versions 2–6 are accepted; a backup written by 1.1.0 cannot be imported by 1.0.2.
+- Database schema: 3 → 4 → 5 → 6 → 7, automatic on first launch, forward-only.
+- Backups from versions 2–7 are accepted; a backup written by a newer app is refused by an older one.
 - Existing data: preserved / requires the following step.
 
 ## Upgrade notes
@@ -608,9 +614,10 @@ Schema: 6 (migrates 3 → 4 → 5 → 6) · Backups: accepts 2–6
 ## Checksums
 
 SHA-256:
-- WageRoute-1.1.0-arm64.dmg — ...
-- WageRoute-1.1.0.dmg — ...
-- WageRoute Setup 1.1.0.exe — ...
+- WageRoute-1.2.0-arm64.dmg — ...
+- WageRoute-1.2.0-x64.dmg — ...
+- WageRoute.Setup.1.2.0-x64.exe — ...
+- WageRoute.Setup.1.2.0-arm64.exe — ...
 ```
 
 Keep the notes honest about signing, because that is the first thing a recipient will hit.
@@ -639,7 +646,7 @@ Keep the notes honest about signing, because that is the first thing a recipient
 - [ ] CI macOS and Windows jobs pass.
 - [ ] Checksums generated.
 - [ ] GitHub Release created with raw installers, checksums and notes.
-- [ ] Pre-release flag set for 0.x.
+- [ ] Pre-release flag set only when this build is not the default download.
 - [ ] No database or backup attached.
 
 ### After release

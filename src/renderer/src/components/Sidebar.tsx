@@ -63,6 +63,9 @@ export function Sidebar() {
 
   const isLight =
     settings.theme === 'light' || (settings.theme === 'system' && prefersLight)
+  // Archived accounts are excluded from every money figure here, so the count
+  // beside them must exclude them too or the two lines disagree.
+  const activeAccounts = snapshot.accounts.filter((account) => !account.isArchived).length
 
   const setTheme = (theme: AppSettings['theme']) => {
     if (theme === settings.theme) return
@@ -98,6 +101,7 @@ export function Sidebar() {
               key={item.id}
               type="button"
               className={item.id === screen ? 'nav-item active' : 'nav-item'}
+              aria-current={item.id === screen ? 'page' : undefined}
               onClick={() => go(item.id)}
             >
               <Icon size={17} strokeWidth={2} className="nav-icon" />
@@ -146,7 +150,9 @@ export function Sidebar() {
         <p className="sidebar-stat-value">
           {formatMoneyCompact(cashOnHand(snapshot.accounts), settings.currency)}
         </p>
-        <p className="sidebar-stat-hint">{snapshot.accounts.length} accounts tracked</p>
+        <p className="sidebar-stat-hint">
+          {activeAccounts} {activeAccounts === 1 ? 'account' : 'accounts'} tracked
+        </p>
         <div className="sidebar-stat-row">
           <span className="sidebar-stat-top">
             <TrendingUp size={14} />

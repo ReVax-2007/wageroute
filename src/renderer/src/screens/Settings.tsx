@@ -55,8 +55,23 @@ export function Settings() {
   const savingsAccounts = snapshot.accounts.filter(
     (account) => account.kind === 'savings' && !account.isArchived
   )
-  const depositAccounts = snapshot.accounts.filter((account) => !account.isArchived)
+  // A paycheck cannot land on a credit card or a brokerage account, so the
+  // default-deposit list only offers accounts money can actually be paid into.
+  const depositAccounts = snapshot.accounts.filter(
+    (account) =>
+      !account.isArchived && (account.kind === 'checking' || account.kind === 'savings')
+  )
+  // The visible destination and the one the sweep will use are the same resolved
+  // account: a stored id that no longer exists must not silently become another.
+  const roundUpAccount =
+    savingsAccounts.find((account) => account.id === settings.roundUpAccountId) ?? null
+  const roundUpActive = settings.roundUpEnabled && roundUpAccount !== null
   const sampleSweepCents = roundUpRemainderCents(1240, settings.roundUpToCents)
+
+  const commitPaydayLabel = () => {
+    const next = paydayDraft.trim()
+    if (next !== settings.paydayLabel) update({ paydayLabel: next })
+  }
 
   const update = (patch: Partial<typeof settings>) => {
     void saveSettings({ ...settings, ...patch })
@@ -89,6 +104,7 @@ export function Settings() {
           }
         >
           <Segmented<ThemePreference>
+            label="Theme"
             value={settings.theme}
             onChange={(theme) => update({ theme })}
             options={[
@@ -128,9 +144,12 @@ export function Settings() {
                 value={paydayDraft}
                 placeholder="15th and last day"
                 onChange={(event) => setPaydayDraft(event.target.value)}
-                onBlur={() => {
-                  const next = paydayDraft.trim()
-                  if (next !== settings.paydayLabel) update({ paydayLabel: next })
+                onBlur={commitPaydayLabel}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    commitPaydayLabel()
+                  }
                 }}
               />
             </Field>
@@ -157,7 +176,7 @@ export function Settings() {
             </Field>
             <Field
               label="Default paycheck account"
-              hint="The allocator preselects this when a paycheck arrives"
+              hint="The allocator preselects this when a paycheck arrives. Applies to new paychecks; past commits are unchanged."
               wide
             >
               <select
@@ -180,24 +199,24 @@ export function Settings() {
 
         <Card
           title="Round-up"
-          subtitle="Tangerine-style spare change, moved the moment you log an expense"
+          subtitle="Spare change moved to savings the moment you log an expense"
         >
           <div className="setting-row">
             <div>
               <strong>Round up debit spending</strong>
               <p className="field-hint">
-                Every expense on a checking or cash account sweeps the difference to your savings.
+                Every purchase — a negative expense on a checking or cash account — sweeps the
+                difference to your savings.
               </p>
             </div>
             <Switch
               label="Round up expenses"
-              checked={settings.roundUpEnabled}
+              checked={roundUpActive}
               disabled={savingsAccounts.length === 0}
               onChange={(roundUpEnabled) =>
                 update({
                   roundUpEnabled,
-                  roundUpAccountId:
-                    settings.roundUpAccountId ?? savingsAccounts[0]?.id ?? null
+                  roundUpAccountId: roundUpAccount?.id ?? savingsAccounts[0]?.id ?? null
                 })
               }
             />
@@ -213,12 +232,26 @@ export function Settings() {
           ) : (
             <>
               <div className="setting-row">
-                <Field label="Sweep into" hint="Where the spare change lands">
+                <Field
+                  label="Sweep into"
+                  hint={
+                    roundUpAccount
+                      ? 'Where the spare change lands'
+                      : settings.roundUpAccountId
+                        ? 'The saved destination no longer exists — choose a savings account.'
+                        : 'Choose the savings account the spare change should land in.'
+                  }
+                >
                   <select
                     className="select"
-                    value={settings.roundUpAccountId ?? savingsAccounts[0].id}
+                    value={roundUpAccount?.id ?? ''}
                     onChange={(event) => update({ roundUpAccountId: event.target.value })}
                   >
+                    {!roundUpAccount && (
+                      <option value="" disabled>
+                        Choose a savings account…
+                      </option>
+                    )}
                     {savingsAccounts.map((account) => (
                       <option key={account.id} value={account.id}>
                         {account.name}
@@ -236,6 +269,7 @@ export function Settings() {
                   </p>
                 </div>
                 <Segmented<string>
+                  label="Round up to"
                   value={String(settings.roundUpToCents)}
                   onChange={(value) => update({ roundUpToCents: Number(value) as RoundUpIncrementCents })}
                   options={INCREMENTS.map((item) => ({ value: item.value, label: item.label }))}
@@ -355,7 +389,8 @@ export function Settings() {
             </Button>
           </div>
           <p className="field-hint">
-            Deletes the entire local database and returns WageRoute to a blank first-run profile.
+            Erases every account, bill, sinking fund, paycheck, entry and setting, returning
+            WageRoute to a blank first-run profile. The database file stays on disk, empty.
             Exported backups and CSV files are not touched. This cannot be undone.
           </p>
         </Card>
@@ -371,7 +406,7 @@ export function Settings() {
               <Button variant="quiet" onClick={() => setEraseStep(0)}>
                 Cancel
               </Button>
-              <Button variant="primary" onClick={() => setEraseStep(2)}>
+              <Button variant="ghost" onClick={() => setEraseStep(2)}>
                 Continue
               </Button>
             </>
@@ -412,7 +447,7 @@ export function Settings() {
           }
         >
           <p className="field-hint">
-            Clicking <strong>Erase everything</strong> wipes the local database immediately and
+            Clicking <strong>Erase everything</strong> empties the local database immediately and
             drops you back on the dashboard with a blank profile, exactly like a first launch.
           </p>
         </Modal>

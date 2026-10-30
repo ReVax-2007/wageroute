@@ -55,7 +55,7 @@ Build a **local-first desktop application** with Electron.
 ### Neutral
 
 - The database path is platform-specific and visible in the UI.
-- The app seeds demo data on first launch; that is a product decision, not an architecture requirement.
+- The app seeds a demo profile only in development builds; a packaged first launch seeds one blank user and offers start-from-scratch or import. That is a product decision, not an architecture requirement.
 - Auto-update is absent, which is consistent with “no network” but adds manual upgrade work.
 
 ## Alternatives considered
