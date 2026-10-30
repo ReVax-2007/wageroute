@@ -74,7 +74,7 @@ export default function App() {
       </a>
       <Sidebar />
       <main id="main-content" className="workspace" tabIndex={-1}>
-        <div className="page">
+        <div className={screen === 'ledger' ? 'page page-sheet' : 'page'}>
           <Suspense fallback={<div className="boot"><div className="boot-mark" /></div>}>
             {screen === 'dashboard' && <Dashboard />}
             {screen === 'wall' && <PriorityWall />}

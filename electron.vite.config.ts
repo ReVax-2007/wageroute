@@ -47,12 +47,7 @@ export default defineConfig({
   },
   renderer: {
     base: './',
-    resolve: {
-      alias: {
-        '@shared': shared,
-        '@renderer': resolve('src/renderer/src')
-      }
-    },
+    resolve: { alias: { '@shared': shared } },
     plugins: [react(), strictCsp()]
   }
 })

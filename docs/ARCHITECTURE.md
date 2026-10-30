@@ -127,7 +127,7 @@ The Zustand store (`src/renderer/src/store/useFinanceStore.ts`) holds:
 | `allocatorOpen` | Wizard visibility |
 | `busy` | Mutation in flight, used to disable controls |
 | `notice` | Toast text and tone, auto-dismissed after 4.2 s |
-| `snoozedBillIds` | In-memory bill prompt dismissals for this session |
+| `snoozedPrompts` | In-memory bill prompt dismissals for this session, keyed `billId:dueOn` |
 
 ### The mutation loop
 
@@ -439,7 +439,7 @@ Both use `strict: true`, `verbatimModuleSyntax`, `isolatedModules` and no emit. 
 | `src/main/index.ts` | App lifecycle, window, navigation policy, permissions |
 | `src/main/ipc.ts` | Channel registration, dialogs, file reads/writes |
 | `src/main/db/connection.ts` | Database singleton, pragmas, path |
-| `src/main/db/migrations.ts` | Schema versions 1–4 |
+| `src/main/db/migrations.ts` | Schema versions 1–7 |
 | `src/main/db/repositories.ts` | All CRUD, derived reads, transfers, round-up, paycheck commit |
 | `src/main/db/backup.ts` | Backup build/parse/merge |
 | `src/main/db/entries.ts` | CSV entry merge and account resolution |

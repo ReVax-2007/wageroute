@@ -189,7 +189,7 @@ Which paycheck is "the funding one" is a calendar approximation, because WageRou
 - `closest_due_date` picks the slot whose anchor is nearest `due_day`, ties going to the earlier slot.
 - Without a paycheck date to compare against, a single-check bill falls back to the spread. The clock is never consulted, so the same input always gives the same number.
 
-All of this lives in `src/shared/cadence.ts` and is covered by `src/shared/cadence.test.ts`. See [ADR 0008](decisions/0008-one-check-carries-the-month.md) and [ADR 0011](decisions/0011-last-check-is-the-last-guaranteed-slot.md).
+All of this lives in `src/shared/cadence.ts` and is covered by `src/shared/cadence.test.ts`. See [ADR 0008](decisions/0008-one-check-carries-the-month.md) and [ADR 0011](decisions/0011-the-pay-cycle-is-a-setting.md).
 
 ### `goals`
 
@@ -482,7 +482,7 @@ Soft-deleted rows are included in JSON backups, so a backup taken before a delet
 | Text fields | 160 chars default; memo 240; category/color 60/20 | `repositories.ts` |
 | Bill due day | 1–31, clamped | schema + repository |
 
-Not in the backup: the `users` row (display name, email, legacy currency), the database file itself, the theme cache in `localStorage`, and the `snoozedBillIds` session state.
+Not in the backup: the `users` row (display name, email, legacy currency), the database file itself, the theme cache in `localStorage`, and the `snoozedPrompts` session state.
 
 ## Sync-readiness
 

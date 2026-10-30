@@ -37,14 +37,15 @@ interface FinanceState {
   importStep: 'fix' | 'review'
   busy: boolean
   notice: Notice | null
-  snoozedBillIds: string[]
+  snoozedPrompts: string[]
 
   init: () => Promise<void>
   refresh: () => Promise<void>
   go: (screen: Screen) => void
   openAllocator: () => void
   closeAllocator: () => void
-  snoozeBill: (billId: string) => void
+  snoozePrompt: (key: string) => void
+  unsnoozePrompt: (key: string) => void
   notify: (text: string, tone?: Notice['tone']) => void
   dismissNotice: () => void
   pauseNotice: () => void
@@ -77,7 +78,8 @@ interface FinanceState {
   openImport: () => Promise<void>
   closeImport: () => void
   goImportStep: (step: 'fix' | 'review') => void
-  runImport: (answers: ImportAnswer[]) => Promise<void>
+  /** Resolves to an error message on failure, or null once the wizard can close. */
+  runImport: (answers: ImportAnswer[]) => Promise<string | null>
   resetData: () => Promise<void>
 }
 
@@ -138,7 +140,7 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
     importStep: 'fix',
     busy: false,
     notice: null,
-    snoozedBillIds: [],
+    snoozedPrompts: [],
 
     init: async () => {
       try {
@@ -167,12 +169,18 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
     go: (screen) => set({ screen }),
     openAllocator: () => set({ allocatorOpen: true }),
     closeAllocator: () => set({ allocatorOpen: false }),
-    snoozeBill: (billId) =>
+    // Snoozing is per occurrence, not per bill: a skipped cycle should not hide
+    // the next month's prompt.
+    snoozePrompt: (key) =>
       set((state) =>
-        state.snoozedBillIds.includes(billId)
+        state.snoozedPrompts.includes(key)
           ? state
-          : { snoozedBillIds: [...state.snoozedBillIds, billId] }
+          : { snoozedPrompts: [...state.snoozedPrompts, key] }
       ),
+    unsnoozePrompt: (key) =>
+      set((state) => ({
+        snoozedPrompts: state.snoozedPrompts.filter((item) => item !== key)
+      })),
 
     notify: (text, tone = 'success') => {
       if (noticeTimer) clearTimeout(noticeTimer)
@@ -233,7 +241,7 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
     },
     createBill: (input) => run(() => window.api.createBill(input), 'Bill locked into the wall'),
     updateBill: (id, input) => run(() => window.api.updateBill(id, input), 'Bill updated'),
-    deleteBill: (id) => run(() => window.api.deleteBill(id), 'Bill removed from the wall'),
+    deleteBill: (id) => run(() => window.api.deleteBill(id), 'Bill deleted'),
     createGoal: (input) => run(() => window.api.createGoal(input), 'Goal created'),
     updateGoal: (id, input) => run(() => window.api.updateGoal(id, input), 'Goal updated'),
     deleteGoal: (id) => run(() => window.api.deleteGoal(id), 'Goal deleted'),
@@ -311,12 +319,11 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
 
     runImport: async (answers) => {
       const preview = get().importPreview
-      if (!preview) return
+      if (!preview) return null
 
       set({ busy: true })
       try {
         const result = await window.api.confirmImport(preview.token, answers)
-        if (!result) return
         set({ importPreview: null, importStep: 'fix' })
         const snapshot = await window.api.getSnapshot()
         set({ snapshot, settings: parseSettings(snapshot.settings) })
@@ -340,7 +347,7 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
                 : 'That file had nothing to import'
             )
           }
-          return
+          return null
         }
 
         const parts = [`Imported ${added} new ${noun}`]
@@ -348,8 +355,11 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
         if (dropped > 0) parts.push(`${dropped} ${dropped === 1 ? 'row' : 'rows'} left out`)
         if (refused > 0) parts.push(`${refused} ${refused === 1 ? 'row' : 'rows'} refused by the database`)
         get().notify(parts.join(' · '))
+        return null
       } catch (error) {
-        get().notify(messageOf(error), 'error')
+        const message = messageOf(error)
+        get().notify(message, 'error')
+        return message
       } finally {
         set({ busy: false })
       }

@@ -84,7 +84,7 @@ Credit balances are stored negative, so they subtract. The strip splits the same
 
 | Card | Value | Hint |
 | --- | --- | --- |
-| Cash on hand | Cash across accounts, compact currency | “Across N tracked accounts” (includes archived in the count) |
+| Cash on hand | Cash across accounts, compact currency | “Across N tracked accounts” (active only; archived accounts are excluded) |
 | Priority Wall / month | Smoothed monthly wall | Per-paycheck reserve |
 | Sinking funds | Funded ÷ total targets, rounded percent | Funded of target |
 | Guilt-free last check | `leisureCents` of the newest paycheck | Pay date or “No paycheck routed yet” |
@@ -418,7 +418,7 @@ Fields:
 - paycheck amount (large currency input; Enter advances when positive);
 - pay date (defaults to today);
 - source (defaults to “Payroll”);
-- deposit account (defaults to the account chosen in Settings → Paycheck, falling back to the first non-archived checking account, then the first non-archived account);
+- deposit account (defaults to the account chosen in Settings → Paycheck, falling back to the first non-archived checking account, then the first non-archived checking or savings account; the list offers checking and savings only);
 - pay cadence (defaults to the saved cadence).
 
 The step also previews the wall reserve: “Next we hold back X for the Priority Wall”, and, when a payday label is set, names the paydays — “Paydays: 15th and last day — edit this label in Settings.”
@@ -583,8 +583,8 @@ Three choices in the sidebar, presented as a radio group — **System**, **Light
 
 ### Round-up
 
-- Toggle “Round up debit spending”. It is disabled when no active savings account exists, with a shortcut to Accounts.
-- Choose the destination savings account.
+- Toggle “Round up debit spending”. It is disabled when no active savings account exists, with a shortcut to Accounts; turning it on preselects the first active savings account.
+- Choose the destination savings account. When the saved destination is archived or is no longer a savings account, the switch reads off and the select says the destination needs re-choosing before sweeps resume; when no destination was ever chosen, the select simply asks for one.
 - Choose the increment: $1, $2 or $5.
 - The hint shows a live example using $12.40.
 
@@ -602,7 +602,7 @@ Rules enforced at write time:
 - **Pay cadence** — weekly, biweekly, semimonthly or monthly. It is the same setting the Priority Wall and the allocator read; the wall's summary line and the allocator's step-1 hint name it.
 - **Payday label** — free text such as `15th and last day`. It is a label, not arithmetic: it appears next to the cadence on the wall and in the allocator's step-1 hint, and never changes a reserve. Saved on blur, trimmed, and an all-blank value clears it.
 - **Pay schedule anchor** — one real payday as a date. Weekly and biweekly checks are projected from it, so the wall's **Next check** date and reserve column stay on the weekday the user is actually paid and a third check in a month counts as surplus. Clearing the field returns the wall to day-of-month slots. Unlike the label, this value is read by formulas; invalid dates read as blank.
-- **Default paycheck account** — the deposit account the allocator preselects. The list offers active accounts plus **First checking account**, which restores the built-in fallback. An archived or deleted pointer falls back to the first non-archived checking account rather than failing.
+- **Default paycheck account** — the deposit account the allocator preselects. The list offers active checking and savings accounts plus **First checking account**, which restores the built-in fallback. An archived or deleted pointer falls back to the first non-archived checking account rather than failing.
 
 ### Data
 
@@ -631,7 +631,7 @@ The database path is displayed below the actions. The sidebar footer shows the r
 ### About
 
 - **Version** — `app.getVersion()`, the version baked into the running bundle, delivered over the `app:info` IPC channel. It is *not* read from the checkout's `package.json` at runtime, so a build launched from `release/` reports the version it was packaged as.
-- **Database schema** — `SCHEMA_VERSION`, the last migration this build applies. A database at a lower `user_version` is migrated on launch; one above it is unsupported.
+- **Database schema** — `SCHEMA_VERSION`, the last migration this build applies. A database at a lower `user_version` is migrated on launch; one above it is refused before any window opens, and the file is left untouched.
 - **Electron** — the runtime version the bundle carries, useful when a bug could be a runtime bug.
 - **Buy me a coffee** — an `https://buymeacoffee.com/revax` link with `target="_blank"`. The main process denies in-app windows and hands `http(s)` URLs to the system browser, so the app never navigates away from the ledger.
 
@@ -667,8 +667,8 @@ Matching is by `billId`, not category, so an unrelated “Housing” expense doe
 
 Actions:
 
-- **Yes, it cleared** posts a `bill_payment` for the bill amount on its linked account, or a fallback checking/first active account when no account is linked. The date is the due date, the memo is the bill name and the category is copied from the bill. This does not advance `nextDueOn`; the next cycle is derived from the due day.
-- **Not yet** snoozes the prompt for the current session only. Snoozes are not persisted and reset on restart.
+- **Yes, it cleared** posts a `bill_payment` for the bill amount on its linked account, or a fallback checking/first active account when no account is linked. If the linked account has been archived, the prompt is blocked instead: it says the account is archived and asks you to edit the bill, because a payment into an archived balance would leave every total unchanged. The date is the due date, the memo is the bill name and the category is copied from the bill. This does not advance `nextDueOn`; the next cycle is derived from the due day.
+- **Not yet** snoozes that occurrence, keyed by bill and due date, so next month's prompt still appears. Snoozed rows move to a **Snoozed** list under the open prompts with a **Bring back** button. Snoozes are session-only and reset on restart.
 
 Prompts are sorted by due date, then name. The count badge reflects visible prompts after snoozing.
 
@@ -733,7 +733,7 @@ All domain dates are constructed as UTC dates from `YYYY-MM-DD` strings. “Toda
 | Credit accounts, limits and utilization | Implemented | No interest/APR modelling |
 | Paired transfers | Implemented | |
 | Round-up sweeps | Implemented | Expense creation only |
-| Bill payment prompts | Implemented | Session-only snooze |
+| Bill payment prompts | Implemented | Session-only, per-occurrence snooze |
 | 90-day projections | Implemented | Bills and goal deadlines |
 | Dark/light/system themes | Implemented | Tri-state, follows `prefers-color-scheme` live |
 | JSON backup, partial JSON import | Implemented | Additive |

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import { Download } from 'lucide-react'
 import type { ImportCounts } from '@shared/api'
-import type { ImportAnswer, ImportProblem } from '@shared/importRepair'
+import type { ImportAnswer, ImportProblem, ImportTable } from '@shared/importRepair'
 import { useFinanceStore } from '../store/useFinanceStore'
 import { Button, Field, Modal } from './ui'
 
@@ -16,6 +16,8 @@ type RowState = 'repaired' | 'skipped' | 'empty'
 interface RowDecision {
   key: string
   label: string
+  /** The table this row lands in, so the review can subtract skipped rows. */
+  table: ImportTable
   state: RowState
   reasons: string[]
   fixHints: string[]
@@ -63,6 +65,7 @@ function decisionsFor(
       rows.set(key, {
         key,
         label: problem.rowLabel,
+        table: problem.table,
         state,
         reasons: [problem.reason],
         fixHints: [problem.fixHint],
@@ -90,10 +93,12 @@ export function ImportWizard() {
   const closeImport = useFinanceStore((state) => state.closeImport)
   const runImport = useFinanceStore((state) => state.runImport)
   const [draft, setDraft] = useState<Record<string, { value: string; skip: boolean }>>({})
+  const [importError, setImportError] = useState<string | null>(null)
   const token = preview?.token
 
   useEffect(() => {
     setDraft({})
+    setImportError(null)
   }, [token])
 
   const problems = preview?.problems ?? []
@@ -114,6 +119,13 @@ export function ImportWizard() {
   const leaveOutLabel = isLines ? 'Leave these lines out' : 'Leave this row out'
   const fillInLabel = isLines ? 'Fill these lines in instead' : 'Fill this row in instead'
   const leftOutNote = isLines ? 'you chose to leave them out' : 'you chose to leave it out'
+
+  // The review must promise only what will actually be written: rows the user
+  // left out are subtracted from the file's own totals.
+  const survivingRows: ImportCounts = { ...preview.fileRows }
+  for (const row of leftOut) {
+    if (survivingRows[row.table] > 0) survivingRows[row.table] -= 1
+  }
 
   const setAnswer = (problem: ImportProblem, value: string): void => {
     setDraft((state) => ({
@@ -227,7 +239,11 @@ export function ImportWizard() {
             variant="primary"
             disabled={busy}
             icon={<Download size={15} />}
-            onClick={() => void runImport(answers())}
+            onClick={async () => {
+              setImportError(null)
+              const failure = await runImport(answers())
+              if (failure) setImportError(failure)
+            }}
           >
             {busy ? 'Importing…' : 'Import'}
           </Button>
@@ -277,9 +293,7 @@ export function ImportWizard() {
         {currentStep === 2 && (
           <>
             <p className="wizard-hint">
-              {problems.length === 0
-                ? 'Nothing is missing — this file imports as it is.'
-                : `These ${manyNoun} lack something the ledger needs. Fill each one in and it imports as repaired; leave one out and the rest of the file still lands.`}
+              {`These ${manyNoun} lack something the ledger needs. Fill each one in and it imports as repaired; leave one out and the rest of the file still lands.`}
             </p>
             {rows.map((row) => (
               <div className="import-problem" key={row.key}>
@@ -295,7 +309,9 @@ export function ImportWizard() {
                       key={problem.key}
                       label={problem.field.label}
                       hint={
-                        problem.field.input === 'money' ? 'Dollars and cents, not cents' : undefined
+                        problem.field.input === 'money'
+                          ? 'Dollars and cents: 12.34 means $12.34, not 1,234'
+                          : undefined
                       }
                     >
                       {editor(problem)}
@@ -315,10 +331,21 @@ export function ImportWizard() {
         {currentStep === 3 && (
           <>
             <p className="wizard-hint">
-              Importing <strong>{describeFiles(preview.fileRows)}</strong> from{' '}
+              Importing <strong>{describeFiles(survivingRows)}</strong> from{' '}
               {fileNameOf(preview.path)}. Everything already in this app stays exactly as it is —
               the import only adds what is missing.
             </p>
+            {busy && (
+              <p className="wizard-hint" role="status">
+                Writing to the local database… large backups can take a moment.
+              </p>
+            )}
+            {importError && (
+              <p className="form-error" role="alert">
+                {importError} Nothing was half-written: imports either land together or not at
+                all, so it is safe to try again.
+              </p>
+            )}
             {repaired.length > 0 && (
               <div className="import-review-list">
                 <strong>{isLines ? 'Lines you mapped' : 'Rows you filled in'}</strong>

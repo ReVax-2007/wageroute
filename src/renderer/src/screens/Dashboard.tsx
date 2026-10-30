@@ -64,6 +64,7 @@ export function Dashboard() {
   const perCheck = perPaycheckWall(bills, settings.payCadence)
   const goals = goalsSummary(snapshot.goals)
   const activeGoals = snapshot.goals.filter((goal) => !goal.isArchived)
+  const activeAccountCount = snapshot.accounts.filter((account) => !account.isArchived).length
   const last = latestPaycheck(snapshot.paychecks)
   const wealthSplit = wealthBuckets(snapshot.accounts)
   const recent = snapshot.transactions.slice(0, 6)
@@ -71,9 +72,13 @@ export function Dashboard() {
   const committed = Math.max(0, pool - safeToSpend)
   const committedShare = pool > 0 ? committed / pool : 0
   const committedPercent = Math.round(committedShare * 100)
+  // With no spendable cash the percentage has no meaning: saying "0%" while
+  // bills are waiting reads as reassurance the ledger cannot give.
   const committedLabel =
-    pool <= 0 && committed === 0
-      ? 'No spendable cash is tracked yet.'
+    pool <= 0
+      ? committed > 0
+        ? `No spendable cash is tracked, and ${formatMoney(committed, currency)} of bills and goals is already claimed.`
+        : 'No spendable cash is tracked yet.'
       : committedShare > 1
         ? `${committedPercent}% of spendable cash is committed — more than you have`
         : `${committedPercent}% of spendable cash is already spoken for`
@@ -93,7 +98,8 @@ export function Dashboard() {
       label: 'Growth & sinking funds',
       cents: routing.growthCents,
       color: BUCKET_COLOR.investment
-    },    { key: 'debt', label: 'Debt payoff', cents: routing.debtCents, color: BUCKET_COLOR.debt },
+    },
+    { key: 'debt', label: 'Debt payoff', cents: routing.debtCents, color: BUCKET_COLOR.debt },
     {
       key: 'leisure',
       label: 'Guilt-free',
@@ -229,7 +235,10 @@ export function Dashboard() {
           <p className="stat-value">
             <Money cents={cash} currency={currency} compact />
           </p>
-          <p className="stat-hint">Across {snapshot.accounts.length} tracked accounts</p>
+          <p className="stat-hint">
+            Across {activeAccountCount}{' '}
+            {activeAccountCount === 1 ? 'tracked account' : 'tracked accounts'}
+          </p>
         </article>
 
         <article className="stat-card">
@@ -424,7 +433,12 @@ export function Dashboard() {
         <Card title="Goals at a glance" subtitle="Money already routed to future expenses">
           <div className="goal-strip-body">
             {activeGoals.length === 0 ? (
-              <p className="alloc-note">No sinking funds yet. Create one in the Sinking funds tab.</p>
+              <EmptyState
+                icon={<Target size={20} />}
+                title="No sinking funds yet"
+                body="A sinking fund puts money aside each paycheck for a bill that only comes once or twice a year."
+                action={<Button onClick={() => go('goals')}>Create a sinking fund</Button>}
+              />
             ) : (
               activeGoals.map((goal) => (
                 <div key={goal.id} className="goal-strip-row">
@@ -435,7 +449,12 @@ export function Dashboard() {
                       {formatMoney(goal.targetCents, currency)}
                     </span>
                   </div>
-                  <Progress value={goal.fundedCents} max={goal.targetCents} color={goal.color} />
+                  <Progress
+                    value={goal.fundedCents}
+                    max={goal.targetCents}
+                    color={goal.color}
+                    label={`${goal.name} funded`}
+                  />
                 </div>
               ))
             )}

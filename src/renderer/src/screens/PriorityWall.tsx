@@ -95,7 +95,13 @@ export function PriorityWall() {
       : null
 
   const remove = (bill: Bill) => {
-    if (window.confirm(`Remove "${bill.name}" from the Priority Wall?`)) {
+    // The record is soft-deleted, not un-pinned: its payment checks and this
+    // month's reservation go with it, so say that rather than implying a hide.
+    if (
+      window.confirm(
+        `Delete "${bill.name}"? Its payment check history and this month's reservation go with it.`
+      )
+    ) {
       void deleteBill(bill.id)
     }
   }
@@ -225,8 +231,8 @@ export function PriorityWall() {
                     />
                     {bill.fundingStrategy !== 'all_checks' && (
                       <div className="cell-sub chip-funding">
-                        {ordinal(fundingCheckFor(bill, settings.payCadence) ?? 1)} check
-                        {nextCheck ? ' of the month' : ' only'}
+                        Reserved on the {ordinal(fundingCheckFor(bill, settings.payCadence) ?? 1)}{' '}
+                        check{nextCheck ? ' of the month' : ' each month'}
                       </div>
                     )}
                   </td>
@@ -238,15 +244,6 @@ export function PriorityWall() {
                   </td>
                   <td>
                     <div className="row-actions">
-                      {!bill.isActive && (
-                        <Button
-                          size="sm"
-                          variant="quiet"
-                          onClick={() => void updateBill(bill.id, { isActive: true })}
-                        >
-                          Resume bill
-                        </Button>
-                      )}
                       <button
                         type="button"
                         className={bill.isActive ? 'switch on' : 'switch'}
@@ -260,7 +257,7 @@ export function PriorityWall() {
                       <IconButton label="Edit bill" onClick={() => setEditing(bill)}>
                         <Pencil size={15} />
                       </IconButton>
-                      <IconButton label="Remove bill" danger onClick={() => remove(bill)}>
+                      <IconButton label="Delete bill" danger onClick={() => remove(bill)}>
                         <Trash2 size={15} />
                       </IconButton>
                     </div>
@@ -293,7 +290,16 @@ function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () => void 
   const createBill = useFinanceStore((state) => state.createBill)
   const updateBill = useFinanceStore((state) => state.updateBill)
 
-  const accounts = snapshot?.accounts ?? []
+  // An archived account can still hold old bills, but it cannot take new money.
+  const accounts = (snapshot?.accounts ?? []).filter((account) => !account.isArchived)
+  // A bill saved before its account was archived keeps that pointer. Showing it
+  // as a disabled option keeps the select honest instead of displaying some
+  // other account while the bill still points at the archived one.
+  const archivedAccount = bill
+    ? (snapshot?.accounts ?? []).find(
+        (account) => account.id === bill.accountId && account.isArchived
+      )
+    : undefined
   const [form, setForm] = useState({
     name: bill?.name ?? '',
     amount: bill ? centsToEditable(bill.amountCents) : '',
@@ -327,12 +333,17 @@ function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () => void 
       setError('Enter an amount greater than zero')
       return
     }
+    const dueDay = Number(form.dueDay)
+    if (!Number.isInteger(dueDay) || dueDay < 1 || dueDay > 31) {
+      setError('Due day must be a whole number from 1 to 31')
+      return
+    }
 
     const input: BillInput = {
       name: form.name.trim(),
       amountCents,
       frequency: form.frequency,
-      dueDay: Number(form.dueDay) || 1,
+      dueDay,
       category: form.category.trim() || 'Bills',
       accountId: form.accountId || null,
       autopay: form.autopay,
@@ -365,6 +376,12 @@ function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () => void 
         </>
       }
     >
+      <form
+        onSubmit={(event) => {
+          event.preventDefault()
+          void submit()
+        }}
+      >
       <div className="form-grid">
         <Field label="Bill name" wide>
           <input
@@ -424,6 +441,11 @@ function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () => void 
             onChange={(event) => setForm({ ...form, accountId: event.target.value })}
           >
             <option value="">No account selected</option>
+            {archivedAccount && (
+              <option value={archivedAccount.id} disabled>
+                {archivedAccount.name} (archived)
+              </option>
+            )}
             {accounts.map((account) => (
               <option key={account.id} value={account.id}>
                 {account.name}
@@ -514,6 +536,10 @@ function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () => void 
       )}
 
       {error && <p className="form-error">{error}</p>}
+      {/* The footer's Save button lives outside this form; without a submitting
+          control inside it, Enter in a field would do nothing. */}
+      <button type="submit" style={{ display: 'none' }} tabIndex={-1} aria-hidden="true" />
+      </form>
     </Modal>
   )
 }

@@ -31,6 +31,8 @@ The `[1.1.0]` block in [CHANGELOG.md](../CHANGELOG.md) is the inventory; it is r
 | Backup format written | `7` |
 | Backup format accepted | `2`, `3`, `4`, `5`, `6`, `7` |
 | `package.json` today | `1.1.0` — bump it **inside** the release branch, never before |
+| Windows installers | NSIS x64/arm64 today; **MSI x64/arm64 queued** (task #87), built on `windows-latest` |
+| Linux installers | **queued** from `2ef251f` — AppImage/deb/rpm x64/arm64 (task #38), never launched |
 
 A patch is the default for fixes with no schema change; anything that adds a migration is at least a minor bump ([semver policy](RELEASING.md#semver-policy)).
 
@@ -138,6 +140,37 @@ No schema change and no new screen. This batch is the C-series minor and nit fin
 
 Verification: `npm run typecheck`, `npm test` (155) and `npm run build` clean. The built app ran on a disposable `CFFIXED_USER_HOME` profile seeded with 520 entries, driven over CDP: the ledger tab rendered **Transactions (newest 500 of 520)**, the note under it named the 20 hidden entries, and the dashboard subtitle read **520 entries in the local ledger**. **Not verified:** none of the parsing or validation paths were exercised through the UI — they are covered by unit and repository tests only.
 
+### Renderer, packaging and documentation sweep — batch 7
+
+No schema change and no new domain rule. The remaining minor findings are presentation, keyboard semantics, copy and build plumbing, plus a documentation reconciliation pass against the schema-7 code.
+
+- **Snoozing is per occurrence.** **Not yet** keys the prompt by `billId:dueOn`, the hidden rows move into a **Snoozed** list with **Bring back**, and next month's occurrence still asks.
+- **The projections grid sorts.** Date, type, name, category and amount all sort with `aria-sort`, so a 90-day forecast can be read oldest-first or largest-first instead of only in due-date order.
+- **The allocator and Settings only offer accounts a paycheck can land in.** The deposit lists are limited to checking and savings; with none the allocator shows **No account yet** and *"Add a checking or savings account, then reopen the allocator"* instead of an empty select.
+- **Round-up reports its effective state.** The switch reads off when the saved destination is archived or is not a savings account, the select says that destination no longer exists, and a profile that never chose one is asked to choose plainly. The rule is spelled out as *a negative expense on a checking or cash account*.
+- **The spreadsheet offers only kinds a manual entry can mean.** `bill_payment` and `goal_funding` are posted by the prompt and the goal card, so the Add entry dialog lists income, expense, transfer, investment and adjustment only; with no live account the grid shows **Add an account first** and **Add entry** is disabled.
+- **The ledger grid takes the height it is given.** The Spreadsheet is a flex column instead of a grid sized by a guessed viewport offset, and the layout breakpoint moved from 980px to 1100px, above the 1060px minimum window.
+- **Tints and selection colours follow the theme.** Hard-coded `rgba()` washes became `color-mix(in srgb, var(--token) …)`, and react-data-grid's selection uses the accent pair, so light mode no longer inherits dark washes.
+- **Segmented controls are radio groups.** Theme, round-up increment and emergency mode expose `role="radiogroup"`/`radio` with `aria-checked`, roving `tabIndex` and arrow/Home/End keys; every progress bar carries a label; the donut's accessible name lists each slice's share.
+- **Motion respects the system setting**, and animations collapse under `prefers-reduced-motion: reduce`.
+- **The import review promises only what will be written.** Left-out rows are subtracted from the file's table counts, a write in progress announces itself, and a failed import prints its reason in the wizard along with the fact that nothing was written.
+- **A bill pointing at an archived account can no longer post into it.** The prompt blocks with *"The account this bill pays from is archived. Edit the bill to choose another one."*, and the bill dialog shows that saved pointer as a disabled `(archived)` option instead of displaying another account while keeping the old id.
+- **Installers are named for their architecture.** `dmg.artifactName`/`nsis.artifactName` pin `WageRoute-<version>-<arch>.dmg` and `WageRoute.Setup.<version>-<arch>.exe`, and `extraResources` ships `LICENSE` beside the binary.
+- **`npm test` refuses to skip a file.** The new `pretest` guard ([`scripts/check-test-list.mjs`](../scripts/check-test-list.mjs)) compares `*.test.ts` on disk with the explicit list in `package.json`. Both TypeScript projects now fail on unused locals and parameters, `packageManager` pins npm 11.20.0, `.github/FUNDING.yml` uses `buy_me_a_coffee`, and the unused `@renderer` alias and two dead type imports are gone.
+- **The docs match schema 7.** `SECURITY.md`, `docs/SECURITY.md`, `ARCHITECTURE`, `DATA-MODEL`, `DEVELOPMENT`, `FEATURES`, `IMPORT-EXPORT`, `RELEASING`, `DEPLOYMENT`, `README`, `CONTRIBUTING`, the release-notes template and ADRs 0001/0005 were corrected for the eight-table backup, the v7 migration recipe, the public repository, the 1.1.x support line, the real CI split, the pinned installer names and the per-occurrence snooze.
+
+Verification: `npm run typecheck`, `npm test` (155 across eighteen files, with the `pretest` guard passing) and `npm run build` clean. Two disposable `CFFIXED_USER_HOME` profiles were driven over CDP at **1060×700**, the minimum window:
+
+- **Ledger and projections.** The grid filled its card (408px tall inside a 700px page) with no page overflow and an internal scrollbar at 14 rows; the projections tab sorted Amount ascending/descending and Name alphabetically with `aria-sort` following.
+- **Snooze.** **Not yet** took the count from 4 to 3, moved *Car insurance* into the **Snoozed** list with a chip and a **Bring back** button, and **Bring back** restored it.
+- **Round-up and deposit lists.** The stale saved destination rendered the switch off with *"The saved destination no longer exists"*; clearing the setting changed the hint to *"Choose the savings account the spare change should land in."*; the allocator's deposit select offered only Everyday Checking and High-Yield Savings, and with every account archived it showed **No account yet** with the add-an-account hint.
+- **Empty states.** With all accounts archived, the Spreadsheet showed **Add an account first** and disabled **Add entry** (*"Add an account before recording an entry"*), and Settings' round-up card offered **Add a savings account before turning round-up on.**
+- **Archived pointers.** Archiving Everyday Checking blocked every bill prompt with the archived-account sentence and its **Yes, it cleared** button disabled, and the **Edit bill** dialog listed the pointer as *Everyday Checking (archived)*, disabled and selected, instead of showing another account.
+- **Accessibility and theme.** The donut named each slice (*"ROUTED: $6,400.00. Priority Wall 32%, Growth & sinking funds 36%, Debt payoff 5%, Guilt-free 27%"*), progress bars carried `aria-label`s, the round-up radio group moved selection and focus with ArrowRight (roving `tabIndex`), and emulating `prefers-reduced-motion: reduce` collapsed transitions to `0.000001s`. Overview, Spreadsheet and Settings were checked in both themes.
+- **Sidebar counts.** Archiving Cash Wallet took the footer from *5 accounts tracked / $17.9K* to *4 accounts tracked / $17.8K*, and restoring put it back.
+
+**Not verified:** the import wizard — its file picker is a native dialog the harness cannot drive — so the surviving-counts arithmetic, the writing status and the failure banner are covered by code review only; and no installer was built in this batch, so the pinned asset names and the shipped `LICENSE` are untested until the release task.
+
 ### Running version in the app
 
 Settings → **About** shows the bundle's own version (`app.getVersion()` via the new `app:info` channel), the schema version it applies and its Electron version; the sidebar footer shows `WageRoute v<version>`. Verification: launched the built app on a disposable profile, `getAppInfo()` returned `{ version: '1.1.0', schemaVersion: 6, electron: '45.1.0' }`, the footer rendered `WageRoute v1.1.0`, and the About card rendered all three values.
@@ -183,9 +216,10 @@ Standard procedure is [RELEASING.md](RELEASING.md). These are the items that sta
 - [ ] Move the `## [Unreleased]` block of [CHANGELOG.md](../CHANGELOG.md) under a `## [<version>] - <date>` heading and open an empty `Unreleased` section; update the `compare` and release links.
 - [ ] Version sweep: [README.md](../README.md) header line, `curl` block and Homebrew line; [DATA-MODEL.md](DATA-MODEL.md); [FEATURES.md](FEATURES.md); [SECURITY.md](SECURITY.md) support table; [RELEASING.md](RELEASING.md) "current value" column; [DEPLOYMENT.md](DEPLOYMENT.md) artifact lists.
 - [ ] If a migration ships: prove it against a **copy** of the live database, state in the notes that it is automatic, forward-only and irreversible, and record the new backup window.
-- [ ] `npm ci` from a clean tree, `npm test`, `npm run typecheck`, `npm run build`, `npm run dist:<platform>`.
-- [ ] Launch the packaged artifact on a disposable profile (`CFFIXED_USER_HOME=/tmp/...`), not on the live ledger.
-- [ ] `SHA256SUMS.txt` for every installer, named exactly as GitHub publishes it (spaces in `WageRoute Setup <version>.exe` become dots).
+- [ ] `npm ci` from a clean tree, `npm test`, `npm run typecheck`, `npm run build`, then **every** target: macOS DMG (arm64 + Intel), Windows NSIS (x64/arm64) and MSI (x64/arm64, task #87), Linux AppImage/deb/rpm (x64/arm64, task #38).
+- [ ] Launch **each** artifact at least once on a disposable profile (`CFFIXED_USER_HOME=/tmp/...` on macOS/Linux, a throwaway Windows VM for the installers) — not on the live ledger. The Intel DMG, every Windows installer and every Linux format are still unlaunched today.
+- [ ] Confirm the MSI upgrades over an NSIS install without leaving two entries in Apps & features, and that every uninstall leaves the ledger where the user was told it would be.
+- [ ] `SHA256SUMS.txt` for every installer, named exactly as the pinned `artifactName` produces them: `WageRoute-<version>-<arch>.dmg` and `WageRoute.Setup.<version>-<arch>.exe`, with no spaces.
 - [ ] Tag `v<version>`, let CI build the Windows installer, then create the GitHub Release with the raw installers.
 - [ ] Bump `version` **and** every `sha256` in `ReVax-2007/homebrew-wageroute`; no `--no-quarantine`, no `zap` stanza.
 - [ ] After the release: reset this document, and re-verify anything it claims.

@@ -8,6 +8,8 @@
     "strict": true,
     "noImplicitOverride": true,
     "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
@@ -16,8 +18,7 @@
     "verbatimModuleSyntax": true,
     "noEmit": true,
     "paths": {
-      "@shared/*": ["./src/shared/*"],
-      "@renderer/*": ["./src/renderer/src/*"]
+      "@shared/*": ["./src/shared/*"]
     }
   },
   "include": ["src/renderer/src", "src/shared", "src/preload/index.d.ts"],

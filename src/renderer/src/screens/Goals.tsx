@@ -37,7 +37,18 @@ import {
 import { activeBills, monthlyWall } from '../lib/finance'
 import { useFinanceStore } from '../store/useFinanceStore'
 
-const COLORS = ['#38BDF8', '#FBBF24', '#A78BFA', '#34D399', '#F472B6', '#FB923C']
+/**
+ * Swatches are theme tokens, not fixed hex values, so a fund's colour stays
+ * legible when the palette switches between dark and light.
+ */
+const COLORS: { name: string; value: string }[] = [
+  { name: 'Sky', value: 'var(--savings)' },
+  { name: 'Amber', value: 'var(--goal)' },
+  { name: 'Violet', value: 'var(--investment)' },
+  { name: 'Green', value: 'var(--accent)' },
+  { name: 'Pink', value: 'var(--leisure)' },
+  { name: 'Orange', value: 'var(--debt)' }
+]
 
 /** Only money you can actually reach can back a fund. */
 function fundableAccounts(accounts: readonly AccountWithBalance[]): AccountWithBalance[] {
@@ -93,9 +104,13 @@ export function Goals() {
       ) : (
         <div className="goal-grid">
           {activeGoals.map((goal) => {
-            const remaining = Math.max(0, goal.targetCents - goal.fundedCents)
+            // The repository already derives this; recomputing it here let the
+            // card drift from the allocator that spends it.
+            const remaining = Math.max(0, goal.remainingCents)
             const months = goal.targetDate ? monthsUntil(goal.targetDate, todayISO()) : null
             const monthlyNeed = months ? Math.ceil(remaining / months) : null
+            const overdue = goal.targetDate !== null && goal.targetDate < todayISO()
+            const notStarted = goal.fundedCents === 0
             const percent =
               goal.targetCents > 0
                 ? Math.min(100, Math.round((goal.fundedCents / goal.targetCents) * 100))
@@ -130,10 +145,15 @@ export function Goals() {
                   <span className="goal-of">of {formatMoney(goal.targetCents, currency)}</span>
                 </p>
 
-                <Progress value={goal.fundedCents} max={goal.targetCents} color={goal.color} />
+                <Progress
+                  value={goal.fundedCents}
+                  max={goal.targetCents}
+                  color={goal.color}
+                  label={`${goal.name} funded`}
+                />
 
                 <div className="goal-meta">
-                  <span>{percent}% funded</span>
+                  <span>{notStarted ? 'Not started yet' : `${percent}% funded`}</span>
                   <span>{formatMoney(remaining, currency)} to go</span>
                 </div>
 
@@ -160,6 +180,7 @@ export function Goals() {
                     </span>
                   )}
                   <span className="chip">Priority {goal.priority}</span>
+                  {overdue && <span className="chip chip-overdue">Overdue</span>}
                   {goal.isEmergency && (
                     <span className="chip chip-emergency">
                       <LifeBuoy size={12} /> Emergency
@@ -434,7 +455,7 @@ function EmergencyCard() {
         targetCents,
         targetDate: null,
         priority: 1,
-        color: '#38BDF8',
+        color: 'var(--savings)',
         accountId: selectedIds[0] ?? null,
         isEmergency: true,
         fundingAccountIds: selectedIds
@@ -476,6 +497,7 @@ function EmergencyCard() {
       <div className="emergency-grid">
         <div className="emergency-controls">
           <Segmented<EmergencyMode>
+            label="Emergency target mode"
             value={mode}
             onChange={changeMode}
             options={[
@@ -488,6 +510,7 @@ function EmergencyCard() {
             <>
               <Field label="Months of essentials" hint="Six months is the cautious end">
                 <Segmented<string>
+                  label="Months of essentials"
                   value={String(months)}
                   onChange={(value) => setMonths(Number(value))}
                   options={EMERGENCY_MONTH_OPTIONS.map((option) => ({
@@ -557,7 +580,7 @@ function EmergencyCard() {
             <Money cents={targetCents} currency={currency} />
           </div>
 
-          <Progress value={funded} max={targetCents} color="var(--savings)" />
+          <Progress value={funded} max={targetCents} color="var(--savings)" label="Emergency fund" />
           <p className="emergency-coverage">
             <strong>{coverage.toFixed(1)} months</strong> covered
             {goal ? '' : ' · no emergency goal yet'}
@@ -585,7 +608,7 @@ function GoalDialog({ goal, onClose }: { goal: GoalWithProgress | null; onClose:
     target: goal ? centsToEditable(goal.targetCents) : '',
     targetDate: goal?.targetDate ?? '',
     priority: goal ? String(goal.priority) : '100',
-    color: goal?.color ?? COLORS[0],
+    color: goal?.color ?? COLORS[0].value,
     accountId: goal?.accountId ?? ''
   })
   const [fundingIds, setFundingIds] = useState<string[]>(
@@ -708,15 +731,15 @@ function GoalDialog({ goal, onClose }: { goal: GoalWithProgress | null; onClose:
       <div className="field">
         <span className="field-label">Colour</span>
         <div className="swatches">
-          {COLORS.map((color) => (
+          {COLORS.map((colour) => (
             <button
-              key={color}
+              key={colour.value}
               type="button"
-              aria-label={`Use colour ${color}`}
-              aria-pressed={form.color === color}
-              className={form.color === color ? 'swatch active' : 'swatch'}
-              style={{ background: color }}
-              onClick={() => setForm({ ...form, color })}
+              aria-label={`Use the ${colour.name} colour`}
+              aria-pressed={form.color === colour.value}
+              className={form.color === colour.value ? 'swatch active' : 'swatch'}
+              style={{ background: colour.value }}
+              onClick={() => setForm({ ...form, color: colour.value })}
             />
           ))}
         </div>

@@ -36,14 +36,14 @@ import { useFinanceStore } from '../store/useFinanceStore'
 const KINDS: AccountKind[] = ['checking', 'savings', 'cash', 'credit', 'investment']
 
 const ACCOUNT_COLORS = [
-  '#60A5FA',
-  '#34D399',
-  '#FBBF24',
-  '#F472B6',
-  '#A78BFA',
-  '#FB923C',
-  '#22D3EE',
-  '#94A3B8'
+  { name: 'Blue', value: 'var(--savings)' },
+  { name: 'Green', value: 'var(--accent)' },
+  { name: 'Amber', value: 'var(--goal)' },
+  { name: 'Pink', value: 'var(--leisure)' },
+  { name: 'Violet', value: 'var(--investment)' },
+  { name: 'Orange', value: 'var(--debt)' },
+  { name: 'Sand', value: 'var(--dot-cash)' },
+  { name: 'Slate', value: '#94A3B8' }
 ]
 
 type SafeToSpendChoice = 'auto' | 'in' | 'out'
@@ -175,7 +175,9 @@ export function Accounts() {
                   </div>
                   <span className="bank-total">
                     {owedHere > 0
-                      ? `${formatMoney(cashHere, currency)} cash · ${formatMoney(owedHere, currency)} owed`
+                      ? cashHere > 0
+                        ? `${formatMoney(cashHere, currency)} cash · ${formatMoney(owedHere, currency)} owed`
+                        : `${formatMoney(owedHere, currency)} owed`
                       : formatMoney(cashHere, currency)}
                   </span>
                 </header>
@@ -214,7 +216,11 @@ export function Accounts() {
                           </span>
                           {isCredit && limit !== null && limit > 0 && (
                             <span className="credit-meter">
-                              <Progress value={displayCents} max={limit} />
+                              <Progress
+                                value={displayCents}
+                                max={limit}
+                                label={`${account.name} credit used`}
+                              />
                               <span>{usedPercent}% used</span>
                             </span>
                           )}
@@ -229,7 +235,15 @@ export function Accounts() {
                                 : 'account-balance'
                             }
                           />
-                          <span className="account-meta">{isCredit ? 'owed' : 'available'}</span>
+                          <span className="account-meta">
+                            {isCredit
+                              ? 'owed'
+                              : account.kind === 'investment'
+                                ? 'value'
+                                : account.kind === 'cash'
+                                  ? 'cash'
+                                  : 'available'}
+                          </span>
                         </div>
                         <div className="account-actions">
                           {isCredit && (
@@ -528,10 +542,18 @@ function AccountDialog({
             ))}
           </datalist>
         </Field>
-        <Field label="Type">
+        <Field
+          label="Type"
+          hint={
+            account
+              ? 'Fixed once an account exists — its history was recorded in this type'
+              : undefined
+          }
+        >
           <select
             className="select"
             value={form.kind}
+            disabled={Boolean(account)}
             onChange={(event) => setForm({ ...form, kind: event.target.value as AccountKind })}
           >
             {KINDS.map((kind) => (
@@ -631,15 +653,15 @@ function AccountDialog({
             className={form.color === '' ? 'swatch swatch-auto active' : 'swatch swatch-auto'}
             onClick={() => setForm({ ...form, color: '' })}
           />
-          {ACCOUNT_COLORS.map((color) => (
+          {ACCOUNT_COLORS.map((colour) => (
             <button
-              key={color}
+              key={colour.name}
               type="button"
-              aria-label={`Use colour ${color}`}
-              aria-pressed={form.color === color}
-              className={form.color === color ? 'swatch active' : 'swatch'}
-              style={{ background: color }}
-              onClick={() => setForm({ ...form, color })}
+              aria-label={`Use the ${colour.name} colour`}
+              aria-pressed={form.color === colour.value}
+              className={form.color === colour.value ? 'swatch active' : 'swatch'}
+              style={{ background: colour.value }}
+              onClick={() => setForm({ ...form, color: colour.value })}
             />
           ))}
         </div>
@@ -673,7 +695,10 @@ function AdjustBalanceDialog({
       setError('Enter a balance')
       return
     }
-    const target = isCredit ? -Math.abs(typed) : typed
+    // A card normally holds a negative balance, so a positive "owed" entry
+    // becomes money out. Typing a negative amount says the card is overpaid,
+    // which is the only way to record a credit balance in its favour.
+    const target = isCredit ? -typed : typed
     setSaving(true)
     const ok = await adjustAccountBalance(account, target, occurredOn)
     setSaving(false)
@@ -697,7 +722,10 @@ function AdjustBalanceDialog({
       }
     >
       <div className="form-grid">
-        <Field label={isCredit ? 'Amount owed now' : 'Balance now'}>
+        <Field
+          label={isCredit ? 'Amount owed now' : 'Balance now'}
+          hint={isCredit ? 'Enter a negative amount if the card is overpaid' : undefined}
+        >
           <input
             className="input"
             autoFocus

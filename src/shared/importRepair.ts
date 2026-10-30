@@ -330,9 +330,7 @@ export function validateFieldValue(spec: FieldSpec, raw: unknown, context: Impor
     return { ok: false, message: `${spec.label} is missing` }
   }
 
-  const text = typeof raw === 'string' ? raw : typeof raw === 'number' ? String(raw) : ''
-  if (typeof raw === 'object' || typeof raw === 'boolean') {
-    return { ok: false, message: `${spec.label} is not a plain value` }
+  if (typeof raw === 'object' || typeof raw === 'boolean') {    return { ok: false, message: `${spec.label} is not a plain value` }
   }
 
   switch (spec.input) {

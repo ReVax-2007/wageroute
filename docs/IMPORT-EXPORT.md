@@ -102,11 +102,12 @@ A backup is a single JSON object:
 ```json
 {
   "format": "cash-flow-routing-backup",
-  "version": 5,
+  "version": 7,
   "exportedAt": "2026-10-27T18:22:04.871Z",
   "tables": {
     "accounts": [],
     "bills": [],
+    "bill_reserves": [],
     "goals": [],
     "paychecks": [],
     "allocations": [],
@@ -121,7 +122,7 @@ A backup is a single JSON object:
 | Field | Required | Rule |
 | --- | --- | --- |
 | `format` | Yes | Must equal `cash-flow-routing-backup` |
-| `version` | Yes | Integer, 2 to 5, not greater than the current schema version |
+| `version` | Yes | Integer, 2 to 7, not greater than the current schema version |
 | `exportedAt` | No | String; defaults to `""` when absent |
 | `tables` | Yes | Object containing table arrays |
 
@@ -129,12 +130,13 @@ The `format` identifier still uses the pre-rename name so backups made before th
 
 ### Tables and columns
 
-Seven tables are exported and accepted. Each row carries the full column set below. Unknown columns are ignored; known columns that are absent receive a fallback or `null`.
+Eight tables are exported and accepted. Each row carries the full column set below. Unknown columns are ignored; known columns that are absent receive a fallback or `null`.
 
 | Table | Accepted columns |
 | --- | --- |
 | `accounts` | `id`, `user_id`, `name`, `kind`, `institution`, `starting_balance_cents`, `credit_limit_cents`, `color`, `dedicated_goal_id`, `in_safe_to_spend`, `is_archived`, `sort_order`, `created_at`, `updated_at`, `deleted_at`, `revision` |
 | `bills` | `id`, `user_id`, `name`, `amount_cents`, `frequency`, `due_day`, `category`, `account_id`, `autopay`, `is_active`, `next_due_on`, `funding_strategy`, `funding_paycheck_index`, `created_at`, `updated_at`, `deleted_at`, `revision` |
+| `bill_reserves` | `id`, `user_id`, `bill_id`, `paycheck_id`, `cycle`, `amount_cents`, `state`, `created_at`, `updated_at`, `deleted_at`, `revision` |
 | `goals` | `id`, `user_id`, `name`, `target_cents`, `target_date`, `priority`, `color`, `account_id`, `is_emergency`, `is_archived`, `created_at`, `updated_at`, `deleted_at`, `revision` |
 | `paychecks` | `id`, `user_id`, `amount_cents`, `received_on`, `source`, `deposit_account_id`, `priority_cents`, `surplus_cents`, `leisure_cents`, `health`, `created_at`, `updated_at`, `deleted_at`, `revision` |
 | `allocations` | `id`, `user_id`, `paycheck_id`, `bucket`, `goal_id`, `label`, `amount_cents`, `created_at`, `updated_at`, `deleted_at`, `revision` |
@@ -208,6 +210,7 @@ Because every column is named explicitly in the `INSERT`, a SQLite column defaul
 | `goals` | `priority` → `100`, `color` → `#34D399`, `is_archived` → `0`, `is_emergency` → `0` |
 | `paychecks` | `source` → `Paycheck`, `priority_cents` → `0`, `surplus_cents` → `0`, `leisure_cents` → `0` |
 | `transactions` | `memo` → `""`, `category` → `Uncategorized` |
+| `bill_reserves` | `state` → `reserved` |
 | `allocations`, `settings` | — |
 
 Anything else that is missing or unusable — no `name`, an out-of-range `due_day`, a bad `kind`, a dangling `account_id` or `dedicated_goal_id` — is raised in the wizard before the merge runs, and its row is left out if it is not answered. A row that still breaks a database rule is reported on its own and does not stop the others.
@@ -223,8 +226,9 @@ Anything else that is missing or unusable — no `name`, an out-of-range `due_da
 | `3` | Accepted; the two v4 account columns arrive as `NULL` |
 | `4` | Accepted; `accounts.color` arrives as `NULL` (the type colour), `bills.funding_strategy` arrives as `all_checks` and `funding_paycheck_index` as `NULL` |
 | `5` | Accepted; nothing new to fall back on — version 6 added no column |
-| `6` | Accepted |
-| `> 6` | Rejected: “This backup came from a newer version (schema N)” |
+| `6` | Accepted; no `bill_reserves` rows, so the wall starts its receipts from the next route |
+| `7` | Accepted |
+| `> 7` | Rejected: “This backup came from a newer version (schema N)” |
 | Non-integer | Rejected: “Backup has no version number” |
 
 `bills.funding_strategy` is `NOT NULL` with a schema default, so it needs an entry in the importer's per-table defaults (`TABLE_DEFAULTS`): the importer lists every allowlisted column explicitly, and without the fallback an older file that omits the key would insert `NULL` and trip the constraint. That is the same failure fixed for `accounts.sort_order` in `2024f7f`, so the new column is covered by the same regression test rather than a new one.
@@ -238,7 +242,7 @@ Anything else that is missing or unusable — no `name`, an out-of-range `due_da
 Tables are processed in foreign-key order:
 
 ```text
-accounts → bills → goals → paychecks → allocations → transactions → settings
+accounts → bills → bill_reserves → goals → paychecks → allocations → transactions → settings
 ```
 
 ### Row identity

@@ -3,6 +3,7 @@ import {
   useId,
   useRef,
   type ButtonHTMLAttributes,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode
 } from 'react'
@@ -277,15 +278,24 @@ export function Modal({
 export function Progress({
   value,
   max,
-  color
+  color,
+  label
 }: {
   value: number
   max: number
   color?: string
+  label: string
 }) {
   const percent = max > 0 ? Math.min(100, Math.max(0, (value / max) * 100)) : 0
   return (
-    <div className="bar" role="progressbar" aria-valuenow={Math.round(percent)} aria-valuemin={0} aria-valuemax={100}>
+    <div
+      className="bar"
+      role="progressbar"
+      aria-label={label}
+      aria-valuenow={Math.round(percent)}
+      aria-valuemin={0}
+      aria-valuemax={100}
+    >
       <div
         className="bar-fill"
         style={{ width: `${percent}%`, ...(color ? { background: color } : {}) }}
@@ -320,29 +330,79 @@ export function Switch({
   )
 }
 
+/**
+ * A small set of exclusive choices. These are radio semantics rather than tabs:
+ * there is no panel to show or hide, and a screen reader should announce which
+ * option is chosen. Arrow keys move the selection the way a native radio group
+ * does, and only the chosen option sits in the tab order.
+ */
 export function Segmented<T extends string>({
   options,
   value,
-  onChange
+  onChange,
+  label
 }: {
   options: { value: T; label: string }[]
   value: T
   onChange: (value: T) => void
+  label: string
 }) {
+  const buttons = useRef<(HTMLButtonElement | null)[]>([])
+
+  const choose = (index: number) => {
+    const option = options[index]
+    if (!option) return
+    onChange(option.value)
+    buttons.current[index]?.focus()
+  }
+
+  const handleKey = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
+    const last = options.length - 1
+    let next: number | null = null
+    switch (event.key) {
+      case 'ArrowRight':
+      case 'ArrowDown':
+        next = index === last ? 0 : index + 1
+        break
+      case 'ArrowLeft':
+      case 'ArrowUp':
+        next = index === 0 ? last : index - 1
+        break
+      case 'Home':
+        next = 0
+        break
+      case 'End':
+        next = last
+        break
+      default:
+        return
+    }
+    event.preventDefault()
+    choose(next)
+  }
+
   return (
-    <div className="segmented" role="tablist">
-      {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          role="tab"
-          aria-selected={option.value === value}
-          className={option.value === value ? 'active' : undefined}
-          onClick={() => onChange(option.value)}
-        >
-          {option.label}
-        </button>
-      ))}
+    <div className="segmented" role="radiogroup" aria-label={label}>
+      {options.map((option, index) => {
+        const selected = option.value === value
+        return (
+          <button
+            key={option.value}
+            ref={(element) => {
+              buttons.current[index] = element
+            }}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            tabIndex={selected ? 0 : -1}
+            className={selected ? 'active' : undefined}
+            onClick={() => onChange(option.value)}
+            onKeyDown={(event) => handleKey(event, index)}
+          >
+            {option.label}
+          </button>
+        )
+      })}
     </div>
   )
 }
