@@ -22,6 +22,7 @@ Source: [`src/shared/importRepair.ts`](../src/shared/importRepair.ts), [`src/mai
 - [CSV account matching](#csv-account-matching)
 - [CSV duplicates](#csv-duplicates)
 - [CSV insert semantics](#csv-insert-semantics)
+- [Bank statements (OFX, QFX and account-less CSV)](#bank-statements-ofx-qfx-and-account-less-csv)
 - [Worked examples](#worked-examples)
 - [UI messages](#ui-messages)
 - [Limits and cautions](#limits-and-cautions)
@@ -36,11 +37,11 @@ Import lives in **Settings → Data**; export lives beside it.
 | --- | --- | --- | --- |
 | Export full backup | `exportBackup()` | Save JSON | `~/Documents/wageroute-backup-YYYY-MM-DD.json` |
 | Export transactions CSV | `exportTransactionsCsv()` | Save CSV | `~/Documents/wageroute-transactions-YYYY-MM-DD.csv` |
-| Import data | `previewImport()` then `confirmImport(token, answers)` | Open JSON or CSV, then the wizard | — |
+| Import data | `previewImport()` then `confirmImport(token, answers)` | Open JSON, CSV, OFX or QFX, then the wizard | — |
 
 The first-run dashboard offers **Start from scratch** or **Import a backup**; the second button opens the same wizard as Settings → Import data. There is no longer a single "pick a file and hope" import.
 
-The file picker accepts `.json` and `.csv`. The branch is chosen by the file extension, case-insensitively. A file larger than **64 MiB** is rejected before parsing.
+The file picker accepts `.json`, `.csv`, `.ofx` and `.qfx`. `.ofx` and `.qfx` are read as bank statements; a `.csv` is an entry list when it has an Account column and a bank statement when it does not; anything else must be a JSON backup. The branch is chosen by the file extension, case-insensitively, with the CSV shape checked from its header. A file larger than **64 MiB** is rejected before parsing.
 
 Cancelling the file picker returns `null` and opens nothing. Cancelling the wizard leaves the database untouched.
 
@@ -72,6 +73,7 @@ Detection is pure shared code (`findImportProblems`), so the main process re-der
 | A foreign key pointing at something that does not exist | "Posting account is not valid (acc-nope)" | Dropdown of local rows, plus **Leave unlinked** where the column is nullable |
 | A value of the wrong JSON type (object, array, boolean in a text/date column) | "Pay date is not a plain value" | The column's own editor |
 | A CSV account name with no matching local account | "no local account is named “COFFSHOC *BREW BAR”" | Dropdown of local accounts, one question per distinct name covering every line that shares it |
+| A bank statement (OFX/QFX, or a CSV with no Account column) | "a bank statement does not say which local account it belongs to" | Dropdown of local accounts, one question covering every line, **nothing pre-selected** |
 
 Columns that have a schema default — `sort_order`, `is_archived`, `category`, `memo`, `revision`, `priority` and friends — are **never** asked about; they are filled silently. See [partial tables](#partial-tables). The two v4 account columns are not in that list either, in the other direction: they have no default and are nullable, so an absent `dedicated_goal_id` or `in_safe_to_spend` simply arrives as `NULL`.
 
@@ -376,12 +378,11 @@ The CSV importer is designed for WageRoute exports and tolerant of common bank e
 The importer scans the first **10 rows** for a header containing at least:
 
 - a date column,
-- an account column,
-- an amount column.
+- and either an amount column or a Debit/Credit pair.
 
-This allows a bank preamble before the real header. If no such row is found:
+The Account column is optional. Without it the file is treated as a bank statement for one account, and the wizard asks which local account that is. This allows a bank preamble before the real header. If no usable header is found:
 
-> That CSV needs Date, Account and Amount columns
+> That CSV needs a Date column and an Amount or Debit/Credit column
 
 ### Header aliases
 
@@ -389,13 +390,15 @@ Header matching is case-insensitive, trims whitespace and collapses repeated spa
 
 | Canonical field | Accepted headers |
 | --- | --- |
-| Date | `date`, `occurred on`, `occurred_on`, `posted`, `posting date` |
+| Date | `date`, `occurred on`, `occurred_on`, `posted`, `posting date`, `date posted`, `transaction date` |
 | Account | `account`, `account name`, `account_name` |
 | Institution | `institution`, `bank`, `financial institution` |
 | Kind | `kind`, `type`, `transaction type` |
 | Category | `category` |
-| Description | `description`, `memo`, `note`, `notes`, `details` |
+| Description | `description`, `memo`, `note`, `notes`, `details`, `transaction details` |
 | Amount | `amount`, `value` |
+| Debit | `debit`, `debit amount`, `withdrawal`, `withdrawals`, `money out` |
+| Credit | `credit`, `credit amount`, `deposit`, `deposits`, `money in` |
 | Currency | Ignored on import |
 
 An unrecognised column is ignored.
@@ -426,6 +429,10 @@ A missing, unreadable or zero amount produces:
 
 > row N has no usable amount
 
+When the file has no single Amount column but splits the direction into **Debit** and **Credit**, a debit is negative and a credit positive. A row that fills both is ambiguous and is reported rather than netted:
+
+> row N has both a debit and a credit
+
 ### Kinds
 
 The kind cell is lowercased and spaces or hyphens become underscores.
@@ -453,9 +460,9 @@ Other rows in the same file still import.
 Each row must have:
 
 - a readable date;
-- a non-empty account name;
 - a usable, non-zero amount;
-- a kind that is not `transfer`.
+- a kind that is not `transfer`;
+- a non-empty account name **when the file has an Account column**. Statement files have no names; the wizard supplies one account for every line.
 
 Optional values default as follows:
 
@@ -488,6 +495,8 @@ Outcomes:
 The wizard groups a bank statement's many `COFFSHOC *BREW BAR` lines into a single question keyed on the first line that name appears on (`e:<firstLine>`), so you map each name once rather than line by line. Its answer becomes an account map handed to the merge, and names you chose to leave out are reported once as a dropped group instead of once per line.
 
 Account names are not created automatically. Either map the lines onto an existing account in the wizard, or create an account with that exact name and import again — the second run matches by name and needs no mapping.
+
+A file with **no Account column at all** (see [Bank statements](#bank-statements-ofx-qfx-and-account-less-csv)) has no names to match against. The wizard asks one question for the whole file, with no pre-selected account, and **Import** stays disabled until you answer. This is the one path where nothing is placed in the dropdown for you: the account number in the file is not a local account's name, and a wrong guess would post money into the wrong balance.
 
 Archived accounts are still eligible for matching because the lookup does not filter `is_archived`. Soft-deleted accounts are excluded. An account you mapped in the wizard and then deleted before confirming is reported per line (“was mapped to an account that no longer exists”) rather than aborting the import.
 
@@ -548,6 +557,59 @@ Because the insert bypasses `createTransaction`:
 - no validation beyond what parsing and the database constraints provide.
 
 Rows are inserted even if they fall outside the UI's 500-row snapshot window; they will exist in SQLite but may not appear in the current ledger grid until older rows scroll out of the window.
+
+---
+
+## Bank statements (OFX, QFX and account-less CSV)
+
+A bank statement is an entries file for exactly one account. WageRoute reads three shapes of it:
+
+| File | How it is recognised |
+| --- | --- |
+| OFX 1.x (SGML) | `.ofx`, with `<STMTTRN>` blocks whose values have no closing tags |
+| OFX 2.x / QFX (XML) | `.ofx` or `.qfx`, with `<STMTTRN>…</STMTTRN>` |
+| Bank CSV | `.csv` whose header has no Account column |
+
+All three produce the same `CsvEntry` rows as an entries file, so insertion, sign rules and duplicate handling are identical. What differs is where the account comes from and what the wizard can say about the file.
+
+### What is read from OFX
+
+| OFX field | Used as |
+| --- | --- |
+| `DTPOSTED` | The entry date. The first eight digits (`YYYYMMDD`) are read and validated as a real calendar date; the time and timezone are ignored |
+| `TRNAMT` | The signed amount. Positive is money in (`income`), negative is money out (`expense`) |
+| `TRNTYPE` | Only `XFER` matters: a transfer is refused, because one leg cannot become a paired movement |
+| `NAME` / `MEMO` | The description, joined with ` — ` when both differ |
+| `BANKACCTFROM` / `CCACCTFROM` | The bank and the account's last four digits, shown in the wizard |
+| `CURDEF` | The currency of the closing balance shown in the wizard |
+| `LEDGERBAL` | The closing balance and its date, shown for comparison and never written |
+
+`FITID`, `CHECKNUM`, `SIC` and the sign-on block are ignored. XML entities (`&amp;`, `&#39;`) are decoded; OFX 1.x's header lines before `<OFX>` do not affect parsing.
+
+### The account is always asked for
+
+No local account is inferred from `ACCTID`, `BANKID` or a CSV's file name. The account number in a statement is not the account's name in WageRoute, and posting money into the wrong balance is worse than one extra click. The wizard opens on a single question covering every line, with no account pre-selected:
+
+> Statement “Chase account ••••7890” (34 lines) — a bank statement does not say which local account it belongs to
+
+**Import** stays disabled until an account is chosen. Nothing is pre-selected, so pressing Import immediately can never post to the first account in the list. Choosing **Leave these lines out** on the step lets the statement be dropped deliberately; the review then reports it once, not once per line.
+
+### What the wizard shows
+
+Above the questions, the wizard prints what the file claims about itself: bank, masked account number, the range covered by the transactions that will import, and the statement's closing balance and date when it states one. This is context for checking against the paper statement; it is not reconciled and never changes a balance.
+
+Rows the parser could not read — an unreadable `DTPOSTED`, a zero amount, a transfer — are listed under **Left out while reading** with `statement line N` or `row N`, before the wizard asks about the rest. The other lines still import.
+
+### Re-importing a statement
+
+Identical to an entries CSV: the fingerprint `[accountId, kind, amountCents, occurredOn, memo, category]` is matched against rows already on disk and each file occurrence claims at most one existing row. Overlapping monthly statements therefore add only the days that are new, and importing the same file twice adds nothing. `FITID` is not stored, so two genuinely identical transactions in the same statement both land, exactly like two identical coffees in one CSV.
+
+### What is not supported
+
+- **Balance reconciliation**: the closing balance is displayed, not enforced. The imported total will not necessarily equal it, because existing rows are never changed and transfers are refused.
+- **Credit-card sign flipping**: the sign is taken as the bank wrote it. A file that reports purchases as positive amounts will import them as `income`; edit those rows after import rather than having the app guess from the account type.
+- **Investment and loan OFX dialects** (`INVSTMTRS`, `LOANSTMTRS`) are not read; only bank and credit-card statement aggregates are.
+- **QIF** is not read.
 
 ---
 
@@ -640,6 +702,23 @@ The header is found at row 4. Both rows import as entries. The first becomes an 
 - Map it to an existing account and those 40 lines insert against that account; the dedup fingerprint then uses that account ID, so re-importing the same CSV skips them.
 - Leave one name unmapped and it is reported once as a dropped group, while every other line still imports.
 
+### 10. OFX statement for a Chequing account
+
+```text
+<BANKACCTFROM><BANKID>021000021</BANKID><ACCTID>1234567890</ACCTID></BANKACCTFROM>
+<BANKTRANLIST>
+<STMTTRN><TRNTYPE>DEBIT</TRNTYPE><DTPOSTED>20260105</DTPOSTED><TRNAMT>-4.25</TRNAMT><NAME>COFFEE SHOP</NAME></STMTTRN>
+<STMTTRN><TRNTYPE>DIRECTDEP</TRNTYPE><DTPOSTED>20260107</DTPOSTED><TRNAMT>2500.00</TRNAMT><NAME>PAYROLL</NAME></STMTTRN>
+<STMTTRN><TRNTYPE>XFER</TRNTYPE><DTPOSTED>20260110</DTPOSTED><TRNAMT>-500.00</TRNAMT><NAME>TRANSFER TO SAVINGS</NAME></STMTTRN>
+</BANKTRANLIST>
+<LEDGERBAL><BALAMT>1995.75</BALAMT><DTASOF>20260131</DTASOF></LEDGERBAL>
+```
+
+- The wizard prints **Bank statement · Chase · account ••••7890 · 2026-01-05 → 2026-01-07 · closing balance $1,995.75 on 2026-01-31**.
+- **Left out while reading** lists `statement line 3 is a transfer — import a JSON backup to keep both legs`.
+- The single account question is unanswered, so **Import** is disabled. Choose *Chequing* and confirm.
+- Result: two entries added, one refused as a transfer. Re-importing the same file adds nothing and reports both as already present.
+
 ---
 
 ## UI messages
@@ -649,10 +728,10 @@ The wizard's review step is where detail lives: what is being imported, the valu
 When rows were added — **records** for JSON, **entries** for CSV:
 
 ```text
-Imported N new records · M already present · K rows left out · L rows refused by the database
+Imported N new records · M already present · K rows left out · L rows could not be imported
 ```
 
-Each tail segment only appears when its count is above zero. `left out` counts rows you dropped or never answered; `refused by the database` counts rows that passed the wizard and were still rejected by a constraint.
+Each tail segment only appears when its count is above zero. `left out` counts rows you dropped or never answered; `could not be imported` counts rows the parser could not read plus rows that passed the wizard and were still rejected by a constraint.
 
 When nothing was added:
 
@@ -662,7 +741,7 @@ When nothing was added:
 | Everything was already there | `Nothing new — those records are already in your data` |
 | The file had no rows | `That file had nothing to import` |
 
-Problems raised before or during the run appear as error toasts with the main-process message verbatim: `That file is not valid JSON`, `That CSV has no entries`, `That file is too large`, `That file could not be read`, and `That import has expired — pick the file again` when the token was evicted or already used.
+Problems raised before or during the run appear as error toasts with the main-process message verbatim: `That file is not valid JSON`, `That CSV has no usable entries`, `That statement has no usable transactions`, `That file has no transactions — is it an OFX or QFX statement?`, `That file is too large`, `That file could not be read`, and `That import has expired — pick the file again` when the token was evicted or already used.
 
 ---
 
@@ -682,6 +761,7 @@ Cautions:
 - Backups contain your complete financial history in plain text. Store them somewhere you would store a bank statement.
 - Imported JSON preserves IDs. Importing two installations into one database creates duplicate accounts and goals with the same names but different IDs.
 - CSV import does not create missing accounts, link bills or goals, or reconstruct transfers.
+- Bank statement import does not reconcile the closing balance, store `FITID`, or flip the sign from the account type; the statement's sign wins. See [what is not supported](#what-is-not-supported).
 - A whole-file rejection leaves the database untouched. A per-row rejection leaves the *other* rows imported — read the review step and the toast rather than assuming all-or-nothing, and re-import the same file after fixing it: rows that already landed are recognised by ID (or by fingerprint for CSV) and skipped.
 - Leaving a row out is not a rollback. Nothing local is deleted by an import, but a row you skipped stays missing until you import it again.
 - The import is not a restore. It will not delete local rows, reset settings, or roll back to an earlier state.

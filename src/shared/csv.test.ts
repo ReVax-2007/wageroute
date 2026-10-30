@@ -138,3 +138,55 @@ test('an export keeps the bank name even when the account is no longer listed', 
   const [, row] = parseCsv(csv)
   assert.equal(row?.[2], 'Tangerine', 'the joined institution stands in for the missing account')
 })
+
+test('a bank export that splits Debit and Credit needs no Account column', () => {
+  const { entries, issues, hasAccountColumn } = parseEntriesCsv(
+    [
+      'Transaction Date,Description,Debit,Credit',
+      '2026-05-02,Coffee,4.25,',
+      '2026-05-03,Payroll,,2500.00'
+    ].join('\n')
+  )
+
+  assert.equal(hasAccountColumn, false)
+  assert.deepEqual(issues, [])
+  assert.deepEqual(
+    entries.map((entry) => [entry.accountName, entry.amountCents, entry.kind]),
+    [
+      ['', -425, 'expense'],
+      ['', 250_000, 'income']
+    ]
+  )
+})
+
+test('a row claiming both a debit and a credit is refused, not netted', () => {
+  const { entries, issues } = parseEntriesCsv(
+    'Date,Description,Debit,Credit\n2026-05-04,Broken,1.00,2.00\n'
+  )
+
+  assert.equal(entries.length, 0)
+  assert.match(issues[0]?.message ?? '', /both a debit and a credit/)
+})
+
+test('an amount-only CSV is a statement, and an empty Amount row still reports', () => {
+  const parsed = parseEntriesCsv('Date,Description,Amount\n2026-05-05,One,10\n2026-05-06,Two,\n')
+
+  assert.equal(parsed.hasAccountColumn, false)
+  assert.equal(parsed.entries.length, 1)
+  assert.match(parsed.issues[0]?.message ?? '', /no usable amount/)
+})
+
+test('a CSV with an Account column still resolves names as entries', () => {
+  const parsed = parseEntriesCsv(
+    'Date,Account,Debit,Credit\n2026-05-07,Chequing,9.99,\n2026-05-08,Chequing,,20\n'
+  )
+
+  assert.equal(parsed.hasAccountColumn, true)
+  assert.deepEqual(
+    parsed.entries.map((entry) => [entry.accountName, entry.amountCents]),
+    [
+      ['Chequing', -999],
+      ['Chequing', 2000]
+    ]
+  )
+})

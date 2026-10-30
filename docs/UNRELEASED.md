@@ -171,6 +171,19 @@ Verification: `npm run typecheck`, `npm test` (155 across eighteen files, with t
 
 **Not verified:** the import wizard — its file picker is a native dialog the harness cannot drive — so the surviving-counts arithmetic, the writing status and the failure banner are covered by code review only; and no installer was built in this batch, so the pinned asset names and the shipped `LICENSE` are untested until the release task.
 
+### Bank statement import (OFX, QFX and account-less CSV) — task #86
+
+No schema change. The pipeline after parsing already existed — the sign rule, dedupe fingerprint, account map, wizard and insert path are untouched — so this adds a reader in front of it and one new question.
+
+- **`src/shared/statements.ts` reads OFX.** OFX 1.x SGML (values end at the next tag) and OFX 2.x/QFX XML are read by the same tag scanner: `DTPOSTED` (first eight digits, validated), `TRNAMT` (signed), `TRNTYPE` (`XFER` refused), `NAME`/`MEMO` joined, `BANKACCTFROM`/`CCACCTFROM` for the bank and account, `CURDEF` and `LEDGERBAL` for the statement summary. XML entities are decoded. The account number is masked to its last four digits and never persisted; `FITID` is not stored.
+- **A bank CSV is recognised by its header.** An Account column means the file is an entry list, as before; without one the file is a statement for a single account. `parseEntriesCsv` now also reads **Debit**/**Credit** pairs (`withdrawal`/`deposit`, `money out`/`money in`), refuses a row that fills both, and adds `date posted`/`transaction date` and `transaction details` aliases.
+- **One question for the whole statement.** `data:preview` builds a single mapping with a blank account name, so `mergeEntries` resolves every line only through the answer. Nothing is pre-selected, the wizard prints the bank, masked account, covered range and closing balance, and **Import** stays disabled while the account is unanswered. Leaving the statement out is reported once, not once per line.
+- **Rows already left out are shown.** `ImportPreview` carries the parser's issues, and the wizard lists them under **Left out while reading** on both steps — bad dates, zero amounts and transfers no longer disappear between the file and the result.
+- **The picker accepts `.ofx` and `.qfx`.**
+- **Tests:** `src/shared/statements.test.ts` (5 cases: SGML signed lines and transfer refusal, XML closing tags, an impossible date, a file with no `STMTTRN`, CSV statement metadata), four Debit/Credit cases in `csv.test.ts`, and `src/main/db/entries.test.ts` (2: a statement lands on the chosen account and re-imports as duplicates; an unanswered statement reports once with the wizard's `reportedNames`, per-row without it). `npm test` is **166 tests across twenty files**.
+
+Verification: `npm run typecheck`, `npm test` and `npm run build` clean. The parser and the statement-to-account merge are covered by those tests; the wizard's rendered statement card, **Left out while reading** list and disabled **Import** button were not opened, because the flow starts at the native file picker that CDP cannot drive — the same gap recorded below for the rest of the wizard.
+
 ### Running version in the app
 
 Settings → **About** shows the bundle's own version (`app.getVersion()` via the new `app:info` channel), the schema version it applies and its Electron version; the sidebar footer shows `WageRoute v<version>`. Verification: launched the built app on a disposable profile, `getAppInfo()` returned `{ version: '1.1.0', schemaVersion: 6, electron: '45.1.0' }`, the footer rendered `WageRoute v1.1.0`, and the About card rendered all three values.
@@ -195,7 +208,7 @@ Held out of 1.1.0 on purpose: the branch has never had a green CI run and its ar
 
 ## Open gaps carried forward
 
-1. **The import wizard's rendered flow has never been opened.** Its detection and repair rules are tested as pure code, but the wizard begins with a native file picker that CDP cannot reach. Someone has to pick a real file and walk the questions by hand.
+1. **The import wizard's rendered flow has never been opened.** Its detection and repair rules are tested as pure code, but the wizard begins with a native file picker that CDP cannot reach. Someone has to pick a real file and walk the questions by hand — now including a real `.ofx` statement, whose rendered card and disabled **Import** button have only been reviewed, not seen.
 2. **Homebrew's receipt is stale.** 1.1.0 was installed manually from the published arm64 DMG, which carries no quarantine flag, so the app opens without the Gatekeeper prompt but the cask receipt still says `1.0.2`. `brew list --versions wageroute` will disagree with the app until the next `brew upgrade --cask wageroute` — which re-installs the same 1.1.0 and, because brew downloads it, does apply quarantine.
 3. **Only the arm64 macOS installer has been launched.** The Intel DMG and the Windows installer have never been started.
 4. **The builds are unsigned.** macOS is ad-hoc signed only, so downloaders need right-click → Open; Windows shows SmartScreen. Signing and notarization remain undone; see [RELEASING.md](RELEASING.md#code-signing-and-notarization).
@@ -204,7 +217,7 @@ Held out of 1.1.0 on purpose: the branch has never had a green CI run and its ar
 
 ## Product work agreed, not started
 
-1. **A bank statement import.** Requested 2026-10-29. Today the only way in is a JSON backup or a CSV rewritten into WageRoute's expected columns, which is the step most likely to fail for a real user; [FEATURES.md](FEATURES.md) records bank connections as *not implemented*. The queued work is an OFX/QFX reader plus the common bank CSV layouts, format detection from the file rather than its extension, the wizard's existing missing-info and review steps for the account and any field it cannot read, and de-duplication by OFX `FITID` where the file carries one and by date+amount+memo otherwise so an overlapping statement can be re-imported safely. Persisting `FITID` per entry would be schema 8 and needs an ADR.
+1. **`FITID`-keyed de-duplication and balance reconciliation.** The 2026-10-29 bank-statement request is implemented in the section above using the existing fingerprint allowance. Persisting an OFX `FITID` per entry, and checking the imported total against `LEDGERBAL`, would need a schema 8 migration and an ADR; neither is in this build. Investment/loan OFX dialects (`INVSTMTRS`, `LOANSTMTRS`) and QIF are also not read.
 
 ---
 

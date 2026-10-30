@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { readFileSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, basename } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type Database from 'better-sqlite3'
 import type {
@@ -30,6 +30,7 @@ import {
   type ImportTable
 } from '@shared/importRepair'
 import { parseSettings, settingsToRecord } from '@shared/settings'
+import { describeCsvStatement, parseOfxStatement, type StatementInfo } from '@shared/statements'
 import type {
   AccountInput,
   AppSettings,
@@ -119,6 +120,7 @@ interface PendingImport {
   entries?: CsvEntry[]
   parseIssues?: ImportIssue[]
   mappings?: EntryMapping[]
+  statement?: StatementInfo
 }
 
 const MAX_PENDING_IMPORTS = 8
@@ -146,7 +148,7 @@ async function pickImportFile(win: BrowserWindow | null): Promise<string | null>
   const options = {
     title: 'Import data',
     properties: ['openFile' as const],
-    filters: [{ name: 'Backup or entries', extensions: ['json', 'csv'] }]
+    filters: [{ name: 'Backup, entries or statement', extensions: ['json', 'csv', 'ofx', 'qfx'] }]
   }
   const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
   if (result.canceled || result.filePaths.length === 0) return null
@@ -218,6 +220,61 @@ function entryDropped(mapping: EntryMapping): ImportDroppedRow {
     rowLabel: `CSV “${mapping.displayName}” (${mapping.lines} ${mapping.lines === 1 ? 'line' : 'lines'})`,
     reason: `no local account is named “${mapping.displayName}”`,
     fixHint: `Create an account named “${mapping.displayName}” and import again, or map the lines next time.`
+  }
+}
+
+function statementRowLabel(mapping: EntryMapping): string {
+  return `Statement “${mapping.displayName}” (${mapping.lines} ${mapping.lines === 1 ? 'line' : 'lines'})`
+}
+
+/**
+ * A statement is one account's history, so every line shares a single answer.
+ * Nothing is pre-selected: the account number in the file is not the local
+ * account's name, and guessing from it would post money into the wrong place.
+ */
+function statementProblem(mapping: EntryMapping): ImportProblem {
+  return {
+    key: `e:${mapping.firstLine}`,
+    scope: 'entry',
+    table: 'transactions',
+    rowIndex: 0,
+    line: mapping.firstLine,
+    field: {
+      column: 'account_id',
+      label: 'Account',
+      input: 'ref',
+      refTable: 'accounts'
+    },
+    rowLabel: statementRowLabel(mapping),
+    reason: 'a bank statement does not say which local account it belongs to',
+    fixHint: 'Pick the account these lines belong to, or leave the statement out.',
+    suggested: ''
+  }
+}
+
+function statementDropped(mapping: EntryMapping): ImportDroppedRow {
+  return {
+    rowLabel: statementRowLabel(mapping),
+    reason: 'you left the statement’s account unmapped',
+    fixHint: 'Import the file again and choose the account these lines belong to.'
+  }
+}
+
+function statementMapping(
+  path: string,
+  entries: readonly CsvEntry[],
+  statement: StatementInfo
+): EntryMapping {
+  const label = statement.accountLabel
+    ? `${statement.bank ? `${statement.bank} ` : ''}account ${statement.accountLabel}`
+    : basename(path).replace(/\.[^.]+$/, '')
+  return {
+    // Blank on purpose: no row names an account, so the merge only resolves
+    // these entries through the answer the wizard collects.
+    accountName: '',
+    displayName: label,
+    firstLine: entries[0]?.line ?? 1,
+    lines: entries.length
   }
 }
 
@@ -340,33 +397,63 @@ export function registerIpcHandlers(db: Database.Database): void {
     if (!path) return null
     const text = readImportText(path)
 
-    if (/\.csv$/i.test(path)) {
-      const parsed = parseEntriesCsv(text)
-      if (parsed.entries.length === 0 && parsed.issues.length === 0) {
-        throw new Error('That CSV has no entries')
+    const entriesPreview = (
+      entries: CsvEntry[],
+      issues: ImportIssue[],
+      statement?: StatementInfo
+    ): ImportPreview => {
+      if (entries.length === 0) {
+        const detail = issues[0]?.message ? ` (${issues[0].message})` : ''
+        throw new Error(
+          statement
+            ? `That statement has no usable transactions${detail}`
+            : `That CSV has no usable entries${detail}`
+        )
       }
       const choices = repo.listImportChoices(db, userId())
-      const knownNames = new Set(choices.accounts.map((choice) => choice.label.trim().toLocaleLowerCase()))
-      const mappings = findUnmappedAccounts(parsed.entries, knownNames)
+      const mappings = statement
+        ? [statementMapping(path, entries, statement)]
+        : findUnmappedAccounts(
+            entries,
+            new Set(choices.accounts.map((choice) => choice.label.trim().toLocaleLowerCase()))
+          )
       const token = holdImport({
         path,
         format: 'entries',
         exportedAt: '',
-        entries: parsed.entries,
-        parseIssues: parsed.issues,
-        mappings
+        entries,
+        parseIssues: issues,
+        mappings,
+        statement
       })
       const rows = emptyImportCounts()
-      rows.transactions = parsed.entries.length
+      rows.transactions = entries.length
       return {
         token,
         path,
         format: 'entries',
         exportedAt: '',
         fileRows: rows,
-        problems: mappings.map((mapping) => entryProblem(mapping, choices)),
-        choices
+        problems: mappings.map((mapping) =>
+          statement ? statementProblem(mapping) : entryProblem(mapping, choices)
+        ),
+        choices,
+        statement,
+        issues
       } satisfies ImportPreview
+    }
+
+    if (/\.(ofx|qfx)$/i.test(path)) {
+      const parsed = parseOfxStatement(text)
+      return entriesPreview(parsed.entries, parsed.issues, parsed.statement)
+    }
+
+    if (/\.csv$/i.test(path)) {
+      const parsed = parseEntriesCsv(text)
+      // An Account column means the file describes accounts by name; without
+      // one the file is a statement, and the wizard asks which account it is.
+      const statement = parsed.hasAccountColumn ? undefined : describeCsvStatement(parsed.entries)
+      return entriesPreview(parsed.entries, parsed.issues, statement)
     }
 
     const payload = parseBackupJson(text)
@@ -407,7 +494,9 @@ export function registerIpcHandlers(db: Database.Database): void {
         exportedAt: '',
         added,
         skipped,
-        dropped: unmapped.map((mapping) => entryDropped(mapping)),
+        dropped: unmapped.map((mapping) =>
+          pending.statement ? statementDropped(mapping) : entryDropped(mapping)
+        ),
         issues: [...(pending.parseIssues ?? []), ...merged.issues]
       } satisfies ImportResult
     }

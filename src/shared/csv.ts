@@ -105,16 +105,20 @@ export interface CsvIssue {
 export interface CsvEntryParse {
   entries: CsvEntry[]
   issues: CsvIssue[]
+  /** False when the file is a bank statement with no Account column. */
+  hasAccountColumn: boolean
 }
 
 const COLUMN_ALIASES = {
-  date: ['date', 'occurred on', 'occurred_on', 'posted', 'posting date'],
+  date: ['date', 'occurred on', 'occurred_on', 'posted', 'posting date', 'date posted', 'transaction date'],
   account: ['account', 'account name', 'account_name'],
   institution: ['institution', 'bank', 'financial institution'],
   kind: ['kind', 'type', 'transaction type'],
   category: ['category'],
-  memo: ['description', 'memo', 'note', 'notes', 'details'],
-  amount: ['amount', 'value']
+  memo: ['description', 'memo', 'note', 'notes', 'details', 'transaction details'],
+  amount: ['amount', 'value'],
+  debit: ['debit', 'debit amount', 'withdrawal', 'withdrawals', 'money out'],
+  credit: ['credit', 'credit amount', 'deposit', 'deposits', 'money in']
 } as const
 
 type EntryColumn = keyof typeof COLUMN_ALIASES
@@ -221,7 +225,9 @@ function normalizeKind(raw: string, amountCents: number): TransactionKind {
 
 /**
  * Reads an entries file — the transactions CSV this app exports, or a similar
- * bank export. Unknown accounts are reported instead of being guessed at.
+ * bank export. A file without an Account column is a bank statement: its rows
+ * come back with no account name, and the wizard asks which account they
+ * belong to instead of guessing.
  */
 export function parseEntriesCsv(text: string): CsvEntryParse {
   const rows = parseCsvRows(text)
@@ -230,7 +236,9 @@ export function parseEntriesCsv(text: string): CsvEntryParse {
 
   for (let index = 0; index < Math.min(rows.length, 10); index += 1) {
     const found = findColumns(rows[index].cells)
-    if (found.date !== undefined && found.account !== undefined && found.amount !== undefined) {
+    const hasMoney =
+      found.amount !== undefined || found.debit !== undefined || found.credit !== undefined
+    if (found.date !== undefined && hasMoney) {
       headerIndex = index
       columns = found
       break
@@ -238,9 +246,10 @@ export function parseEntriesCsv(text: string): CsvEntryParse {
   }
 
   if (headerIndex === -1) {
-    throw new Error('That CSV needs Date, Account and Amount columns')
+    throw new Error('That CSV needs a Date column and an Amount or Debit/Credit column')
   }
 
+  const hasAccountColumn = columns.account !== undefined
   const entries: CsvEntry[] = []
   const issues: CsvIssue[] = []
 
@@ -259,12 +268,31 @@ export function parseEntriesCsv(text: string): CsvEntryParse {
     }
 
     const accountName = cell('account')
-    if (!accountName) {
+    if (hasAccountColumn && !accountName) {
       issues.push({ line, message: `row ${line} has no account name` })
       continue
     }
 
-    const amountCents = parseMoneyToCents(cell('amount'))
+    // A bank statement either states one signed amount or splits the direction
+    // across Debit and Credit columns. Exactly one of those is fillable.
+    const stated = cell('amount')
+    const debit = cell('debit')
+    const credit = cell('credit')
+    let amountCents: number | null
+    if (stated !== '') {
+      amountCents = parseMoneyToCents(stated)
+    } else if (debit !== '' && credit !== '') {
+      issues.push({ line, message: `row ${line} has both a debit and a credit` })
+      continue
+    } else if (debit !== '') {
+      const cents = parseMoneyToCents(debit)
+      amountCents = cents === null ? null : -Math.abs(cents)
+    } else if (credit !== '') {
+      const cents = parseMoneyToCents(credit)
+      amountCents = cents === null ? null : Math.abs(cents)
+    } else {
+      amountCents = null
+    }
     if (amountCents === null || amountCents === 0) {
       issues.push({ line, message: `row ${line} has no usable amount` })
       continue
@@ -292,7 +320,7 @@ export function parseEntriesCsv(text: string): CsvEntryParse {
     })
   }
 
-  return { entries, issues }
+  return { entries, issues, hasAccountColumn }
 }
 
 export function transactionsToCsv(

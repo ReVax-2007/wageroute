@@ -353,7 +353,7 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
         const parts = [`Imported ${added} new ${noun}`]
         if (skipped > 0) parts.push(`${skipped} already present`)
         if (dropped > 0) parts.push(`${dropped} ${dropped === 1 ? 'row' : 'rows'} left out`)
-        if (refused > 0) parts.push(`${refused} ${refused === 1 ? 'row' : 'rows'} refused by the database`)
+        if (refused > 0) parts.push(`${refused} ${refused === 1 ? 'row' : 'rows'} could not be imported`)
         get().notify(parts.join(' · '))
         return null
       } catch (error) {
