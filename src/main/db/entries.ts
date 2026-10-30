@@ -21,6 +21,20 @@ function key(value: string | null | undefined): string {
   return (value ?? '').trim().toLocaleLowerCase()
 }
 
+const MEMO_MAX = 240
+const CATEGORY_MAX = 60
+
+/**
+ * Imported text is untrusted: the same bounds the edit dialog enforces apply
+ * here, otherwise a CSV can create rows the app itself refuses to save again.
+ */
+function cleanText(value: string, max: number): string {
+  const stripped = value
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+    .trim()
+  return stripped.length > max ? stripped.slice(0, max).trim() : stripped
+}
+
 /**
  * Inserts CSV entries straight into the ledger so historical rows do not trigger
  * round-up sweeps. Rows whose account cannot be matched by name are matched
@@ -75,6 +89,22 @@ export function mergeEntries(
       continue
     }
 
+    // The row is only cleaned once it is known to land, so a row that is
+    // skipped for another reason does not also report a rewrite.
+    const accepted = (accountId: string): void => {
+      const memo = cleanText(entry.memo, MEMO_MAX)
+      const category = cleanText(entry.category, CATEGORY_MAX)
+      if (memo === entry.memo && category === entry.category) {
+        resolved.push({ entry, accountId })
+        return
+      }
+      issues.push({
+        line: entry.line,
+        message: `row ${entry.line}: memo or category was trimmed to fit the ledger`
+      })
+      resolved.push({ entry: { ...entry, memo, category }, accountId })
+    }
+
     const nameMatches = accounts.filter((account) => key(account.name) === key(entry.accountName))
     let candidates = nameMatches
     if (entry.institution) {
@@ -84,7 +114,8 @@ export function mergeEntries(
       if (bankMatches.length > 0) candidates = bankMatches
     }
 
-    const mapped = accountMap[key(entry.accountName)]
+    const mappedKey = key(entry.accountName)
+    const mapped = Object.hasOwn(accountMap, mappedKey) ? accountMap[mappedKey] : undefined
     if (mapped) {
       // The account picked in the wizard can go missing before this confirm runs.
       if (!accountsById.has(mapped)) {
@@ -94,7 +125,7 @@ export function mergeEntries(
         })
         continue
       }
-      resolved.push({ entry, accountId: mapped })
+      accepted(mapped)
       continue
     }
 
@@ -108,7 +139,7 @@ export function mergeEntries(
       issues.push({ line: entry.line, message: `“${entry.accountName}” matches more than one account` })
       continue
     }
-    resolved.push({ entry, accountId: candidates[0].id })
+    accepted(candidates[0].id)
   }
 
   // Rows in the file may legitimately repeat (two identical coffees on one
@@ -148,19 +179,27 @@ export function mergeEntries(
         continue
       }
 
-      insert.run(
-        randomUUID(),
-        userId,
-        accountId,
-        entry.kind,
-        entry.amountCents,
-        entry.occurredOn,
-        entry.memo,
-        entry.category,
-        now,
-        now
-      )
-      added += 1
+      try {
+        insert.run(
+          randomUUID(),
+          userId,
+          accountId,
+          entry.kind,
+          entry.amountCents,
+          entry.occurredOn,
+          entry.memo,
+          entry.category,
+          now,
+          now
+        )
+        added += 1
+      } catch (error) {
+        // One row that breaks a constraint must not cost the whole file.
+        issues.push({
+          line: entry.line,
+          message: `row ${entry.line}: ${error instanceof Error ? error.message : String(error)}`
+        })
+      }
     }
   })()
 

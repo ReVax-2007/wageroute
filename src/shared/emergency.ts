@@ -1,4 +1,4 @@
-import { addMonthsISO } from './dates'
+import { addDaysISO, addMonthsISO } from './dates'
 import type { TransactionRow } from './types'
 
 export const EMERGENCY_MONTH_OPTIONS = [3, 4, 5, 6] as const
@@ -16,6 +16,12 @@ function monthsInclusive(fromISO: string, toISO: string): number {
 /**
  * Average monthly variable spending over the recent window, excluding bills
  * (the Priority Wall already covers those) and transfers.
+ *
+ * Only completed months are averaged. Counting the month in progress makes the
+ * figure swing with whenever the screen is opened: a single large purchase on
+ * the 1st would read as a whole month's spending, and a quiet first week would
+ * read as a frugal month. Until one month has completed, the current month is
+ * the only history there is, so it is used as a fallback.
  */
 export function averageMonthlyVariableCents(
   transactions: readonly Pick<TransactionRow, 'kind' | 'amountCents' | 'occurredOn'>[],
@@ -23,24 +29,37 @@ export function averageMonthlyVariableCents(
   windowMonths = 6
 ): number {
   const currentMonthStart = `${monthKey(todayISO)}-01`
-  const windowStart = addMonthsISO(currentMonthStart, -(windowMonths - 1))
+  const lastCompleteDay = addDaysISO(currentMonthStart, -1)
+  const windowStart = addMonthsISO(currentMonthStart, -windowMonths)
 
-  const expenses = transactions.filter(
+  const isVariableExpense = (
+    transaction: Pick<TransactionRow, 'kind' | 'amountCents'>
+  ): boolean => transaction.kind === 'expense' && transaction.amountCents < 0
+
+  const completed = transactions.filter(
     (transaction) =>
-      transaction.kind === 'expense' &&
-      transaction.amountCents < 0 &&
+      isVariableExpense(transaction) &&
       transaction.occurredOn >= windowStart &&
+      transaction.occurredOn <= lastCompleteDay
+  )
+  if (completed.length > 0) {
+    const earliest = completed.reduce(
+      (min, transaction) => (transaction.occurredOn < min ? transaction.occurredOn : min),
+      completed[0].occurredOn
+    )
+    const months = monthsInclusive(earliest, lastCompleteDay)
+    const total = completed.reduce((sum, transaction) => sum + Math.abs(transaction.amountCents), 0)
+    return Math.round(total / months)
+  }
+
+  const thisMonth = transactions.filter(
+    (transaction) =>
+      isVariableExpense(transaction) &&
+      transaction.occurredOn >= currentMonthStart &&
       transaction.occurredOn <= todayISO
   )
-  if (expenses.length === 0) return 0
-
-  const earliest = expenses.reduce(
-    (min, transaction) => (transaction.occurredOn < min ? transaction.occurredOn : min),
-    expenses[0].occurredOn
-  )
-  const months = monthsInclusive(earliest, todayISO)
-  const total = expenses.reduce((sum, transaction) => sum + Math.abs(transaction.amountCents), 0)
-  return Math.round(total / months)
+  if (thisMonth.length === 0) return 0
+  return thisMonth.reduce((sum, transaction) => sum + Math.abs(transaction.amountCents), 0)
 }
 
 export function emergencyMonthlyEssentialsCents(input: {

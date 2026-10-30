@@ -228,9 +228,10 @@ export function buildAllocationPlan(input: AllocatorInput): AllocationPlan {
     leisureCents = 0
   }
 
-  const tightThreshold = Math.round(incomeCents * 0.1)
+  // "Tight" means the paycheck is fully spoken for: the bills are funded and
+  // nothing is left. Choosing to save almost everything is not tightness.
   const health: PlanHealth =
-    incomeCents === 0 || leisureCents < tightThreshold ? 'tight' : 'covered'
+    incomeCents === 0 || surplusCents === 0 ? 'tight' : 'covered'
   if (health === 'tight') warnings.push({ code: 'tight_margin', leisureCents })
 
   return {
@@ -254,7 +255,7 @@ export function buildAllocationPlan(input: AllocatorInput): AllocationPlan {
 }
 
 /**
- * Shrinks three buckets to fit a smaller target, using largest-remainder
+ * Shrinks the surplus buckets to fit a smaller target, using largest-remainder
  * apportionment so the cents still add up exactly.
  */
 function scaleToTarget(values: readonly number[], target: number): number[] {

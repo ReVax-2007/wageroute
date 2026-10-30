@@ -488,7 +488,9 @@ export function buildAccountMap(
   answers: readonly ImportAnswer[]
 ): Record<string, string> {
   const byLine = new Map(mappings.map((mapping) => [`e:${mapping.firstLine}`, mapping]))
-  const map: Record<string, string> = {}
+  // Null prototype: an account literally named "constructor" must not match
+  // Object.prototype when the caller asks whether it was mapped.
+  const map: Record<string, string> = Object.create(null) as Record<string, string>
   for (const answer of answers) {
     const mapping = byLine.get(answer.key)
     if (!mapping || answer.skip || !answer.value) continue

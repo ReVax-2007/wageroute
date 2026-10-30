@@ -10,14 +10,21 @@ export function toCsv(rows: readonly (readonly string[])[]): string {
   return rows.map((row) => row.map(escapeCell).join(',')).join('\r\n')
 }
 
+export interface CsvSourceRow {
+  /** First physical line of the row in the source file, 1-based. */
+  line: number
+  cells: string[]
+}
+
 /** RFC 4180-style reader: quoted cells may hold commas, quotes and newlines. */
-export function parseCsv(text: string): string[][] {
+export function parseCsvRows(text: string): CsvSourceRow[] {
   const source = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text
-  const rows: string[][] = []
+  const rows: CsvSourceRow[] = []
   let row: string[] = []
   let field = ''
   let quoted = false
   let line = 1
+  let rowStartLine = 1
   let quoteStartLine = 1
 
   const endField = (): void => {
@@ -26,8 +33,9 @@ export function parseCsv(text: string): string[][] {
   }
   const endRow = (): void => {
     endField()
-    if (row.some((cell) => cell.trim() !== '')) rows.push(row)
+    if (row.some((cell) => cell.trim() !== '')) rows.push({ line: rowStartLine, cells: row })
     row = []
+    rowStartLine = line
   }
 
   for (let index = 0; index < source.length; index += 1) {
@@ -72,6 +80,10 @@ export function parseCsv(text: string): string[][] {
   }
   if (field !== '' || row.length > 0) endRow()
   return rows
+}
+
+export function parseCsv(text: string): string[][] {
+  return parseCsvRows(text).map((row) => row.cells)
 }
 
 export interface CsvEntry {
@@ -167,8 +179,17 @@ function normalizeDate(raw: string): string | null {
     month = Number(iso[2])
     day = Number(iso[3])
   } else if (slashed) {
-    month = Number(slashed[1])
-    day = Number(slashed[2])
+    const first = Number(slashed[1])
+    const second = Number(slashed[2])
+    // A day above 12 cannot be a month, so the file is day-first (UK/EU).
+    // Both components 12 or under stay month-first, matching the US default.
+    if (first > 12 && second <= 12) {
+      day = first
+      month = second
+    } else {
+      month = first
+      day = second
+    }
     year = Number(slashed[3])
   } else if (yearFirst) {
     year = Number(yearFirst[1])
@@ -203,12 +224,12 @@ function normalizeKind(raw: string, amountCents: number): TransactionKind {
  * bank export. Unknown accounts are reported instead of being guessed at.
  */
 export function parseEntriesCsv(text: string): CsvEntryParse {
-  const rows = parseCsv(text)
+  const rows = parseCsvRows(text)
   let headerIndex = -1
   let columns: Partial<Record<EntryColumn, number>> = {}
 
   for (let index = 0; index < Math.min(rows.length, 10); index += 1) {
-    const found = findColumns(rows[index])
+    const found = findColumns(rows[index].cells)
     if (found.date !== undefined && found.account !== undefined && found.amount !== undefined) {
       headerIndex = index
       columns = found
@@ -224,8 +245,8 @@ export function parseEntriesCsv(text: string): CsvEntryParse {
   const issues: CsvIssue[] = []
 
   for (let index = headerIndex + 1; index < rows.length; index += 1) {
-    const row = rows[index]
-    const line = index + 1
+    const row = rows[index].cells
+    const line = rows[index].line
     const cell = (column: EntryColumn): string => {
       const position = columns[column]
       return position === undefined ? '' : (row[position] ?? '').trim()
@@ -288,7 +309,7 @@ export function transactionsToCsv(
     rows.push([
       transaction.occurredOn,
       defuseFormula(transaction.accountName),
-      defuseFormula(institutionById.get(transaction.accountId) ?? ''),
+      defuseFormula(institutionById.get(transaction.accountId) ?? transaction.accountInstitution ?? ''),
       transaction.kind,
       defuseFormula(transaction.category),
       defuseFormula(transaction.memo),

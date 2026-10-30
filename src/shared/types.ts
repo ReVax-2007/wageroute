@@ -74,7 +74,10 @@ export interface Account extends SyncMeta {
 }
 
 export interface AccountWithBalance extends Account {
+  /** Every non-deleted entry, including ones dated in the future. */
   balanceCents: number
+  /** The same sum restricted to entries dated today or earlier. */
+  cashCents: number
 }
 
 export interface Bill extends SyncMeta {
@@ -142,6 +145,8 @@ export interface Transaction extends SyncMeta {
 
 export interface TransactionRow extends Transaction {
   accountName: string
+  /** Joined from the account, tombstoned or not, so an export keeps its bank. */
+  accountInstitution: string | null
 }
 
 export interface Paycheck extends SyncMeta {
@@ -195,7 +200,10 @@ export interface Snapshot {
   accounts: AccountWithBalance[]
   bills: Bill[]
   goals: GoalWithProgress[]
+  /** The newest entries only; `transactionTotal` says how many exist. */
   transactions: TransactionRow[]
+  /** Every live entry, including any the capped grid leaves out. */
+  transactionTotal: number
   paychecks: PaycheckWithAllocations[]
   billReserves: BillReserve[]
 }

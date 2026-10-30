@@ -33,6 +33,8 @@ export function Spreadsheet() {
 
   if (!snapshot) return null
   const currency = settings.currency
+  const shown = snapshot.transactions.length
+  const hidden = Math.max(0, snapshot.transactionTotal - shown)
 
   return (
     <>
@@ -57,7 +59,13 @@ export function Spreadsheet() {
             value={tab}
             onChange={setTab}
             options={[
-              { value: 'ledger', label: `Transactions (${snapshot.transactions.length})` },
+              {
+                value: 'ledger',
+                label:
+                  hidden > 0
+                    ? `Transactions (newest ${shown} of ${snapshot.transactionTotal})`
+                    : `Transactions (${shown})`
+              },
               {
                 value: 'projections',
                 label: `Next ${HORIZON_DAYS} days (${projections.length})`
@@ -71,7 +79,15 @@ export function Spreadsheet() {
           </span>
         </header>
 
-        <div className="grid-host">
+        {tab === 'ledger' && hidden > 0 && (
+          <p className="sheet-note">
+            The grid shows the newest {shown} entries; {hidden} older{' '}
+            {hidden === 1 ? 'entry is' : 'entries are'} not listed here. They are still counted in
+            every balance and included in a CSV export and a backup.
+          </p>
+        )}
+
+        <div className={`grid-host${tab === 'ledger' && hidden > 0 ? ' has-note' : ''}`}>
           {tab === 'ledger' ? (
             snapshot.transactions.length === 0 ? (
               <div className="empty">

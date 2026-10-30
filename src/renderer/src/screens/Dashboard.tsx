@@ -445,7 +445,7 @@ export function Dashboard() {
 
       <Card
         title="Recent activity"
-        subtitle={`${snapshot.transactions.length} entries in the local ledger`}
+        subtitle={`${snapshot.transactionTotal} ${snapshot.transactionTotal === 1 ? 'entry' : 'entries'} in the local ledger`}
         actions={
           <Button variant="quiet" size="sm" onClick={() => go('ledger')}>
             Open spreadsheet

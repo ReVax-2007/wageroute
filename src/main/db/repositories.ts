@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type Database from 'better-sqlite3'
 import { buildAllocationPlan } from '@shared/allocator'
 import type { CommittedPaycheck } from '@shared/api'
-import { isISODate } from '@shared/dates'
+import { isISODate, todayISO } from '@shared/dates'
 import { RepositoryError } from '@shared/errors'
 import type { ImportChoice, ImportChoiceTable } from '@shared/importRepair'
 import { normalizeSignedCents, signedAmountError } from '@shared/kinds'
@@ -116,6 +116,35 @@ function assertPriority(value: unknown): number {
   return Math.round(value)
 }
 
+/** A due day is 1–31; the date helpers clamp a 29–31 to the month's length. */
+function assertDueDay(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new RepositoryError('VALIDATION', 'Due day must be a number')
+  }
+  return Math.min(31, Math.max(1, Math.round(value)))
+}
+
+/** Index into the guaranteed paycheck slots: the 1st through the 4th check. */
+function assertPaycheckIndex(value: unknown): number | null {
+  if (value === null || value === undefined) return null
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new RepositoryError('VALIDATION', 'Paycheck choice must be a number')
+  }
+  const index = Math.round(value)
+  if (index < 1 || index > 4) {
+    throw new RepositoryError('VALIDATION', 'Paycheck choice must be the 1st through the 4th check')
+  }
+  return index
+}
+
+function assertSortOrder(value: unknown): number {
+  if (value === undefined || value === null) return 0
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new RepositoryError('VALIDATION', 'Sort order must be a number')
+  }
+  return Math.round(value)
+}
+
 type Table = 'accounts' | 'bills' | 'goals' | 'transactions'
 
 function updateRow(
@@ -131,20 +160,26 @@ function updateRow(
   if (entries.length === 0) return
 
   const assignments = entries.map(([column]) => `${column} = ?`).join(', ')
-  db.prepare(
-    `UPDATE ${table}
-     SET ${assignments}, updated_at = ?, revision = revision + 1
-     WHERE id = ? AND user_id = ? AND deleted_at IS NULL`
-  ).run(...entries.map(([, value]) => value), nowISO(), id, userId)
+  const result = db
+    .prepare(
+      `UPDATE ${table}
+       SET ${assignments}, updated_at = ?, revision = revision + 1
+       WHERE id = ? AND user_id = ? AND deleted_at IS NULL`
+    )
+    .run(...entries.map(([, value]) => value), nowISO(), id, userId)
+  if (result.changes === 0) throw new RepositoryError('NOT_FOUND', 'That record no longer exists')
 }
 
 function softDelete(db: Db, table: Table, id: string, userId: string): void {
   const ts = nowISO()
-  db.prepare(
-    `UPDATE ${table}
-     SET deleted_at = ?, updated_at = ?, revision = revision + 1
-     WHERE id = ? AND user_id = ? AND deleted_at IS NULL`
-  ).run(ts, ts, id, userId)
+  const result = db
+    .prepare(
+      `UPDATE ${table}
+       SET deleted_at = ?, updated_at = ?, revision = revision + 1
+       WHERE id = ? AND user_id = ? AND deleted_at IS NULL`
+    )
+    .run(ts, ts, id, userId)
+  if (result.changes === 0) throw new RepositoryError('NOT_FOUND', 'That record no longer exists')
 }
 
 function requireAccount(
@@ -182,7 +217,10 @@ function requireGoal(db: Db, userId: string, goalId: string): { id: string; name
 
 function flagColumn(value: unknown): 0 | 1 | null {
   if (value === null || value === undefined) return null
-  return value ? 1 : 0
+  if (typeof value === 'boolean') return value ? 1 : 0
+  if (value === 0 || value === 1) return value
+  // `"false"` is a truthy string; coercing it silently would turn a flag on.
+  throw new RepositoryError('VALIDATION', 'Expected a true or false value')
 }
 
 // ---------------------------------------------------------------- users
@@ -335,12 +373,16 @@ export function listAccounts(db: Db, userId: string): AccountWithBalance[] {
               a.starting_balance_cents + COALESCE((
                 SELECT SUM(t.amount_cents) FROM transactions t
                 WHERE t.account_id = a.id AND t.deleted_at IS NULL
-              ), 0) AS balanceCents
+              ), 0) AS balanceCents,
+              a.starting_balance_cents + COALESCE((
+                SELECT SUM(t.amount_cents) FROM transactions t
+                WHERE t.account_id = a.id AND t.deleted_at IS NULL AND t.occurred_on <= ?
+              ), 0) AS cashCents
        FROM accounts a
        WHERE a.user_id = ? AND a.deleted_at IS NULL
        ORDER BY a.is_archived, a.sort_order, a.name`
     )
-    .all(userId) as AccountRow[]
+    .all(todayISO(), userId) as AccountRow[]
 
   return rows.map(mapAccount)
 }
@@ -372,7 +414,7 @@ export function createAccount(db: Db, userId: string, input: AccountInput): stri
     optionalText(input.color, 'Color', 30),
     dedicatedGoalId,
     flagColumn(input.inSafeToSpend),
-    input.sortOrder ?? 0,
+    assertSortOrder(input.sortOrder),
     ts,
     ts
   )
@@ -420,7 +462,8 @@ export function updateAccount(
           : null,
     in_safe_to_spend:
       patch.inSafeToSpend === undefined ? undefined : flagColumn(patch.inSafeToSpend),
-    sort_order: patch.sortOrder
+    sort_order:
+      patch.sortOrder === undefined ? undefined : assertSortOrder(patch.sortOrder)
   })
 }
 
@@ -450,6 +493,10 @@ export function deleteAccount(
   options: DeleteAccountOptions = {}
 ): void {
   const ts = nowISO()
+  const exists = db
+    .prepare('SELECT 1 AS present FROM accounts WHERE id = ? AND user_id = ? AND deleted_at IS NULL')
+    .get(id, userId)
+  if (!exists) throw new RepositoryError('NOT_FOUND', 'Account not found')
   const entries = accountEntryCount(db, userId, id)
   if (entries > 0 && !options.withEntries) {
     throw new RepositoryError(
@@ -484,13 +531,13 @@ export function deleteAccount(
     }
 
     db.prepare(
-      'UPDATE bills SET account_id = NULL, updated_at = ?, revision = revision + 1 WHERE account_id = ? AND user_id = ?'
+      'UPDATE bills SET account_id = NULL, updated_at = ?, revision = revision + 1 WHERE account_id = ? AND user_id = ? AND deleted_at IS NULL'
     ).run(ts, id, userId)
     db.prepare(
-      'UPDATE goals SET account_id = NULL, updated_at = ?, revision = revision + 1 WHERE account_id = ? AND user_id = ?'
+      'UPDATE goals SET account_id = NULL, updated_at = ?, revision = revision + 1 WHERE account_id = ? AND user_id = ? AND deleted_at IS NULL'
     ).run(ts, id, userId)
     db.prepare(
-      'UPDATE paychecks SET deposit_account_id = NULL, updated_at = ?, revision = revision + 1 WHERE deposit_account_id = ? AND user_id = ?'
+      'UPDATE paychecks SET deposit_account_id = NULL, updated_at = ?, revision = revision + 1 WHERE deposit_account_id = ? AND user_id = ? AND deleted_at IS NULL'
     ).run(ts, id, userId)
     softDelete(db, 'accounts', id, userId)
   })()
@@ -556,14 +603,14 @@ export function createBill(db: Db, userId: string, input: BillInput): string {
     assertText(input.name, 'Bill name'),
     assertCents(input.amountCents, 'Bill amount'),
     assertOneOf(input.frequency, FREQUENCIES, 'frequency'),
-    Math.min(31, Math.max(1, Math.round(input.dueDay))),
+    assertDueDay(input.dueDay),
     input.category ? assertText(input.category, 'Category', 60) : 'Bills',
     accountId,
     input.autopay ? 1 : 0,
     input.isActive === false ? 0 : 1,
     input.nextDueOn ? assertDate(input.nextDueOn, 'Next due date') : null,
     fundingStrategy,
-    input.fundingPaycheckIndex ?? null,
+    assertPaycheckIndex(input.fundingPaycheckIndex),
     ts,
     ts
   )
@@ -587,7 +634,7 @@ export function updateBill(
         ? undefined
         : assertOneOf(patch.frequency, FREQUENCIES, 'frequency'),
     due_day:
-      patch.dueDay === undefined ? undefined : Math.min(31, Math.max(1, Math.round(patch.dueDay))),
+      patch.dueDay === undefined ? undefined : assertDueDay(patch.dueDay),
     category:
       patch.category === undefined ? undefined : assertText(patch.category, 'Category', 60),
     account_id: patch.accountId === undefined ? undefined : patch.accountId || null,
@@ -604,7 +651,9 @@ export function updateBill(
         ? undefined
         : assertOneOf(patch.fundingStrategy, BILL_FUNDING_STRATEGIES, 'funding strategy'),
     funding_paycheck_index:
-      patch.fundingPaycheckIndex === undefined ? undefined : patch.fundingPaycheckIndex
+      patch.fundingPaycheckIndex === undefined
+        ? undefined
+        : assertPaycheckIndex(patch.fundingPaycheckIndex)
   })
 }
 
@@ -924,7 +973,7 @@ const TRANSACTION_SELECT = `
          t.counter_account_id AS counterAccountId, t.transfer_group_id AS transferGroupId,
          t.created_at AS createdAt,
          t.updated_at AS updatedAt, t.deleted_at AS deletedAt, t.revision,
-         a.name AS accountName
+         a.name AS accountName, a.institution AS accountInstitution
   FROM transactions t
   JOIN accounts a ON a.id = t.account_id
   WHERE t.user_id = ? AND t.deleted_at IS NULL
@@ -939,6 +988,16 @@ export function listTransactions(db: Db, userId: string, limit = 500): Transacti
 /** Every live entry, for exports. The grid keeps its own capped query. */
 export function listAllTransactions(db: Db, userId: string): TransactionRow[] {
   return db.prepare(TRANSACTION_SELECT).all(userId) as TransactionRow[]
+}
+
+/** How many live entries exist, so a capped grid can say what it is not showing. */
+export function transactionCount(db: Db, userId: string): number {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS total FROM transactions WHERE user_id = ? AND deleted_at IS NULL`
+    )
+    .get(userId) as { total: number }
+  return row.total
 }
 
 export interface NewTransactionInput {
@@ -1194,7 +1253,7 @@ export function updateTransaction(
     const magnitude =
       patch.amountCents === undefined
         ? null
-        : Math.abs(assertCents(patch.amountCents, 'Amount', { allowNegative: true, allowZero: true }))
+        : Math.abs(assertCents(patch.amountCents, 'Amount', { allowNegative: true }))
     const occurredOn =
       patch.occurredOn === undefined ? undefined : assertDate(patch.occurredOn, 'Date')
     const memo = patch.memo === undefined ? undefined : optionalText(patch.memo, 'Memo', 240) ?? ''
@@ -1320,9 +1379,12 @@ export function deleteTransaction(db: Db, userId: string, id: string): void {
       }
     | undefined
 
-  if (existing?.groupId) {
+  if (!existing) throw new RepositoryError('NOT_FOUND', 'Entry not found')
+  const row = existing
+
+  if (row.groupId) {
     db.transaction(() => {
-      for (const leg of transferGroupRows(db, userId, existing.groupId!)) {
+      for (const leg of transferGroupRows(db, userId, row.groupId!)) {
         softDelete(db, 'transactions', leg.id, userId)
       }
     })()
@@ -1334,8 +1396,8 @@ export function deleteTransaction(db: Db, userId: string, id: string): void {
   db.transaction(() => {
     removeRoundUpFor(db, userId, id)
     softDelete(db, 'transactions', id, userId)
-    if (existing?.billId) {
-      setBillReserveState(db, userId, existing.billId, existing.occurredOn, 'reserved')
+    if (row.billId) {
+      setBillReserveState(db, userId, row.billId, row.occurredOn, 'reserved')
     }
   })()
 }
@@ -1585,6 +1647,7 @@ export function getSnapshot(db: Db, userId: string): Snapshot {
       bills: listBills(db, userId),
       goals: listGoals(db, userId),
       transactions: listTransactions(db, userId),
+      transactionTotal: transactionCount(db, userId),
       paychecks: listPaychecks(db, userId),
       billReserves: listBillReserves(db, userId)
     })
