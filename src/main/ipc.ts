@@ -13,7 +13,7 @@ import type {
 import { emptyImportCounts } from '@shared/api'
 import { parseEntriesCsv, transactionsToCsv, type CsvEntry } from '@shared/csv'
 import { todayISO } from '@shared/dates'
-import { encodeError } from '@shared/errors'
+import { encodeError, RepositoryError } from '@shared/errors'
 import {
   applyImportAnswers,
   buildAccountMap,
@@ -29,7 +29,7 @@ import {
   type ImportProblem,
   type ImportTable
 } from '@shared/importRepair'
-import { settingsToRecord } from '@shared/settings'
+import { parseSettings, settingsToRecord } from '@shared/settings'
 import type {
   AccountInput,
   AppSettings,
@@ -285,9 +285,19 @@ export function registerIpcHandlers(db: Database.Database): void {
     repo.commitPaycheck(db, userId(), input)
   )
 
-  handle('settings:save', (_event, settings: AppSettings) =>
-    repo.writeSettings(db, userId(), settingsToRecord(settings))
-  )
+  handle('settings:save', (_event, settings: AppSettings) => {
+    const record = settingsToRecord(settings)
+    for (const [key, value] of Object.entries(record)) {
+      if (typeof value !== 'string') {
+        throw new RepositoryError('VALIDATION', `That settings save is missing "${key}"`, key)
+      }
+    }
+    // Every field is normalised to what the build can read, except the currency:
+    // an unknown code is refused by writeSettings rather than quietly swapped
+    // for USD, which would change the ledger's units without saying so.
+    const normalised = { ...settingsToRecord(parseSettings(record)), currency: record.currency }
+    return repo.writeSettings(db, userId(), normalised)
+  })
 
   handle('backup:export', async (event) => {
     const win = ownerWindow(event)
@@ -384,7 +394,7 @@ export function registerIpcHandlers(db: Database.Database): void {
     if (pending.format === 'entries') {
       const mappings = pending.mappings ?? []
       const accountMap = buildAccountMap(mappings, list)
-      const unmapped = mappings.filter((mapping) => !(mapping.accountName in accountMap))
+      const unmapped = mappings.filter((mapping) => !Object.hasOwn(accountMap, mapping.accountName))
       const merged = mergeEntries(db, userId(), pending.entries ?? [], {
         accountMap,
         reportedNames: new Set(unmapped.map((mapping) => mapping.accountName))

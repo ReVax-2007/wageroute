@@ -5,9 +5,9 @@ export function parseMoneyToCents(raw: string): number | null {
   let text = raw.trim()
   if (!text) return null
 
-  let sign = 1
+  let negative = false
   if (text.startsWith('(') && text.endsWith(')')) {
-    sign = -1
+    negative = true
     text = text.slice(1, -1).trim()
   }
 
@@ -15,21 +15,22 @@ export function parseMoneyToCents(raw: string): number | null {
   if (/^usd/i.test(text)) text = text.slice(3)
 
   if (text.startsWith('-')) {
-    sign *= -1
+    // Parentheses and a minus sign disagree about the sign; refuse rather than
+    // guess which one the user meant.
+    if (negative) return null
+    negative = true
     text = text.slice(1)
   } else if (text.startsWith('+')) {
     text = text.slice(1)
   }
 
-  if (!MONEY_INPUT.test(text) || text === '' || text === '.') {
-    if (text === '') return 0
-    return null
-  }
+  // Nothing numeric left: a bare "$", "usd" or "-" is not zero.
+  if (!MONEY_INPUT.test(text) || text === '' || text === '.') return null
 
   const [whole, fraction = ''] = text.split('.')
   const dollars = whole === '' ? 0 : Number(whole)
   const cents = Number(`${fraction}00`.slice(0, 2))
-  const total = sign * (dollars * 100 + cents)
+  const total = (negative ? -1 : 1) * (dollars * 100 + cents)
   return Number.isSafeInteger(total) ? total : null
 }
 
@@ -51,13 +52,22 @@ function formatterFor(currency: string, compact: boolean): Intl.NumberFormat {
 
   let formatter: Intl.NumberFormat
   try {
-    formatter = new Intl.NumberFormat(undefined, {
-      style: 'currency',
-      currency: currency || 'USD',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-      ...(compact ? { notation: 'compact', maximumFractionDigits: 1 } : {})
-    })
+    formatter = new Intl.NumberFormat(
+      undefined,
+      compact
+        ? {
+            style: 'currency',
+            currency: currency || 'USD',
+            notation: 'compact',
+            maximumFractionDigits: 1
+          }
+        : {
+            style: 'currency',
+            currency: currency || 'USD',
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+          }
+    )
   } catch {
     formatter = new Intl.NumberFormat(undefined, {
       style: 'currency',
@@ -78,10 +88,6 @@ export function formatMoneyCompact(cents: number, currency = 'USD'): string {
   return formatterFor(currency, true).format(cents / 100)
 }
 
-export function sumCents(values: readonly number[]): number {
-  return values.reduce((total, value) => total + value, 0)
-}
-
 export function percentOf(cents: number, percent: number): number {
   if (!Number.isFinite(cents) || !Number.isFinite(percent)) return 0
   return Math.round((cents * percent) / 100)
@@ -94,8 +100,4 @@ export function clampPercent(percent: number): number {
 
 export function floorToDollarCents(cents: number): number {
   return Math.floor(cents / 100) * 100
-}
-
-export function safeCents(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : 0
 }

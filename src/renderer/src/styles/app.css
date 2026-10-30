@@ -1465,10 +1465,25 @@ input[type='date'] {
   color: var(--text-muted);
 }
 
+.sheet-note {
+  margin: 0;
+  padding: 9px 18px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  background: var(--inset-2);
+  border-bottom: 1px solid var(--border);
+}
+
 .grid-host {
   height: calc(100vh - 336px);
   min-height: 360px;
   background: var(--inset-2);
+}
+
+/* The disclosure line above the ledger takes its own height out of the grid. */
+.grid-host.has-note {
+  height: calc(100vh - 392px);
 }
 
 .grid-host .rdg {

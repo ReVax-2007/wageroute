@@ -23,6 +23,7 @@ function allocated(plan: AllocationPlan): number {
 }
 
 function account(overrides: Partial<AccountWithBalance> = {}): AccountWithBalance {
+  const balanceCents = overrides.balanceCents ?? 100_00
   return {
     id: 'acc-1',
     userId: 'user-1',
@@ -40,8 +41,11 @@ function account(overrides: Partial<AccountWithBalance> = {}): AccountWithBalanc
     revision: 1,
     dedicatedGoalId: null,
     inSafeToSpend: null,
-    balanceCents: 100_00,
-    ...overrides
+    // Nothing in these fixtures is dated in the future, so settled cash and the
+    // ledger balance agree unless a test says otherwise.
+    cashCents: balanceCents,
+    ...overrides,
+    balanceCents
   }
 }
 
@@ -89,7 +93,7 @@ test('an explicit Safe-to-spend choice beats the kind default', () => {
   assert.equal(countsInSafeToSpend(account({ kind: 'cash', inSafeToSpend: false })), false)
 })
 
-test('a dedicated account is spendable money twice over unless the user says so', () => {
+test('a dedicated account is excluded unless explicitly opted in', () => {
   const dedicated = account({ dedicatedGoalId: 'goal-1' })
   assert.equal(countsInSafeToSpend(dedicated), false)
   assert.equal(countsInSafeToSpend(account({ dedicatedGoalId: 'goal-1', inSafeToSpend: true })), true)
@@ -188,4 +192,39 @@ test('when every goal has its own account the goal budget falls through to savin
   assert.equal(result.goalsCents, 0)
   assert.ok(result.warnings.some((warning) => warning.code === 'goals_account_funded'))
   assert.equal(allocated(result), result.incomeCents)
+})
+
+test('saving everything is not the same as running short', () => {
+  const result = buildAllocationPlan({
+    incomeCents: 100_000,
+    payCadence: 'monthly',
+    bills: [{ id: 'rent', name: 'Rent', amountCents: 50_000, frequency: 'monthly' }],
+    goals: [],
+    splits: { savingsPercent: 100, investmentPercent: 0, goalsPercent: 0, debtPercent: 0 }
+  })
+  assert.equal(result.leisureCents, 0)
+  assert.equal(result.health, 'covered', 'a deliberate saver is funded, not tight')
+})
+
+test('a paycheck swallowed whole by bills is tight, and one that cannot cover them is a shortfall', () => {
+  const tight = buildAllocationPlan({
+    incomeCents: 100_000,
+    payCadence: 'monthly',
+    bills: [{ id: 'rent', name: 'Rent', amountCents: 100_000, frequency: 'monthly' }],
+    goals: [],
+    splits: { savingsPercent: 0, investmentPercent: 0, goalsPercent: 0, debtPercent: 0 }
+  })
+  assert.equal(tight.health, 'tight')
+  assert.ok(tight.warnings.some((warning) => warning.code === 'tight_margin'))
+
+  const short = buildAllocationPlan({
+    incomeCents: 100_000,
+    payCadence: 'monthly',
+    bills: [{ id: 'rent', name: 'Rent', amountCents: 150_000, frequency: 'monthly' }],
+    goals: [],
+    splits: { savingsPercent: 0, investmentPercent: 0, goalsPercent: 0, debtPercent: 0 }
+  })
+  assert.equal(short.health, 'shortfall')
+  assert.equal(short.shortfallCents, 50_000)
+  assert.ok(short.warnings.some((warning) => warning.code === 'shortfall'))
 })

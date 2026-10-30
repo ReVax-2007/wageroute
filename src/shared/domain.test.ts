@@ -11,7 +11,7 @@ import {
   emergencyMonthlyEssentialsCents,
   recommendedEmergencyTargetCents
 } from './emergency'
-import { centsToEditable, parseMoneyToCents } from './money'
+import { centsToEditable, formatMoney, formatMoneyCompact, parseMoneyToCents } from './money'
 import { projectUpcoming } from './projections'
 import { parseSettings, settingsToRecord } from './settings'
 import { roundUpRemainderCents, transferLegs } from './transfers'
@@ -39,6 +39,25 @@ test('money parsing never loses cents to floating point', () => {
   assert.equal(parseMoneyToCents(''), null)
   assert.equal(centsToEditable(-350), '-3.50')
   assert.equal(centsToEditable(5), '0.05')
+})
+
+test('money parsing refuses input that says nothing while looking like a number', () => {
+  assert.equal(parseMoneyToCents('$'), null, 'a lone symbol is not zero')
+  assert.equal(parseMoneyToCents('usd'), null)
+  assert.equal(parseMoneyToCents('-'), null)
+  assert.equal(parseMoneyToCents('.'), null)
+  assert.equal(parseMoneyToCents('(-5)'), null, 'parentheses and a minus disagree')
+  assert.equal(parseMoneyToCents('USD 5'), 500)
+  assert.equal(parseMoneyToCents('.5'), 50)
+  assert.equal(parseMoneyToCents('+12.30'), 1230)
+  assert.equal(parseMoneyToCents('1,234'), 123400)
+})
+
+test('the compact formatter is compact, not a full two-decimal amount', () => {
+  assert.ok(
+    formatMoneyCompact(250_000_000, 'USD').length < formatMoney(250_000_000, 'USD').length,
+    'a compact figure must drop the minor units'
+  )
 })
 
 test('bill cadence is smoothed into per-paycheck reserves', () => {
@@ -374,7 +393,7 @@ test('round-up sweeps the remainder to the next increment, never the exact amoun
   assert.deepEqual(transferLegs(-4200), { outCents: -4200, inCents: 4200 })
 })
 
-test('emergency calculator averages only variable expenses inside the window', () => {
+test('emergency calculator averages only completed months of variable expenses', () => {
   const transactions = [
     { kind: 'expense', amountCents: -10000, occurredOn: '2026-08-10' },
     { kind: 'expense', amountCents: -20000, occurredOn: '2026-09-15' },
@@ -385,15 +404,17 @@ test('emergency calculator averages only variable expenses inside the window', (
     { kind: 'expense', amountCents: -90000, occurredOn: '2025-12-01' }
   ] as const
 
+  // August and September are complete; October is still in progress and must
+  // not drag the average in either direction.
   const variable = averageMonthlyVariableCents(transactions, '2026-10-27')
-  assert.equal(variable, 20000)
+  assert.equal(variable, 15000)
 
   const essentials = emergencyMonthlyEssentialsCents({
     wallMonthlyCents: 250000,
     variableMonthlyCents: variable,
     includeVariable: true
   })
-  assert.equal(essentials, 270000)
+  assert.equal(essentials, 265000)
   assert.equal(
     emergencyMonthlyEssentialsCents({
       wallMonthlyCents: 250000,
@@ -403,9 +424,18 @@ test('emergency calculator averages only variable expenses inside the window', (
     250000
   )
 
-  assert.equal(recommendedEmergencyTargetCents(essentials, 3), 810000)
-  assert.equal(emergencyCoverageMonths(405000, essentials), 1.5)
+  assert.equal(recommendedEmergencyTargetCents(essentials, 3), 795000)
+  assert.equal(emergencyCoverageMonths(530000, essentials), 2)
   assert.equal(emergencyCoverageMonths(405000, 0), 0)
+})
+
+test('a first month with no completed history still reports its spending', () => {
+  const transactions = [
+    { kind: 'expense', amountCents: -12000, occurredOn: '2026-10-02' },
+    { kind: 'expense', amountCents: -8000, occurredOn: '2026-10-20' }
+  ] as const
+  assert.equal(averageMonthlyVariableCents(transactions, '2026-10-21'), 20000)
+  assert.equal(averageMonthlyVariableCents([], '2026-10-21'), 0)
 })
 
 test('CSV export quotes commas, quotes and newlines', () => {
@@ -440,6 +470,7 @@ test('CSV export quotes commas, quotes and newlines', () => {
       userId: 'user-1',
       accountId: 'acc-1',
       accountName: 'Chequing',
+      accountInstitution: 'Tangerine',
       kind: 'expense',
       amountCents: -1240,
       occurredOn: '2026-10-27',
@@ -570,4 +601,15 @@ test('a well-formed but unknown currency code falls back instead of showing USD 
   const parsed = parseSettings({ currency: 'ZZZ' })
   assert.equal(parsed.currency, 'USD')
   assert.equal(parseSettings({ currency: 'CAD' }).currency, 'CAD')
+})
+
+test('a JSON boolean that arrived stringified as 1 or 0 keeps its meaning', () => {
+  const parsed = parseSettings({
+    roundUpEnabled: '1',
+    emergencyIncludeVariable: '0',
+    emergencyActive: 'yes please'
+  })
+  assert.equal(parsed.roundUpEnabled, true)
+  assert.equal(parsed.emergencyIncludeVariable, false)
+  assert.equal(parsed.emergencyActive, true, 'nonsense falls back to the default, not to false')
 })

@@ -1,10 +1,19 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { parseCsv, parseEntriesCsv, toCsv, transactionsToCsv } from './csv'
+import { parseCsv, parseCsvRows, parseEntriesCsv, toCsv, transactionsToCsv } from './csv'
 
 test('quoted cells keep their commas, quotes and newlines', () => {
   const rows = parseCsv('a,"b,c","say ""hi""","two\r\nlines"\r\n')
   assert.deepEqual(rows, [['a', 'b,c', 'say "hi"', 'two\r\nlines']])
+})
+
+test('a row reports the physical line it starts on, even after quoted newlines', () => {
+  const rows = parseCsvRows('a,b\r\n"two\r\nlines",c\r\nd,e\r\n')
+  assert.deepEqual(
+    rows.map((row) => row.line),
+    [1, 2, 4]
+  )
+  assert.deepEqual(rows[1]?.cells, ['two\r\nlines', 'c'])
 })
 
 test('an unclosed quote fails the import and names the line it starts on', () => {
@@ -56,6 +65,35 @@ test('the writer escapes what the reader expects to unescape', () => {
   ])
 })
 
+test('a slashed date that cannot be month-first is read day-first', () => {
+  const { entries, issues } = parseEntriesCsv(
+    [
+      'Date,Account,Amount',
+      '31/12/2026,Chequing,-10',
+      '03/04/2026,Chequing,-11',
+      '2026/12/07,Chequing,-12'
+    ].join('\n')
+  )
+  assert.deepEqual(issues, [])
+  assert.deepEqual(
+    entries.map((entry) => entry.occurredOn),
+    ['2026-12-31', '2026-03-04', '2026-12-07'],
+    'a day above 12 settles the order; otherwise the US default stands'
+  )
+})
+
+test('an entry row reports the line it came from, not its position after parsing', () => {
+  const { issues } = parseEntriesCsv(
+    [
+      'Date,Account,Amount,Description',
+      '2026-01-01,Chequing,10,"note\r\nwrapped"',
+      'nonsense,Chequing,10,'
+    ].join('\n')
+  )
+  assert.equal(issues.length, 1)
+  assert.match(issues[0]?.message ?? '', /row 4 has an unreadable date/)
+})
+
 test('a description a spreadsheet would treat as a formula is defused', () => {
   const csv = transactionsToCsv(
     [
@@ -78,4 +116,25 @@ test('a description a spreadsheet would treat as a formula is defused', () => {
   assert.equal(row?.[4], "'=SUM(A1:A9)")
   assert.ok(row?.[5]?.startsWith("'=HYPERLINK"), 'the memo is prefixed, not executed')
   assert.equal(row?.[6], '-12.50', 'amounts stay machine-readable')
+})
+
+test('an export keeps the bank name even when the account is no longer listed', () => {
+  const csv = transactionsToCsv(
+    [
+      {
+        occurredOn: '2026-04-01',
+        accountName: 'Closed account',
+        accountId: 'gone',
+        accountInstitution: 'Tangerine',
+        kind: 'expense',
+        category: 'Misc',
+        memo: '',
+        amountCents: -100
+      } as never
+    ],
+    [],
+    'USD'
+  )
+  const [, row] = parseCsv(csv)
+  assert.equal(row?.[2], 'Tangerine', 'the joined institution stands in for the missing account')
 })

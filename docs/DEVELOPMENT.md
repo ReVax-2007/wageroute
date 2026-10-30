@@ -205,7 +205,7 @@ When a test requires moving a database aside, move it to a dated quarantine fold
 
 ## Testing
 
-Eighteen files run by `npm test` through `node --test` with `tsx` as the loader — 138 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**.
+Eighteen files run by `npm test` through `node --test` with `tsx` as the loader — 155 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**.
 
 | File | Style | Covers |
 | --- | --- | --- |

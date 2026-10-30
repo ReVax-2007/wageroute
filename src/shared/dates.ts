@@ -1,5 +1,3 @@
-import type { Frequency } from './types'
-
 const MS_PER_DAY = 86_400_000
 
 function pad(value: number): string {
@@ -110,24 +108,4 @@ const monthFormatter = new Intl.DateTimeFormat(undefined, {
 
 export function formatMonthLong(monthISO: string): string {
   return monthFormatter.format(fromISODate(`${monthISO.slice(0, 7)}-01`))
-}
-
-const STEP_DAYS: Partial<Record<Frequency, number>> = {
-  weekly: 7,
-  biweekly: 14,
-  semimonthly: 15
-}
-
-const STEP_MONTHS: Partial<Record<Frequency, number>> = {
-  monthly: 1,
-  quarterly: 3,
-  annual: 12
-}
-
-export function advanceByFrequency(iso: string, frequency: Frequency): string {
-  const days = STEP_DAYS[frequency]
-  if (days) return addDaysISO(iso, days)
-  const months = STEP_MONTHS[frequency]
-  if (months) return addMonthsISO(iso, months)
-  return iso
 }

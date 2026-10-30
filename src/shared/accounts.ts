@@ -27,10 +27,13 @@ export function countsInSafeToSpend(account: AccountWithBalance): boolean {
  * The pool Safe to Spend is measured against. Deliberately separate from cash
  * on hand: an account can be tracked as cash and still be excluded from what
  * the user considers spendable.
+ *
+ * This uses `cashCents`, not the ledger balance: a paycheck dated next Friday
+ * is planned money, not spendable money today.
  */
 export function safeToSpendPoolCents(accounts: readonly AccountWithBalance[]): number {
   return accounts.reduce(
-    (total, account) => (countsInSafeToSpend(account) ? total + account.balanceCents : total),
+    (total, account) => (countsInSafeToSpend(account) ? total + account.cashCents : total),
     0
   )
 }

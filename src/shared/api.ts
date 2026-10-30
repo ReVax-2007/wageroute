@@ -99,7 +99,7 @@ export interface FinanceApi {
   getDatabasePath(): Promise<string>
   getAppInfo(): Promise<AppInfo>
 
-  createAccount(input: AccountInput): Promise<void>
+  createAccount(input: AccountInput): Promise<string>
   updateAccount(id: string, input: Partial<AccountInput>): Promise<void>
   /**
    * Deletes an account. An account with entries is refused unless `withEntries`
@@ -109,16 +109,16 @@ export interface FinanceApi {
   archiveAccount(id: string, archived: boolean): Promise<void>
   accountEntryCount(id: string): Promise<number>
 
-  createBill(input: BillInput): Promise<void>
+  createBill(input: BillInput): Promise<string>
   updateBill(id: string, input: Partial<BillInput>): Promise<void>
   deleteBill(id: string): Promise<void>
 
-  createGoal(input: GoalInput): Promise<void>
+  createGoal(input: GoalInput): Promise<string>
   updateGoal(id: string, input: Partial<GoalInput>): Promise<void>
   deleteGoal(id: string): Promise<void>
   archiveGoal(id: string, archived: boolean): Promise<void>
 
-  createTransaction(input: TransactionInput): Promise<void>
+  createTransaction(input: TransactionInput): Promise<string>
   updateTransaction(id: string, input: TransactionPatch): Promise<void>
   deleteTransaction(id: string): Promise<void>
 
@@ -130,6 +130,6 @@ export interface FinanceApi {
   /** Opens the file picker and reports what the import would need fixed. */
   previewImport(): Promise<ImportPreview | null>
   /** Runs the import for a preview token, applying the wizard's answers. */
-  confirmImport(token: string, answers: ImportAnswer[]): Promise<ImportResult | null>
+  confirmImport(token: string, answers: ImportAnswer[]): Promise<ImportResult>
   resetData(): Promise<void>
 }

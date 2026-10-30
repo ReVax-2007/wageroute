@@ -20,6 +20,11 @@ function emptyTables(): ImportTables {
   return tables
 }
 
+/** The account map has a null prototype on purpose, so expectations must too. */
+function nullMap(entries: Record<string, string>): Record<string, string> {
+  return Object.assign(Object.create(null) as Record<string, string>, entries)
+}
+
 const ACCOUNT_CHOICES: ImportChoice[] = [
   { id: 'acc-checking', label: 'Everyday checking' },
   { id: 'acc-cash', label: 'Cash' }
@@ -246,9 +251,26 @@ test('unmatched CSV account names collapse into one question each', () => {
     { key: 'e:3', value: 'acc-checking', skip: false },
     { key: 'e:99', value: 'acc-cash', skip: false }
   ])
-  assert.deepEqual(map, { 'chase freedom': 'acc-checking' })
+  assert.deepEqual(map, nullMap({ 'chase freedom': 'acc-checking' }))
 
-  assert.deepEqual(buildAccountMap(mappings, [{ key: 'e:3', value: '', skip: true }]), {})
+  assert.deepEqual(buildAccountMap(mappings, [{ key: 'e:3', value: '', skip: true }]), nullMap({}))
+})
+
+test('an account name that collides with Object.prototype is not mistaken for a mapping', () => {
+  const entries = [
+    { line: 1, accountName: 'constructor' },
+    { line: 2, accountName: '__proto__' }
+  ]
+  const map = buildAccountMap(
+    findUnmappedAccounts(entries, new Set()),
+    [
+      { key: 'e:1', value: 'acc-1', skip: false },
+      { key: 'e:2', value: 'acc-2', skip: false }
+    ]
+  )
+  assert.equal(map['constructor'], 'acc-1')
+  assert.equal(map['__proto__'], 'acc-2')
+  assert.equal(Object.getPrototypeOf(map), null)
 })
 
 test('the accounts and goals reference cycle restores in one pass', () => {

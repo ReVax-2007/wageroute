@@ -68,7 +68,11 @@ export function parseSettings(record: Record<string, string>): AppSettings {
   const bool = (key: keyof AppSettings, fallback: boolean): boolean => {
     const raw = record[key]
     if (raw === undefined) return fallback
-    return raw === 'true'
+    // A backup can carry a JSON boolean, which the importer stringifies as
+    // `1`/`0`; both spellings mean the same thing.
+    if (raw === 'true' || raw === '1') return true
+    if (raw === 'false' || raw === '0') return false
+    return fallback
   }
 
   const choice = <T extends string>(
@@ -151,15 +155,4 @@ export function settingsToRecord(settings: AppSettings): Record<string, string> 
     emergencyManualTargetCents: String(settings.emergencyManualTargetCents),
     emergencyActive: String(settings.emergencyActive)
   }
-}
-
-export function leisurePercent(settings: AppSettings): number {
-  return Math.max(
-    0,
-    100 -
-      settings.savingsPercent -
-      settings.investmentPercent -
-      settings.goalsPercent -
-      settings.debtPercent
-  )
 }

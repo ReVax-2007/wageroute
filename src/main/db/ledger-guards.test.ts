@@ -1,17 +1,21 @@
 import assert from 'node:assert/strict'
 import Database from 'better-sqlite3'
 import test from 'node:test'
+import { addDaysISO, todayISO } from '@shared/dates'
 import { mergeEntries } from './entries'
 import { migrate } from './migrations'
 import {
   accountEntryCount,
   commitPaycheck,
   createAccount,
+  createBill,
   createGoal,
   createTransaction,
   deleteAccount,
+  deleteTransaction,
   getSnapshot,
   listAccounts,
+  listBills,
   listTransactions,
   setAccountArchived,
   updateTransaction,
@@ -286,3 +290,141 @@ test('a round-up sweep memo stays inside the memo limit', () => {
     assert.ok(sweep.memo.endsWith('…'))
   }
 })
+
+test('cash on hand leaves money dated in the future out of the pool', () => {
+  const db = freshDb()
+  const chequing = account(db, 'Chequing')
+  db.prepare('UPDATE accounts SET starting_balance_cents = 10000 WHERE id = ?').run(chequing)
+
+  createTransaction(db, USER_ID, {
+    accountId: chequing,
+    kind: 'expense',
+    amountCents: -1_000,
+    occurredOn: addDaysISO(todayISO(), -3),
+    category: 'Misc',
+    memo: 'already spent',
+    counterAccountId: null
+  })
+  createTransaction(db, USER_ID, {
+    accountId: chequing,
+    kind: 'income',
+    amountCents: 5_000,
+    occurredOn: addDaysISO(todayISO(), 20),
+    category: 'Misc',
+    memo: 'payday later',
+    counterAccountId: null
+  })
+
+  const [row] = listAccounts(db, USER_ID)
+  assert.equal(row?.balanceCents, 14_000, 'the ledger balance counts every entry')
+  assert.equal(row?.cashCents, 9_000, 'only settled money is spendable today')
+})
+
+test('the snapshot says how many entries exist beyond the grid cap', () => {
+  const db = freshDb()
+  const chequing = account(db, 'Chequing')
+  for (let index = 0; index < 3; index += 1) {
+    entry(db, chequing, { amountCents: -(index + 1) })
+  }
+
+  const snapshot = getSnapshot(db, USER_ID)
+  assert.equal(snapshot.transactions.length, 3)
+  assert.equal(snapshot.transactionTotal, 3)
+  assert.equal(listTransactions(db, USER_ID, 2).length, 2, 'the grid query is capped')
+  assert.equal(getSnapshot(db, USER_ID).transactionTotal, 3, 'the count is not')
+})
+
+test('editing or deleting a row that is gone reports it instead of pretending', () => {
+  const db = freshDb()
+  assert.throws(() => updateTransaction(db, USER_ID, 'missing', { memo: 'ghost' }), /Entry not found/)
+  assert.throws(() => deleteTransaction(db, USER_ID, 'missing'), /Entry not found/)
+})
+
+test('a bill day and a paycheck slot outside their ranges are refused', () => {
+  const db = freshDb()
+  const base = {
+    name: 'Rent',
+    amountCents: 185_000,
+    frequency: 'monthly' as const,
+    dueDay: 1,
+    category: 'Housing',
+    accountId: null,
+    autopay: false,
+    isActive: true,
+    nextDueOn: null
+  }
+
+  const clamped = createBill(db, USER_ID, { ...base, dueDay: 99 })
+  const dueDay = db.prepare('SELECT due_day FROM bills WHERE id = ?').get(clamped) as {
+    due_day: number
+  }
+  assert.equal(dueDay.due_day, 31, 'a day past the month end clamps instead of inventing one')
+
+  assert.throws(
+    () => createBill(db, USER_ID, { ...base, dueDay: Number.NaN }),
+    /Due day must be a number/
+  )
+  assert.throws(
+    () =>
+      createBill(db, USER_ID, {
+        ...base,
+        fundingStrategy: 'specific_check',
+        fundingPaycheckIndex: 7
+      }),
+    /1st through the 4th/
+  )
+  assert.equal(listBills(db, USER_ID).length, 1)
+})
+
+test('an account flag and a sort order must be real values, not strings', () => {
+  const db = freshDb()
+  assert.throws(
+    () =>
+      createAccount(db, USER_ID, {
+        name: 'Cash',
+        kind: 'cash',
+        institution: '',
+        startingBalanceCents: 0,
+        inSafeToSpend: 'false' as never
+      }),
+    /true or false/
+  )
+  assert.throws(
+    () =>
+      createAccount(db, USER_ID, {
+        name: 'Cash',
+        kind: 'cash',
+        institution: '',
+        startingBalanceCents: 0,
+        sortOrder: 'first' as never
+      }),
+    /Sort order must be a number/
+  )
+  assert.equal(listAccounts(db, USER_ID).length, 0)
+})
+
+test('imported text is cleaned to the limits the app itself enforces', () => {
+  const db = freshDb()
+  account(db, 'Chequing')
+
+  const result = mergeEntries(db, USER_ID, [
+    {
+      line: 4,
+      occurredOn: '2026-03-04',
+      accountName: 'Chequing',
+      institution: null,
+      kind: 'expense',
+      category: 'C'.repeat(80),
+      memo: `bad\u0000memo ${'x'.repeat(300)}`,
+      amountCents: -1_000
+    }
+  ])
+
+  assert.equal(result.added, 1)
+  assert.match(result.issues[0]?.message ?? '', /row 4: .*trimmed/)
+  const [row] = listTransactions(db, USER_ID)
+  assert.equal(row?.memo.length, 240)
+  assert.equal(row?.category.length, 60)
+  assert.ok(!row?.memo.includes('\u0000'))
+})
+
