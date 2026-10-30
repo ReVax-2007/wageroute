@@ -162,7 +162,7 @@ npm run dist                # build + installers for the current platform
 | --- | --- |
 | `dev` | electron-vite dev server with HMR |
 | `start` | preview the production build |
-| `test` | `node --import tsx --test` over the eight test files listed in `package.json` |
+| `test` | `node --import tsx --test` over the eighteen test files listed in `package.json` |
 | `typecheck:node` | main, preload, shared, config |
 | `typecheck:web` | renderer and shared |
 | `typecheck` | both projects |

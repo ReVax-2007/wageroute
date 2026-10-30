@@ -2,6 +2,9 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- Development policy: React Refresh needs an inline script and HMR needs the
+         Vite socket. electron.vite.config.ts replaces this tag with a stricter
+         policy (no inline script, no localhost) in the packaged build. -->
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws://localhost:* http://localhost:*"

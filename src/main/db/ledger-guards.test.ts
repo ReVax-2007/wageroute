@@ -15,7 +15,8 @@ import {
   listTransactions,
   setAccountArchived,
   updateTransaction,
-  updateGoal
+  updateGoal,
+  writeSettings
 } from './repositories'
 
 const USER_ID = '11111111-2222-3333-4444-555555555555'
@@ -235,4 +236,53 @@ test('updating a goal that does not exist changes nothing', () => {
     .prepare('SELECT dedicated_goal_id FROM accounts WHERE id = ?')
     .get(chequing) as { dedicated_goal_id: string | null }
   assert.equal(pointer.dedicated_goal_id, null, 'no dangling pointer was written')
+})
+
+test('an archived account cannot receive a new entry', () => {
+  const db = freshDb()
+  const chequing = account(db, 'Chequing')
+  setAccountArchived(db, USER_ID, chequing, true)
+
+  assert.throws(() => entry(db, chequing, { amountCents: -500 }), /archived/)
+  assert.equal(listTransactions(db, USER_ID).length, 0)
+})
+
+test('a row that is not a transfer cannot carry a destination account', () => {
+  const db = freshDb()
+  const chequing = account(db, 'Chequing')
+  const savings = account(db, 'Savings', 'savings')
+
+  assert.throws(
+    () => entry(db, chequing, { amountCents: -500, counterAccountId: savings }),
+    /Only a transfer/
+  )
+  assert.equal(listTransactions(db, USER_ID).length, 0)
+})
+
+test('a round-up sweep memo stays inside the memo limit', () => {
+  const db = freshDb()
+  const chequing = account(db, 'Chequing')
+  const savings = account(db, 'Savings', 'savings')
+  writeSettings(db, USER_ID, {
+    roundUpEnabled: 'true',
+    roundUpAccountId: savings,
+    roundUpToCents: '100'
+  })
+
+  createTransaction(db, USER_ID, {
+    accountId: chequing,
+    kind: 'expense',
+    amountCents: -1_001,
+    occurredOn: '2026-03-01',
+    category: 'Misc',
+    memo: 'm'.repeat(240),
+    counterAccountId: null
+  })
+
+  const sweeps = listTransactions(db, USER_ID).filter((row) => row.memo.startsWith('Round-up'))
+  assert.equal(sweeps.length, 2, 'both legs of the sweep posted')
+  for (const sweep of sweeps) {
+    assert.ok(sweep.memo.length <= 240)
+    assert.ok(sweep.memo.endsWith('…'))
+  }
 })

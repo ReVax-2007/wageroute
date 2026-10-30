@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { parseCsv, parseEntriesCsv, toCsv } from './csv'
+import { parseCsv, parseEntriesCsv, toCsv, transactionsToCsv } from './csv'
 
 test('quoted cells keep their commas, quotes and newlines', () => {
   const rows = parseCsv('a,"b,c","say ""hi""","two\r\nlines"\r\n')
@@ -54,4 +54,28 @@ test('the writer escapes what the reader expects to unescape', () => {
     ['Date', 'Description'],
     ['2026-04-01', 'Coffee, "large"']
   ])
+})
+
+test('a description a spreadsheet would treat as a formula is defused', () => {
+  const csv = transactionsToCsv(
+    [
+      {
+        occurredOn: '2026-04-01',
+        accountName: 'Chequing',
+        accountId: 'a1',
+        kind: 'expense',
+        category: '=SUM(A1:A9)',
+        memo: '=HYPERLINK("http://evil.example","click")',
+        amountCents: -1250
+      } as never
+    ],
+    [{ id: 'a1', institution: '@Bank' } as never],
+    'USD'
+  )
+  const [, row] = parseCsv(csv)
+  assert.equal(row?.[1], 'Chequing')
+  assert.equal(row?.[2], "'@Bank")
+  assert.equal(row?.[4], "'=SUM(A1:A9)")
+  assert.ok(row?.[5]?.startsWith("'=HYPERLINK"), 'the memo is prefixed, not executed')
+  assert.equal(row?.[6], '-12.50', 'amounts stay machine-readable')
 })

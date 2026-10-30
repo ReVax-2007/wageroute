@@ -287,15 +287,24 @@ export function transactionsToCsv(
   for (const transaction of transactions) {
     rows.push([
       transaction.occurredOn,
-      transaction.accountName,
-      institutionById.get(transaction.accountId) ?? '',
+      defuseFormula(transaction.accountName),
+      defuseFormula(institutionById.get(transaction.accountId) ?? ''),
       transaction.kind,
-      transaction.category,
-      transaction.memo,
+      defuseFormula(transaction.category),
+      defuseFormula(transaction.memo),
       centsToEditable(transaction.amountCents),
       currency
     ])
   }
 
   return toCsv(rows)
+}
+
+/**
+ * A spreadsheet opens a cell that starts with these as a formula, so a memo of
+ * `=HYPERLINK(...)` would become a live link. Text columns only: amounts and
+ * dates start with `-` or a digit and must stay machine-readable.
+ */
+function defuseFormula(value: string): string {
+  return /^[=+\-@\t\r]/.test(value) ? `'${value}` : value
 }

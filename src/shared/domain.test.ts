@@ -565,3 +565,9 @@ test('settings default to dark theme, round-up off and auto emergency target', (
 
   assert.deepEqual(parseSettings(settingsToRecord(parsed)), parsed)
 })
+
+test('a well-formed but unknown currency code falls back instead of showing USD silently', () => {
+  const parsed = parseSettings({ currency: 'ZZZ' })
+  assert.equal(parsed.currency, 'USD')
+  assert.equal(parseSettings({ currency: 'CAD' }).currency, 'CAD')
+})

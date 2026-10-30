@@ -6,8 +6,9 @@ import { isISODate } from '@shared/dates'
 import { RepositoryError } from '@shared/errors'
 import type { ImportChoice, ImportChoiceTable } from '@shared/importRepair'
 import { normalizeSignedCents, signedAmountError } from '@shared/kinds'
-import { parseSettings } from '@shared/settings'
+import { parseSettings, isCurrencyCode } from '@shared/settings'
 import { roundUpRemainderCents, transferLegs } from '@shared/transfers'
+import { compact } from './maintenance'
 import type {
   AccountInput,
   AccountKind,
@@ -146,12 +147,25 @@ function softDelete(db: Db, table: Table, id: string, userId: string): void {
   ).run(ts, ts, id, userId)
 }
 
-function requireAccount(db: Db, userId: string, accountId: string): { id: string; kind: AccountKind } {
+function requireAccount(
+  db: Db,
+  userId: string,
+  accountId: string,
+  options: { allowArchived?: boolean } = {}
+): { id: string; kind: AccountKind } {
   const row = db
-    .prepare('SELECT id, kind FROM accounts WHERE id = ? AND user_id = ? AND deleted_at IS NULL')
-    .get(accountId, userId) as { id: string; kind: AccountKind } | undefined
+    .prepare(
+      `SELECT id, kind, is_archived AS isArchived FROM accounts
+       WHERE id = ? AND user_id = ? AND deleted_at IS NULL`
+    )
+    .get(accountId, userId) as { id: string; kind: AccountKind; isArchived: number } | undefined
   if (!row) throw new RepositoryError('NOT_FOUND', 'Account not found')
-  return row
+  // An archived account is out of every total and every picker on purpose.
+  // Posting new money to it would change a balance nobody is looking at.
+  if (row.isArchived === 1 && options.allowArchived !== true) {
+    throw new RepositoryError('STATE', 'That account is archived — restore it before using it here')
+  }
+  return { id: row.id, kind: row.kind }
 }
 
 /**
@@ -255,6 +269,9 @@ export function wipeAllData(db: Db): void {
   } finally {
     db.pragma('foreign_keys = ON')
   }
+  // DELETE only marks pages free. Rebuild the file and truncate the WAL so the
+  // erased ledger cannot be read back out of free space.
+  compact(db)
 }
 
 // ---------------------------------------------------------------- settings
@@ -271,6 +288,9 @@ export function writeSettings(
   userId: string,
   values: Record<string, string>
 ): void {
+  if (values.currency !== undefined && !isCurrencyCode(values.currency)) {
+    throw new RepositoryError('VALIDATION', 'That currency code is not one this build supports', 'currency')
+  }
   const statement = db.prepare(
     `INSERT INTO settings (user_id, key, value, updated_at)
      VALUES (?, ?, ?, ?)
@@ -715,7 +735,8 @@ export function listGoals(db: Db, userId: string): GoalWithProgress[] {
               g.updated_at AS updatedAt, g.deleted_at AS deletedAt, g.revision,
               COALESCE((
                 SELECT SUM(a.amount_cents) FROM allocations a
-                WHERE a.goal_id = g.id AND a.deleted_at IS NULL AND a.bucket = 'goal'
+                WHERE a.goal_id = g.id AND a.user_id = g.user_id
+                  AND a.deleted_at IS NULL AND a.bucket = 'goal'
               ), 0) AS allocationCents
        FROM goals g
        WHERE g.user_id = ? AND g.deleted_at IS NULL
@@ -799,7 +820,9 @@ function applyFundingAccounts(
      WHERE id = ? AND user_id = ? AND deleted_at IS NULL AND is_archived = 0`
   )
   for (const accountId of keep) {
-    requireAccount(db, userId, accountId)
+    // The UPDATE below already filters archived rows, and its own message says
+    // why; this call only proves the account exists in this ledger.
+    requireAccount(db, userId, accountId, { allowArchived: true })
     if (link.run(goalId, ts, accountId, userId).changes === 0) {
       throw new RepositoryError('STATE', 'Archived accounts cannot fund a goal')
     }
@@ -1000,7 +1023,9 @@ function applyRoundUp(
   if (sweepCents <= 0) return
 
   const groupId = randomUUID()
-  const memo = input.memo ? `Round-up · ${input.memo}` : 'Round-up sweep'
+  // The composed memo has to fit the same 240-character column as any other.
+  const composed = input.memo ? `Round-up · ${input.memo}` : 'Round-up sweep'
+  const memo = composed.length > 240 ? `${composed.slice(0, 239)}…` : composed
   insertTransactionRow(db, userId, {
     accountId: input.accountId,
     kind: 'transfer',
@@ -1074,6 +1099,9 @@ export function createTransaction(db: Db, userId: string, input: TransactionInpu
   }
 
   return db.transaction(() => {
+    if (input.counterAccountId) {
+      throw new RepositoryError('VALIDATION', 'Only a transfer has a destination account')
+    }
     const id = insertTransactionRow(db, userId, {
       accountId: input.accountId,
       kind,
@@ -1082,8 +1110,7 @@ export function createTransaction(db: Db, userId: string, input: TransactionInpu
       memo,
       category,
       billId: input.billId ?? null,
-      goalId: input.goalId ?? null,
-      counterAccountId: input.counterAccountId ?? null
+      goalId: input.goalId ?? null
     })
     if (kind === 'expense' && amountCents < 0) {
       applyRoundUp(db, userId, {
@@ -1341,10 +1368,10 @@ export function listPaychecks(db: Db, userId: string, limit = 24): PaycheckWithA
               created_at AS createdAt, updated_at AS updatedAt,
               deleted_at AS deletedAt, revision
        FROM allocations
-       WHERE paycheck_id IN (${placeholders}) AND deleted_at IS NULL
+       WHERE paycheck_id IN (${placeholders}) AND user_id = ? AND deleted_at IS NULL
        ORDER BY created_at, id`
     )
-    .all(...rows.map((row) => row.id)) as Allocation[]
+    .all(...rows.map((row) => row.id), userId) as Allocation[]
 
   const byPaycheck = new Map<string, Allocation[]>()
   for (const allocation of allocations) {
@@ -1548,14 +1575,18 @@ export function commitPaycheck(
 // ---------------------------------------------------------------- snapshot
 
 export function getSnapshot(db: Db, userId: string): Snapshot {
-  return {
-    user: getUser(db, userId),
-    settings: readSettings(db, userId),
-    accounts: listAccounts(db, userId),
-    bills: listBills(db, userId),
-    goals: listGoals(db, userId),
-    transactions: listTransactions(db, userId),
-    paychecks: listPaychecks(db, userId),
-    billReserves: listBillReserves(db, userId)
-  }
+  // One read transaction: eight separate statements could otherwise straddle a
+  // write and hand the UI a snapshot that never existed.
+  return db.transaction(
+    (): Snapshot => ({
+      user: getUser(db, userId),
+      settings: readSettings(db, userId),
+      accounts: listAccounts(db, userId),
+      bills: listBills(db, userId),
+      goals: listGoals(db, userId),
+      transactions: listTransactions(db, userId),
+      paychecks: listPaychecks(db, userId),
+      billReserves: listBillReserves(db, userId)
+    })
+  )()
 }

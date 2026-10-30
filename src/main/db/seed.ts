@@ -214,7 +214,9 @@ export function seedDemoIfEmpty(db: Db): string {
         memo,
         category,
         billId: billId ?? null,
-        counterAccountId: counterAccountId ?? null
+        // Only a transfer carries a destination; the repository refuses one on
+        // any other kind, and an investment's counter-row is written by hand.
+        counterAccountId: kind === 'transfer' ? (counterAccountId ?? null) : null
       })
 
     spend(checking, -185000, 26, 'Rent', 'Housing', 'bill_payment', billIds.get('Rent'))
@@ -225,26 +227,18 @@ export function seedDemoIfEmpty(db: Db): string {
     spend(checking, -6340, 6, 'Sushi Kaido', 'Dining', 'expense')
     spend(checking, -4500, 12, 'Gym membership', 'Health', 'expense')
 
+    // createTransaction writes both legs of a transfer, so the savings side is
+    // not written again here — it used to be, which doubled the balance move.
     spend(checking, -50000, 10, 'Savings transfer', 'Transfer', 'transfer', undefined, savings)
-    createTransaction(db, userId, {
-      accountId: savings,
-      kind: 'transfer',
-      amountCents: 50000,
-      occurredOn: addDaysISO(today, -10),
-      memo: 'Savings transfer',
-      category: 'Transfer',
-      counterAccountId: checking
-    })
 
-    spend(checking, -30000, 9, 'Brokerage contribution', 'Investing', 'investment', undefined, brokerage)
+    spend(checking, -30000, 9, 'Brokerage contribution', 'Investing', 'investment')
     createTransaction(db, userId, {
       accountId: brokerage,
       kind: 'investment',
       amountCents: 30000,
       occurredOn: addDaysISO(today, -9),
       memo: 'Brokerage contribution',
-      category: 'Investing',
-      counterAccountId: checking
+      category: 'Investing'
     })
 
     return userId

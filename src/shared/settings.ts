@@ -35,6 +35,28 @@ const THEMES: readonly ThemePreference[] = ['dark', 'light', 'system']
 const ROUND_UP_INCREMENTS: readonly RoundUpIncrementCents[] = [100, 200, 500]
 const EMERGENCY_MODES: readonly EmergencyMode[] = ['auto', 'manual']
 
+/**
+ * Three capital letters are not a currency: `NumberFormat` accepts `ZZZ` and
+ * prints it, so a typo becomes a ledger that shows one currency and no error.
+ * `supportedValuesOf` carries the canonical ISO list; older engines without it
+ * keep the shape check rather than rejecting everything.
+ */
+const KNOWN_CURRENCIES = ((): Set<string> | null => {
+  const supported = (Intl as unknown as { supportedValuesOf?: (key: string) => string[] })
+    .supportedValuesOf
+  if (typeof supported !== 'function') return null
+  try {
+    return new Set(supported('currency'))
+  } catch {
+    return null
+  }
+})()
+
+export function isCurrencyCode(value: string | null | undefined): value is string {
+  if (!value || !/^[A-Z]{3}$/.test(value)) return false
+  return KNOWN_CURRENCIES === null || KNOWN_CURRENCIES.has(value)
+}
+
 export function parseSettings(record: Record<string, string>): AppSettings {
   const percentage = (key: keyof AppSettings, fallback: number): number => {
     const raw = record[key]
@@ -65,7 +87,7 @@ export function parseSettings(record: Record<string, string>): AppSettings {
   const roundUpRaw = Number(record.roundUpToCents)
 
   return {
-    currency: currency && /^[A-Z]{3}$/.test(currency) ? currency : DEFAULT_SETTINGS.currency,
+    currency: isCurrencyCode(currency) ? currency : DEFAULT_SETTINGS.currency,
     payCadence:
       cadence && PAY_CADENCES.includes(cadence as PayCadence)
         ? (cadence as PayCadence)

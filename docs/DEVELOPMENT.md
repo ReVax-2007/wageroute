@@ -54,7 +54,7 @@ npm run postinstall
 | --- | --- | --- |
 | `npm run dev` | `electron-vite dev` | Dev server, main/preload rebuild, hot renderer reload |
 | `npm start` | `electron-vite preview` | Run the production bundles in `out/` |
-| `npm test` | `node --import tsx --test` (eight files listed explicitly) | Domain, cadence, accounts, importer, backup-example, merge, migration and repository tests |
+| `npm test` | `node --import tsx --test` (eighteen files listed explicitly) | Domain, cadence, accounts, importer, backup-example, merge, migration, maintenance, files and repository tests |
 | `npm run typecheck` | node + web type checks | Both TypeScript projects |
 | `npm run typecheck:node` | `tsc --noEmit -p tsconfig.node.json` | Main, preload, shared, config |
 | `npm run typecheck:web` | `tsc --noEmit -p tsconfig.json` | Renderer and shared |
@@ -72,8 +72,11 @@ src/
 ├── main/
 │   ├── index.ts              app lifecycle, window, security policy
 │   ├── ipc.ts                channel handlers, dialogs, file I/O
+│   ├── files.ts              atomic, mode-restricted writes
+│   ├── log.ts                crash/uncaught-error log
 │   └── db/
-│       ├── connection.ts     singleton, pragmas, path
+│       ├── connection.ts     singleton, pragmas, path, boot checks
+│       ├── maintenance.ts    quick_check, pre-upgrade copies, compaction
 │       ├── migrations.ts     versioned schema
 │       ├── repositories.ts   CRUD, derived reads, transfers, round-up
 │       ├── backup.ts         JSON build/parse/merge
@@ -111,6 +114,11 @@ src/
     ├── types.ts
     ├── domain.test.ts
     ├── cadence.test.ts
+    ├── dates.test.ts
+    ├── errors.test.ts
+    ├── occurrences.test.ts
+    ├── kinds.test.ts
+    ├── csv.test.ts
     ├── accounts.test.ts
     ├── backup-example.test.ts
     ├── backup-merge.test.ts
@@ -197,17 +205,28 @@ When a test requires moving a database aside, move it to a dated quarantine fold
 
 ## Testing
 
-Seven files run by `npm test` through `node --test` with `tsx` as the loader — 68 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**.
+Eighteen files run by `npm test` through `node --test` with `tsx` as the loader — 138 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**.
 
 | File | Style | Covers |
 | --- | --- | --- |
 | `domain.test.ts` | pure functions | money parsing and formatting boundaries; month-end date clamping and due-date derivation; allocator priority, shortfall, scaling, goal ordering, whole-dollar sweeping and the balance identity; debt as a surplus bucket; bill prompt chronology and early-payment window; round-up remainders and transfer legs; emergency variable averaging, essentials, target and coverage; settings defaults, corrupt input and round-trip serialization; CSV quoting, parsing, bank-style dates, duplicate headers and transfer rejection |
+| `dates.test.ts` | pure functions | `isISODate` round-trips through `Date.UTC`: leap days, month ends, `2026-02-31`, `2026-13-01`, `0000-00-00` and the wrong shape |
+| `errors.test.ts` | pure functions | `RepositoryError` codes survive `encodeError`/`decodeError`; `apiErrorMessage`/`apiErrorCode` strip the marker; non-repository errors pass through unchanged |
+| `occurrences.test.ts` | pure functions | bill occurrence generation across cadences and month boundaries; the "third check" surplus case |
+| `kinds.test.ts` | pure functions | account-kind classification and its Safe-to-spend default |
+| `csv.test.ts` | pure functions | export round-trip; text cells beginning `=`, `+`, `-`, `@`, tab or CR are prefixed with an apostrophe; amount cells stay numeric |
 | `cadence.test.ts` | pure functions | which paycheck slot a date falls in for each pay cadence; the check closest to a due day, ties going earlier; which slots a month is certain to contain; an unreachable target is clamped rather than dropped; `last_check` lands on the last guaranteed slot and nowhere else; `all_checks` has no single funding check; a single-check bill carries the **month** ($50 weekly → $216.67) on one check and nothing on the other; every strategy's monthly total equals the obligation it owes; no paycheck date means the spread, never the clock |
 | `importRepair.test.ts` | pure functions | a clean backup needs nothing; each missing, invalid or dangling value becomes exactly one question; nullable versus required references; answers repair rows, unanswered rows are dropped rather than thrown; a still-invalid answer drops with the validation message; clearing a nullable reference is a valid answer; rows inside one file can satisfy each other's references; the accounts↔goals cycle is answerable in one pass; unmatched CSV account names collapse to one question each |
 | `accounts.test.ts` | pure functions | the explicit Safe-to-spend choice versus the kind default; a dedicated account staying out of the spendable pool; archived accounts counting for nothing; credit subtracting from total wealth; wealth buckets partitioning the total exactly; the allocator skipping an account-funded goal and the leftover falling to savings |
-| `backup-merge.test.ts` | **real in-memory SQLite** | schema-defaulted columns import with the default instead of failing NOT NULL; one unusable row is reported rather than aborting the file; a settings row without a key is skipped; existing values survive while missing timestamps fill in; a dedicated account and its goal survive an export/import round trip; CSV names mapped in the wizard land on the chosen account; an unmapped name is left out once and the rest still imports; a mapping whose account disappeared reports the row instead of throwing |
-| `dedicated-accounts.test.ts` | **real in-memory SQLite** | the two v4 columns round-trip through the repository; an unknown goal is refused; the account balance replaces the allocation total; an overdraft reads as zero; archiving releases the goal back to allocations; removing a goal detaches every account; a goal creates its funders in one call and their balances add; re-saving releases the ticks that were removed and `[]` is a choice, not a no-op; a tick that funded another goal moves and the old goal falls back; a missing account throws and rolls the whole save back; an archived account is refused without letting its valid sibling bind |
 | `backup-example.test.ts` | real file | `examples/backup.example.json` parses at the current `SCHEMA_VERSION` and every cross-table link — including an account dedicated to a goal — resolves, so the shipped example cannot silently drift |
+| `backup-merge.test.ts` | **real in-memory SQLite** | schema-defaulted columns import with the default instead of failing NOT NULL; one unusable row is reported rather than aborting the file; a settings row without a key is skipped; existing values survive while missing timestamps fill in; a dedicated account and its goal survive an export/import round trip; CSV names mapped in the wizard land on the chosen account; an unmapped name is left out once and the rest still imports; a mapping whose account disappeared reports the row instead of throwing |
+| `migrations.test.ts` | **real in-memory SQLite** | forward-only `user_version`; `SchemaTooNewError` carries the found and supported numbers and leaves `user_version` unchanged; each migration preserves existing rows |
+| `reserves.test.ts` | **real in-memory SQLite** | `bill_reserves` rows are written and cleared with the bill lifecycle; a partial payment moves the reserve; the v7 migration backfills nothing it should not |
+| `legacy.test.ts` | temp directories | pre-rename adoption moves the database and its sidecars or leaves everything in place and reports why |
+| `maintenance.test.ts` | real SQLite file | `quick_check` passes on a healthy file; a non-SQLite file raises `DatabaseCorruptError`; a pre-upgrade copy carries every row and prunes to the newest three; `VACUUM` + `secure_delete` leave a sentinel memo absent from the database file |
+| `ledger-guards.test.ts` | **real in-memory SQLite** | archived accounts are refused where they would be spent; a counter account on a non-transfer entry is refused; a round-up memo is clamped to 240 characters |
+| `files.test.ts` | temp directories | an atomic write replaces the file, leaves mode `0600` and no temporary behind; a failed write leaves the previous file intact |
+| `dedicated-accounts.test.ts` | **real in-memory SQLite** | the two v4 columns round-trip through the repository; an unknown goal is refused; the account balance replaces the allocation total; an overdraft reads as zero; archiving releases the goal back to allocations; removing a goal detaches every account; a goal creates its funders in one call and their balances add; re-saving releases the ticks that were removed and `[]` is a choice, not a no-op; a tick that funded another goal moves and the old goal falls back; a missing account throws and rolls the whole save back; an archived account is refused without letting its valid sibling bind |
 
 Conventions every new test follows:
 

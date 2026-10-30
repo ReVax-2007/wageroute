@@ -128,14 +128,25 @@ The app does not defend against malware running as the same user, an administrat
 | `contextIsolation: true` | same | Page JavaScript cannot reach Electron internals |
 | `nodeIntegration: false` | same | No `require`, `process` or Node APIs in the renderer |
 | Narrow preload bridge | [src/preload/index.ts](../src/preload/index.ts) | Only named finance operations, no generic IPC |
-| Navigation denied | `will-navigate` handler | The window cannot be navigated to a remote page |
+| Navigation denied | `will-navigate` handler | The window cannot leave the app's own `file://` page |
+| Exact navigation allowlist | `will-navigate` compares the full `pathToFileURL(...).href` | A crafted same-directory or `file://` path cannot pass as the app page |
 | New windows denied | `setWindowOpenHandler` | No child windows; `http(s)` URLs are handed to the external browser |
 | All permission requests denied | `setPermissionRequestHandler` | Camera, microphone, notifications, geolocation, clipboard read, etc. |
 | Single-instance lock | `app.requestSingleInstanceLock()` | Two processes writing the same SQLite file |
+| IPC sender validation | `isTrustedFrame()` in [src/main/ipc.ts](../src/main/ipc.ts) | Every handler refuses a frame that is not the app's own page (or the dev server during development) |
 | Content Security Policy | [src/renderer/index.html](../src/renderer/index.html) | Remote script/style/frame/connection origins are blocked by default |
+| Strict production CSP | `strictCsp()` in [electron.vite.config.ts](../electron.vite.config.ts) | The packaged page drops the dev `ws://localhost` and inline-script allowances at build time |
 | No HTML injection sinks | Renderer source | No `dangerouslySetInnerHTML`, `innerHTML`, `eval` or `new Function` |
 | Fixed IPC channel list | [src/main/ipc.ts](../src/main/ipc.ts) | Renderer cannot invoke arbitrary main-process operations |
 | ID validation | `requireId()` in `ipc.ts` | Empty/non-string IDs are rejected before reaching SQL |
+| Size checks in bytes | `Buffer.byteLength` before a 64 MiB cap | A multi-byte import cannot slip past a character-count check |
+| Atomic export writes | `writeFileAtomic()` in [src/main/files.ts](../src/main/files.ts) | An interrupted or failed export leaves the previous file intact instead of a truncated one |
+| Export file mode | `openSync(..., 0o600)` in `files.ts` | Exported ledger data is not world-readable |
+| Boot integrity check | `assertHealthy()` in [src/main/db/maintenance.ts](../src/main/db/maintenance.ts) | A corrupt file is reported instead of being migrated, written to, or silently misread |
+| Pre-upgrade copies | `backupBeforeUpgrade()` | A forward-only migration cannot destroy the only copy of an older schema |
+| Secure delete | `PRAGMA secure_delete = ON` | Deleted rows do not linger in free pages |
+| Erase compacts the file | `VACUUM` + `wal_checkpoint(TRUNCATE)` in `compact()` | "Erase all data" leaves no recoverable rows in the database or the WAL |
+| Crash log | `logCrash()` in [src/main/log.ts](../src/main/log.ts) | A boot or renderer failure is recorded instead of vanishing |
 | User-scoped queries | `src/main/db/repositories.ts` | Every read and write includes `user_id`; one local user cannot address another's rows |
 | Prepared statements | repositories and backup merge | No user-supplied string is interpolated into SQL |
 | Column allowlists | `TABLE_COLUMNS` in `src/main/db/backup.ts` | Imported object keys never become SQL identifiers |
@@ -163,25 +174,24 @@ Repository functions validate renderer input: text length, cent ranges, enum val
 
 | Item | Protection |
 | --- | --- |
-| `wageroute.db` | **None beyond the OS.** Plaintext SQLite. |
-| `wageroute.db-wal` / `-shm` | Same. Recent commits may exist only in the WAL. |
+| `wageroute.db` | **None beyond the OS.** Plaintext SQLite, tightened to mode `0600` on open where the filesystem allows it. |
+| `wageroute.db-wal` / `-shm` | Same, inherited from the database file's directory and umask. Recent commits may exist only in the WAL. |
+| Pre-upgrade copies | `backups/` in the app data folder; plaintext, newest three kept. |
 | JSON backups | Plaintext JSON at the user-selected path; default name is in Documents. |
-| CSV exports | Plaintext at the user-selected path. |
-| Logs | No ledger logging is implemented. Electron/Chromium may write crash or GPU logs outside the app's control. |
+| CSV exports | Plaintext at the user-selected path, written `0600`. |
+| Logs | `logs/main.log` in the app data folder, mode `0600`, rotated at 512 KB to `main.log.1`. Contains error messages and stack traces, not ledger rows. |
 | Preferences | SQLite settings table; no secrets. |
 
 WageRoute does **not**:
 
 - encrypt the database;
-- set or tighten file permissions (`chmod`) on the database;
 - require a password or app lock;
-- purge soft-deleted rows;
 - encrypt backups;
-- wipe free space or guarantee secure deletion.
+- guarantee secure deletion on a filesystem that ignores `secure_delete` (copy-on-write or SSD wear-levelling can leave blocks behind).
 
-The database and its sidecar files inherit the process umask and directory ACLs. On a normal single-user macOS or Windows install, that means the OS user can read them and other local users generally cannot reach the user's home/profile. The app does not verify this.
+The database file is `chmod 0600` best effort on every open, so other local accounts cannot read it on a normal single-user install; the app does not verify this and a filesystem may refuse the change. The `-wal` and `-shm` sidecars inherit the directory's ACLs and umask.
 
-**Deleted data is retained.** Deletes set `deleted_at`; rows remain in the table and are included in `SELECT *` exports. “Delete” means “hide from the UI”, not “erase”. A backup taken after a deletion still contains the deleted row, memo and amount.
+**Deleted data is retained.** A normal delete sets `deleted_at`; rows remain in the table and are included in `SELECT *` exports. “Delete” means “hide from the UI”, not “erase”. A backup taken after a deletion still contains the deleted row, memo and amount. **Erase all data** is different: it drops every row *and* compacts the file, so the previous contents are not recoverable from free pages or the WAL. Erase deliberately keeps no safety copy — the confirmation dialog says the data is gone, so it is.
 
 ### Practical implications
 
@@ -202,6 +212,11 @@ The packaged binary is not a general-purpose Node runtime, and it does not expos
 - **No default menu.** Electron's stock menu carries Reload, Force Reload and Toggle Developer Tools. The packaged build installs a minimal macOS app/edit/window menu (so Copy, Paste and Select All keep their shortcuts) and sets no application menu at all on other platforms.
 - **The renderer runs sandboxed** with `contextIsolation: true` and `nodeIntegration: false`; the only bridge is the typed `window.api` object.
 - **A newer database is refused, not guessed at.** `migrate()` raises `SchemaTooNewError` when `user_version` exceeds the schema this build applies, the app shows a dialog naming the problem and quits, and the file is left untouched. An older build cannot write to a schema it does not understand.
+- **A damaged database is refused too.** Before migrating, `assertHealthy()` runs `PRAGMA quick_check`. A failure raises `DatabaseCorruptError`: the app names it, quits, and does not open a window or write to the file.
+- **Upgrades keep a copy.** A schema migration rewrites the file and cannot be undone, so `backupBeforeUpgrade()` writes a consistent `VACUUM INTO` copy under `backups/` (newest three kept) before it runs.
+- **The packaged page cannot talk to a local server.** The CSP baked into the built `index.html` is `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`. The development policy (inline script for React Refresh, `ws://localhost` for HMR) never ships.
+- **IPC is bound to the app's own page.** Every handler runs `isTrustedFrame()` first and refuses a sender whose frame URL is not the built `index.html` (or the dev server while developing). A compromised or injected frame cannot exercise the ledger API on the app's behalf.
+- **A boot failure is visible.** The main process logs to `logs/main.log`, shows an error dialog naming the problem and the log file, and quits — it cannot end up running with no window.
 - **Repository refusals are typed.** `RepositoryError` carries a code (`VALIDATION`, `NOT_FOUND`, `CONFLICT`, `STATE`) that survives IPC through an encoded marker, so the UI can distinguish "the record is gone" from "the input is wrong" without parsing prose.
 
 Signing remains ad-hoc only — see [Known weaknesses](#known-weaknesses). Fuses and ASAR integrity protect the shape of the bundle, not its authenticity.
@@ -212,19 +227,14 @@ Signing remains ad-hoc only — see [Known weaknesses](#known-weaknesses). Fuses
 
 The application code makes **no outbound network requests**. There is no HTTP client, no telemetry SDK, no crash reporter, no update checker, no bank integration and no analytics.
 
-The CSP still allows development connections:
-
-```text
-connect-src 'self' ws://localhost:* http://localhost:*
-```
-
-and inline scripts:
+The development policy in [src/renderer/index.html](../src/renderer/index.html) allows inline scripts and a local socket:
 
 ```text
 script-src 'self' 'unsafe-inline'
+connect-src 'self' ws://localhost:* http://localhost:*
 ```
 
-In a packaged build the `ws://localhost` allowance is unnecessary. It exists so the Vite dev server and HMR work. It is a defense-in-depth weakness, not a remote-code-execution path on its own: a compromised renderer would still need a way to run script (CSP allows inline) and a local service worth talking to. See [Known weaknesses](#known-weaknesses).
+The Vite dev server needs both. A packaged build does not: `strictCsp()` in [electron.vite.config.ts](../electron.vite.config.ts) replaces the meta tag during the build with the policy quoted under [Application shell hardening](#application-shell-hardening), which has no inline-script allowance and `connect-src 'self'` only. The shipped page therefore cannot start an inline script or open a connection to a local service, and a compromised renderer has no CSP-sanctioned way to run injected code.
 
 The main process can open an external browser for `http(s)` URLs passed to `window.open`. The UI contains no links and never calls `window.open`, so this is dormant behaviour. If a renderer compromise occurs, that handler is a potential exfiltration path through a URL; it should be restricted to an allowlist or removed if it stays unused.
 
@@ -325,9 +335,9 @@ Likelihood assumes a normal personal installation, not a targeted investigation.
 | 10 | SQL injection | A crafted ID or imported value reaches SQL | Prepared statements, ID checks, column allowlists | **Low** |
 | 11 | Arbitrary file read/write | Renderer asks main to read a path | Native dialog; no path parameter over IPC | **Low** — social engineering of the user remains |
 | 12 | Denial of service | A huge import or many rows | 64 MiB cap, 200k rows/table, UI limits | **Medium** — startup and derived calculations can still slow |
-| 13 | CSV formula execution | Exported memo begins with `=` and is opened in Excel | None | **Medium** — see above |
+| 13 | CSV formula execution | Exported memo begins with `=` and is opened in Excel | `defuseFormula()` prefixes `= + - @ tab CR` on text columns | **Low** — amounts stay numeric; a deliberately apostrophe-prefixed cell is still text |
 | 14 | Backup exposure | Plaintext backup in iCloud/OneDrive/Documents | User choice of path; no encryption | **Medium** — provider and sync history can read it |
-| 15 | Deleted-data retention | User expects deletion to erase data | Soft deletes; documentation | **Medium** — privacy expectation mismatch |
+| 15 | Deleted-data retention | User expects deletion to erase data | Soft deletes for a single row; **Erase all data** drops rows and compacts | **Low–Medium** — a single delete is a tombstone |
 
 ### Explicitly out of scope
 
@@ -346,20 +356,17 @@ Listed with severity for this app's context. None are fixed in `1.0.x` unless st
 | --- | --- | --- | --- |
 | Unsigned macOS and Windows builds | **High** for distribution | Tampering is hard to detect; Gatekeeper/SmartScreen friction | See [RELEASING.md](RELEASING.md#code-signing-and-notarization) |
 | No encryption at rest | **High** on a stolen disk | Full ledger readable | Rely on FileVault/BitLocker |
-| CSV formula injection on export | **Medium** | Formula execution in a spreadsheet | `escapeCell` only handles RFC 4180 quoting |
-| Permissive production CSP | **Medium** | Weakens defense in depth if an injection sink appears | `script-src 'unsafe-inline'`; `connect-src` allows localhost |
-| No IPC sender/frame validation | **Low–Medium** | Any frame with the preload could call the bridge | Only one window exists today; validate `event.senderFrame` as future-proofing |
-| Soft-deleted rows never purged | **Medium** (privacy) | “Deleted” data persists in DB and backups | No purge or compact feature |
+| Soft-deleted rows retained | **Medium** (privacy) | A normal “delete” keeps the row in the database and in backups | **Erase all data** drops every row and compacts the file; per-row deletion is still a tombstone |
 | Backup import bypasses length/date validators | **Medium** (integrity) | Oversized strings, malformed dates, odd revision values | SQLite constraints still apply |
-| Database file permissions not tightened | **Low–Medium** | Other local accounts may read the file if directory ACLs allow | App does not `chmod 600` |
 | No dependency audit, SBOM or provenance | **Medium** | Supply-chain issues are found late | `npm ci` and review only |
 | GitHub Actions pinned by major tag | **Medium** | A moved/compromised action tag affects builds | Pin to commit SHAs |
 | No app lock or idle timeout | **Medium** on shared devices | Anyone at an unlocked session can read the ledger | No auth by design |
-| No integrity check on startup | **Low** | Corruption may surface as a query error | SQLite reports errors; no proactive check |
 | External URL handler is unrestricted | **Low** today | Potential exfiltration if renderer is compromised | No UI links; remove or allowlist |
 | Default backup path is Documents | **Low–Medium** | May be cloud-synced | User can choose another path |
 | No audit log of edits/deletes | **Low–Medium** | Cannot reconstruct who changed what | Single-user app; backups are the fallback |
 | Error messages may include local paths | **Low** | Reveals username/path to the local user | Not remote |
+
+Fixed in 1.2.0 and removed from this table: CSV formula injection on export, the permissive production CSP, missing IPC sender validation, database file permissions, and the missing startup integrity check. See [Implemented controls](#implemented-controls).
 
 ---
 
@@ -378,20 +385,20 @@ Ordered by value for this project. None are implemented unless explicitly noted.
 
 5. **Turn on FileVault/BitLocker** on every machine that runs WageRoute. This is the single highest-value control.
 6. **Encrypt backups** before storing them off the machine; avoid cloud-synced live database folders.
-7. **Tighten database permissions** — create the file with mode `0600` on POSIX systems, and confirm the directory is user-only.
-8. **Add an optional purge/compact action** that physically removes tombstoned rows, with a clear warning that it breaks sync history.
+7. **Tighten database permissions** — create the file with mode `0600` on POSIX systems, and confirm the directory is user-only. *(Done: `chmodSync(file, 0o600)` best effort on open.)*
+8. **Add an optional purge/compact action** that physically removes tombstoned rows, with a clear warning that it breaks sync history. *(Partly done: erasing all data drops every row and runs `VACUUM`; there is no per-row purge.)*
 9. **Consider SQLCipher or an encrypted container** if the threat model includes disk theft without FDE. This is a significant change: it affects migrations, backups, debugging and performance.
 
 ### Application hardening
 
-10. **Neutralize CSV formulas on export.** Prefix `=`, `+`, `-`, `@`, tab and carriage return with a single quote, or offer a raw export. Add tests for memos and account names.
-11. **Tighten the CSP** for production: remove `'unsafe-inline'` from `script-src` and drop localhost from `connect-src`. Verify the packaged build first; Vite may inline a bootstrap script.
-12. **Add `base-uri 'none'`, `object-src 'none'`, `frame-ancestors 'none'` and `form-action 'none'`** to the CSP.
-13. **Validate the IPC sender** — reject calls whose `senderFrame` is not the main window's top frame.
+10. **Neutralize CSV formulas on export.** Prefix `=`, `+`, `-`, `@`, tab and carriage return with a single quote, or offer a raw export. Add tests for memos and account names. *(Done: `defuseFormula()` applies to the text columns; amounts are untouched.)*
+11. **Tighten the CSP** for production: remove `'unsafe-inline'` from `script-src` and drop localhost from `connect-src`. Verify the packaged build first; Vite may inline a bootstrap script. *(Done: `strictCsp()` rewrites the meta tag at build time.)*
+12. **Add `base-uri 'none'`, `object-src 'none'`, `frame-ancestors 'none'` and `form-action 'none'`** to the CSP. *(Done, production policy only.)*
+13. **Validate the IPC sender** — reject calls whose `senderFrame` is not the main window's top frame. *(Done: `isTrustedFrame()` guards every handler.)*
 14. **Apply repository validators to imported rows** (text length, date syntax, revision bounds) before insert, or share one validation layer between both paths.
 15. **Cap individual field lengths on import** to match the UI limits.
 16. **Remove or allowlist the external URL handler** if no feature needs it.
-17. **Add `PRAGMA integrity_check`** on startup or on demand, and surface the result rather than silently continuing.
+17. **Add `PRAGMA integrity_check`** on startup or on demand, and surface the result rather than silently continuing. *(Done: `PRAGMA quick_check` before migrating; a failure refuses to open the file.)*
 18. **Add automated dependency updates and `npm audit` in CI**, with a documented triage policy.
 19. **Add a lightweight audit trail** (append-only local log of create/update/delete with timestamp) if the ledger becomes shared or business-critical.
 
