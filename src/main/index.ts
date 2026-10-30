@@ -1,12 +1,16 @@
 import { app, BrowserWindow, dialog, Menu, session, shell } from 'electron'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { adoptLegacyDatabase, closeDatabase, getDatabase } from './db/connection'
+import { DatabaseCorruptError } from './db/maintenance'
 import { SchemaTooNewError } from './db/migrations'
 import { seedDemoIfEmpty, seedIfEmpty } from './db/seed'
 import { registerIpcHandlers } from './ipc'
+import { installCrashLogging, logCrash } from './log'
 
 app.setName('WageRoute')
+installCrashLogging()
 
 let mainWindow: BrowserWindow | null = null
 
@@ -83,7 +87,10 @@ function createWindow(): void {
   })
   mainWindow.webContents.on('will-navigate', (event, url) => {
     const devUrl = process.env.ELECTRON_RENDERER_URL
-    const allowed = devUrl ? url.startsWith(devUrl) : url.startsWith('file://')
+    const page = url.split('#')[0]
+    const allowed = devUrl
+      ? page.startsWith(devUrl)
+      : page === pathToFileURL(join(__dirname, '../renderer/index.html')).href
     if (!allowed) event.preventDefault()
   })
 
@@ -92,6 +99,66 @@ function createWindow(): void {
   } else {
     void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
+}
+
+function boot(): void {
+  session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => {
+    callback(false)
+  })
+
+  if (process.platform === 'darwin' && !app.isPackaged) {
+    const iconPath = join(__dirname, '../../build/icon.png')
+    if (existsSync(iconPath)) app.dock?.setIcon(iconPath)
+  }
+
+  const adoption = adoptLegacyDatabase()
+  if (adoption.error) {
+    dialog.showErrorBox(
+      'Could not move your old data',
+      `${adoption.error}\n\nYour Cash Flow Routing data has been left exactly where it was. ` +
+        'Nothing in WageRoute was changed.'
+    )
+  }
+  const db = (() => {
+    try {
+      return getDatabase()
+    } catch (error) {
+      if (error instanceof SchemaTooNewError) {
+        dialog.showErrorBox(
+          'This database is from a newer WageRoute',
+          `${error.message}\n\nThe file was left untouched. Install the newer version to open it.`
+        )
+        app.quit()
+        return null
+      }
+      if (error instanceof DatabaseCorruptError) {
+        logCrash('database-corrupt', error)
+        dialog.showErrorBox(
+          'This ledger failed its integrity check',
+          `${error.message}\n\nWageRoute did not open or change the file. Restore a backup, ` +
+            'or open the newer copy in the backups folder if there is one.'
+        )
+        app.quit()
+        return null
+      }
+      logCrash('database-open', error)
+      throw error
+    }
+  })()
+  if (!db) return
+  if (app.isPackaged) {
+    seedIfEmpty(db)
+  } else {
+    seedDemoIfEmpty(db)
+  }
+  registerIpcHandlers(db)
+  installMenu()
+
+  createWindow()
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  })
 }
 
 const hasLock = app.requestSingleInstanceLock()
@@ -106,52 +173,19 @@ if (!hasLock) {
   })
 
   app.whenReady().then(() => {
-    session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => {
-      callback(false)
-    })
-
-    if (process.platform === 'darwin' && !app.isPackaged) {
-      const iconPath = join(__dirname, '../../build/icon.png')
-      if (existsSync(iconPath)) app.dock?.setIcon(iconPath)
-    }
-
-    const adoption = adoptLegacyDatabase()
-    if (adoption.error) {
+    try {
+      boot()
+    } catch (error) {
+      // Without this the failure is an unhandled rejection and the window never
+      // appears: the app is running, visible in the dock, and completely blank.
+      logCrash('boot', error)
       dialog.showErrorBox(
-        'Could not move your old data',
-        `${adoption.error}\n\nYour Cash Flow Routing data has been left exactly where it was. ` +
-          'Nothing in WageRoute was changed.'
+        'WageRoute could not start',
+        `${error instanceof Error ? error.message : String(error)}\n\n` +
+          'The details are in the log file in your WageRoute data folder.'
       )
+      app.quit()
     }
-    const db = (() => {
-      try {
-        return getDatabase()
-      } catch (error) {
-        if (error instanceof SchemaTooNewError) {
-          dialog.showErrorBox(
-            'This database is from a newer WageRoute',
-            `${error.message}\n\nThe file was left untouched. Install the newer version to open it.`
-          )
-          app.quit()
-          return null
-        }
-        throw error
-      }
-    })()
-    if (!db) return
-    if (app.isPackaged) {
-      seedIfEmpty(db)
-    } else {
-      seedDemoIfEmpty(db)
-    }
-    registerIpcHandlers(db)
-    installMenu()
-
-    createWindow()
-
-    app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow()
-    })
   })
 
   app.on('window-all-closed', () => {

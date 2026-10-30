@@ -1,7 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent } from 'electron'
 import { randomUUID } from 'node:crypto'
-import { readFileSync, statSync, writeFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import type Database from 'better-sqlite3'
 import type {
   ImportDroppedRow,
@@ -49,6 +50,7 @@ import {
 import { mergeEntries } from './db/entries'
 import { SCHEMA_VERSION } from './db/migrations'
 import { seedIfEmpty } from './db/seed'
+import { writeFileAtomic } from './files'
 import * as repo from './db/repositories'
 
 const MAX_IMPORT_BYTES = 64 * 1024 * 1024
@@ -56,6 +58,24 @@ const MAX_IMPORT_BYTES = 64 * 1024 * 1024
 function requireId(value: unknown): string {
   if (typeof value !== 'string' || value.length === 0) throw new Error('Invalid id')
   return value
+}
+
+/**
+ * Only the app's own page may drive the ledger. Without this, any local HTML
+ * file that reached the window would inherit `window.api` and could import,
+ * reset or read the whole database.
+ */
+function isTrustedFrame(event: IpcMainInvokeEvent): boolean {
+  const devUrl = process.env.ELECTRON_RENDERER_URL
+  let url: string
+  try {
+    url = event.senderFrame?.url ?? ''
+  } catch {
+    return false
+  }
+  const page = url.split('#')[0]
+  if (devUrl) return page.startsWith(devUrl)
+  return page === pathToFileURL(join(__dirname, '../renderer/index.html')).href
 }
 
 /**
@@ -68,6 +88,7 @@ function handle(
   listener: (event: IpcMainInvokeEvent, ...args: never[]) => unknown
 ): void {
   ipcMain.handle(channel, async (event, ...args) => {
+    if (!isTrustedFrame(event)) throw new Error('That window is not allowed to read this ledger')
     try {
       return await listener(event, ...(args as never[]))
     } catch (error) {
@@ -151,7 +172,9 @@ function readImportText(path: string): string {
   } catch {
     throw new Error('That file could not be read')
   }
-  if (text.length > MAX_IMPORT_BYTES) throw new Error('That file is too large')
+  // `text.length` counts UTF-16 units, so a file of multi-byte characters can
+  // pass a guard the disk size already failed.
+  if (Buffer.byteLength(text, 'utf8') > MAX_IMPORT_BYTES) throw new Error('That file is too large')
   return text
 }
 
@@ -279,7 +302,7 @@ export function registerIpcHandlers(db: Database.Database): void {
     const payload = buildBackup(db, userId())
     // A backup is the user's whole financial history in readable JSON; keep it
     // private to their account rather than inheriting the umask.
-    writeFileSync(result.filePath, backupToJson(payload), { encoding: 'utf8', mode: 0o600 })
+    writeFileAtomic(result.filePath, backupToJson(payload), 0o600)
     return result.filePath
   })
 
@@ -298,10 +321,7 @@ export function registerIpcHandlers(db: Database.Database): void {
     const transactions = repo.listAllTransactions(db, userId())
     const accounts = repo.listAccounts(db, userId())
     const { currency } = repo.getUser(db, userId())
-    writeFileSync(result.filePath, transactionsToCsv(transactions, accounts, currency), {
-      encoding: 'utf8',
-      mode: 0o600
-    })
+    writeFileAtomic(result.filePath, transactionsToCsv(transactions, accounts, currency), 0o600)
     return result.filePath
   })
 
@@ -405,6 +425,9 @@ export function registerIpcHandlers(db: Database.Database): void {
 
   handle('data:reset', () => {
     repo.wipeAllData(db)
+    // A held import points at the ledger that just disappeared; keeping it
+    // would let a stale wizard confirm into the next profile.
+    pendingImports.clear()
     seedIfEmpty(db)
   })
 }

@@ -169,6 +169,8 @@ Actions:
 ### Bill dialog
 
 Fields: name, amount, cadence, due day (1–31), category, paid-from account, autopay checkbox, **Funding schedule** and — when it is needed — **Which paycheck?**.
+Autopay is a label, not a payment. WageRoute never moves money, so the checkbox only marks the bill; the wall keeps counting what is owed until the payment is logged. A note under the checkbox says so.
+
 
 Funding schedule offers the five choices in this order, numbered so the list reads as an answer rather than a set of labels:
 
@@ -607,8 +609,10 @@ Rules enforced at write time:
 Three actions:
 
 - **Export full backup** — JSON save dialog, default `~/Documents/wageroute-backup-YYYY-MM-DD.json`.
-- **Export transactions CSV** — CSV save dialog, default `~/Documents/wageroute-transactions-YYYY-MM-DD.csv`.
+- **Export transactions CSV** — CSV save dialog, default `~/Documents/wageroute-transactions-YYYY-MM-DD.csv`. Memo, category, account name and institution are written as text cells with any leading `=`, `+`, `-`, `@`, tab or carriage return prefixed by an apostrophe, so opening the file in a spreadsheet evaluates nothing; amounts stay numeric.
 - **Import data** — open dialog accepting `.json` and `.csv`, then the import wizard.
+
+Both exports are written to a temporary file, flushed and renamed into place, so a failed or interrupted export leaves the previous file untouched instead of a half-written one. The file is created mode `0600`.
 
 ### Import wizard
 
@@ -634,6 +638,12 @@ The database path is displayed below the actions. The sidebar footer shows the r
 ### Danger zone
 
 **Erase all data…** starts a two-step confirmation. The first dialog explains what is deleted (every account, bill, sinking fund, paycheck and ledger entry, plus settings) and that exported backups and CSV files are untouched; **Continue** opens a second dialog with a final **Erase everything** button. The erase wipes the database, re-seeds a blank local user with default settings, and returns to the dashboard in the same blank state as a first launch.
+
+The erase is physical, not a tombstone: every row is dropped and the file is compacted (`VACUUM`), so the previous contents are not recoverable from free pages or the write-ahead log. It deliberately keeps no safety copy — the dialog promises the data is gone. A single row deleted elsewhere in the app is different: it is soft-deleted and still present in backups.
+
+### Safety copies
+
+When a build opens a database from an older schema, it writes a consistent copy to `backups/` in the app data folder before migrating, named `pre-upgrade-<from>-to-<to>-<timestamp>.db`. The newest three are kept. If the database fails SQLite's `quick_check` at launch, WageRoute refuses to open or change it and says so rather than migrating a damaged file.
 
 ### Emergency fund
 

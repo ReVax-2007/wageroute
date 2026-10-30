@@ -503,6 +503,10 @@ function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () => void 
           Active bill
         </label>
       </div>
+      <p className="field-hint hint-below">
+        A note for you: WageRoute never posts a payment, so marking a bill autopay only changes how it
+        is labelled. What you still owe stays on the wall until you log the payment.
+      </p>
       {!form.isActive && (
         <p className="field-hint hint-below">
           Bill inactive · excluded from the wall and from every paycheck until you resume it.
