@@ -169,6 +169,12 @@ Held out of 1.1.0 on purpose: the branch has never had a green CI run and its ar
 
 ---
 
+## Product work agreed, not started
+
+1. **A bank statement import.** Requested 2026-10-29. Today the only way in is a JSON backup or a CSV rewritten into WageRoute's expected columns, which is the step most likely to fail for a real user; [FEATURES.md](FEATURES.md) records bank connections as *not implemented*. The queued work is an OFX/QFX reader plus the common bank CSV layouts, format detection from the file rather than its extension, the wizard's existing missing-info and review steps for the account and any field it cannot read, and de-duplication by OFX `FITID` where the file carries one and by date+amount+memo otherwise so an overlapping statement can be re-imported safely. Persisting `FITID` per entry would be schema 8 and needs an ADR.
+
+---
+
 ## Release checklist for the next release
 
 Standard procedure is [RELEASING.md](RELEASING.md). These are the items that stay specific to this project:
