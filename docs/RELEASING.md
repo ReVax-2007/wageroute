@@ -242,19 +242,20 @@ The names are pinned by `dmg.artifactName` in `electron-builder.yml` (`WageRoute
 
 ```text
 release/
-├── WageRoute.Setup.1.2.0-x64.exe
-├── WageRoute.Setup.1.2.0-x64.exe.blockmap
+├── WageRoute.Setup.1.2.0.exe
+├── WageRoute.Setup.1.2.0.exe.blockmap
 ├── WageRoute-1.2.0-x64.msi
 ├── WageRoute-1.2.0-arm64.msi
-├── WageRoute-1.2.0-x64.portable.exe
-├── WageRoute-1.2.0-arm64.portable.exe
+├── WageRoute-1.2.0.portable.exe
 ├── WageRoute-1.2.0-x64.zip
 └── WageRoute-1.2.0-arm64.zip
 ```
 
-`nsis.artifactName`, `msi.artifactName` and `portable.artifactName` pin predictable names instead of electron-builder's defaults, which contain spaces and drop a suffix. The zip target has no config block of its own, so it inherits the shared pattern through `win` — which is why `msi.artifactName` ends in `${ext}` rather than a literal `.msi`. With a literal `.msi` the zip target named itself `…-x64.msi` and 7-Zip failed with `System ERROR: The parameter is incorrect`, because a zip archive cannot be written under an `.msi` extension. `${ext}` resolves to `msi` for the MSI and `zip` for the archive.
+`nsis.artifactName` and `portable.artifactName` deliberately omit `${arch}`: electron-builder builds one installer that carries both architectures, and it only emits per-architecture copies *in addition* when the pattern contains `${arch}`. Asking for `${arch}` therefore produced three NSIS installers — a universal one and two per-arch ones — and the same for the portable exe. One universal file per format is what a release should carry, and it matches the `WageRoute.Setup.1.1.0.exe` name that 1.1.0 shipped.
 
-NSIS is configured as a per-user install (`perMachine: false`), not one-click, with a selectable directory and a desktop shortcut. Per-user installs do not require administrator rights and put the app under the user's profile. The portable and zip targets exist for users who cannot run installers (locked-down machines, no admin). All four Windows formats are unsigned, so SmartScreen treats them the same way.
+The MSI and the zip are per architecture (`-x64`, `-arm64`), because neither format has a multi-architecture variant here. The zip has no config block of its own, so it inherits the pattern shared through `win` — which is why `msi.artifactName` ends in `${ext}` rather than a literal `.msi`. With a literal `.msi` the zip target named itself `…-x64.msi` and 7-Zip failed with `System ERROR: The parameter is incorrect`, because a zip archive cannot be written under an `.msi` extension. `${ext}` resolves to `msi` for the installer and `zip` for the archive.
+
+NSIS is configured as a per-user install (`perMachine: false`), not one-click, with a selectable directory and a desktop shortcut. Per-user installs do not require administrator rights and put the app under the user's profile. The NSIS installer and the portable exe each carry the x64 and arm64 payloads in one file; the MSI and the zips are per architecture. The portable and zip targets exist for users who cannot run installers (locked-down machines, no admin). All four Windows formats are unsigned, so SmartScreen treats them the same way.
 
 The MSI is built by electron-builder's WiX target, and WiX only runs on Windows — a macOS or Linux checkout cannot produce it. It installs per-user into `%LOCALAPPDATA%\Programs\WageRoute`, so `msiexec /i WageRoute-<version>-x64.msi /qn` works without elevation and is suitable for Intune, SCCM or Group Policy. Because WiX 4 has no arm64 architecture, the `-arm64` MSI is an x64 package that installs the arm64 app; Windows on ARM runs it without a prompt.
 
@@ -332,8 +333,8 @@ Architectures are passed on the command line, never as `arch` lists inside `elec
 
 The tests and type checks prove the code; these steps prove the artifacts.
 
-- **Windows** — silent-installs the x64 MSI with `msiexec /i … /qn`, checks the executable landed under `%LOCALAPPDATA%\Programs\WageRoute`, launches it and waits for `%APPDATA%\WageRoute\wageroute.db` to appear. The database is opened during boot before the window is shown, so its presence proves the packaged binary really started. It then reinstalls the same MSI and asserts exactly one **Apps & features** entry, and uninstalls and asserts the executable and install directory are gone. The ledger in `%APPDATA%` is left behind on purpose — uninstalling must not destroy a user's data.
-- **Linux x64 and arm64** — runs the AppImage (`APPIMAGE_EXTRACT_AND_RUN=1`, no FUSE needed) under `xvfb-run` with a throwaway `HOME`, then extracts the deb and runs the packaged binary the same way. Each must create `~/.config/WageRoute/wageroute.db` within two minutes. If it does not, the step prints the app's own log from that profile before failing — on a headless runner a boot error is otherwise invisible. The step asserts that exactly one `*.AppImage` and one `*.deb` exist, so a job that quietly built the other architecture fails instead of running the wrong binary.
+- **Windows** — silent-installs the x64 MSI with `msiexec /i … /qn`, checks the executable landed under `%LOCALAPPDATA%\Programs\WageRoute` (accepting a machine-level `Program Files` redirect), launches it and waits for `%APPDATA%\WageRoute\wageroute.db` to appear. The database is opened during boot before the window is shown, so its presence proves the packaged binary really started. It then reinstalls the same MSI and asserts exactly one **Apps & features** entry across both uninstall registry hives — the per-user entry is not guaranteed to be in `HKCU` — and uninstalls and asserts the executable and install directory are gone. The ledger in `%APPDATA%` is left behind on purpose — uninstalling must not destroy a user's data.
+- **Linux x64 and arm64** — runs the AppImage (`APPIMAGE_EXTRACT_AND_RUN=1`, no FUSE needed) under `xvfb-run` with a throwaway home directory, then extracts the deb and runs the packaged binary the same way. Each must create `wageroute.db` in that profile within two minutes. `HOME` alone is not isolation: the runner image exports `XDG_CONFIG_HOME`, which Electron prefers, so the step also points `XDG_CONFIG_HOME`, `XDG_DATA_HOME` and `XDG_CACHE_HOME` at the throwaway directory. If the ledger does not appear, the step lists the profile and prints the app's own log from it before failing — on a headless runner a boot error is otherwise invisible. The step asserts that exactly one `*.AppImage` and one `*.deb` exist, so a job that quietly built the other architecture fails instead of running the wrong binary.
 - **macOS** — no automated launch. The DMG is verified by hand on the release machine; see the checklist below.
 
 The rpm is built but not launched, because `rpm2cpio` is not installed on the runner and the payload is the same binary as the deb.
@@ -513,9 +514,9 @@ CI uploads workflow artifacts only. Creating a release is a manual, deliberate s
 4. Paste the release notes from the template below.
 5. Attach:
    - `WageRoute-<version>-arm64.dmg` and `WageRoute-<version>-x64.dmg` (Intel)
-   - `WageRoute.Setup.<version>-x64.exe` and `WageRoute.Setup.<version>-arm64.exe`
+   - `WageRoute.Setup.<version>.exe` (one installer for x64 and arm64)
    - `WageRoute-<version>-x64.msi` and `WageRoute-<version>-arm64.msi`
-   - the portable exes and the two zips (`WageRoute-<version>-x64.zip`, `-arm64.zip`)
+   - `WageRoute-<version>.portable.exe` and the two zips
    - the AppImage, deb and rpm for x64 (`-x86_64.AppImage`, `-amd64.deb`, `-x86_64.rpm`) and arm64 (`-arm64.AppImage`, `-arm64.deb`, `-aarch64.rpm`)
    - `SHA256SUMS.txt` covering all of the above
 
@@ -661,11 +662,10 @@ Schema: 7 (migrates 3 → 4 → 5 → 6 → 7) · Backups: accepts 2–7
 SHA-256, one line per attached installer (see SHA256SUMS.txt):
 - WageRoute-<version>-arm64.dmg — ...
 - WageRoute-<version>-x64.dmg — ...
-- WageRoute.Setup.<version>-x64.exe — ...
-- WageRoute.Setup.<version>-arm64.exe — ...
+- WageRoute.Setup.<version>.exe — ...
 - WageRoute-<version>-x64.msi — ...
 - WageRoute-<version>-arm64.msi — ...
-- WageRoute-<version>-x64.portable.exe — ...
+- WageRoute-<version>.portable.exe — ...
 - WageRoute-<version>-x64.zip — ...
 - WageRoute-<version>-x86_64.AppImage — ...
 - WageRoute-<version>-amd64.deb — ...

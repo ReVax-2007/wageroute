@@ -120,7 +120,7 @@ cp -R /tmp/wageroute-dmg/WageRoute.app /Applications/
 hdiutil detach /tmp/wageroute-dmg
 ```
 
-**Windows:** four formats, all unsigned — the NSIS installer (`WageRoute.Setup.<version>-x64.exe`, or `-arm64.exe`), an MSI (`WageRoute-<version>-x64.msi`) for managed or silent deployment, a portable single-file exe, and an unpack-and-run zip. SmartScreen shows “Windows protected your PC” on first run — choose **More info → Run anyway**. The MSI and the NSIS installer are separate products: uninstall one before installing the other, or Windows will list both.
+**Windows:** four formats, all unsigned — the NSIS installer (`WageRoute.Setup.<version>.exe`, one file carrying both Intel and ARM), an MSI (`WageRoute-<version>-x64.msi` or `-arm64.msi`) for managed or silent deployment, a portable single-file exe (`WageRoute-<version>.portable.exe`), and an unpack-and-run zip per architecture. SmartScreen shows “Windows protected your PC” on first run — choose **More info → Run anyway**. The MSI and the NSIS installer are separate products: uninstall one before installing the other, or Windows will list both.
 
 **Linux:** AppImage (no root, works on any distro — `chmod +x` and run), plus `.deb` for Debian/Ubuntu/Mint and `.rpm` for Fedora/RHEL, in x64 and arm64. All unsigned; a distro package manager may ask you to confirm installation.
 

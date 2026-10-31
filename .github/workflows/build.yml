@@ -98,10 +98,18 @@ jobs:
           Start-Sleep 5
 
           # Reinstalling the same MSI must be an upgrade, not a second product.
+          # The uninstall entry may be per-user or per-machine depending on the
+          # Windows Installer context, so count across both hives instead of
+          # assuming HKCU exists.
           Start-Process msiexec.exe -Wait -ArgumentList "/i `"$($msi.FullName)`" /qn"
-          $entries = @(Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' |
-            ForEach-Object { Get-ItemProperty $_.PSPath } |
-            Where-Object { $_.DisplayName -like 'WageRoute*' })
+          $roots = @(
+            'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall',
+            'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall'
+          )
+          $entries = @($roots | Where-Object { Test-Path $_ } | ForEach-Object {
+            Get-ChildItem $_ -ErrorAction SilentlyContinue |
+              ForEach-Object { Get-ItemProperty $_.PSPath }
+          } | Where-Object { $_.DisplayName -like 'WageRoute*' })
           if ($entries.Count -ne 1) { throw "expected one uninstall entry, found $($entries.Count)" }
 
           Start-Process msiexec.exe -Wait -ArgumentList "/x `"$($msi.FullName)`" /qn"
@@ -115,6 +123,10 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq xvfb
+
+          # Recorded because these leak from the runner image into the app and
+          # decide where it keeps its ledger.
+          env | grep -i '^XDG' || echo "no XDG variables in the runner environment"
 
           # Each job builds exactly one architecture, so exactly one file of
           # each format must exist. If a second one appears, the arch flags
@@ -131,7 +143,15 @@ jobs:
 
           check_boot() {
             local label="$1" home="$2" bin="$3"
-            HOME="$home" xvfb-run -a --server-args="-screen 0 1280x800x24" \
+            # HOME alone is not isolation: the runner image exports
+            # XDG_CONFIG_HOME, which Electron prefers, so the app would read
+            # and write the runner's real profile. Point every XDG dir at the
+            # throwaway profile too.
+            HOME="$home" \
+              XDG_CONFIG_HOME="$home/.config" \
+              XDG_DATA_HOME="$home/.local/share" \
+              XDG_CACHE_HOME="$home/.cache" \
+              xvfb-run -a --server-args="-screen 0 1280x800x24" \
               env APPIMAGE_EXTRACT_AND_RUN=1 "$bin" --no-sandbox &
             local pid=$!
             local db="$home/.config/WageRoute/wageroute.db"

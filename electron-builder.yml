@@ -55,7 +55,11 @@ win:
 dmg:
   artifactName: WageRoute-${version}-${arch}.dmg
 nsis:
-  artifactName: WageRoute.Setup.${version}-${arch}.exe
+  # No ${arch} on purpose: when the pattern omits it, electron-builder builds
+  # one installer that carries both architectures. Adding ${arch} makes it
+  # emit the universal file *and* one per architecture, so the release would
+  # ship three copies of the same application.
+  artifactName: WageRoute.Setup.${version}.exe
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
@@ -73,7 +77,8 @@ msi:
   createDesktopShortcut: true
   shortcutName: WageRoute
 portable:
-  artifactName: WageRoute-${version}-${arch}.portable.exe
+  # Same reason as nsis: one self-contained exe for both architectures.
+  artifactName: WageRoute-${version}.portable.exe
 linux:
   icon: build/icon.png
   category: Office
