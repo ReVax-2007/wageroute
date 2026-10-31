@@ -24,12 +24,10 @@ jobs:
           - os: macos-latest
             name: mac
             args: --mac --x64 --arm64
-            arch: ''
             artifact: release/*.dmg
           - os: windows-latest
             name: win
             args: --win --x64 --arm64
-            arch: ''
             artifact: |
               release/*.exe
               release/*.zip
@@ -37,7 +35,6 @@ jobs:
           - os: ubuntu-latest
             name: linux-x64
             args: --linux --x64
-            arch: x64
             artifact: |
               release/*.AppImage
               release/*.deb
@@ -45,7 +42,6 @@ jobs:
           - os: ubuntu-24.04-arm
             name: linux-arm64
             args: --linux --arm64
-            arch: arm64
             artifact: |
               release/*.AppImage
               release/*.deb
@@ -76,11 +72,20 @@ jobs:
           if (!$msi) { throw "no x64 MSI was produced" }
 
           Start-Process msiexec.exe -Wait -ArgumentList "/i `"$($msi.FullName)`" /qn /l*v msi-install.log"
-          $exe = Join-Path $env:LOCALAPPDATA 'Programs\WageRoute\WageRoute.exe'
-          if (!(Test-Path $exe)) {
-            Get-Content msi-install.log -Tail 60
-            throw "MSI did not install to $exe"
+
+          # WiX resolves ProgramFiles for a per-user install to the user's own
+          # Programs folder, but a machine-level redirect lands in Program
+          # Files, so accept either and record which one was used.
+          $candidates = @(
+            (Join-Path $env:LOCALAPPDATA 'Programs\WageRoute\WageRoute.exe'),
+            (Join-Path $env:ProgramFiles 'WageRoute\WageRoute.exe')
+          )
+          $exe = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (!$exe) {
+            Get-Content msi-install.log -Tail 80
+            throw "MSI did not install to any of: $($candidates -join ', ')"
           }
+          Write-Host "MSI installed to $exe"
 
           # The database is opened during boot, before the window appears, so
           # its presence proves the packaged app really started.
@@ -101,7 +106,7 @@ jobs:
 
           Start-Process msiexec.exe -Wait -ArgumentList "/x `"$($msi.FullName)`" /qn"
           if (Test-Path $exe) { throw "uninstall left the executable behind" }
-          if (Test-Path (Join-Path $env:LOCALAPPDATA 'Programs\WageRoute')) {
+          if (Test-Path (Split-Path $exe)) {
             throw "uninstall left the install directory behind"
           }
 
@@ -110,6 +115,19 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq xvfb
+
+          # Each job builds exactly one architecture, so exactly one file of
+          # each format must exist. If a second one appears, the arch flags
+          # were ignored again, and picking one alphabetically is how the wrong
+          # binary got executed before.
+          pick() {
+            local files=($1)
+            if [ ${#files[@]} -ne 1 ]; then
+              echo "expected exactly one $1, found ${#files[@]}: ${files[*]}"
+              exit 1
+            fi
+            echo "${files[0]}"
+          }
 
           check_boot() {
             local label="$1" home="$2" bin="$3"
@@ -125,18 +143,20 @@ jobs:
             wait "$pid" 2>/dev/null || true
             if [ ! -f "$db" ]; then
               echo "$label started but never created its database"
+              # A boot failure is written inside the throwaway profile, so
+              # print it: without it the only symptom is no database.
+              find "$home" -maxdepth 5 -type f -print
+              cat "$home/.config/WageRoute/logs/main.log" 2>/dev/null || true
               exit 1
             fi
             echo "$label booted and created its ledger"
           }
 
-          # Address the file by architecture: a stray build of the other arch
-          # would otherwise be picked alphabetically and fail to execute.
-          appimage=$(ls release/*-${{ matrix.arch }}.AppImage)
+          appimage=$(pick 'release/*.AppImage')
           chmod +x "$appimage"
           check_boot "AppImage" "$(mktemp -d)" "$appimage"
 
-          deb=$(ls release/*-${{ matrix.arch }}.deb)
+          deb=$(pick 'release/*.deb')
           dpkg-deb -x "$deb" /tmp/deb-root
           deb_bin=$(find /tmp/deb-root -name wageroute -type f | head -1)
           if [ -z "$deb_bin" ]; then

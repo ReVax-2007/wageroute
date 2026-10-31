@@ -248,11 +248,11 @@ release/
 ├── WageRoute-1.2.0-arm64.msi
 ├── WageRoute-1.2.0-x64.portable.exe
 ├── WageRoute-1.2.0-arm64.portable.exe
-├── WageRoute-1.2.0-win.zip
-└── WageRoute-1.2.0-arm64-win.zip
+├── WageRoute-1.2.0-x64.zip
+└── WageRoute-1.2.0-arm64.zip
 ```
 
-`nsis.artifactName`, `msi.artifactName` and `portable.artifactName` pin predictable names instead of electron-builder's defaults, which contain spaces and drop the x64 suffix. The zip target has no per-target config block, so it keeps the default `${productName}-${version}[-${arch}]-win.zip` and omits `-x64` because x64 is the default Windows architecture.
+`nsis.artifactName`, `msi.artifactName` and `portable.artifactName` pin predictable names instead of electron-builder's defaults, which contain spaces and drop a suffix. The zip target has no config block of its own, so it inherits the shared pattern through `win` — which is why `msi.artifactName` ends in `${ext}` rather than a literal `.msi`. With a literal `.msi` the zip target named itself `…-x64.msi` and 7-Zip failed with `System ERROR: The parameter is incorrect`, because a zip archive cannot be written under an `.msi` extension. `${ext}` resolves to `msi` for the MSI and `zip` for the archive.
 
 NSIS is configured as a per-user install (`perMachine: false`), not one-click, with a selectable directory and a desktop shortcut. Per-user installs do not require administrator rights and put the app under the user's profile. The portable and zip targets exist for users who cannot run installers (locked-down machines, no admin). All four Windows formats are unsigned, so SmartScreen treats them the same way.
 
@@ -264,15 +264,15 @@ The MSI and the NSIS installer are separate products with separate uninstall ent
 
 ```text
 release/
-├── WageRoute-1.2.0-x64.AppImage
+├── WageRoute-1.2.0-x86_64.AppImage
 ├── WageRoute-1.2.0-arm64.AppImage
-├── WageRoute-1.2.0-x64.deb
+├── WageRoute-1.2.0-amd64.deb
 ├── WageRoute-1.2.0-arm64.deb
-├── WageRoute-1.2.0-x64.rpm
-└── WageRoute-1.2.0-arm64.rpm
+├── WageRoute-1.2.0-x86_64.rpm
+└── WageRoute-1.2.0-aarch64.rpm
 ```
 
-`appImage.artifactName`, `deb.artifactName` and `rpm.artifactName` pin one pattern for all three packagers. The file name carries `x64`/`arm64` even where the package metadata still says `x86_64`/`aarch64`, because the asset name is what a release note can quote. AppImage runs on any distro without root; deb and rpm integrate with the system package manager and desktop menu. All three are unsigned, so some distros warn during install.
+`appImage.artifactName`, `deb.artifactName` and `rpm.artifactName` pin one pattern for all three packagers, but `${arch}` expands to each packager's own architecture name, not `x64`: AppImage and rpm call 64-bit Intel `x86_64`, deb calls it `amd64`, and only the arm64 AppImage and deb keep the literal `arm64` (the arm64 rpm says `aarch64`). That is electron-builder's naming, not a choice of ours, and it is why the CI smoke test selects `release/*.AppImage` and `release/*.deb` by format and asserts exactly one of each rather than matching a suffix. AppImage runs on any distro without root; deb and rpm integrate with the system package manager and desktop menu. All three are unsigned, so some distros warn during install.
 
 ### Bundle contents
 
@@ -333,7 +333,7 @@ Architectures are passed on the command line, never as `arch` lists inside `elec
 The tests and type checks prove the code; these steps prove the artifacts.
 
 - **Windows** — silent-installs the x64 MSI with `msiexec /i … /qn`, checks the executable landed under `%LOCALAPPDATA%\Programs\WageRoute`, launches it and waits for `%APPDATA%\WageRoute\wageroute.db` to appear. The database is opened during boot before the window is shown, so its presence proves the packaged binary really started. It then reinstalls the same MSI and asserts exactly one **Apps & features** entry, and uninstalls and asserts the executable and install directory are gone. The ledger in `%APPDATA%` is left behind on purpose — uninstalling must not destroy a user's data.
-- **Linux x64 and arm64** — runs the AppImage (`APPIMAGE_EXTRACT_AND_RUN=1`, no FUSE needed) under `xvfb-run` with a throwaway `HOME`, then extracts the deb and runs the packaged binary the same way. Each must create `~/.config/WageRoute/wageroute.db` within two minutes.
+- **Linux x64 and arm64** — runs the AppImage (`APPIMAGE_EXTRACT_AND_RUN=1`, no FUSE needed) under `xvfb-run` with a throwaway `HOME`, then extracts the deb and runs the packaged binary the same way. Each must create `~/.config/WageRoute/wageroute.db` within two minutes. If it does not, the step prints the app's own log from that profile before failing — on a headless runner a boot error is otherwise invisible. The step asserts that exactly one `*.AppImage` and one `*.deb` exist, so a job that quietly built the other architecture fails instead of running the wrong binary.
 - **macOS** — no automated launch. The DMG is verified by hand on the release machine; see the checklist below.
 
 The rpm is built but not launched, because `rpm2cpio` is not installed on the runner and the payload is the same binary as the deb.
@@ -515,8 +515,8 @@ CI uploads workflow artifacts only. Creating a release is a manual, deliberate s
    - `WageRoute-<version>-arm64.dmg` and `WageRoute-<version>-x64.dmg` (Intel)
    - `WageRoute.Setup.<version>-x64.exe` and `WageRoute.Setup.<version>-arm64.exe`
    - `WageRoute-<version>-x64.msi` and `WageRoute-<version>-arm64.msi`
-   - the portable exes and the two win zips
-   - the AppImage, deb and rpm for x64 and arm64
+   - the portable exes and the two zips (`WageRoute-<version>-x64.zip`, `-arm64.zip`)
+   - the AppImage, deb and rpm for x64 (`-x86_64.AppImage`, `-amd64.deb`, `-x86_64.rpm`) and arm64 (`-arm64.AppImage`, `-arm64.deb`, `-aarch64.rpm`)
    - `SHA256SUMS.txt` covering all of the above
 
    The draft release created by the tag build already carries these files; the `gh release upload` step in [`.github/workflows/build.yml`](../.github/workflows/build.yml) attaches them. Check the draft rather than re-uploading by hand.
@@ -666,9 +666,11 @@ SHA-256, one line per attached installer (see SHA256SUMS.txt):
 - WageRoute-<version>-x64.msi — ...
 - WageRoute-<version>-arm64.msi — ...
 - WageRoute-<version>-x64.portable.exe — ...
-- WageRoute-<version>-x64.AppImage — ...
-- WageRoute-<version>-x64.deb — ...
-- ...
+- WageRoute-<version>-x64.zip — ...
+- WageRoute-<version>-x86_64.AppImage — ...
+- WageRoute-<version>-amd64.deb — ...
+- WageRoute-<version>-x86_64.rpm — ...
+- ... (the arm64 equivalents)
 ```
 
 Keep the notes honest about signing, because that is the first thing a recipient will hit.

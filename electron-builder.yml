@@ -62,7 +62,12 @@ nsis:
   createDesktopShortcut: true
   shortcutName: WageRoute
 msi:
-  artifactName: WageRoute-${version}-${arch}.msi
+  # `${ext}` rather than a literal `.msi`: MsiTarget's constructor deep-assigns
+  # this block into the shared `win` options, so a target without its own
+  # artifactName inherits the pattern. With a literal `.msi` the zip target
+  # named itself `…-x64.msi`, and 7-Zip then refused to write a zip archive
+  # under that extension. `${ext}` resolves to `msi` here and `zip` there.
+  artifactName: WageRoute-${version}-${arch}.${ext}
   oneClick: false
   perMachine: false
   createDesktopShortcut: true
