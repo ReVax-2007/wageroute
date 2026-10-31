@@ -31,8 +31,9 @@ The `[1.1.0]` block in [CHANGELOG.md](../CHANGELOG.md) is the inventory; it is r
 | Backup format written | `7` |
 | Backup format accepted | `2`, `3`, `4`, `5`, `6`, `7` |
 | `package.json` today | `1.1.0` — bump it **inside** the release branch, never before |
-| Windows installers | NSIS x64/arm64 today; **MSI x64/arm64 queued** (task #87), built on `windows-latest` |
-| Linux installers | **queued** from `2ef251f` — AppImage/deb/rpm x64/arm64 (task #38), never launched |
+| Windows installers | NSIS, **MSI**, portable exe and zip for x64/arm64; the MSI is built on `windows-latest` |
+| Linux installers | AppImage/deb/rpm for x64/arm64, built on native Ubuntu runners and booted under `xvfb-run` in CI |
+| Release uploads | a tag build attaches every installer to a **draft** GitHub Release |
 
 A patch is the default for fixes with no schema change; anything that adds a migration is at least a minor bump ([semver policy](RELEASING.md#semver-policy)).
 
@@ -155,7 +156,7 @@ No schema change and no new domain rule. The remaining minor findings are presen
 - **Motion respects the system setting**, and animations collapse under `prefers-reduced-motion: reduce`.
 - **The import review promises only what will be written.** Left-out rows are subtracted from the file's table counts, a write in progress announces itself, and a failed import prints its reason in the wizard along with the fact that nothing was written.
 - **A bill pointing at an archived account can no longer post into it.** The prompt blocks with *"The account this bill pays from is archived. Edit the bill to choose another one."*, and the bill dialog shows that saved pointer as a disabled `(archived)` option instead of displaying another account while keeping the old id.
-- **Installers are named for their architecture.** `dmg.artifactName`/`nsis.artifactName` pin `WageRoute-<version>-<arch>.dmg` and `WageRoute.Setup.<version>-<arch>.exe`, and `extraResources` ships `LICENSE` beside the binary.
+- **Installer names are pinned.** `dmg.artifactName` pins `WageRoute-<version>-<arch>.dmg` and `nsis.artifactName` pins `WageRoute.Setup.<version>.exe` — one installer for both architectures, as in 1.1.0 — and `extraResources` ships `LICENSE` beside the binary.
 - **`npm test` refuses to skip a file.** The new `pretest` guard ([`scripts/check-test-list.mjs`](../scripts/check-test-list.mjs)) compares `*.test.ts` on disk with the explicit list in `package.json`. Both TypeScript projects now fail on unused locals and parameters, `packageManager` pins npm 11.20.0, `.github/FUNDING.yml` uses `buy_me_a_coffee`, and the unused `@renderer` alias and two dead type imports are gone.
 - **The docs match schema 7.** `SECURITY.md`, `docs/SECURITY.md`, `ARCHITECTURE`, `DATA-MODEL`, `DEVELOPMENT`, `FEATURES`, `IMPORT-EXPORT`, `RELEASING`, `DEPLOYMENT`, `README`, `CONTRIBUTING`, the release-notes template and ADRs 0001/0005 were corrected for the eight-table backup, the v7 migration recipe, the public repository, the 1.1.x support line, the real CI split, the pinned installer names and the per-occurrence snooze.
 
@@ -184,6 +185,42 @@ No schema change. The pipeline after parsing already existed — the sign rule, 
 
 Verification: `npm run typecheck`, `npm test` and `npm run build` clean. The parser and the statement-to-account merge are covered by those tests; the wizard's rendered statement card, **Left out while reading** list and disabled **Import** button were not opened, because the flow starts at the native file picker that CDP cannot drive — the same gap recorded below for the rest of the wizard.
 
+### Multi-platform installers: MSI, portable/zip and Linux — tasks #38 and #87
+
+`origin/feat/linux-windows-installers` (`2ef251f`, held out of 1.1.0) was merged forward rather than rebased, keeping the hardened builder config from batches 1–6: fuses, `afterSign`, pinned DMG and NSIS names and the NSIS options all survive. No application code changed.
+
+- **Windows** now builds four formats for x64 and arm64: the existing NSIS installer, a new **MSI**, a **portable exe** and a **zip**. The NSIS installer and the portable exe each carry **both** architectures in one file (see the naming note below); the MSI and the zips are per architecture. The MSI is built by electron-builder's WiX target, which runs only on Windows, so it is a `windows-latest` job. It installs per-user into `%LOCALAPPDATA%\Programs\WageRoute`, so `msiexec /i … /qn` needs no elevation. WiX 4 has no arm64 architecture: the `-arm64` MSI is an x64 package carrying the arm64 app, which Windows on ARM runs normally. MSI and NSIS are **separate products** with separate uninstall entries — the release notes and README now say to uninstall one before installing the other, because no installer technology can merge them.
+- **Linux** builds **AppImage**, **deb** and **rpm** for x64 and arm64. CI uses one native runner per architecture (`--linux --x64` on `ubuntu-latest`, `--linux --arm64` on `ubuntu-24.04-arm`) so `better-sqlite3` is never cross-compiled.
+- **Every asset name is pinned** (`msi`, `portable`, `appImage`, `deb`, `rpm` blocks beside the existing `dmg`/`nsis`). The zip has no config block of its own, so it inherits the pattern shared through `win`; `msi.artifactName` therefore ends in `${ext}` instead of a literal `.msi`, which resolves to `msi` for the installer and `zip` for the archive. Linux names keep electron-builder's native `${arch}` spelling (`x86_64`, `amd64`, `aarch64`), documented in [RELEASING.md](RELEASING.md#installers).
+- **The NSIS and portable patterns carry no `${arch}` on purpose.** `NsisTarget.finishBuild` builds one installer from the requested architectures and then, only when the pattern contains `${arch}`, additionally builds one per architecture. With `${arch}` the release would have shipped three copies of each (universal plus `-x64` plus `-arm64`); without it, one file per format carrying both payloads.
+- **`package.json` gained `author` and `homepage`.** MSI needs `author` for the Manufacturer field, and the deb/rpm packager refuses to build without a project homepage.
+- **The release workflow now proves the artifacts start.** Windows: silent-install the x64 MSI, find the executable (the WiX template's per-user `Programs` folder, tolerating a machine-level redirect), launch it, wait for `%APPDATA%\WageRoute\wageroute.db`, reinstall and count `WageRoute*` uninstall entries across **both** registry hives — the per-user entry is not reliably in `HKCU` — then uninstall and assert the executable and install directory are gone (the ledger in `%APPDATA%` stays, by design). Linux x64 and arm64: run the AppImage (`APPIMAGE_EXTRACT_AND_RUN=1`) under `xvfb-run` with a throwaway home directory, then extract the deb and run the packaged binary the same way; each must create `wageroute.db` in that profile. `HOME` alone is not isolation because the runners export `XDG_CONFIG_HOME`, which Electron prefers, so the step points `XDG_CONFIG_HOME`, `XDG_DATA_HOME` and `XDG_CACHE_HOME` at the throwaway directory too and prints the inherited `XDG_*` values. On failure it lists the profile and prints the app's own `logs/main.log`. The rpm is built but not launched.
+- **Tag builds attach to a draft release.** `gh release upload --clobber` puts the raw installers on a draft GitHub Release; the note, the publish step and the tag remain manual. `permissions: contents: write` was added for that.
+- **The packaging job keeps the `verify` gate.** `npm ci`, `npm test` and `npm run build` run before `electron-builder`, so nothing is packaged from an untested tree.
+
+Verification status: `npm run typecheck`, `npm test` (166) and `npm run build` clean locally; the builder config validates against the electron-builder schema. The packaging workflow is green on all four runners ([41160066242](https://github.com/ReVax-2007/wageroute/actions/runs/41160066242)): it built `WageRoute-1.1.0-x64.dmg` and `-arm64.dmg`, `WageRoute.Setup.1.1.0.exe` and `WageRoute-1.1.0.portable.exe` (one file each, both architectures), the x64 and arm64 MSI and zip, and the six Linux packages; the MSI installed to `%LOCALAPPDATA%\Programs\WageRoute`, launched, created `%APPDATA%\WageRoute\wageroute.db`, survived a reinstall as a single uninstall entry and uninstalled cleanly; and on both Linux runners the AppImage and the extracted deb created their ledger in a throwaway profile.
+
+The first packaging run ([41097954874](https://github.com/ReVax-2007/wageroute/actions/runs/41097954874)) failed three of four jobs and found two real defects:
+
+1. **`npm test` failed on Windows.** `files.test.ts` asserted `mode & 0o777 === 0o600`; Windows has no POSIX mode bits (it reported `0o666`), so the assertion now runs only where the mode is meaningful, and `SECURITY.md`, `FEATURES.md` and `DEVELOPMENT.md` say the privacy guarantee is the profile ACL on Windows.
+2. **`--x64` did not mean x64.** `arch` lists inside each target in `electron-builder.yml` are merged into every build, so the "x64" Linux job also produced an arm64 AppImage, and the smoke test picked the arm64 file alphabetically, failed to execute it, and reported "started but never created its database". Arches are now passed only on the command line (`--linux --x64`), and the config lists no per-target arches.
+
+The macOS job passed on that run — DMG for both architectures.
+
+The second run ([41157824060](https://github.com/ReVax-2007/wageroute/actions/runs/41157824060)) packaged all four platforms but failed both Linux jobs at the boot check and the Windows job while building the zip:
+
+3. **The zip target took the MSI's filename.** `MsiTarget`'s constructor deep-assigns the `msi` block into the shared `win` options, so targets built after it inherit those values. With `artifactName: WageRoute-${version}-${arch}.msi` the zip target named itself `WageRoute-1.1.0-x64.msi`, and 7-Zip refused to write a zip archive under that extension (`System ERROR: The parameter is incorrect`). The pattern now ends in `-${arch}.${ext}`, which is correct for both targets; the quirk is explained in `electron-builder.yml` and [RELEASING.md](RELEASING.md#installers).
+4. **The Linux smoke test looked for a name that cannot exist.** It selected `release/*-x64.AppImage` and `release/*-x64.deb`, but `${arch}` expands to each packager's own spelling — `x86_64`, `amd64`, `aarch64` — so the selector found nothing. It now picks the single `*.AppImage` and `*.deb` this job produced and fails loudly if there is more than one. On failure it prints the app's own log from the throwaway profile, because a boot failure is otherwise invisible on a headless runner.
+5. **The AppImage started but never created its ledger.** The x64 job never reached the boot check (defect 4); the arm64 job ran the AppImage under `xvfb-run` and saw only DBus noise, then no database after two minutes. The next run's diagnostic dump answered it: the throwaway home contained `.cache` and `.local/share/pki` but no `.config` and no `logs/main.log`, so the app was healthy and writing elsewhere — see defect 6.
+
+The third run ([41158925082](https://github.com/ReVax-2007/wageroute/actions/runs/41158925082)) built every artifact, confirmed the zip fix (`release\WageRoute-1.1.0-x64.zip`), and found three more defects, all in the smoke checks:
+
+6. **The Linux profile was not isolated.** The runner image exports `XDG_CONFIG_HOME`, and Electron prefers it over `$HOME/.config`, so `HOME=<tmp>` alone left `userData` pointing at the runner's real profile: the app booted, created its ledger outside the throwaway directory and looked dead to the check. `XDG_CONFIG_HOME`, `XDG_DATA_HOME` and `XDG_CACHE_HOME` now follow `HOME`, the step prints the inherited `XDG_*` values, and a failure prints the profile listing plus the app's own log.
+7. **NSIS and portable built three installers each.** The log showed `WageRoute.Setup.1.1.0.exe archs=x64, arm64` together with `-x64.exe` and `-arm64.exe`, because `NsisTarget` adds per-arch builds whenever the pattern contains `${arch}`. Both patterns dropped `${arch}` (see above), so each format is one universal file.
+8. **The MSI install worked; the uninstall check crashed.** The installer landed in `%LOCALAPPDATA%\Programs\WageRoute`, the app launched and created `%APPDATA%\WageRoute\wageroute.db`, and then the check failed with *"Cannot find path 'HKEY_CURRENT_USER\…\Uninstall'"* — that key does not exist on a freshly provisioned runner account, and the per-user entry is not guaranteed to be there. The count now spans `HKLM` and `HKCU`, guarding each with `Test-Path`.
+
+The fourth run ([41160066242](https://github.com/ReVax-2007/wageroute/actions/runs/41160066242)) passed all four jobs. It also confirmed the diagnosis behind defect 6: the log records `XDG_CONFIG_HOME=/home/runner/.config` in the runner environment, and with the override in place both Linux jobs printed *AppImage booted and created its ledger* and *deb booted and created its ledger*. The NSIS and portable logs now show one file each (`archs=x64, arm64`), and the Windows job installed the MSI, launched the app, found one uninstall entry after the reinstall and removed the install directory on uninstall.
+
 ### Running version in the app
 
 Settings → **About** shows the bundle's own version (`app.getVersion()` via the new `app:info` channel), the schema version it applies and its Electron version; the sidebar footer shows `WageRoute v<version>`. Verification: launched the built app on a disposable profile, `getAppInfo()` returned `{ version: '1.1.0', schemaVersion: 6, electron: '45.1.0' }`, the footer rendered `WageRoute v1.1.0`, and the About card rendered all three values.
@@ -198,11 +235,7 @@ No schema change; both are candidates for a patch or minor bump depending on wha
 
 ## Deferred, not merged
 
-### Linux and extra Windows formats — `2ef251f` (`origin/feat/linux-windows-installers`, no PR)
-
-electron-builder additionally targets AppImage/deb/rpm for Linux x64 and arm64 and portable exe/zip for Windows, with two Ubuntu CI jobs and artifact names `wageroute-linux-x64/arm64`.
-
-Held out of 1.1.0 on purpose: the branch has never had a green CI run and its artifacts have never been launched by anyone. Shipping a Linux format that does not start is worse than shipping none. Deciding this is still the owner's call — land it, or keep it deferred.
+Nothing is deferred as a branch. The Linux and extra Windows formats that were held out of 1.1.0 are merged above (tasks #38 and #87); the MSI and the Linux packages are installed and booted by CI, and the NSIS installer, portable exe and zip still wait for a human launch.
 
 ---
 
@@ -210,8 +243,8 @@ Held out of 1.1.0 on purpose: the branch has never had a green CI run and its ar
 
 1. **The import wizard's rendered flow has never been opened.** Its detection and repair rules are tested as pure code, but the wizard begins with a native file picker that CDP cannot reach. Someone has to pick a real file and walk the questions by hand — now including a real `.ofx` statement, whose rendered card and disabled **Import** button have only been reviewed, not seen.
 2. **Homebrew's receipt is stale.** 1.1.0 was installed manually from the published arm64 DMG, which carries no quarantine flag, so the app opens without the Gatekeeper prompt but the cask receipt still says `1.0.2`. `brew list --versions wageroute` will disagree with the app until the next `brew upgrade --cask wageroute` — which re-installs the same 1.1.0 and, because brew downloads it, does apply quarantine.
-3. **Only the arm64 macOS installer has been launched.** The Intel DMG and the Windows installer have never been started.
-4. **The builds are unsigned.** macOS is ad-hoc signed only, so downloaders need right-click → Open; Windows shows SmartScreen. Signing and notarization remain undone; see [RELEASING.md](RELEASING.md#code-signing-and-notarization).
+3. **Only the arm64 macOS installer has been launched by hand.** The Intel DMG, the NSIS installer, the portable exe and the zip have never been started by a person. The MSI and the Linux AppImage/deb are booted by CI (above); an unattended runner is not the same as a desktop, so a first human launch is still worth doing before the release.
+4. **The builds are unsigned.** macOS is ad-hoc signed only, so downloaders need right-click → Open; Windows shows SmartScreen and Linux package managers may warn. Signing and notarization remain undone; see [RELEASING.md](RELEASING.md#code-signing-and-notarization).
 
 ---
 
@@ -231,9 +264,9 @@ Standard procedure is [RELEASING.md](RELEASING.md). These are the items that sta
 - [ ] If a migration ships: prove it against a **copy** of the live database, state in the notes that it is automatic, forward-only and irreversible, and record the new backup window.
 - [ ] `npm ci` from a clean tree, `npm test`, `npm run typecheck`, `npm run build`, then **every** target: macOS DMG (arm64 + Intel), Windows NSIS (x64/arm64) and MSI (x64/arm64, task #87), Linux AppImage/deb/rpm (x64/arm64, task #38).
 - [ ] Launch **each** artifact at least once on a disposable profile (`CFFIXED_USER_HOME=/tmp/...` on macOS/Linux, a throwaway Windows VM for the installers) — not on the live ledger. The Intel DMG, every Windows installer and every Linux format are still unlaunched today.
-- [ ] Confirm the MSI upgrades over an NSIS install without leaving two entries in Apps & features, and that every uninstall leaves the ledger where the user was told it would be.
-- [ ] `SHA256SUMS.txt` for every installer, named exactly as the pinned `artifactName` produces them: `WageRoute-<version>-<arch>.dmg` and `WageRoute.Setup.<version>-<arch>.exe`, with no spaces.
-- [ ] Tag `v<version>`, let CI build the Windows installer, then create the GitHub Release with the raw installers.
+- [ ] Decide in the release notes whether MSI **ships beside** NSIS (the current config) or replaces it. Beside is the plan: they are separate products, so the notes must say to uninstall one before installing the other. CI proves an MSI reinstall stays one entry; it cannot merge an NSIS install into an MSI one.
+- [ ] `SHA256SUMS.txt` for every installer, named exactly as the pinned `artifactName` produces them: `WageRoute-<version>-<arch>.dmg`, `WageRoute.Setup.<version>.exe`, `WageRoute-<version>-<arch>.msi`, `WageRoute-<version>.portable.exe`, `WageRoute-<version>-<arch>.zip`, `WageRoute-<version>-<linux arch>.AppImage`, `-<linux arch>.deb` and `-<linux arch>.rpm` (`x86_64`, `amd64` and `aarch64` are the x64 spellings), with no spaces.
+- [ ] Tag `v<version>`, let CI build every platform, then publish the **draft** release CI filled with the raw installers. CI creates the draft; it never publishes.
 - [ ] Bump `version` **and** every `sha256` in `ReVax-2007/homebrew-wageroute`; no `--no-quarantine`, no `zap` stanza.
 - [ ] After the release: reset this document, and re-verify anything it claims.
 

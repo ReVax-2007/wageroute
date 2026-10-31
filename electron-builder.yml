@@ -29,31 +29,69 @@ electronFuses:
   enableNodeCliInspectArguments: false
   enableEmbeddedAsarIntegrityValidation: true
   onlyLoadAppFromAsar: true
+# Architectures are chosen on the command line, not per target: an `arch` list
+# here would be merged into every build, so `--linux --x64` would still emit
+# arm64 artifacts. The npm scripts and CI pass the flags explicitly.
 mac:
   category: public.app-category.finance
   identity: null
   icon: build/icon.icns
   darkModeSupport: true
   target:
-    - target: dmg
-      arch:
-        - arm64
-        - x64
+    - dmg
 win:
   icon: build/icon.png
   target:
-    - target: nsis
-      arch:
-        - x64
-        - arm64
+    - nsis
+    # MSI for managed deployment (Group Policy, Intune, SCCM). WiX only runs
+    # on Windows, so this target is built by the windows-latest CI job.
+    - msi
+    # Portable single-file exe and unpack-and-run zip, for users who cannot
+    # or do not want to run an installer. All of these are unsigned.
+    - portable
+    - zip
 # Pinned so release assets have one predictable name per platform and
 # architecture instead of inheriting electron-builder's per-target defaults.
 dmg:
   artifactName: WageRoute-${version}-${arch}.dmg
 nsis:
-  artifactName: WageRoute.Setup.${version}-${arch}.exe
+  # No ${arch} on purpose: when the pattern omits it, electron-builder builds
+  # one installer that carries both architectures. Adding ${arch} makes it
+  # emit the universal file *and* one per architecture, so the release would
+  # ship three copies of the same application.
+  artifactName: WageRoute.Setup.${version}.exe
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   shortcutName: WageRoute
+msi:
+  # `${ext}` rather than a literal `.msi`: MsiTarget's constructor deep-assigns
+  # this block into the shared `win` options, so a target without its own
+  # artifactName inherits the pattern. With a literal `.msi` the zip target
+  # named itself `…-x64.msi`, and 7-Zip then refused to write a zip archive
+  # under that extension. `${ext}` resolves to `msi` here and `zip` there.
+  artifactName: WageRoute-${version}-${arch}.${ext}
+  oneClick: false
+  perMachine: false
+  createDesktopShortcut: true
+  shortcutName: WageRoute
+portable:
+  # Same reason as nsis: one self-contained exe for both architectures.
+  artifactName: WageRoute-${version}.portable.exe
+linux:
+  icon: build/icon.png
+  category: Office
+  maintainer: Xavier Voet
+  # AppImage runs on any distro without root; deb and rpm cover the two big
+  # package-manager families. All unsigned; distros may warn on install.
+  target:
+    - AppImage
+    - deb
+    - rpm
+appImage:
+  artifactName: WageRoute-${version}-${arch}.AppImage
+deb:
+  artifactName: WageRoute-${version}-${arch}.deb
+rpm:
+  artifactName: WageRoute-${version}-${arch}.rpm

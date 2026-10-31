@@ -61,7 +61,10 @@ npm run postinstall
 | `npm run build` | typecheck + `electron-vite build` | `out/main`, `out/preload`, `out/renderer` |
 | `npm run dist` | build + `electron-builder` | Current platform |
 | `npm run dist:mac` | build + `electron-builder --mac` | DMG, arm64 + x64 |
-| `npm run dist:win` | build + `electron-builder --win` | NSIS, x64 + arm64 |
+| `npm run dist:win` | build + `electron-builder --win --x64 --arm64` | NSIS + MSI + portable + zip (MSI needs Windows: WiX) |
+| `npm run dist:linux` | build + `electron-builder --linux --x64 --arm64` | AppImage + deb + rpm |
+
+Architectures are passed as flags, not as `arch` lists in `electron-builder.yml`: electron-builder merges a target's declared arches into every build, so a declared list overrides `--x64`.
 
 There is no lint script and no formatter configuration. Consistency is maintained by convention and type checking.
 
@@ -226,7 +229,7 @@ Eighteen files run by `npm test` through `node --test` with `tsx` as the loader 
 | `legacy.test.ts` | temp directories | pre-rename adoption moves the database and its sidecars or leaves everything in place and reports why |
 | `maintenance.test.ts` | real SQLite file | `quick_check` passes on a healthy file; a non-SQLite file raises `DatabaseCorruptError`; a pre-upgrade copy carries every row and prunes to the newest three; `VACUUM` + `secure_delete` leave a sentinel memo absent from the database file |
 | `ledger-guards.test.ts` | **real in-memory SQLite** | archived accounts are refused where they would be spent; a counter account on a non-transfer entry is refused; a round-up memo is clamped to 240 characters |
-| `files.test.ts` | temp directories | an atomic write replaces the file, leaves mode `0600` and no temporary behind; a failed write leaves the previous file intact |
+| `files.test.ts` | temp directories | an atomic write replaces the file, leaves mode `0600` on POSIX and no temporary behind; a failed write leaves the previous file intact |
 | `dedicated-accounts.test.ts` | **real in-memory SQLite** | the two v4 columns round-trip through the repository; an unknown goal is refused; the account balance replaces the allocation total; an overdraft reads as zero; archiving releases the goal back to allocations; removing a goal detaches every account; a goal creates its funders in one call and their balances add; re-saving releases the ticks that were removed and `[]` is a choice, not a no-op; a tick that funded another goal moves and the old goal falls back; a missing account throws and rolls the whole save back; an archived account is refused without letting its valid sibling bind |
 
 Conventions every new test follows:
@@ -522,7 +525,8 @@ Architecture matters too: an arm64 Electron build needs an arm64 native module. 
 | JSON import fails with a foreign key error | Partial file references rows that are not local or earlier in the file | Include the referenced rows or null the links |
 | Database changes seem lost | App still running and WAL not checkpointed | Quit before copying; copy `.db`, `-wal` and `-shm` |
 | macOS refuses to open a build | Unsigned app, Gatekeeper | Right-click → Open, or sign/notarize |
-| Windows SmartScreen warning | Unsigned NSIS installer | Expected for unsigned builds |
+| Windows SmartScreen warning | Unsigned installer, portable exe or zip | Expected for unsigned builds |
+| Linux package manager warning | Unsigned deb/rpm, unverified AppImage | Expected for unsigned builds; verify the SHA-256 from SHA256SUMS.txt |
 | Dev server port in use | Another Vite process | Stop it; Vite will otherwise choose the next port |
 | TypeScript cannot resolve `@shared` | Alias missing in one config | Update both tsconfigs and `electron.vite.config.ts` |
 | `electron-builder` uses the default icon | Icon path wrong or missing | Confirm `build/icon.icns` and `build/icon.png` |

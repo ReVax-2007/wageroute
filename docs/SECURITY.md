@@ -141,7 +141,7 @@ The app does not defend against malware running as the same user, an administrat
 | ID validation | `requireId()` in `ipc.ts` | Empty/non-string IDs are rejected before reaching SQL |
 | Size checks in bytes | `Buffer.byteLength` before a 64 MiB cap | A multi-byte import cannot slip past a character-count check |
 | Atomic export writes | `writeFileAtomic()` in [src/main/files.ts](../src/main/files.ts) | An interrupted or failed export leaves the previous file intact instead of a truncated one |
-| Export file mode | `openSync(..., 0o600)` in `files.ts` | Exported ledger data is not world-readable |
+| Export file mode | `openSync(..., 0o600)` in `files.ts` | On macOS and Linux, exported ledger data is not world-readable. Windows has no POSIX mode bits, so there the file inherits the user profile's ACL |
 | Boot integrity check | `assertHealthy()` in [src/main/db/maintenance.ts](../src/main/db/maintenance.ts) | A corrupt file is reported instead of being migrated, written to, or silently misread |
 | Pre-upgrade copies | `backupBeforeUpgrade()` | A forward-only migration cannot destroy the only copy of an older schema |
 | Secure delete | `PRAGMA secure_delete = ON` | Deleted rows do not linger in free pages |
@@ -178,7 +178,7 @@ Repository functions validate renderer input: text length, cent ranges, enum val
 | `wageroute.db-wal` / `-shm` | Same, inherited from the database file's directory and umask. Recent commits may exist only in the WAL. |
 | Pre-upgrade copies | `backups/` in the app data folder; plaintext, newest three kept. |
 | JSON backups | Plaintext JSON at the user-selected path; default name is in Documents. |
-| CSV exports | Plaintext at the user-selected path, written `0600`. |
+| CSV exports | Plaintext at the user-selected path, written `0600` on macOS and Linux; on Windows it inherits the profile ACL. |
 | Logs | `logs/main.log` in the app data folder, mode `0600`, rotated at 512 KB to `main.log.1`. Contains error messages and stack traces, not ledger rows. |
 | Preferences | SQLite settings table; no secrets. |
 
@@ -189,7 +189,7 @@ WageRoute does **not**:
 - encrypt backups;
 - guarantee secure deletion on a filesystem that ignores `secure_delete` (copy-on-write or SSD wear-levelling can leave blocks behind).
 
-The database file is `chmod 0600` best effort on every open, so other local accounts cannot read it on a normal single-user install; the app does not verify this and a filesystem may refuse the change. The `-wal` and `-shm` sidecars inherit the directory's ACLs and umask.
+The database file is `chmod 0600` best effort on every open, so other local accounts cannot read it on a normal single-user install; the app does not verify this and a filesystem may refuse the change. The `-wal` and `-shm` sidecars inherit the directory's ACLs and umask. Windows has no POSIX mode bits: there the database, the exports and the log are protected by the ACL of the user profile they live in, which is what the app data folder and the default export path sit inside.
 
 **Deleted data is retained.** A normal delete sets `deleted_at`; rows remain in the table and are included in `SELECT *` exports. “Delete” means “hide from the UI”, not “erase”. A backup taken after a deletion still contains the deleted row, memo and amount. **Erase all data** is different: it drops every row *and* compacts the file, so the previous contents are not recoverable from free pages or the WAL. Erase deliberately keeps no safety copy — the confirmation dialog says the data is gone, so it is.
 

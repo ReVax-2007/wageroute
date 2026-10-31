@@ -13,7 +13,11 @@ test('an export replaces the target and keeps its contents private', () => {
   writeFileAtomic(target, '{"second":true}', 0o600)
 
   assert.equal(readFileSync(target, 'utf8'), '{"second":true}')
-  assert.equal(statSync(target).mode & 0o777, 0o600)
+  // Windows has no POSIX mode bits; there the user profile's ACL is what
+  // keeps the file private, so only assert the mode where it is meaningful.
+  if (process.platform !== 'win32') {
+    assert.equal(statSync(target).mode & 0o777, 0o600)
+  }
   assert.deepEqual(
     readdirSync(dir),
     ['backup.json'],

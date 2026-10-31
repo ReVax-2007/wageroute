@@ -1,10 +1,19 @@
 name: Build desktop installers
 
+# Packaging runs on demand and on a tag. A tag run attaches every artifact to a
+# draft GitHub Release; publishing that release stays a separate, explicit step.
 on:
   workflow_dispatch:
   push:
     tags:
       - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -13,11 +22,30 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            target: mac
+            name: mac
+            args: --mac --x64 --arm64
             artifact: release/*.dmg
           - os: windows-latest
-            target: win
-            artifact: release/*.exe
+            name: win
+            args: --win --x64 --arm64
+            artifact: |
+              release/*.exe
+              release/*.zip
+              release/*.msi
+          - os: ubuntu-latest
+            name: linux-x64
+            args: --linux --x64
+            artifact: |
+              release/*.AppImage
+              release/*.deb
+              release/*.rpm
+          - os: ubuntu-24.04-arm
+            name: linux-arm64
+            args: --linux --arm64
+            artifact: |
+              release/*.AppImage
+              release/*.deb
+              release/*.rpm
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -28,12 +56,149 @@ jobs:
           node-version: 24
           cache: npm
 
+      # Same gate as the `verify` job: nothing is packaged from a tree that has
+      # not passed the tests and both type checks.
       - run: npm ci
       - run: npm test
-      - run: npm run dist:${{ matrix.target }}
+      - run: npm run build
+
+      - run: npx electron-builder ${{ matrix.args }} --publish never
+
+      - name: Install the MSI and launch the app
+        if: matrix.name == 'win'
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem release\*x64.msi | Select-Object -First 1
+          if (!$msi) { throw "no x64 MSI was produced" }
+
+          Start-Process msiexec.exe -Wait -ArgumentList "/i `"$($msi.FullName)`" /qn /l*v msi-install.log"
+
+          # WiX resolves ProgramFiles for a per-user install to the user's own
+          # Programs folder, but a machine-level redirect lands in Program
+          # Files, so accept either and record which one was used.
+          $candidates = @(
+            (Join-Path $env:LOCALAPPDATA 'Programs\WageRoute\WageRoute.exe'),
+            (Join-Path $env:ProgramFiles 'WageRoute\WageRoute.exe')
+          )
+          $exe = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (!$exe) {
+            Get-Content msi-install.log -Tail 80
+            throw "MSI did not install to any of: $($candidates -join ', ')"
+          }
+          Write-Host "MSI installed to $exe"
+
+          # The database is opened during boot, before the window appears, so
+          # its presence proves the packaged app really started.
+          $proc = Start-Process $exe -PassThru
+          $db = Join-Path $env:APPDATA 'WageRoute\wageroute.db'
+          $deadline = (Get-Date).AddSeconds(120)
+          while ((Get-Date) -lt $deadline -and !(Test-Path $db)) { Start-Sleep 2 }
+          if (!(Test-Path $db)) { throw "the app ran but never created $db" }
+          Stop-Process -Id $proc.Id -Force
+          Start-Sleep 5
+
+          # Reinstalling the same MSI must be an upgrade, not a second product.
+          # The uninstall entry may be per-user or per-machine depending on the
+          # Windows Installer context, so count across both hives instead of
+          # assuming HKCU exists.
+          Start-Process msiexec.exe -Wait -ArgumentList "/i `"$($msi.FullName)`" /qn"
+          $roots = @(
+            'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall',
+            'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall'
+          )
+          $entries = @($roots | Where-Object { Test-Path $_ } | ForEach-Object {
+            Get-ChildItem $_ -ErrorAction SilentlyContinue |
+              ForEach-Object { Get-ItemProperty $_.PSPath }
+          } | Where-Object { $_.DisplayName -like 'WageRoute*' })
+          if ($entries.Count -ne 1) { throw "expected one uninstall entry, found $($entries.Count)" }
+
+          Start-Process msiexec.exe -Wait -ArgumentList "/x `"$($msi.FullName)`" /qn"
+          if (Test-Path $exe) { throw "uninstall left the executable behind" }
+          if (Test-Path (Split-Path $exe)) {
+            throw "uninstall left the install directory behind"
+          }
+
+      - name: Launch the packaged app
+        if: matrix.name == 'linux-x64' || matrix.name == 'linux-arm64'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb
+
+          # Recorded because these leak from the runner image into the app and
+          # decide where it keeps its ledger.
+          env | grep -i '^XDG' || echo "no XDG variables in the runner environment"
+
+          # Each job builds exactly one architecture, so exactly one file of
+          # each format must exist. If a second one appears, the arch flags
+          # were ignored again, and picking one alphabetically is how the wrong
+          # binary got executed before.
+          pick() {
+            local files=($1)
+            if [ ${#files[@]} -ne 1 ]; then
+              echo "expected exactly one $1, found ${#files[@]}: ${files[*]}"
+              exit 1
+            fi
+            echo "${files[0]}"
+          }
+
+          check_boot() {
+            local label="$1" home="$2" bin="$3"
+            # HOME alone is not isolation: the runner image exports
+            # XDG_CONFIG_HOME, which Electron prefers, so the app would read
+            # and write the runner's real profile. Point every XDG dir at the
+            # throwaway profile too.
+            HOME="$home" \
+              XDG_CONFIG_HOME="$home/.config" \
+              XDG_DATA_HOME="$home/.local/share" \
+              XDG_CACHE_HOME="$home/.cache" \
+              xvfb-run -a --server-args="-screen 0 1280x800x24" \
+              env APPIMAGE_EXTRACT_AND_RUN=1 "$bin" --no-sandbox &
+            local pid=$!
+            local db="$home/.config/WageRoute/wageroute.db"
+            for _ in $(seq 1 60); do
+              [ -f "$db" ] && break
+              sleep 2
+            done
+            kill "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+            if [ ! -f "$db" ]; then
+              echo "$label started but never created its database"
+              # A boot failure is written inside the throwaway profile, so
+              # print it: without it the only symptom is no database.
+              find "$home" -maxdepth 5 -type f -print
+              cat "$home/.config/WageRoute/logs/main.log" 2>/dev/null || true
+              exit 1
+            fi
+            echo "$label booted and created its ledger"
+          }
+
+          appimage=$(pick 'release/*.AppImage')
+          chmod +x "$appimage"
+          check_boot "AppImage" "$(mktemp -d)" "$appimage"
+
+          deb=$(pick 'release/*.deb')
+          dpkg-deb -x "$deb" /tmp/deb-root
+          deb_bin=$(find /tmp/deb-root -name wageroute -type f | head -1)
+          if [ -z "$deb_bin" ]; then
+            echo "the deb contains no wageroute binary"
+            exit 1
+          fi
+          check_boot "deb" "$(mktemp -d)" "$deb_bin"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wageroute-${{ matrix.target }}
+          name: wageroute-${{ matrix.name }}
           path: ${{ matrix.artifact }}
           if-no-files-found: error
+
+      # A draft release keeps the artifacts together without publishing them;
+      # the release notes and the publish step stay under human control.
+      - name: Attach the installers to the draft release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 ||
+            gh release create "$GITHUB_REF_NAME" --draft --title "WageRoute $GITHUB_REF_NAME"
+          gh release upload "$GITHUB_REF_NAME" ${{ matrix.artifact }} --clobber

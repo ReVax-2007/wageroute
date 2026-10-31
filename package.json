@@ -4,6 +4,8 @@
   "private": true,
   "description": "Zero-based paycheck routing for the desktop.",
   "main": "./out/main/index.js",
+  "author": "Xavier Voet",
+  "homepage": "https://github.com/ReVax-2007/wageroute",
   "license": "SEE LICENSE IN LICENSE",
   "packageManager": "npm@11.20.0",
   "engines": {
@@ -19,8 +21,10 @@
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "build": "npm run typecheck && electron-vite build",
     "dist": "npm run build && electron-builder --publish never",
-    "dist:mac": "npm run build && electron-builder --mac --publish never",
-    "dist:win": "npm run build && electron-builder --win --publish never",
+    "dist:mac": "npm run build && electron-builder --mac --x64 --arm64 --publish never",
+    "dist:win": "npm run build && electron-builder --win --x64 --arm64 --publish never",
+    "dist:linux": "npm run build && electron-builder --linux --x64 --arm64 --publish never",
+    "dist:linux": "npm run build && electron-builder --linux --publish never",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
