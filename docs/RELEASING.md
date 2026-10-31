@@ -33,10 +33,10 @@ WageRoute has three independent version numbers. Confusing them is the most comm
 | Version | Where it lives | Current value | What it means |
 | --- | --- | --- | --- |
 | App version | `package.json` → `version` | `1.1.0` | The build users install. Drives installer names, macOS bundle version and release tags. |
-| Database schema version | `src/main/db/migrations.ts` → `SCHEMA_VERSION`, stored in SQLite `PRAGMA user_version` | `6` | The shape of the on-disk database. Changes only when a migration is added. |
-| Backup format version | Written into every JSON backup, equal to `SCHEMA_VERSION` | `6` | The newest backup the app writes. The reader accepts versions `2`, `3`, `4`, `5` and `6`. |
+| Database schema version | `src/main/db/migrations.ts` → `SCHEMA_VERSION`, stored in SQLite `PRAGMA user_version` | `7` | The shape of the on-disk database. Changes only when a migration is added. |
+| Backup format version | Written into every JSON backup, equal to `SCHEMA_VERSION` | `7` | The newest backup the app writes. The reader accepts versions `2` through `7`. |
 
-`package.json` reads `1.1.0` at the moment of the 1.1.0 release; between releases it keeps the last released number even though newer commits have landed, so the **commit SHA** is the only reliable identifier of an un-released build. Bump the version as part of the release, never before. Every build users had before 1.1.0 was schema 3; 1.1.0 is the first installer carrying schemas 4, 5 and 6.
+`package.json` reads `1.1.0` at the moment of the 1.1.0 release; between releases it keeps the last released number even though newer commits have landed, so the **commit SHA** is the only reliable identifier of an un-released build. Bump the version as part of the release, never before. Every build users had before 1.1.0 was schema 3; 1.1.0 was the first installer carrying schemas 4, 5 and 6, and this build adds schema 7 (bill reserves).
 
 The source of truth for the app version is `package.json`. `npm` updates `package-lock.json` with it; electron-builder reads it when naming artifacts and writing bundle metadata.
 

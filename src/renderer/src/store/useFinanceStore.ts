@@ -24,6 +24,14 @@ interface Notice {
   tone: 'success' | 'error'
 }
 
+/** A question the renderer asks through the shared dialog, never window.confirm. */
+export interface ConfirmRequest {
+  title: string
+  body: string
+  confirmLabel?: string
+  danger?: boolean
+}
+
 interface FinanceState {
   status: 'loading' | 'ready' | 'error'
   error: string | null
@@ -35,13 +43,19 @@ interface FinanceState {
   allocatorOpen: boolean
   importPreview: ImportPreview | null
   importStep: 'fix' | 'review'
+  /** Boot, import, reset and export: everything that blocks the whole window. */
   busy: boolean
+  /** Row-level writes in flight, keyed by id, so one save does not freeze the app. */
+  pending: Record<string, true>
+  confirmRequest: (ConfirmRequest & { resolve: (ok: boolean) => void }) | null
   notice: Notice | null
   snoozedPrompts: string[]
 
   init: () => Promise<void>
   refresh: () => Promise<void>
   go: (screen: Screen) => void
+  askConfirm: (request: ConfirmRequest) => Promise<boolean>
+  resolveConfirm: (ok: boolean) => void
   openAllocator: () => void
   closeAllocator: () => void
   snoozePrompt: (key: string) => void
@@ -103,18 +117,34 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
    * Runs a write and then refreshes the snapshot. A failed write returns false
    * and leaves the state alone; a write that *committed* but could not be read
    * back returns true, because the data is safe and the caller should close.
+   *
+   * A `key` marks the one row being written instead of disabling the window:
+   * grid edits are frequent and unrelated to the dialogs they run beside.
    */
-  const run = async (task: () => Promise<unknown>, success?: string): Promise<boolean> => {
-    set({ busy: true })
+  const run = async (
+    task: () => Promise<unknown>,
+    success?: string,
+    key?: string
+  ): Promise<boolean> => {
+    if (key) set((state) => ({ pending: { ...state.pending, [key]: true } }))
+    else set({ busy: true })
     try {
       await enqueue(task)
     } catch (error) {
       get().notify(messageOf(error), 'error')
       return false
     } finally {
-      // The write is done (or failed); the refresh below must not keep the
-      // whole app disabled if it is slow.
-      set({ busy: false })
+      if (key) {
+        set((state) => {
+          const pending = { ...state.pending }
+          delete pending[key]
+          return { pending }
+        })
+      } else {
+        // The write is done (or failed); the refresh below must not keep the
+        // whole app disabled if it is slow.
+        set({ busy: false })
+      }
     }
 
     try {
@@ -139,26 +169,35 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
     importPreview: null,
     importStep: 'fix',
     busy: false,
+    pending: {},
+    confirmRequest: null,
     notice: null,
     snoozedPrompts: [],
 
     init: async () => {
-      try {
-        const [snapshot, dbPath, appInfo] = await Promise.all([
-          window.api.getSnapshot(),
-          window.api.getDatabasePath(),
-          window.api.getAppInfo()
-        ])
+      // The ledger is the only call that can block the app; the path and the
+      // build info are conveniences, so one failure must not hide the other.
+      const [snapshot, dbPath, appInfo] = await Promise.allSettled([
+        window.api.getSnapshot(),
+        window.api.getDatabasePath(),
+        window.api.getAppInfo()
+      ])
+      if (snapshot.status === 'rejected') {
+        // The path is what support will ask for, and the error screen offers it.
         set({
-          snapshot,
-          settings: parseSettings(snapshot.settings),
-          dbPath,
-          appInfo,
-          status: 'ready'
+          status: 'error',
+          error: `The ledger could not be read — ${messageOf(snapshot.reason)}`,
+          dbPath: dbPath.status === 'fulfilled' ? dbPath.value : ''
         })
-      } catch (error) {
-        set({ status: 'error', error: messageOf(error) })
+        return
       }
+      set({
+        snapshot: snapshot.value,
+        settings: parseSettings(snapshot.value.settings),
+        dbPath: dbPath.status === 'fulfilled' ? dbPath.value : '',
+        appInfo: appInfo.status === 'fulfilled' ? appInfo.value : null,
+        status: 'ready'
+      })
     },
 
     refresh: async () => {
@@ -167,6 +206,21 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
     },
 
     go: (screen) => set({ screen }),
+
+    askConfirm: (request) =>
+      new Promise<boolean>((resolve) => {
+        // Two questions cannot share one dialog; the one already open, if any,
+        // is answered "no" rather than left hanging.
+        get().confirmRequest?.resolve(false)
+        set({ confirmRequest: { ...request, resolve } })
+      }),
+
+    resolveConfirm: (ok) => {
+      const request = get().confirmRequest
+      set({ confirmRequest: null })
+      request?.resolve(ok)
+    },
+
     openAllocator: () => set({ allocatorOpen: true }),
     closeAllocator: () => set({ allocatorOpen: false }),
     // Snoozing is per occurrence, not per bill: a skipped cycle should not hide
@@ -252,8 +306,9 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
       ),
     createTransaction: (input) => run(() => window.api.createTransaction(input), 'Entry added'),
     updateTransaction: (id, patch) =>
-      run(() => window.api.updateTransaction(id, patch), 'Entry saved'),
-    deleteTransaction: (id) => run(() => window.api.deleteTransaction(id), 'Entry removed'),
+      run(() => window.api.updateTransaction(id, patch), 'Entry saved', id),
+    deleteTransaction: (id) =>
+      run(() => window.api.deleteTransaction(id), 'Entry removed', id),
 
     commitPaycheck: async (input) => {
       const ok = await run(() => window.api.commitPaycheck(input), 'Paycheck routed')

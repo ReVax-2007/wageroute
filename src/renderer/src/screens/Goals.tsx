@@ -64,6 +64,7 @@ export function Goals() {
   const settings = useFinanceStore((state) => state.settings)
   const archiveGoal = useFinanceStore((state) => state.archiveGoal)
   const deleteGoal = useFinanceStore((state) => state.deleteGoal)
+  const askConfirm = useFinanceStore((state) => state.askConfirm)
   const [editing, setEditing] = useState<GoalWithProgress | null | 'new'>(null)
 
   if (!snapshot) return null
@@ -76,7 +77,7 @@ export function Goals() {
       <header className="page-head">
         <div>
           <p className="eyebrow">Sinking funds</p>
-          <h1 className="page-title">Future expenses, funded on purpose</h1>
+          <h1 className="page-title" tabIndex={-1}>Future expenses, funded on purpose</h1>
           <p className="page-sub">
             A tattoo, a trip, a new laptop — the allocator fills these before leisure.
           </p>
@@ -229,13 +230,14 @@ export function Goals() {
                   label={`Delete ${goal.name}`}
                   danger
                   onClick={() => {
-                    if (
-                      window.confirm(
-                        `Delete "${goal.name}" for good? Its funded amount stays in the ledger history.`
-                      )
-                    ) {
-                      void deleteGoal(goal.id)
-                    }
+                    void askConfirm({
+                      title: `Delete “${goal.name}”?`,
+                      body: 'The fund disappears for good. Money already moved into the ledger stays in its accounts and history.',
+                      confirmLabel: 'Delete goal',
+                      danger: true
+                    }).then((ok) => {
+                      if (ok) void deleteGoal(goal.id)
+                    })
                   }}
                 >
                   <Trash2 size={14} />
@@ -615,18 +617,22 @@ function GoalDialog({ goal, onClose }: { goal: GoalWithProgress | null; onClose:
     goal ? goal.dedicatedAccounts.map((account) => account.id) : []
   )
   const [error, setError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<{ name?: string; target?: string }>({})
   const [saving, setSaving] = useState(false)
+
+  const clearField = (field: keyof typeof fieldErrors) =>
+    setFieldErrors((current) => ({ ...current, [field]: undefined }))
 
   const submit = async () => {
     const targetCents = parseMoneyToCents(form.target)
-    if (!form.name.trim()) {
-      setError('Give the goal a name')
-      return
-    }
+    const problems: typeof fieldErrors = {}
+    if (!form.name.trim()) problems.name = 'Give the goal a name'
     if (targetCents === null || targetCents <= 0) {
-      setError('Enter a target greater than zero')
-      return
+      problems.target = 'Enter a target greater than zero'
     }
+    setFieldErrors(problems)
+    if (Object.keys(problems).length > 0 || targetCents === null) return
+    setError(null)
 
     const input: GoalInput = {
       name: form.name.trim(),
@@ -661,23 +667,29 @@ function GoalDialog({ goal, onClose }: { goal: GoalWithProgress | null; onClose:
       }
     >
       <div className="form-grid">
-        <Field label="Goal name" wide>
+        <Field label="Goal name" wide error={fieldErrors.name}>
           <input
             className="input"
             autoFocus
             maxLength={60}
             value={form.name}
             placeholder="Tattoo Fund"
-            onChange={(event) => setForm({ ...form, name: event.target.value })}
+            onChange={(event) => {
+              clearField('name')
+              setForm({ ...form, name: event.target.value })
+            }}
           />
         </Field>
-        <Field label="Target amount">
+        <Field label="Target amount" error={fieldErrors.target}>
           <input
             className="input"
             inputMode="decimal"
             value={form.target}
             placeholder="1,200.00"
-            onChange={(event) => setForm({ ...form, target: event.target.value })}
+            onChange={(event) => {
+              clearField('target')
+              setForm({ ...form, target: event.target.value })
+            }}
           />
         </Field>
         <Field label="Target date" hint="Optional, but it sets a monthly pace">
@@ -745,7 +757,11 @@ function GoalDialog({ goal, onClose }: { goal: GoalWithProgress | null; onClose:
         </div>
       </div>
 
-      {error && <p className="form-error">{error}</p>}
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
     </Modal>
   )
 }

@@ -1,10 +1,13 @@
 import {
+  cloneElement,
+  isValidElement,
   useEffect,
   useId,
   useRef,
   type ButtonHTMLAttributes,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
+  type ReactElement,
   type ReactNode
 } from 'react'
 import { X } from 'lucide-react'
@@ -211,20 +214,82 @@ export function IconButton({
 export function Field({
   label,
   hint,
+  error,
   wide = false,
   children
 }: {
   label: string
   hint?: string
+  /** Field-level validation: linked to the control, not left at the bottom. */
+  error?: string
   wide?: boolean
   children: ReactNode
 }) {
+  const generatedId = useId()
+  const hintId = `${generatedId}-hint`
+  const errorId = `${generatedId}-error`
+  const describedBy =
+    [hint ? hintId : null, error ? errorId : null].filter(Boolean).join(' ') || undefined
+
+  const control =
+    isValidElement(children) && error
+      ? cloneElement(children as ReactElement<Record<string, unknown>>, {
+          'aria-invalid': true,
+          'aria-describedby': describedBy
+        })
+      : isValidElement(children) && describedBy
+        ? cloneElement(children as ReactElement<Record<string, unknown>>, {
+            'aria-describedby': describedBy
+          })
+        : children
+
   return (
     <label className={wide ? 'field span-2' : 'field'}>
       <span className="field-label">{label}</span>
-      {children}
-      {hint && <span className="field-hint">{hint}</span>}
+      {control}
+      {hint && (
+        <span className="field-hint" id={hintId}>
+          {hint}
+        </span>
+      )}
+      {error && (
+        <span className="field-error" id={errorId} role="alert">
+          {error}
+        </span>
+      )}
     </label>
+  )
+}
+
+/**
+ * One styled question for every destructive or far-reaching action. Screens
+ * call `askConfirm`, which resolves true only if the user explicitly agrees.
+ */
+export function ConfirmDialog() {
+  const request = useFinanceStore((state) => state.confirmRequest)
+  const resolveConfirm = useFinanceStore((state) => state.resolveConfirm)
+  if (!request) return null
+
+  return (
+    <Modal
+      title={request.title}
+      onClose={() => resolveConfirm(false)}
+      footer={
+        <>
+          <Button variant="quiet" onClick={() => resolveConfirm(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant={request.danger ? 'danger' : 'primary'}
+            onClick={() => resolveConfirm(true)}
+          >
+            {request.confirmLabel ?? 'Continue'}
+          </Button>
+        </>
+      }
+    >
+      <p className="confirm-body">{request.body}</p>
+    </Modal>
   )
 }
 

@@ -73,7 +73,7 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="sidebar">
+    <aside className="sidebar" aria-label="WageRoute sidebar">
       <div className="brand">
         <div className="brand-mark">
           <img src={mark} alt="" width={34} height={34} />
@@ -93,7 +93,7 @@ export function Sidebar() {
         Route a paycheck
       </Button>
 
-      <nav className="nav">
+      <nav className="nav" aria-label="Screens">
         {NAV.map((item) => {
           const Icon = item.icon
           return (

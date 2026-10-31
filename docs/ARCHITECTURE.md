@@ -105,6 +105,8 @@ Navigation is constrained: `setWindowOpenHandler` denies all child windows and s
 - imports the design tokens and application CSS;
 - adds `is-mac` for platform-specific chrome;
 - resolves the cached theme from `localStorage['cfr-theme']` before React paints to avoid a flash;
+  the `cfr` prefix predates the WageRoute rename and is kept so an existing installation does not
+  lose its theme; the same legacy prefix survives in the `cash-flow-routing-backup` format name;
 - wraps `App` in an error boundary that offers a reload button.
 
 `src/renderer/src/App.tsx`:

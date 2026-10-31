@@ -16,7 +16,9 @@ import {
   getSnapshot,
   listAccounts,
   listBills,
+  listImportChoices,
   listTransactions,
+  readSettings,
   setAccountArchived,
   updateTransaction,
   updateGoal,
@@ -340,6 +342,49 @@ test('editing or deleting a row that is gone reports it instead of pretending', 
   assert.throws(() => deleteTransaction(db, USER_ID, 'missing'), /Entry not found/)
 })
 
+test('an edited amount cannot be zero, and the row keeps what it had', () => {
+  const db = freshDb()
+  const chequing = account(db, 'Chequing')
+  const id = entry(db, chequing, { amountCents: -2_500 })
+
+  assert.throws(() => updateTransaction(db, USER_ID, id, { amountCents: 0 }), /Amount cannot be zero/)
+  assert.equal(listTransactions(db, USER_ID)[0]?.amountCents, -2_500)
+})
+
+test('losing the round-up destination turns the sweep off, and restoring it stays off', () => {
+  const db = freshDb()
+  const savings = account(db, 'Savings', 'savings')
+  writeSettings(db, USER_ID, {
+    roundUpEnabled: 'true',
+    roundUpAccountId: savings,
+    roundUpToCents: '100'
+  })
+
+  setAccountArchived(db, USER_ID, savings, true)
+  assert.equal(readSettings(db, USER_ID).roundUpEnabled, 'false', 'archiving stopped the sweep')
+
+  writeSettings(db, USER_ID, { roundUpEnabled: 'true' })
+  setAccountArchived(db, USER_ID, savings, false)
+  assert.equal(readSettings(db, USER_ID).roundUpEnabled, 'true', 'restoring leaves the flag alone')
+
+  deleteAccount(db, USER_ID, savings)
+  assert.equal(readSettings(db, USER_ID).roundUpEnabled, 'false', 'deleting stopped it again')
+})
+
+test('archiving an account that is not the sweep destination leaves the sweep on', () => {
+  const db = freshDb()
+  const chequing = account(db, 'Chequing')
+  const savings = account(db, 'Savings', 'savings')
+  writeSettings(db, USER_ID, {
+    roundUpEnabled: 'true',
+    roundUpAccountId: savings,
+    roundUpToCents: '100'
+  })
+
+  setAccountArchived(db, USER_ID, chequing, true)
+  assert.equal(readSettings(db, USER_ID).roundUpEnabled, 'true')
+})
+
 test('a bill day and a paycheck slot outside their ranges are refused', () => {
   const db = freshDb()
   const base = {
@@ -374,6 +419,15 @@ test('a bill day and a paycheck slot outside their ranges are refused', () => {
     /1st through the 4th/
   )
   assert.equal(listBills(db, USER_ID).length, 1)
+})
+
+test('the import wizard sees every account, not a capped slice', () => {
+  const db = freshDb()
+  for (let index = 0; index < 205; index += 1) account(db, `Account ${index}`)
+
+  const choices = listImportChoices(db, USER_ID)
+  assert.equal(choices.accounts.length, 205)
+  assert.ok(choices.accounts.some((choice) => choice.label === 'Account 204'))
 })
 
 test('an account flag and a sort order must be real values, not strings', () => {

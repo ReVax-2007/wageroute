@@ -51,6 +51,7 @@ export function PriorityWall() {
   const settings = useFinanceStore((state) => state.settings)
   const updateBill = useFinanceStore((state) => state.updateBill)
   const deleteBill = useFinanceStore((state) => state.deleteBill)
+  const askConfirm = useFinanceStore((state) => state.askConfirm)
   const [editing, setEditing] = useState<Bill | null | 'new'>(null)
 
   if (!snapshot) return null
@@ -97,13 +98,14 @@ export function PriorityWall() {
   const remove = (bill: Bill) => {
     // The record is soft-deleted, not un-pinned: its payment checks and this
     // month's reservation go with it, so say that rather than implying a hide.
-    if (
-      window.confirm(
-        `Delete "${bill.name}"? Its payment check history and this month's reservation go with it.`
-      )
-    ) {
-      void deleteBill(bill.id)
-    }
+    void askConfirm({
+      title: `Delete “${bill.name}”?`,
+      body: 'Its payment check history and this month’s reservation go with it. Paused bills stay on the wall; this removes the bill itself.',
+      confirmLabel: 'Delete bill',
+      danger: true
+    }).then((ok) => {
+      if (ok) void deleteBill(bill.id)
+    })
   }
 
   return (
@@ -111,7 +113,7 @@ export function PriorityWall() {
       <header className="page-head">
         <div>
           <p className="eyebrow">Priority Wall</p>
-          <h1 className="page-title">Bills you cannot touch</h1>
+          <h1 className="page-title" tabIndex={-1}>Bills you cannot touch</h1>
           <p className="page-sub">
             These amounts are locked out of the surplus before a single dollar is routed.
           </p>
@@ -179,15 +181,20 @@ export function PriorityWall() {
         ) : (
           <div className="table-scroll">
             <table className="table wall-table">
+              <caption className="sr-only">Bills on the Priority Wall</caption>
               <thead>
                 <tr>
-                  <th>Bill</th>
-                  <th>Amount</th>
-                  <th>Cadence</th>
-                  <th>Due</th>
-                  <th className="right">{nextCheck ? 'Next check' : 'Per paycheck'}</th>
-                  <th className="right">Monthly</th>
-                  <th aria-label="Actions" />
+                  <th scope="col">Bill</th>
+                  <th scope="col">Amount</th>
+                  <th scope="col">Cadence</th>
+                  <th scope="col">Due</th>
+                  <th scope="col" className="right">
+                    {nextCheck ? 'Next check' : 'Per paycheck'}
+                  </th>
+                  <th scope="col" className="right">
+                    Monthly
+                  </th>
+                  <th scope="col" aria-label="Actions" />
                 </tr>
               </thead>
               <tbody>
@@ -313,7 +320,15 @@ function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () => void 
     fundingPaycheckIndex: bill?.fundingPaycheckIndex ? String(bill.fundingPaycheckIndex) : '1'
   })
   const [error, setError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<{
+    name?: string
+    amount?: string
+    dueDay?: string
+  }>({})
   const [saving, setSaving] = useState(false)
+
+  const clearField = (field: keyof typeof fieldErrors) =>
+    setFieldErrors((current) => ({ ...current, [field]: undefined }))
 
   const checkSlots = reachableCheckIndexes(cadence)
   const fundingCheckForForm = fundingCheckIndex({
@@ -325,19 +340,18 @@ function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () => void 
 
   const submit = async () => {
     const amountCents = parseMoneyToCents(form.amount)
-    if (!form.name.trim()) {
-      setError('Give the bill a name')
-      return
-    }
-    if (amountCents === null || amountCents <= 0) {
-      setError('Enter an amount greater than zero')
-      return
-    }
     const dueDay = Number(form.dueDay)
-    if (!Number.isInteger(dueDay) || dueDay < 1 || dueDay > 31) {
-      setError('Due day must be a whole number from 1 to 31')
-      return
+    const problems: typeof fieldErrors = {}
+    if (!form.name.trim()) problems.name = 'Give the bill a name'
+    if (amountCents === null || amountCents <= 0) {
+      problems.amount = 'Enter an amount greater than zero'
     }
+    if (!Number.isInteger(dueDay) || dueDay < 1 || dueDay > 31) {
+      problems.dueDay = 'Due day must be a whole number from 1 to 31'
+    }
+    setFieldErrors(problems)
+    if (Object.keys(problems).length > 0 || amountCents === null) return
+    setError(null)
 
     const input: BillInput = {
       name: form.name.trim(),
@@ -383,23 +397,29 @@ function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () => void 
         }}
       >
       <div className="form-grid">
-        <Field label="Bill name" wide>
+        <Field label="Bill name" wide error={fieldErrors.name}>
           <input
             className="input"
             autoFocus
             maxLength={60}
             value={form.name}
             placeholder="Rent"
-            onChange={(event) => setForm({ ...form, name: event.target.value })}
+            onChange={(event) => {
+              clearField('name')
+              setForm({ ...form, name: event.target.value })
+            }}
           />
         </Field>
-        <Field label="Amount">
+        <Field label="Amount" error={fieldErrors.amount}>
           <input
             className="input"
             inputMode="decimal"
             value={form.amount}
             placeholder="1,850.00"
-            onChange={(event) => setForm({ ...form, amount: event.target.value })}
+            onChange={(event) => {
+              clearField('amount')
+              setForm({ ...form, amount: event.target.value })
+            }}
           />
         </Field>
         <Field label="Cadence">
@@ -417,14 +437,17 @@ function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () => void 
             ))}
           </select>
         </Field>
-        <Field label="Due day" hint="Day of the month the bill lands">
+        <Field label="Due day" hint="Day of the month the bill lands" error={fieldErrors.dueDay}>
           <input
             className="input"
             type="number"
             min={1}
             max={31}
             value={form.dueDay}
-            onChange={(event) => setForm({ ...form, dueDay: event.target.value })}
+            onChange={(event) => {
+              clearField('dueDay')
+              setForm({ ...form, dueDay: event.target.value })
+            }}
           />
         </Field>
         <Field label="Category">
@@ -535,7 +558,11 @@ function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () => void 
         </p>
       )}
 
-      {error && <p className="form-error">{error}</p>}
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
       {/* The footer's Save button lives outside this form; without a submitting
           control inside it, Enter in a field would do nothing. */}
       <button type="submit" style={{ display: 'none' }} tabIndex={-1} aria-hidden="true" />

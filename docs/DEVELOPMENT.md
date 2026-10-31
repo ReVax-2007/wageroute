@@ -54,7 +54,7 @@ npm run postinstall
 | --- | --- | --- |
 | `npm run dev` | `electron-vite dev` | Dev server, main/preload rebuild, hot renderer reload |
 | `npm start` | `electron-vite preview` | Run the production bundles in `out/` |
-| `npm test` | `node --import tsx --test` (eighteen files listed explicitly) | Domain, cadence, accounts, importer, backup-example, merge, migration, maintenance, files and repository tests |
+| `npm test` | `node --import tsx --test` (twenty files listed explicitly) | Domain, cadence, accounts, importer, backup-example, merge, migration, maintenance, files, statements and repository tests |
 | `npm run typecheck` | node + web type checks | Both TypeScript projects |
 | `npm run typecheck:node` | `tsc --noEmit -p tsconfig.node.json` | Main, preload, shared, config |
 | `npm run typecheck:web` | `tsc --noEmit -p tsconfig.json` | Renderer and shared |
@@ -209,7 +209,7 @@ When a test requires moving a database aside, move it to a dated quarantine fold
 
 ## Testing
 
-Eighteen files run by `npm test` through `node --test` with `tsx` as the loader — 155 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**; the `pretest` guard ([`scripts/check-test-list.mjs`](../scripts/check-test-list.mjs)) fails the run when a `*.test.ts` on disk is missing from that list, or when the list names a file that no longer exists.
+Twenty files run by `npm test` through `node --test` with `tsx` as the loader — 170 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**; the `pretest` guard ([`scripts/check-test-list.mjs`](../scripts/check-test-list.mjs)) fails the run when a `*.test.ts` on disk is missing from that list, or when the list names a file that no longer exists.
 
 | File | Style | Covers |
 | --- | --- | --- |

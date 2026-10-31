@@ -50,7 +50,7 @@ import {
 } from './db/backup'
 import { mergeEntries } from './db/entries'
 import { SCHEMA_VERSION } from './db/migrations'
-import { seedIfEmpty } from './db/seed'
+import { seedDemoIfEmpty, seedIfEmpty } from './db/seed'
 import { writeFileAtomic } from './files'
 import * as repo from './db/repositories'
 
@@ -121,9 +121,12 @@ interface PendingImport {
   parseIssues?: ImportIssue[]
   mappings?: EntryMapping[]
   statement?: StatementInfo
+  problems?: ImportProblem[]
 }
 
-const MAX_PENDING_IMPORTS = 8
+// One wizard, one held file. Keeping older previews alive served no flow and
+// let several parsed payloads sit in the main process at once.
+const MAX_PENDING_IMPORTS = 1
 const pendingImports = new Map<string, PendingImport>()
 
 function holdImport(entry: PendingImport): string {
@@ -458,7 +461,17 @@ export function registerIpcHandlers(db: Database.Database): void {
 
     const payload = parseBackupJson(text)
     const context = importContext(db, userId(), payload)
-    const token = holdImport({ path, format: 'backup', exportedAt: payload.exportedAt, payload })
+    // Keep the questions the user was shown. Confirm re-derives them against
+    // the live ledger; anything new means the two screens disagree, and a row
+    // must not be dropped just because the database changed in between.
+    const problems = findImportProblems(payload.tables, context)
+    const token = holdImport({
+      path,
+      format: 'backup',
+      exportedAt: payload.exportedAt,
+      payload,
+      problems
+    })
     const rows = emptyImportCounts()
     for (const table of IMPORT_TABLES) rows[table] = payload.tables[table].length
     return {
@@ -467,7 +480,7 @@ export function registerIpcHandlers(db: Database.Database): void {
       format: 'backup',
       exportedAt: payload.exportedAt,
       fileRows: rows,
-      problems: findImportProblems(payload.tables, context),
+      problems,
       choices: context.choices
     } satisfies ImportPreview
   })
@@ -504,12 +517,14 @@ export function registerIpcHandlers(db: Database.Database): void {
     const payload = pending.payload
     if (!payload) throw new Error('That import has expired — pick the file again')
     const context = importContext(db, userId(), payload)
-    const repaired = applyImportAnswers(
-      payload.tables,
-      findImportProblems(payload.tables, context),
-      list,
-      context
-    )
+    const problems = findImportProblems(payload.tables, context)
+    const previewed = new Set((pending.problems ?? []).map((problem) => problem.key))
+    if (problems.some((problem) => !previewed.has(problem.key))) {
+      throw new Error(
+        'The ledger changed since you previewed this file — open it again and review the new questions.'
+      )
+    }
+    const repaired = applyImportAnswers(payload.tables, problems, list, context)
     const merged = mergeBackup(db, userId(), { ...payload, tables: repaired.tables })
     return {
       path: pending.path,
@@ -527,6 +542,9 @@ export function registerIpcHandlers(db: Database.Database): void {
     // A held import points at the ledger that just disappeared; keeping it
     // would let a stale wizard confirm into the next profile.
     pendingImports.clear()
-    seedIfEmpty(db)
+    // Reset follows the same rule as boot: a development build comes back with
+    // the demo profile, a packaged one comes back blank.
+    if (app.isPackaged) seedIfEmpty(db)
+    else seedDemoIfEmpty(db)
   })
 }

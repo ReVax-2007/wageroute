@@ -66,7 +66,7 @@ export function BillPrompts() {
     <section className="card prompt-card">
       <header className="prompt-head">
         <div>
-          <p className="eyebrow">Chronology check</p>
+          <p className="eyebrow">Bill check</p>
           <h2 className="card-title">Did these clear?</h2>
           <p className="card-sub">Past the due date with no matching payment on the wall.</p>
         </div>

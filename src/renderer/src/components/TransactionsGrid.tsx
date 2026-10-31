@@ -32,6 +32,9 @@ export function TransactionsGrid({
 }) {
   const updateTransaction = useFinanceStore((state) => state.updateTransaction)
   const deleteTransaction = useFinanceStore((state) => state.deleteTransaction)
+  const askConfirm = useFinanceStore((state) => state.askConfirm)
+  const pending = useFinanceStore((state) => state.pending)
+  const refresh = useFinanceStore((state) => state.refresh)
 
   const [sortColumns, setSortColumns] = useState<readonly SortColumn[]>([])
 
@@ -65,7 +68,27 @@ export function TransactionsGrid({
       }
       if (!previous.transferGroupId && next.kind !== previous.kind) patch.kind = next.kind
 
-      if (Object.keys(patch).length > 0) void updateTransaction(next.id, patch)
+      if (Object.keys(patch).length === 0) continue
+      if (patch.kind === undefined && patch.accountId === undefined) {
+        void updateTransaction(next.id, patch)
+        continue
+      }
+
+      // Moving money between accounts or flipping income and expense changes
+      // balances the user is looking at, so a stray click asks first.
+      const changesKind = patch.kind !== undefined
+      void askConfirm({
+        title: changesKind ? 'Change this entry’s kind?' : 'Move this entry?',
+        body: changesKind
+          ? `“${TRANSACTION_KIND_LABEL[previous.kind]}” becomes “${TRANSACTION_KIND_LABEL[next.kind]}”. The sign, account balances, reports and any round-up are recomputed.`
+          : `The entry leaves “${previous.accountName}” and joins “${next.accountName}”. Both balances, reports and any round-up are recomputed.`,
+        confirmLabel: changesKind ? 'Change kind' : 'Move entry'
+      }).then((ok) => {
+        if (ok) void updateTransaction(next.id, patch)
+        // The grid already holds the new cell value; re-read the snapshot so a
+        // cancelled change snaps back instead of sitting there unsaved.
+        else void refresh().catch(() => undefined)
+      })
     }
   }
 
@@ -162,32 +185,42 @@ export function TransactionsGrid({
         key: 'actions',
         name: 'Actions',
         width: 64,
-        renderCell: ({ row }) => (
-          <button
-            type="button"
-            className="icon-btn icon-btn-danger"
-            aria-label={`Delete ${row.memo || 'entry'}`}
-            title={row.transferGroupId ? 'Delete transfer' : 'Delete entry'}
-            onClick={() => {
-              const question = row.transferGroupId
-                ? `Delete both legs of "${row.memo || 'this transfer'}"?`
-                : `Delete "${row.memo || 'this entry'}"?`
-              if (window.confirm(question)) {
-                void deleteTransaction(row.id)
-              }
-            }}
-          >
-            <Trash2 size={14} />
-          </button>
-        )
+        renderCell: ({ row }) => {
+          const busy = pending[row.id] === true
+          return (
+            <button
+              type="button"
+              className="icon-btn icon-btn-danger"
+              aria-label={`Delete ${row.memo || 'entry'}`}
+              title={busy ? 'Removing…' : row.transferGroupId ? 'Delete transfer' : 'Delete entry'}
+              disabled={busy}
+              onClick={() => {
+                void askConfirm({
+                  title: row.transferGroupId ? 'Delete both legs of this transfer?' : 'Delete this entry?',
+                  body: row.transferGroupId
+                    ? `“${row.memo || 'This transfer'}” is one movement of money; removing it also removes the matching leg.`
+                    : `“${row.memo || 'This entry'}” disappears from the ledger and every balance it touches.`,
+                  confirmLabel: 'Delete',
+                  danger: true
+                }).then((ok) => {
+                  if (ok) void deleteTransaction(row.id)
+                })
+              }}
+            >
+              <Trash2 size={14} />
+            </button>
+          )
+        }
       }
     ],
-    [accounts, currency, deleteTransaction, updateTransaction]
+    [accounts, askConfirm, currency, deleteTransaction, pending, refresh, updateTransaction]
   )
 
   return (
     <DataGrid
       className="rdg-themed"
+      aria-label="Ledger entries"
+      aria-busy={Object.keys(pending).length > 0}
       columns={columns}
       rows={orderedRows}
       rowKeyGetter={(row) => row.id}
