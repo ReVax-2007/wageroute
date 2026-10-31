@@ -198,7 +198,7 @@ Verification: `npm run typecheck`, `npm test` and `npm run build` clean. The par
 - **Tag builds attach to a draft release.** `gh release upload --clobber` puts the raw installers on a draft GitHub Release; the note, the publish step and the tag remain manual. `permissions: contents: write` was added for that.
 - **The packaging job keeps the `verify` gate.** `npm ci`, `npm test` and `npm run build` run before `electron-builder`, so nothing is packaged from an untested tree.
 
-Verification status: `npm run typecheck`, `npm test` (166) and `npm run build` clean locally; the builder config validates against the electron-builder schema. The packaging step itself is proven green on all four runners — DMG, NSIS, MSI, portable, zip, AppImage, deb and rpm all built and were attached as artifacts — but no smoke check has yet passed on CI, so install, boot and uninstall are still unproven on real machines.
+Verification status: `npm run typecheck`, `npm test` (166) and `npm run build` clean locally; the builder config validates against the electron-builder schema. The packaging workflow is green on all four runners ([41160066242](https://github.com/ReVax-2007/wageroute/actions/runs/41160066242)): it built `WageRoute-1.1.0-x64.dmg` and `-arm64.dmg`, `WageRoute.Setup.1.1.0.exe` and `WageRoute-1.1.0.portable.exe` (one file each, both architectures), the x64 and arm64 MSI and zip, and the six Linux packages; the MSI installed to `%LOCALAPPDATA%\Programs\WageRoute`, launched, created `%APPDATA%\WageRoute\wageroute.db`, survived a reinstall as a single uninstall entry and uninstalled cleanly; and on both Linux runners the AppImage and the extracted deb created their ledger in a throwaway profile.
 
 The first packaging run ([41097954874](https://github.com/ReVax-2007/wageroute/actions/runs/41097954874)) failed three of four jobs and found two real defects:
 
@@ -219,7 +219,7 @@ The third run ([41158925082](https://github.com/ReVax-2007/wageroute/actions/run
 7. **NSIS and portable built three installers each.** The log showed `WageRoute.Setup.1.1.0.exe archs=x64, arm64` together with `-x64.exe` and `-arm64.exe`, because `NsisTarget` adds per-arch builds whenever the pattern contains `${arch}`. Both patterns dropped `${arch}` (see above), so each format is one universal file.
 8. **The MSI install worked; the uninstall check crashed.** The installer landed in `%LOCALAPPDATA%\Programs\WageRoute`, the app launched and created `%APPDATA%\WageRoute\wageroute.db`, and then the check failed with *"Cannot find path 'HKEY_CURRENT_USER\…\Uninstall'"* — that key does not exist on a freshly provisioned runner account, and the per-user entry is not guaranteed to be there. The count now spans `HKLM` and `HKCU`, guarding each with `Test-Path`.
 
-None of defects 6–8 has been re-run yet.
+The fourth run ([41160066242](https://github.com/ReVax-2007/wageroute/actions/runs/41160066242)) passed all four jobs. It also confirmed the diagnosis behind defect 6: the log records `XDG_CONFIG_HOME=/home/runner/.config` in the runner environment, and with the override in place both Linux jobs printed *AppImage booted and created its ledger* and *deb booted and created its ledger*. The NSIS and portable logs now show one file each (`archs=x64, arm64`), and the Windows job installed the MSI, launched the app, found one uninstall entry after the reinstall and removed the install directory on uninstall.
 
 ### Running version in the app
 
@@ -235,7 +235,7 @@ No schema change; both are candidates for a patch or minor bump depending on wha
 
 ## Deferred, not merged
 
-Nothing is deferred as a branch. The Linux and extra Windows formats that were held out of 1.1.0 are merged above (tasks #38 and #87), with their artifacts launched by CI rather than by hand.
+Nothing is deferred as a branch. The Linux and extra Windows formats that were held out of 1.1.0 are merged above (tasks #38 and #87); the MSI and the Linux packages are installed and booted by CI, and the NSIS installer, portable exe and zip still wait for a human launch.
 
 ---
 

@@ -724,8 +724,7 @@ These are real limitations, not TODOs that are already handled elsewhere:
 | No checksums in CI | Checksums are manual and easy to skip |
 | No SBOM or build provenance | Cannot attest to dependency contents beyond the lockfile |
 | Actions pinned by major tag | A compromised or retagged action could affect builds |
-| No packaged-app smoke test in CI | A build can be produced that never launches |
-| Linux and alternative Windows formats not launch-verified | CI proves the AppImage/deb/rpm/portable/zip files are produced; none has been launched on a real machine. Treat the first release shipping them as unverified until users confirm |
+| No packaged-app smoke test for macOS or the NSIS-family formats | The MSI and the Linux packages are installed or booted by CI; the DMG, NSIS installer, portable exe and zip still need a human launch |
 | No x64 app verification on Apple Silicon | The config requests x64, but only arm64 has been exercised locally |
 | No rollback automation | Rollback is a manual file restore with a quarantine step |
 | Unsigned native module | `better-sqlite3` is unpacked from asar; integrity depends on the installer signature (which does not exist yet) |
