@@ -32,7 +32,7 @@ npm run typecheck
 npm run build
 ```
 
-All four must pass before a pull request is ready for review. `npm run build` already runs both typecheck projects.
+`npm ci` installs the exact lockfile; all three checks below must pass before a pull request is ready for review. `npm run build` already runs both typecheck projects.
 
 ### Testing without touching real data
 

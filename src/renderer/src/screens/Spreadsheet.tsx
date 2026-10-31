@@ -48,7 +48,7 @@ export function Spreadsheet() {
       <header className="page-head">
         <div>
           <p className="eyebrow">Spreadsheet</p>
-          <h1 className="page-title">Every number, one grid</h1>
+          <h1 className="page-title" tabIndex={-1}>Every number, one grid</h1>
           <p className="page-sub">
             {tab === 'ledger'
               ? 'Double-click a cell to edit it in place. Dates, accounts, categories and amounts write straight to the local ledger.'
@@ -313,7 +313,11 @@ function EntryDialog({ onClose }: { onClose: () => void }) {
         </Field>
       </div>
 
-      {error && <p className="form-error">{error}</p>}
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
     </Modal>
   )
 }

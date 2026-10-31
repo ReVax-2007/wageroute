@@ -174,7 +174,7 @@ This allows hand-written or selectively exported files. A complete, importable f
 ```json
 {
   "format": "cash-flow-routing-backup",
-  "version": 5,
+  "version": 7,
   "tables": {
     "transactions": [
       {
@@ -356,9 +356,17 @@ Date,Account,Institution,Kind,Category,Description,Amount,Currency
 
 ### Row scope
 
-The exporter uses `snapshot.transactions`, which is capped at the **500 newest non-deleted transactions**. JSON backup is the only full-history export.
+Every live transaction is exported — the CSV is not the capped grid. Rows are ordered by `occurred_on DESC, created_at DESC`.
 
-Rows are ordered by `occurred_on DESC, created_at DESC`.
+### What a CSV does not carry
+
+The CSV is a spreadsheet view of the ledger, **not a backup**. It cannot round-trip:
+
+- A transfer is written as two rows (`transfer`, one per leg). Importing either row is refused, because one row cannot rebuild both legs.
+- `Currency` is informational; the importer has no currency column, so a file from a non-USD profile still lands in the local currency.
+- Links are lost: `bill_id`, `goal_id`, `paycheck_id`, `counter_account_id` and `transfer_group_id` are not columns, so an imported row is never attached to a bill, a goal, a paycheck or a transfer.
+
+Use the JSON backup (Data → Export full backup) to move a ledger between profiles or to keep a recovery copy.
 
 ---
 
@@ -633,7 +641,7 @@ Identical to an entries CSV: the fingerprint `[accountId, kind, amountCents, occ
 ```json
 {
   "format": "cash-flow-routing-backup",
-  "version": 5,
+  "version": 7,
   "tables": {
     "settings": [
       { "key": "currency", "value": "CAD" },
@@ -683,7 +691,7 @@ The header is found at row 4. Both rows import as entries. The first becomes an 
 ```json
 {
   "format": "cash-flow-routing-backup",
-  "version": 5,
+  "version": 7,
   "tables": {
     "accounts": [{ "id": "acc-1", "name": "Cheque", "kind": "checking" }],
     "bills": [{ "id": "bill-1", "name": "Rent", "frequency": "monthly", "due_day": 45, "account_id": "acc-gone" }]

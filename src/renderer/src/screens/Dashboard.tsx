@@ -129,7 +129,7 @@ export function Dashboard() {
       <header className="page-head">
         <div>
           <p className="eyebrow">Overview · {formatDateLong(todayISO())}</p>
-          <h1 className="page-title">
+          <h1 className="page-title" tabIndex={-1}>
             {greeting()}
             {snapshot.user.displayName ? `, ${snapshot.user.displayName}` : ''}
           </h1>
@@ -333,7 +333,11 @@ export function Dashboard() {
 
         <Card
           title="This month's routing"
-          subtitle={`${formatMonthLong(monthKey)} · every routed cent`}
+          subtitle={
+            snapshot.paycheckTotal > snapshot.paychecks.length
+              ? `${formatMonthLong(monthKey)} · newest ${snapshot.paychecks.length} of ${snapshot.paycheckTotal} routed checks loaded`
+              : `${formatMonthLong(monthKey)} · every routed cent`
+          }
         >
           {routing.totalCents === 0 ? (
             <EmptyState
@@ -479,13 +483,16 @@ export function Dashboard() {
           />
         ) : (
           <table className="table">
+            <caption className="sr-only">The newest entries in the ledger</caption>
             <thead>
               <tr>
-                <th>Date</th>
-                <th>Description</th>
-                <th>Account</th>
-                <th>Category</th>
-                <th className="right">Amount</th>
+                <th scope="col">Date</th>
+                <th scope="col">Description</th>
+                <th scope="col">Account</th>
+                <th scope="col">Category</th>
+                <th scope="col" className="right">
+                  Amount
+                </th>
               </tr>
             </thead>
             <tbody>

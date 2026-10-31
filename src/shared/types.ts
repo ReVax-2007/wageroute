@@ -204,7 +204,9 @@ export interface Snapshot {
   transactions: TransactionRow[]
   /** Every live entry, including any the capped grid leaves out. */
   transactionTotal: number
+  /** The newest routed checks only; `paycheckTotal` says how many exist. */
   paychecks: PaycheckWithAllocations[]
+  paycheckTotal: number
   billReserves: BillReserve[]
 }
 

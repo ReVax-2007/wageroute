@@ -415,7 +415,7 @@ export function ImportWizard() {
               </div>
             )}
             {empty.length > 0 && (
-              <p className="form-error">
+              <p className="form-error" role="alert">
                 {empty.length === 1
                   ? `1 ${oneNoun} is still incomplete. Fill it in, or it will be skipped.`
                   : `${empty.length} ${manyNoun} are still incomplete. Fill them in, or they will be skipped.`}

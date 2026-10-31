@@ -103,7 +103,7 @@ export function Accounts() {
       <header className="page-head">
         <div>
           <p className="eyebrow">Accounts</p>
-          <h1 className="page-title">Every bank, one ledger</h1>
+          <h1 className="page-title" tabIndex={-1}>Every bank, one ledger</h1>
           <p className="page-sub">
             Name each account and tag the bank it lives at — Tangerine, Wealthsimple, whoever.
             Balances come from entries, so a correction is always an adjustment, never a quiet
@@ -439,7 +439,15 @@ function AccountDialog({
     color: account?.color ?? ''
   })
   const [error, setError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<{
+    name?: string
+    creditLimit?: string
+    startingBalance?: string
+  }>({})
   const [saving, setSaving] = useState(false)
+
+  const clearField = (field: keyof typeof fieldErrors) =>
+    setFieldErrors((current) => ({ ...current, [field]: undefined }))
 
   const isCredit = form.kind === 'credit'
   const dedicatedGoals = useMemo(
@@ -448,16 +456,21 @@ function AccountDialog({
   )
 
   const submit = async () => {
-    if (!form.name.trim()) {
-      setError('Give the account a name')
-      return
-    }
-
     const limitTyped = form.creditLimit.trim() ? parseMoneyToCents(form.creditLimit) : null
+    const startingTyped = form.startingBalance.trim()
+      ? parseMoneyToCents(form.startingBalance)
+      : 0
+    const problems: typeof fieldErrors = {}
+    if (!form.name.trim()) problems.name = 'Give the account a name'
     if (form.creditLimit.trim() && limitTyped === null) {
-      setError('Credit limit must be a number')
-      return
+      problems.creditLimit = 'Credit limit must be a number'
     }
+    if (!account && startingTyped === null) {
+      problems.startingBalance = 'Starting balance must be a number'
+    }
+    setFieldErrors(problems)
+    if (Object.keys(problems).length > 0 || startingTyped === null) return
+    setError(null)
 
     const dedicatedGoalId = form.dedicatedGoalId || null
     const inSafeToSpend = form.safeToSpend === 'auto' ? null : form.safeToSpend === 'in'
@@ -474,14 +487,6 @@ function AccountDialog({
         ...purposeFields
       })
     } else {
-      const startingTyped = form.startingBalance.trim()
-        ? parseMoneyToCents(form.startingBalance)
-        : 0
-      if (startingTyped === null) {
-        setSaving(false)
-        setError('Starting balance must be a number')
-        return
-      }
       const input: AccountInput = {
         name: form.name.trim(),
         kind: form.kind,
@@ -518,14 +523,17 @@ function AccountDialog({
       }
     >
       <div className="form-grid">
-        <Field label="Account name" wide>
+        <Field label="Account name" wide error={fieldErrors.name}>
           <input
             className="input"
             autoFocus
             maxLength={60}
             value={form.name}
             placeholder="Tangerine Chequing"
-            onChange={(event) => setForm({ ...form, name: event.target.value })}
+            onChange={(event) => {
+              clearField('name')
+              setForm({ ...form, name: event.target.value })
+            }}
           />
         </Field>
         <Field label="Bank or institution" hint="Group accounts by where they live">
@@ -572,25 +580,36 @@ function AccountDialog({
                 ? 'Enter the amount you owe, not a negative number'
                 : 'The balance before any entries in this app'
             }
+            error={fieldErrors.startingBalance}
           >
             <input
               className="input"
               inputMode="decimal"
               value={form.startingBalance}
               placeholder={isCredit ? '420.00' : '2,450.00'}
-              onChange={(event) => setForm({ ...form, startingBalance: event.target.value })}
+              onChange={(event) => {
+                clearField('startingBalance')
+                setForm({ ...form, startingBalance: event.target.value })
+              }}
             />
           </Field>
         )}
 
         {isCredit && (
-          <Field label="Credit limit" hint="Used for the utilization meter">
+          <Field
+            label="Credit limit"
+            hint="Used for the utilization meter"
+            error={fieldErrors.creditLimit}
+          >
             <input
               className="input"
               inputMode="decimal"
               value={form.creditLimit}
               placeholder="5,000.00"
-              onChange={(event) => setForm({ ...form, creditLimit: event.target.value })}
+              onChange={(event) => {
+                clearField('creditLimit')
+                setForm({ ...form, creditLimit: event.target.value })
+              }}
             />
           </Field>
         )}
@@ -667,7 +686,11 @@ function AccountDialog({
         </div>
       </div>
 
-      {error && <p className="form-error">{error}</p>}
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
     </Modal>
   )
 }
@@ -747,7 +770,11 @@ function AdjustBalanceDialog({
         Current {isCredit ? 'owed' : 'balance'}:{' '}
         {formatMoney(accountDisplayBalanceCents(account), settings.currency)}
       </p>
-      {error && <p className="form-error">{error}</p>}
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
     </Modal>
   )
 }
@@ -843,7 +870,11 @@ function PayCardDialog({ card, onClose }: { card: AccountWithBalance; onClose: (
       <p className="field-hint">
         <CreditCard size={13} /> Owed today: {formatMoney(owed, settings.currency)}
       </p>
-      {error && <p className="form-error">{error}</p>}
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
     </Modal>
   )
 }

@@ -245,37 +245,37 @@ export function getLocalUserId(db: Db): string {
 }
 
 /**
- * Rows an import can point at when a reference is missing or dangling.
- * Capped so a huge ledger cannot bloat the wizard.
+ * Rows an import can point at when a reference is missing or dangling. There is
+ * no cap: a row dropped from this list would be reported as unmapped, and a
+ * ledger with more than a couple of hundred accounts is unusual but not
+ * impossible. These tables are small enough that the wizard can hold them all.
  */
 export function listImportChoices(
   db: Db,
   userId: string
 ): Record<ImportChoiceTable, ImportChoice[]> {
-  const limit = 200
-  const rows = (sql: string): ImportChoice[] =>
-    db.prepare(sql).all(userId, limit) as ImportChoice[]
+  const rows = (sql: string): ImportChoice[] => db.prepare(sql).all(userId) as ImportChoice[]
 
   return {
     accounts: rows(
       `SELECT id, name AS label FROM accounts
        WHERE user_id = ? AND deleted_at IS NULL
-       ORDER BY sort_order, name LIMIT ?`
+       ORDER BY sort_order, name`
     ),
     bills: rows(
       `SELECT id, name AS label FROM bills
        WHERE user_id = ? AND deleted_at IS NULL
-       ORDER BY name LIMIT ?`
+       ORDER BY name`
     ),
     goals: rows(
       `SELECT id, name AS label FROM goals
        WHERE user_id = ? AND deleted_at IS NULL
-       ORDER BY priority, name LIMIT ?`
+       ORDER BY priority, name`
     ),
     paychecks: rows(
       `SELECT id, received_on || ' · ' || source AS label FROM paychecks
        WHERE user_id = ? AND deleted_at IS NULL
-       ORDER BY received_on DESC LIMIT ?`
+       ORDER BY received_on DESC`
     )
   }
 }
@@ -537,6 +537,7 @@ export function deleteAccount(
     db.prepare(
       'UPDATE paychecks SET deposit_account_id = NULL, updated_at = ?, revision = revision + 1 WHERE deposit_account_id = ? AND user_id = ? AND deleted_at IS NULL'
     ).run(ts, id, userId)
+    disableRoundUpAt(db, userId, id)
     softDelete(db, 'accounts', id, userId)
   })()
 }
@@ -547,7 +548,20 @@ export function setAccountArchived(
   id: string,
   archived: boolean
 ): void {
-  updateRow(db, 'accounts', id, userId, { is_archived: archived ? 1 : 0 })
+  db.transaction(() => {
+    updateRow(db, 'accounts', id, userId, { is_archived: archived ? 1 : 0 })
+    if (archived) disableRoundUpAt(db, userId, id)
+  })()
+}
+
+// A sweep can only land in a live savings account. Leaving the flag on while
+// the destination is gone means restoring or re-adding an account would quietly
+// restart sweeps the user never re-enabled.
+function disableRoundUpAt(db: Db, userId: string, accountId: string): void {
+  const settings = readSettings(db, userId)
+  if (settings.roundUpAccountId !== accountId) return
+  if (settings.roundUpEnabled === 'false') return
+  writeSettings(db, userId, { roundUpEnabled: 'false' })
 }
 
 // ---------------------------------------------------------------- bills
@@ -998,6 +1012,14 @@ export function transactionCount(db: Db, userId: string): number {
   return row.total
 }
 
+/** How many routed checks exist, so the dashboard can admit a capped history. */
+export function paycheckCount(db: Db, userId: string): number {
+  const row = db
+    .prepare(`SELECT COUNT(*) AS total FROM paychecks WHERE user_id = ? AND deleted_at IS NULL`)
+    .get(userId) as { total: number }
+  return row.total
+}
+
 export interface NewTransactionInput {
   accountId: string
   kind: TransactionKind
@@ -1290,7 +1312,7 @@ export function updateTransaction(
   const patchTouchesAmount = patch.amountCents !== undefined || patch.kind !== undefined
   let nextAmount = existing.amountCents
   if (patch.amountCents !== undefined) {
-    nextAmount = assertCents(patch.amountCents, 'Amount', { allowNegative: true, allowZero: true })
+    nextAmount = assertCents(patch.amountCents, 'Amount', { allowNegative: true })
     const signProblem = signedAmountError(nextKind, nextAmount)
     if (signProblem) throw new RepositoryError('VALIDATION', signProblem)
   } else if (patch.kind !== undefined) {
@@ -1647,6 +1669,7 @@ export function getSnapshot(db: Db, userId: string): Snapshot {
       transactions: listTransactions(db, userId),
       transactionTotal: transactionCount(db, userId),
       paychecks: listPaychecks(db, userId),
+      paycheckTotal: paycheckCount(db, userId),
       billReserves: listBillReserves(db, userId)
     })
   )()

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   Coffee,
   Download,
+  ExternalLink,
   FileSpreadsheet,
   HardDrive,
   Info,
@@ -82,7 +83,7 @@ export function Settings() {
       <header className="page-head">
         <div>
           <p className="eyebrow">Settings</p>
-          <h1 className="page-title">Make it feel like yours</h1>
+          <h1 className="page-title" tabIndex={-1}>Make it feel like yours</h1>
           <p className="page-sub">
             Appearance, round-up and data portability. Everything is stored on this machine.
           </p>
@@ -309,9 +310,12 @@ export function Settings() {
           </div>
           <p className="field-hint">
             A JSON backup holds accounts, bills, goals, paychecks, allocations, transactions and
-            every setting — it can be a full backup or just a few tables. The transactions CSV adds
-            entries to accounts with matching names. Importing only adds what this app is missing:
-            nothing local is deleted, and settings you have already changed stay as they are.
+            every setting — it can be a full backup or just a few tables. The transactions CSV is
+            for reviewing the ledger in a spreadsheet, not a backup: it writes a transfer as two
+            rows and cannot rebuild them on import, and it carries neither the currency nor the
+            links between records. Use the JSON backup to move data between profiles. Importing
+            only adds what this app is missing: nothing local is deleted, and settings you have
+            already changed stay as they are.
           </p>
           <p className="db-path" title={dbPath}>
             {dbPath}
@@ -366,9 +370,11 @@ export function Settings() {
               href="https://buymeacoffee.com/revax"
               target="_blank"
               rel="noreferrer"
+              aria-label="Buy me a coffee — opens buymeacoffee.com in your browser"
             >
               <Coffee size={15} />
               Buy me a coffee
+              <ExternalLink size={13} aria-hidden="true" />
             </a>
           </div>
         </Card>

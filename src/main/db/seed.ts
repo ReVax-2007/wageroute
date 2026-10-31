@@ -42,15 +42,19 @@ export function seedIfEmpty(db: Db): string {
     .get() as { id: string } | undefined
   if (existing) return existing.id
 
-  const userId = randomUUID()
-  const ts = new Date().toISOString()
-  db.prepare(
-    `INSERT INTO users
-       (id, email, display_name, currency, created_at, updated_at, deleted_at, revision)
-     VALUES (?, NULL, ?, 'USD', ?, ?, NULL, 1)`
-  ).run(userId, '', ts, ts)
-  writeSettings(db, userId, settingsToRecord(DEFAULT_SETTINGS))
-  return userId
+  // One transaction: a crash between the user row and its settings would leave
+  // a profile that looks seeded, so the next launch would never finish it.
+  return db.transaction(() => {
+    const userId = randomUUID()
+    const ts = new Date().toISOString()
+    db.prepare(
+      `INSERT INTO users
+         (id, email, display_name, currency, created_at, updated_at, deleted_at, revision)
+       VALUES (?, NULL, ?, 'USD', ?, ?, NULL, 1)`
+    ).run(userId, '', ts, ts)
+    writeSettings(db, userId, settingsToRecord(DEFAULT_SETTINGS))
+    return userId
+  })()
 }
 
 export function seedDemoIfEmpty(db: Db): string {
