@@ -23,11 +23,13 @@ jobs:
         include:
           - os: macos-latest
             name: mac
-            args: --mac
+            args: --mac --x64 --arm64
+            arch: ''
             artifact: release/*.dmg
           - os: windows-latest
             name: win
-            args: --win
+            args: --win --x64 --arm64
+            arch: ''
             artifact: |
               release/*.exe
               release/*.zip
@@ -35,6 +37,7 @@ jobs:
           - os: ubuntu-latest
             name: linux-x64
             args: --linux --x64
+            arch: x64
             artifact: |
               release/*.AppImage
               release/*.deb
@@ -42,6 +45,7 @@ jobs:
           - os: ubuntu-24.04-arm
             name: linux-arm64
             args: --linux --arm64
+            arch: arm64
             artifact: |
               release/*.AppImage
               release/*.deb
@@ -126,11 +130,13 @@ jobs:
             echo "$label booted and created its ledger"
           }
 
-          appimage=$(ls release/*.AppImage | head -1)
+          # Address the file by architecture: a stray build of the other arch
+          # would otherwise be picked alphabetically and fail to execute.
+          appimage=$(ls release/*-${{ matrix.arch }}.AppImage)
           chmod +x "$appimage"
           check_boot "AppImage" "$(mktemp -d)" "$appimage"
 
-          deb=$(ls release/*.deb | head -1)
+          deb=$(ls release/*-${{ matrix.arch }}.deb)
           dpkg-deb -x "$deb" /tmp/deb-root
           deb_bin=$(find /tmp/deb-root -name wageroute -type f | head -1)
           if [ -z "$deb_bin" ]; then

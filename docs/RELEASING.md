@@ -305,12 +305,14 @@ A normal branch push does **not** build installers. That is deliberate: packagin
 
 | Runner | Arch flag | Uploaded artifact | File pattern |
 | --- | --- | --- | --- |
-| `macos-latest` | `--mac` | `wageroute-mac` | `release/*.dmg` |
-| `windows-latest` | `--win` | `wageroute-win` | `release/*.exe`, `release/*.zip`, `release/*.msi` |
+| `macos-latest` | `--mac --x64 --arm64` | `wageroute-mac` | `release/*.dmg` |
+| `windows-latest` | `--win --x64 --arm64` | `wageroute-win` | `release/*.exe`, `release/*.zip`, `release/*.msi` |
 | `ubuntu-latest` | `--linux --x64` | `wageroute-linux-x64` | `release/*.AppImage`, `release/*.deb`, `release/*.rpm` |
 | `ubuntu-24.04-arm` | `--linux --arm64` | `wageroute-linux-arm64` | `release/*.AppImage`, `release/*.deb`, `release/*.rpm` |
 
 Each Linux job passes one architecture flag, so a native runner never has to cross-compile `better-sqlite3`. macOS and Windows build both architectures on one runner because their prebuilt native binaries are available for both.
+
+Architectures are passed on the command line, never as `arch` lists inside `electron-builder.yml`. electron-builder merges a target's declared arches into whatever the CLI asks for, so `--linux --x64` against a config that lists `arm64` still emits arm64 artifacts — which is how the first run of this workflow produced an x64 job holding an arm64 AppImage.
 
 `fail-fast: false` means a macOS failure does not cancel the Windows build, so you can see both results.
 

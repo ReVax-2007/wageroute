@@ -197,7 +197,14 @@ Verification: `npm run typecheck`, `npm test` and `npm run build` clean. The par
 - **Tag builds attach to a draft release.** `gh release upload --clobber` puts the raw installers on a draft GitHub Release; the note, the publish step and the tag remain manual. `permissions: contents: write` was added for that.
 - **The packaging job keeps the `verify` gate.** `npm ci`, `npm test` and `npm run build` run before `electron-builder`, so nothing is packaged from an untested tree.
 
-Verification status: `npm run typecheck`, `npm test` (166) and `npm run build` clean locally; the builder config validates against the electron-builder schema. The MSI install/launch/uninstall and the AppImage/deb boot are proven by the packaging workflow on a branch run, not on this machine — the result of that run is recorded here when it completes.
+Verification status: `npm run typecheck`, `npm test` (166) and `npm run build` clean locally; the builder config validates against the electron-builder schema. The MSI install/launch/uninstall and the AppImage/deb boot are proven by the packaging workflow on a branch run, not on this machine.
+
+The first packaging run ([41097954874](https://github.com/ReVax-2007/wageroute/actions/runs/41097954874)) failed three of four jobs and found two real defects:
+
+1. **`npm test` failed on Windows.** `files.test.ts` asserted `mode & 0o777 === 0o600`; Windows has no POSIX mode bits (it reported `0o666`), so the assertion now runs only where the mode is meaningful, and `SECURITY.md`, `FEATURES.md` and `DEVELOPMENT.md` say the privacy guarantee is the profile ACL on Windows.
+2. **`--x64` did not mean x64.** `arch` lists inside each target in `electron-builder.yml` are merged into every build, so the "x64" Linux job also produced an arm64 AppImage, and the smoke test picked the arm64 file alphabetically, failed to execute it, and reported "started but never created its database". Arches are now passed only on the command line (`--linux --x64`), the config lists no per-target arches, and the smoke test addresses the file as `*-<arch>.AppImage`.
+
+The macOS job passed on that run — DMG for both architectures.
 
 ### Running version in the app
 

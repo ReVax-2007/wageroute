@@ -122,8 +122,10 @@ The code lives in [`src/main/db/legacy.ts`](../src/main/db/legacy.ts).
 | --- | --- |
 | `npm run build` | `out/main`, `out/preload`, `out/renderer` |
 | `npm run dist:mac` | `release/*.dmg` for arm64 and x64 |
-| `npm run dist:win` | `release/*.exe` (NSIS + portable), `*.msi` and `*.zip` for x64 and arm64 — MSI only on Windows |
+| `npm run dist:win` | `release/*.exe` (NSIS + portable), `*.msi` and `*.zip` for x64 and arm64 — MSI only on Windows (WiX) |
 | `npm run dist:linux` | `release/*.AppImage`, `*.deb`, `*.rpm` for x64 and arm64 |
+
+The scripts pass `--x64 --arm64` explicitly; the config does not declare arches per target.
 | `npm run dist` | Current platform default target |
 
 `release/` and `out/` are gitignored.

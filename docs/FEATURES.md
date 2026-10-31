@@ -612,7 +612,7 @@ Three actions:
 - **Export transactions CSV** — CSV save dialog, default `~/Documents/wageroute-transactions-YYYY-MM-DD.csv`. Memo, category, account name and institution are written as text cells with any leading `=`, `+`, `-`, `@`, tab or carriage return prefixed by an apostrophe, so opening the file in a spreadsheet evaluates nothing; amounts stay numeric.
 - **Import data** — open dialog accepting `.json`, `.csv`, `.ofx` and `.qfx`, then the import wizard. A CSV with no Account column and any OFX/QFX file are read as a bank statement.
 
-Both exports are written to a temporary file, flushed and renamed into place, so a failed or interrupted export leaves the previous file untouched instead of a half-written one. The file is created mode `0600`.
+Both exports are written to a temporary file, flushed and renamed into place, so a failed or interrupted export leaves the previous file untouched instead of a half-written one. The file is created mode `0600` on macOS and Linux; on Windows it inherits the user profile's ACL.
 
 ### Import wizard
 
