@@ -26,7 +26,11 @@ import {
 import { listBills, recordBillReserves, reservedBillIdsFor } from './bills'
 import { listGoals } from './goals'
 import { readSettings } from './settings'
-import { createTransaction, insertTransactionRow } from './transactions'
+import {
+  createTransaction,
+  insertTransactionRow,
+  listBillPaymentsThisMonth
+} from './transactions'
 
 const PAY_CADENCES: readonly PayCadence[] = ['weekly', 'biweekly', 'semimonthly', 'monthly']
 
@@ -231,7 +235,12 @@ export function commitPaycheck(
 
   const settings = parseSettings(readSettings(db, userId))
   const cycle = receivedOn.slice(0, 7)
-  const bills = listBills(db, userId).filter((bill) => bill.isActive)
+  const paidByBill = new Map(
+    listBillPaymentsThisMonth(db, userId, cycle).map((total) => [total.billId, total.paidCents])
+  )
+  const bills = listBills(db, userId)
+    .filter((bill) => bill.isActive)
+    .map((bill) => ({ ...bill, paidThisMonthCents: paidByBill.get(bill.id) ?? 0 }))
   const goals = listGoals(db, userId).filter(
     (goal) => !goal.isArchived && !(goal.isEmergency && !settings.emergencyActive)
   )

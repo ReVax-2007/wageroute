@@ -55,12 +55,19 @@ export function assertPriority(value: unknown): number {
   return Math.round(value)
 }
 
-/** A due day is 1–31; the date helpers clamp a 29–31 to the month's length. */
+/**
+ * A due day is a whole number 1–31; the date helpers clamp a 29–31 to the
+ * month's length. Values outside that range are refused rather than silently
+ * become the 31st, which hid a typo behind a plausible-looking bill.
+ */
 export function assertDueDay(value: unknown): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new RepositoryError('VALIDATION', 'Due day must be a number')
+  if (typeof value !== 'number' || !Number.isInteger(value)) {
+    throw new RepositoryError('VALIDATION', 'Due day must be a whole number from 1 to 31', 'dueDay')
   }
-  return Math.min(31, Math.max(1, Math.round(value)))
+  if (value < 1 || value > 31) {
+    throw new RepositoryError('VALIDATION', 'Due day must be a whole number from 1 to 31', 'dueDay')
+  }
+  return value
 }
 
 /** Index into the guaranteed paycheck slots: the 1st through the 4th check. */

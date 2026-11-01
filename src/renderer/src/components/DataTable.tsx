@@ -6,6 +6,8 @@ export interface DataTableColumn {
   className?: string
   /** When set, names the column for a screen reader instead of showing text. */
   ariaLabel?: string
+  /** A hover explanation for a heading whose figure needs context. */
+  title?: string
 }
 
 /**
@@ -36,6 +38,7 @@ export function DataTable({
                 scope="col"
                 className={column.className}
                 aria-label={column.ariaLabel}
+                title={column.title}
               >
                 {column.ariaLabel ? null : column.label}
               </th>

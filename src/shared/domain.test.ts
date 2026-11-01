@@ -547,9 +547,10 @@ test('entries CSV round-trips exports and tolerates bank-style dates', () => {
   assert.equal(parsed.entries[1].memo, 'Paycheck "October"')
   assert.equal(parsed.entries[1].amountCents, 150000)
 
-  assert.equal(parsed.issues.length, 2)
-  assert.match(parsed.issues[0].message, /transfer/)
-  assert.match(parsed.issues[1].message, /date/)
+  assert.equal(parsed.issues.length, 3)
+  assert.match(parsed.issues[0].message, /ambiguous; read as month\/day/)
+  assert.match(parsed.issues[1].message, /transfer/)
+  assert.match(parsed.issues[2].message, /date/)
 })
 
 test('CSV parsing keeps quoted newlines and skips blank rows', () => {

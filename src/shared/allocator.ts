@@ -10,6 +10,12 @@ export interface AllocatorBill {
   dueDay?: number
   fundingStrategy?: BillFundingStrategy
   fundingPaycheckIndex?: number | null
+  /**
+   * Money already paid against this bill this calendar month. A bill that is
+   * already settled must not be reserved again by the next cheque, and a
+   * partly paid one only owes the difference.
+   */
+  paidThisMonthCents?: number
 }
 
 export interface AllocatorGoal {
@@ -125,7 +131,8 @@ export function buildAllocationPlan(input: AllocatorInput): AllocationPlan {
             fundingStrategy: bill.fundingStrategy,
             fundingPaycheckIndex: bill.fundingPaycheckIndex,
             paycheckDate: input.paycheckDate,
-            payAnchorDate: input.payAnchorDate
+            payAnchorDate: input.payAnchorDate,
+            paidThisMonthCents: bill.paidThisMonthCents
           }),
     monthlyCents: monthlyEquivalentCents(bill.amountCents, bill.frequency)
   }))

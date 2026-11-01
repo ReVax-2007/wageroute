@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react'
+import { useRef, useSyncExternalStore, type KeyboardEvent } from 'react'
 import {
   Landmark,
   LayoutDashboard,
@@ -58,6 +58,7 @@ export function Sidebar() {
   const dbPath = useFinanceStore((state) => state.dbPath)
   const appInfo = useFinanceStore((state) => state.appInfo)
   const prefersLight = usePrefersLight()
+  const themeButtons = useRef<(HTMLButtonElement | null)[]>([])
 
   if (!snapshot) return null
 
@@ -70,6 +71,38 @@ export function Sidebar() {
   const setTheme = (theme: AppSettings['theme']) => {
     if (theme === settings.theme) return
     void saveSettings({ ...settings, theme })
+  }
+
+  const chooseTheme = (index: number) => {
+    const option = THEMES[index]
+    if (!option) return
+    setTheme(option.value)
+    themeButtons.current[index]?.focus()
+  }
+
+  const handleThemeKey = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const last = THEMES.length - 1
+    let next: number | null = null
+    switch (event.key) {
+      case 'ArrowRight':
+      case 'ArrowDown':
+        next = index === last ? 0 : index + 1
+        break
+      case 'ArrowLeft':
+      case 'ArrowUp':
+        next = index === 0 ? last : index - 1
+        break
+      case 'Home':
+        next = 0
+        break
+      case 'End':
+        next = last
+        break
+      default:
+        return
+    }
+    event.preventDefault()
+    chooseTheme(next)
   }
 
   return (
@@ -125,16 +158,21 @@ export function Sidebar() {
           </span>
         </span>
         <div className="theme-options" role="radiogroup" aria-label="Theme">
-          {THEMES.map((option) => (
+          {THEMES.map((option, index) => (
             <button
               key={option.value}
+              ref={(element) => {
+                themeButtons.current[index] = element
+              }}
               type="button"
               role="radio"
               aria-checked={settings.theme === option.value}
+              tabIndex={settings.theme === option.value ? 0 : -1}
               className={
                 settings.theme === option.value ? 'theme-option active' : 'theme-option'
               }
               onClick={() => setTheme(option.value)}
+              onKeyDown={(event) => handleThemeKey(event, index)}
             >
               {option.label}
             </button>

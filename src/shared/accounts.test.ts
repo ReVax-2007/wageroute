@@ -166,7 +166,8 @@ function paycheck(
 function entry(
   accountId: string,
   occurredOn: string,
-  amountCents: number
+  amountCents: number,
+  paycheckId: string | null = null
 ): TransactionRow {
   return {
     id: `tx-${accountId}-${occurredOn}-${amountCents}`,
@@ -181,7 +182,7 @@ function entry(
     externalId: null,
     billId: null,
     goalId: null,
-    paycheckId: null,
+    paycheckId,
     counterAccountId: null,
     transferGroupId: null,
     createdAt: `${occurredOn}T00:00:00.000Z`,
@@ -209,13 +210,32 @@ test('routed debt and investing leave Safe to Spend until the money actually mov
   )
 
   const paid = [
-    entry('card', '2026-11-04', 115_800),
-    entry('broker', '2026-11-05', 10_000)
+    entry('card', '2026-11-04', 115_800, routed.id),
+    entry('broker', '2026-11-05', 10_000, routed.id)
   ]
   assert.equal(
     unsettledRoutingCents({ paychecks: [routed], transactions: paid, accounts, todayISO: today }),
     30_000,
     'the card payment settles debt; only the unmoved investment remains'
+  )
+})
+
+test('a deposit this cycle did not route does not settle routing', () => {
+  const accounts = [
+    account({ id: 'chequing', kind: 'checking' }),
+    account({ id: 'card', kind: 'credit' })
+  ]
+  const routed = paycheck('2026-11-02', { debt: 115_800 })
+  const deposit = entry('card', '2026-11-04', 115_800)
+  assert.equal(
+    unsettledRoutingCents({
+      paychecks: [routed],
+      transactions: [deposit],
+      accounts,
+      todayISO: '2026-11-10'
+    }),
+    115_800,
+    'money arriving from anywhere else is not the plan being applied'
   )
 })
 

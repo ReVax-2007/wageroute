@@ -403,15 +403,20 @@ test('a bill day and a paycheck slot outside their ranges are refused', () => {
     nextDueOn: null
   }
 
-  const clamped = createBill(db, USER_ID, { ...base, dueDay: 99 })
-  const dueDay = db.prepare('SELECT due_day FROM bills WHERE id = ?').get(clamped) as {
+  const last = createBill(db, USER_ID, { ...base, dueDay: 31 })
+  const dueDay = db.prepare('SELECT due_day FROM bills WHERE id = ?').get(last) as {
     due_day: number
   }
-  assert.equal(dueDay.due_day, 31, 'a day past the month end clamps instead of inventing one')
+  assert.equal(dueDay.due_day, 31, 'the last day of the month is a real due day')
 
   assert.throws(
+    () => createBill(db, USER_ID, { ...base, dueDay: 99 }),
+    /Due day must be a whole number from 1 to 31/,
+    'a day past the month end is refused, not clamped'
+  )
+  assert.throws(
     () => createBill(db, USER_ID, { ...base, dueDay: Number.NaN }),
-    /Due day must be a number/
+    /Due day must be a whole number from 1 to 31/
   )
   assert.throws(
     () =>

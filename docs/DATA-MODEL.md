@@ -212,7 +212,7 @@ Semantics:
 | `name` | TEXT | NOT NULL | |
 | `amount_cents` | INTEGER | NOT NULL, CHECK > 0 | Per occurrence, not monthly |
 | `frequency` | TEXT | NOT NULL, CHECK in `weekly,biweekly,semimonthly,monthly,quarterly,annual` | |
-| `due_day` | INTEGER | NOT NULL, CHECK 1–31 | Day of month; clamped when computing |
+| `due_day` | INTEGER | NOT NULL, CHECK 1–31 | Day of month. A write outside 1–31 (or a fraction) is refused, not clamped; a 29–31 day clamps to the real month end when an occurrence is computed |
 | `category` | TEXT | NOT NULL, default `'Bills'` | |
 | `account_id` | TEXT | nullable, FK accounts | Where it is paid from |
 | `autopay` | INTEGER | NOT NULL, default 0, CHECK 0/1 | Informational |
@@ -438,10 +438,10 @@ None of the following are stored. They are recomputed from rows.
 | Goal funded | Dedicated account present → `SUM(live dedicated balances)`, clamped at 0; otherwise `SUM(allocations.amount_cents)` where bucket `goal`, matching goal, non-deleted | `listGoals` |
 | Goal remaining | `max(0, target_cents − fundedCents)` | `listGoals` |
 | Monthly wall | `SUM(round(amount × billPeriodsPerYear / 12))` over active bills | `cadence.ts` |
-| Per-paycheck wall | `SUM(billFundingReserveCents(bill, cadence, paycheckDate))` — the spread under `all_checks`, otherwise `monthlyEquivalentCents` on the one funding check and `0` on every other check. When the month already has a claim from an earlier cheque (`reservedBillIdsFor`), a single-check bill reserves `0` here | `cadence.ts`, `allocator.ts` |
+| Per-paycheck wall | `SUM(billFundingReserveCents({ amountCents, frequency, cadence, dueDay, fundingStrategy, fundingPaycheckIndex, paycheckDate, payAnchorDate, paidThisMonthCents }))` — the spread under `all_checks`, otherwise `monthlyEquivalentCents` on the one funding check and `0` on every other check. A payment already linked to the bill this month (`listBillPaymentsThisMonth`) shrinks the month's obligation, so a fully paid bill reserves `0` here and a part payment reserves only the remainder. When the month already has a claim from an earlier cheque (`reservedBillIdsFor`), a single-check bill reserved it and reserves `0` again | `cadence.ts`, `allocator.ts` |
 | Spendable pool | Sum of non-archived balances where `countsInSafeToSpend` holds (`in_safe_to_spend`, else not dedicated and kind in `checking,savings,cash`) | `accounts.ts` |
 | Pool-earmarked goals | `SUM(fundedCents)` for goals whose `fundedFrom` is `allocations`; account-funded goals are already outside the pool | `poolEarmarkedGoalsCents` |
-| Unsettled routing | This month's `debt` + `investment` allocations, each bucket less positive entries on an account of the matching kind since the earliest paycheque in the month, clamped per bucket at 0 | `unsettledRoutingCents` |
+| Unsettled routing | This month's `debt` + `investment` allocations, each bucket less the positive entries a routing plan itself posted to an account of the matching kind since the earliest paycheque in the month (`paycheck_id` must be one of this month's paychecks), clamped per bucket at 0 — an unrelated deposit or card payment does not settle a plan | `unsettledRoutingCents` |
 | Safe to Spend | Spendable pool − monthly wall − pool-earmarked goals − unsettled routing | `store/selectors.ts` |
 | Total wealth | Sum of every non-archived balance; credit is already negative | `accounts.ts` |
 | Wealth buckets | Cash / Saved for goals / Invested / Credit owed, partitioning total wealth exactly | `accounts.ts` |
@@ -493,7 +493,7 @@ Stored in `settings.value` as text. Defaults and validation live in `src/shared/
 | `emergencyManualTargetCents` | number | `0` | Positive integer, else 0 |
 | `emergencyActive` | boolean | `true` | When false the allocator stops routing surplus into the emergency fund; the fund's target and progress stay visible |
 
-Unknown keys are preserved by an import but ignored by `parseSettings`. Settings imported from a backup never overwrite existing local keys (`INSERT OR IGNORE`).
+A settings key this build does not know is reported as an import issue and skipped rather than stored, so an old backup cannot resurrect a retired key. Settings imported from a backup never overwrite existing local keys (`INSERT OR IGNORE`), and a key the file omits is left at its local value.
 
 The development demo seed overrides the default splits to `20 / 15 / 15 / 5` and leaves 45% as leisure. Packaged builds keep `DEFAULT_SETTINGS`.
 

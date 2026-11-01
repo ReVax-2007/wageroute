@@ -8,7 +8,10 @@ import {
   applyPaycheckPlan,
   commitPaycheck,
   createAccount,
+  createBill,
   createGoal,
+  createTransaction,
+  listBillPaymentsThisMonth,
   listPaychecks,
   listTransactions
 } from './repositories'
@@ -139,6 +142,112 @@ test('the same amount within three days is refused, beyond it is allowed', () =>
   )
   route(db, checking, '2026-03-09')
   assert.equal(listPaychecks(db, USER_ID).length, 2, 'four days after is a new deposit')
+})
+
+test('a bill already paid this month is not withheld again', () => {
+  const db = freshDb()
+  const checking = account(db, 'Chequing', 'checking')
+  const rent = createBill(db, USER_ID, {
+    name: 'Rent',
+    amountCents: 120_000,
+    frequency: 'monthly',
+    dueDay: 15,
+    category: 'Housing',
+    accountId: checking,
+    autopay: false,
+    isActive: true,
+    nextDueOn: null
+  })
+  createTransaction(db, USER_ID, {
+    accountId: checking,
+    kind: 'bill_payment',
+    amountCents: -120_000,
+    occurredOn: '2026-03-02',
+    memo: 'Rent',
+    category: 'Housing',
+    billId: rent
+  })
+
+  const committed = route(db, checking, '2026-03-05')
+
+  assert.equal(
+    committed.plan?.priorityFundedCents,
+    0,
+    'the wall is already paid, so this check has nothing to hold back for it'
+  )
+  assert.equal(committed.plan?.leisureCents, 500_000)
+})
+
+test('a partly paid bill is only withheld for what is still owed', () => {
+  const db = freshDb()
+  const checking = account(db, 'Chequing', 'checking')
+  const rent = createBill(db, USER_ID, {
+    name: 'Rent',
+    amountCents: 120_000,
+    frequency: 'monthly',
+    dueDay: 15,
+    category: 'Housing',
+    accountId: checking,
+    autopay: false,
+    isActive: true,
+    nextDueOn: null
+  })
+  createTransaction(db, USER_ID, {
+    accountId: checking,
+    kind: 'bill_payment',
+    amountCents: -30_000,
+    occurredOn: '2026-03-02',
+    memo: 'Rent part',
+    category: 'Housing',
+    billId: rent
+  })
+
+  const committed = route(db, checking, '2026-03-05')
+
+  assert.equal(
+    committed.plan?.priorityFundedCents,
+    45_000,
+    'half of the remaining 90,000 falls on this check'
+  )
+})
+
+test('a payment made in another month does not release this month', () => {
+  const db = freshDb()
+  const checking = account(db, 'Chequing', 'checking')
+  const rent = createBill(db, USER_ID, {
+    name: 'Rent',
+    amountCents: 120_000,
+    frequency: 'monthly',
+    dueDay: 15,
+    category: 'Housing',
+    accountId: checking,
+    autopay: false,
+    isActive: true,
+    nextDueOn: null
+  })
+  createTransaction(db, USER_ID, {
+    accountId: checking,
+    kind: 'bill_payment',
+    amountCents: -120_000,
+    occurredOn: '2026-02-02',
+    memo: 'February rent',
+    category: 'Housing',
+    billId: rent
+  })
+
+  // The routing preview asks by the pay date's month, so the query must keep
+  // the two months apart instead of releasing a wall February already paid.
+  assert.deepEqual(listBillPaymentsThisMonth(db, USER_ID, '2026-03'), [])
+  assert.deepEqual(listBillPaymentsThisMonth(db, USER_ID, '2026-02'), [
+    { billId: rent, paidCents: 120_000 }
+  ])
+
+  const committed = route(db, checking, '2026-03-05')
+  assert.equal(
+    committed.plan?.priorityFundedCents,
+    60_000,
+    'March still owes the full wall, half of it on this cheque'
+  )
 })
 
 test('applying a plan posts one paired transfer per line', () => {

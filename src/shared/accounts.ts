@@ -100,12 +100,18 @@ export function unsettledRoutingCents(input: {
     )
 
   const kindById = new Map(input.accounts.map((account) => [account.id, account.kind]))
+  const paycheckIds = new Set(cycle.map((paycheck) => paycheck.id))
+  // Only money a plan actually moved settles the plan. An unrelated deposit,
+  // card payment or market gain into the same account must not make this
+  // month's routing look paid when it is still sitting in checking.
   const movedTo = (kind: 'credit' | 'investment'): number =>
     input.transactions
       .filter(
         (transaction) =>
           transaction.occurredOn >= since &&
           transaction.amountCents > 0 &&
+          transaction.paycheckId !== null &&
+          paycheckIds.has(transaction.paycheckId) &&
           kindById.get(transaction.accountId) === kind
       )
       .reduce((total, transaction) => total + transaction.amountCents, 0)

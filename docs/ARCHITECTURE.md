@@ -172,6 +172,8 @@ Every write resolves with `WriteResult<T>` — `{ value, patch, refreshError? }`
 | `snapshot:get` | — | Full `Snapshot` |
 | `db:path` | — | Absolute path |
 | `app:info` | — | `AppInfo`: version, schema version, Electron version |
+| `app:diagnostics` | — | `AppDiagnostics`: runtime versions, paths, log tail and row counts |
+| `app:legal` | — | `LegalTexts`: the bundled licence and third-party notices |
 | `account:create` | `AccountInput` | `WriteResult<string>` (new id) |
 | `account:update` | `id`, `Partial<AccountInput>` | `WriteResult<void>` |
 | `account:delete` | `id`, `{ withEntries?: boolean }?` | `WriteResult<void>` |
@@ -180,6 +182,7 @@ Every write resolves with `WriteResult<T>` — `{ value, patch, refreshError? }`
 | `bill:create` | `BillInput` | `WriteResult<string>` |
 | `bill:update` | `id`, `Partial<BillInput>` | `WriteResult<void>` |
 | `bill:delete` | `id` | `WriteResult<void>` |
+| `bill:payments` | `YYYY-MM` month | `BillPaymentTotal[]` (per-bill payments in that month) |
 | `goal:create` | `GoalInput` | `WriteResult<string>` |
 | `goal:update` | `id`, `Partial<GoalInput>` | `WriteResult<void>` |
 | `goal:delete` | `id` | `WriteResult<void>` |
@@ -193,6 +196,7 @@ Every write resolves with `WriteResult<T>` — `{ value, patch, refreshError? }`
 | `category:update` | `id`, `Partial<CategoryInput>` | `WriteResult<void>` |
 | `category:delete` | `id` | `WriteResult<void>` |
 | `paycheck:commit` | `PaycheckDraftInput` | `WriteResult<CommittedPaycheck>` |
+| `paycheck:apply` | `id`, `PlanMoveTarget[]` | `WriteResult<AppliedPlan>` |
 | `settings:save` | `AppSettings` | `WriteResult<void>` |
 | `backup:export` | — | saved path or `null` |
 | `csv:export` | — | saved path or `null` |
@@ -202,7 +206,7 @@ Every write resolves with `WriteResult<T>` — `{ value, patch, refreshError? }`
 
 Notes:
 
-- The types describe the wire; the main process still validates every id and option at runtime, because a type is not a guarantee. `requireId` rejects empty or non-string IDs at the boundary, and full payload validation happens in the repository helpers.
+- The types describe the wire; the main process still validates every id and option at runtime, because a type is not a guarantee. `requireId` rejects empty or non-string IDs at the boundary, `requireMonth` refuses anything but a real `YYYY-MM` month, and full payload validation happens in the repository helpers.
 - File dialogs are owned by the invoking window, so they are modal to WageRoute.
 - Export and import use native save/open dialogs. The main process reads and writes the chosen file.
 - The import reader rejects files larger than **64 MiB** before parsing.

@@ -13,6 +13,7 @@ import type {
   AppliedPlan,
   AppSettings,
   BillInput,
+  BillPaymentTotal,
   CategoryInput,
   GoalInput,
   LedgerQuery,
@@ -48,6 +49,7 @@ export interface IpcContract {
   'bill:create': { args: [BillInput]; result: WriteResult<string> }
   'bill:update': { args: [string, Partial<BillInput>]; result: WriteResult<void> }
   'bill:delete': { args: [string]; result: WriteResult<void> }
+  'bill:payments': { args: [string]; result: BillPaymentTotal[] }
 
   'category:create': { args: [CategoryInput]; result: WriteResult<string> }
   'category:update': { args: [string, Partial<CategoryInput>]; result: WriteResult<void> }
@@ -100,6 +102,7 @@ export const CHANNELS = [
   'bill:create',
   'bill:update',
   'bill:delete',
+  'bill:payments',
   'category:create',
   'category:update',
   'category:delete',

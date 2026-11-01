@@ -10,6 +10,7 @@ import type {
   AccountInput,
   AppSettings,
   BillInput,
+  BillPaymentTotal,
   CategoryInput,
   GoalInput,
   AppliedPlan,
@@ -184,6 +185,12 @@ export interface FinanceApi {
   createBill(input: BillInput): Promise<WriteResult<string>>
   updateBill(id: string, input: Partial<BillInput>): Promise<WriteResult<void>>
   deleteBill(id: string): Promise<WriteResult<void>>
+  /**
+   * What each bill has already been paid in one `YYYY-MM` month. The routing
+   * preview asks for the pay date's month, which the snapshot (keyed to today)
+   * cannot answer when a paycheck is dated into another month.
+   */
+  billPayments(month: string): Promise<BillPaymentTotal[]>
 
   createCategory(input: CategoryInput): Promise<WriteResult<string>>
   updateCategory(id: string, input: Partial<CategoryInput>): Promise<WriteResult<void>>

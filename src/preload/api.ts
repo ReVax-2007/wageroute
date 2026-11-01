@@ -23,6 +23,7 @@ export function createFinanceApi(call: IpcCaller): FinanceApi {
     createBill: (input) => call('bill:create', input),
     updateBill: (id, input) => call('bill:update', id, input),
     deleteBill: (id) => call('bill:delete', id),
+    billPayments: (month) => call('bill:payments', month),
 
     createCategory: (input) => call('category:create', input),
     updateCategory: (id, input) => call('category:update', id, input),

@@ -2,9 +2,9 @@ import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'rea
 import { AlertTriangle, ArrowLeft, ArrowRight, Sparkles, X } from 'lucide-react'
 import { buildAllocationPlan, type PlanWarning } from '@shared/allocator'
 import { PAY_CADENCE_LABEL } from '@shared/cadence'
-import { daysBetweenISO, todayISO } from '@shared/dates'
+import { daysBetweenISO, formatMonthLong, isISODate, todayISO } from '@shared/dates'
 import { currencySymbol, formatMoney, parseMoneyToCents } from '@shared/money'
-import type { PayCadence } from '@shared/types'
+import type { BillPaymentTotal, PayCadence } from '@shared/types'
 import { backdropHandlers, Button, Money, useDialog } from '../components/ui'
 import { activeBills, fundableAccounts } from '../lib/finance'
 import { useFinanceStore } from '../store/useFinanceStore'
@@ -112,7 +112,55 @@ export function Allocator() {
   }, [open])
 
   const incomeCents = parseMoneyToCents(income) ?? 0
-  const bills = useMemo(() => activeBills(snapshot?.bills ?? []), [snapshot?.bills])
+  // The snapshot's payment totals are keyed to today, while a cheque is reserved
+  // against the month it is dated into. Ask for that month instead; today's
+  // month is already in the snapshot, so it needs no read. A cleared date falls
+  // back to today so the preview still renders while the user picks one.
+  const currentMonth = todayISO().slice(0, 7)
+  const payMonth = isISODate(receivedOn) ? receivedOn.slice(0, 7) : currentMonth
+  const [paymentsFor, setPaymentsFor] = useState<{
+    month: string
+    totals: BillPaymentTotal[]
+  } | null>(null)
+  const [failedMonth, setFailedMonth] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open || payMonth === currentMonth) return
+    let cancelled = false
+    window.api.billPayments(payMonth).then(
+      (totals) => {
+        if (cancelled) return
+        setPaymentsFor({ month: payMonth, totals })
+        setFailedMonth(null)
+      },
+      () => {
+        if (!cancelled) setFailedMonth(payMonth)
+      }
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [open, payMonth, currentMonth])
+
+  // An unanswered or failed read holds the whole month: over-reserving costs a
+  // smaller surplus, while under-reserving hides money the wall still needs.
+  const monthPayments =
+    payMonth === currentMonth
+      ? (snapshot?.billPaymentsThisMonth ?? [])
+      : paymentsFor?.month === payMonth
+        ? paymentsFor.totals
+        : []
+  const paymentsFailed = payMonth !== currentMonth && failedMonth === payMonth
+
+  // A bill already paid this month must not be withheld from this cheque; the
+  // plan asks only for what the month still owes.
+  const bills = useMemo(() => {
+    const paid = new Map(monthPayments.map((total) => [total.billId, total.paidCents]))
+    return activeBills(snapshot?.bills ?? []).map((bill) => ({
+      ...bill,
+      paidThisMonthCents: paid.get(bill.id) ?? 0
+    }))
+  }, [snapshot?.bills, monthPayments])
   const activeGoals = useMemo(
     () =>
       (snapshot?.goals ?? []).filter(
@@ -125,9 +173,9 @@ export function Allocator() {
   const reservedBillIds = useMemo(
     () =>
       (snapshot?.billReserves ?? [])
-        .filter((reserve) => reserve.cycle === receivedOn.slice(0, 7))
+        .filter((reserve) => reserve.cycle === payMonth)
         .map((reserve) => reserve.billId),
-    [snapshot?.billReserves, receivedOn]
+    [snapshot?.billReserves, payMonth]
   )
 
   // The repository refuses both cases. Say which one the screen found, so the
@@ -453,6 +501,13 @@ export function Allocator() {
                     className="alloc-amount"
                   />
                 </div>
+
+                {paymentsFailed && (
+                  <Warning tone="warn">
+                    The payments already made in {formatMonthLong(payMonth)} could not be read, so
+                    this preview holds the whole month. Routing the cheque may reserve less.
+                  </Warning>
+                )}
 
                 {plan.priorityReserves.length > 0 && (
                   <details className="priority-breakdown">

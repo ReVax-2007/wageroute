@@ -174,7 +174,34 @@ function findColumns(row: readonly string[]): Partial<Record<EntryColumn, number
   return columns
 }
 
-function normalizeDate(raw: string): string | null {
+type SlashedOrder = 'mdy' | 'dmy'
+
+function slashedParts(raw: string): { first: number; second: number } | null {
+  const match = /^(\d{1,2})\/(\d{1,2})\/\d{4}$/.exec(raw.trim())
+  return match ? { first: Number(match[1]), second: Number(match[2]) } : null
+}
+
+/**
+ * One order for the whole file, because a statement is written one way. A
+ * single day above 12 settles it for every row: reading `03/04` as March 4 in a
+ * file that also holds `31/12` is the silent month-shift the audit found.
+ * Ambiguous-only or mixed evidence falls back to the per-row rule below.
+ */
+function detectDateOrder(values: readonly string[]): SlashedOrder | null {
+  let dayFirst = false
+  let monthFirst = false
+  for (const value of values) {
+    const parts = slashedParts(value)
+    if (!parts) continue
+    if (parts.first > 12 && parts.second <= 12) dayFirst = true
+    else if (parts.second > 12 && parts.first <= 12) monthFirst = true
+  }
+  if (dayFirst && !monthFirst) return 'dmy'
+  if (monthFirst && !dayFirst) return 'mdy'
+  return null
+}
+
+function normalizeDate(raw: string, order: SlashedOrder | null): string | null {
   const text = raw.trim()
   let year: number
   let month: number
@@ -191,9 +218,10 @@ function normalizeDate(raw: string): string | null {
   } else if (slashed) {
     const first = Number(slashed[1])
     const second = Number(slashed[2])
-    // A day above 12 cannot be a month, so the file is day-first (UK/EU).
-    // Both components 12 or under stay month-first, matching the US default.
-    if (first > 12 && second <= 12) {
+    // A day above 12 cannot be a month. The file-level order decides when the
+    // file itself proved one; otherwise both components 12 or under stay
+    // month-first, matching the US default.
+    if (order === 'dmy' || (order === null && first > 12 && second <= 12)) {
       day = first
       month = second
     } else {
@@ -222,7 +250,9 @@ function normalizeDate(raw: string): string | null {
 
 function normalizeKind(raw: string, amountCents: number): TransactionKind {
   const key = raw.trim().toLowerCase().replace(/[\s-]+/g, '_')
-  if (key && KIND_ALIASES[key]) return KIND_ALIASES[key]
+  // A plain object lookup answers for `constructor` and `toString`; the file's
+  // text must only match a kind this build lists.
+  if (key && Object.hasOwn(KIND_ALIASES, key)) return KIND_ALIASES[key]
   if (key && (TRANSACTION_KINDS as readonly string[]).includes(key)) {
     return key as TransactionKind
   }
@@ -259,6 +289,23 @@ export function parseEntriesCsv(text: string): CsvEntryParse {
   const entries: CsvEntry[] = []
   const issues: CsvIssue[] = []
 
+  const dateColumn = columns.date
+  const dateCells = rows
+    .slice(headerIndex + 1)
+    .map((row) => (dateColumn === undefined ? '' : (row.cells[dateColumn] ?? '').trim()))
+  const slashed = dateCells.filter((cell) => slashedParts(cell) !== null)
+  const dateOrder = detectDateOrder(dateCells)
+  if (dateOrder === null && slashed.length > 0) {
+    const first = slashed[0] ?? ''
+    const line = rows[headerIndex + 1]?.line ?? rows[headerIndex]?.line ?? 1
+    // Every slashed date has both parts 12 or under, so neither order can be
+    // proved. Say which one was assumed instead of shifting a whole month.
+    issues.push({
+      line,
+      message: `dates like ${first} are ambiguous; read as month/day — re-export as YYYY-MM-DD if this file is day-first`
+    })
+  }
+
   for (let index = headerIndex + 1; index < rows.length; index += 1) {
     const row = rows[index].cells
     const line = rows[index].line
@@ -267,13 +314,13 @@ export function parseEntriesCsv(text: string): CsvEntryParse {
       return position === undefined ? '' : (row[position] ?? '').trim()
     }
 
-    const occurredOn = normalizeDate(cell('date'))
+    const occurredOn = normalizeDate(cell('date'), dateOrder)
     if (!occurredOn) {
       issues.push({ line, message: `row ${line} has an unreadable date` })
       continue
     }
 
-    const accountName = cell('account')
+    const accountName = undefuseFormula(cell('account'))
     if (hasAccountColumn && !accountName) {
       issues.push({ line, message: `row ${line} has no account name` })
       continue
@@ -310,7 +357,7 @@ export function parseEntriesCsv(text: string): CsvEntryParse {
       continue
     }
 
-    const institution = cell('institution')
+    const institution = undefuseFormula(cell('institution'))
     const externalId = cell('external')
 
     entries.push({
@@ -319,8 +366,8 @@ export function parseEntriesCsv(text: string): CsvEntryParse {
       accountName,
       institution: institution || null,
       kind,
-      category: cell('category') || 'Uncategorized',
-      memo: cell('memo'),
+      category: undefuseFormula(cell('category')) || 'Uncategorized',
+      memo: undefuseFormula(cell('memo')),
       // A file that states the kind but writes an unsigned amount is common;
       // the kind decides the sign so an expense can never import as income.
       amountCents: normalizeSignedCents(kind, amountCents),
@@ -364,4 +411,13 @@ export function transactionsToCsv(
  */
 function defuseFormula(value: string): string {
   return /^[=+\-@\t\r]/.test(value) ? `'${value}` : value
+}
+
+/**
+ * The export's leading apostrophe is spreadsheet syntax, not ledger text. It is
+ * stripped only when it guards a formula character, so a memo that genuinely
+ * begins with `'` keeps it.
+ */
+function undefuseFormula(value: string): string {
+  return /^'[=+\-@\t\r]/.test(value) ? value.slice(1) : value
 }
