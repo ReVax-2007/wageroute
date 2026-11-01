@@ -11,6 +11,8 @@ export function createFinanceApi(call: IpcCaller): FinanceApi {
     getSnapshot: () => call('snapshot:get'),
     getDatabasePath: () => call('db:path'),
     getAppInfo: () => call('app:info'),
+    getDiagnostics: () => call('app:diagnostics'),
+    getLegalTexts: () => call('app:legal'),
 
     createAccount: (input) => call('account:create', input),
     updateAccount: (id, input) => call('account:update', id, input),

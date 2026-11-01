@@ -3,7 +3,7 @@ import { AlertTriangle, ArrowLeft, ArrowRight, Sparkles, X } from 'lucide-react'
 import { buildAllocationPlan, type PlanWarning } from '@shared/allocator'
 import { PAY_CADENCE_LABEL } from '@shared/cadence'
 import { todayISO } from '@shared/dates'
-import { formatMoney, parseMoneyToCents } from '@shared/money'
+import { currencySymbol, formatMoney, parseMoneyToCents } from '@shared/money'
 import type { PayCadence } from '@shared/types'
 import { backdropHandlers, Button, Money, useDialog } from '../components/ui'
 import { activeBills } from '../lib/finance'
@@ -309,7 +309,7 @@ export function Allocator() {
                 </div>
 
                 <div className="alloc-income">
-                  <span className="income-prefix">$</span>
+                  <span className="income-prefix">{currencySymbol(currency)}</span>
                   <input
                     className="income-input"
                     autoFocus

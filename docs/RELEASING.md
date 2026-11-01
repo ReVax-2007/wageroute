@@ -36,7 +36,7 @@ WageRoute has three independent version numbers. Confusing them is the most comm
 | Database schema version | `src/main/db/migrations.ts` → `SCHEMA_VERSION`, stored in SQLite `PRAGMA user_version` | `8` | The shape of the on-disk database. Changes only when a migration is added. |
 | Backup format version | Written into every JSON backup, equal to `SCHEMA_VERSION` | `8` | The newest backup the app writes. The reader accepts versions `2` through `8`. |
 
-`package.json` reads `1.1.0` at the moment of the 1.1.0 release; between releases it keeps the last released number even though newer commits have landed, so the **commit SHA** is the only reliable identifier of an un-released build. Bump the version as part of the release, never before. Every build users had before 1.1.0 was schema 3; 1.1.0 was the first installer carrying schemas 4, 5 and 6, and the next builds add schema 7 (bill reserves) and then schema 8 (categories, card terms and balance history).
+`package.json` reads `1.1.0` at the moment of the 1.1.0 release; between releases it keeps the last released number even though newer commits have landed, so the **commit SHA** is the only reliable identifier of an un-released build. Bump the version as part of the release, never before. Every build users had before 1.1.0 was schema 3; 1.1.0 was the first installer carrying schemas 4, 5 and 6. The unreleased 1.2.0 line adds schema 7 (bill reserves) and schema 8 (categories, card terms and balance history), so it will migrate a 1.0.x database through every step in one launch.
 
 The source of truth for the app version is `package.json`. `npm` updates `package-lock.json` with it; electron-builder reads it when naming artifacts and writing bundle metadata.
 
@@ -109,9 +109,10 @@ Run this before building anything you intend to distribute. It is intentionally 
 ### Verification
 
 - [ ] `npm ci` from a clean `node_modules` (not `npm install`).
+- [ ] `npm run lint` passes.
 - [ ] `npm test` passes.
 - [ ] `npm run typecheck` passes for both TypeScript projects.
-- [ ] `npm run build` succeeds.
+- [ ] `npm run build` succeeds and regenerates `THIRD-PARTY-NOTICES.txt`.
 - [ ] The app boots with a throwaway profile.
 - [ ] The golden paths were exercised manually (see [DEVELOPMENT.md](DEVELOPMENT.md#known-test-gaps)).
 - [ ] A JSON export from the previous build imports into the new build on a fresh profile.
@@ -165,14 +166,17 @@ npm run dist                # build + installers for the current platform
 | --- | --- |
 | `dev` | electron-vite dev server with HMR |
 | `start` | preview the production build |
-| `test` | `node --import tsx --test` over the eighteen test files listed in `package.json` |
+| `lint` | repository-local gate: no `debugger`, console logging, `@ts-ignore` or `any` |
+| `test` | `node --import tsx --test` over the twenty-six test files listed in `package.json` |
+| `notices` | regenerate `THIRD-PARTY-NOTICES.txt` from `package-lock.json` |
+| `prebuild` | runs `notices` automatically before every `npm run build` |
 | `typecheck:node` | main, preload, shared, config |
 | `typecheck:web` | renderer and shared |
 | `typecheck` | both projects |
-| `build` | typecheck, then bundle main/preload/renderer into `out/` |
-| `dist` | build, then electron-builder for the host platform |
+| `build` | notices, typecheck, then bundle main/preload/renderer into `out/` |
+| `dist` | build, then electron-builder for the host platform (`--publish never`) |
 | `dist:mac` | build, then macOS DMG |
-| `dist:win` | build, then Windows NSIS, portable and zip |
+| `dist:win` | build, then Windows NSIS, MSI, portable and zip |
 | `dist:linux` | build, then Linux AppImage, deb and rpm |
 | `postinstall` | rebuild native modules for Electron |
 
@@ -229,22 +233,19 @@ out/
 
 ```text
 release/
-├── WageRoute-1.1.0-arm64.dmg
-├── WageRoute-1.1.0-arm64.dmg.blockmap
-├── WageRoute-1.1.0-x64.dmg
-├── WageRoute-1.1.0-x64.dmg.blockmap
+├── WageRoute-1.2.0-arm64.dmg
+├── WageRoute-1.2.0-x64.dmg
 ├── mac-arm64/WageRoute.app
 └── mac/WageRoute.app            # when an x64 build runs
 ```
 
-The names are pinned by `dmg.artifactName` in `electron-builder.yml` (`WageRoute-${version}-${arch}.dmg`), so both architectures carry their suffix and a release note can name an asset exactly. The `.blockmap` files are useful only to an auto-updater; there is none today.
+The names are pinned by `dmg.artifactName` in `electron-builder.yml` (`WageRoute-${version}-${arch}.dmg`), so both architectures carry their suffix and a release note can name an asset exactly. `publish: null` means no `latest-mac.yml` or `.blockmap` is written: there is no updater, so there is no update metadata to describe.
 
 **Windows** — `win.target` requests `nsis`, `msi`, `portable` and `zip` for `x64` and `arm64`:
 
 ```text
 release/
 ├── WageRoute.Setup.1.2.0.exe
-├── WageRoute.Setup.1.2.0.exe.blockmap
 ├── WageRoute-1.2.0-x64.msi
 ├── WageRoute-1.2.0-arm64.msi
 ├── WageRoute-1.2.0.portable.exe
@@ -278,7 +279,9 @@ release/
 
 ### Bundle contents
 
-`files` includes only `out/**/*` and `package.json`, minus source maps. `asarUnpack` extracts `**/*.node`, so the native SQLite binary sits outside the asar archive where it can be loaded. `npmRebuild: true` rebuilds native modules during packaging. `extraResources` copies `LICENSE` beside the app so the licence ships with the bundle.
+`files` includes only `out/**/*` and `package.json`, minus source maps. `asarUnpack` extracts `**/*.node`, so the native SQLite binary sits outside the asar archive where it can be loaded. `npmRebuild: true` rebuilds native modules during packaging. `extraResources` copies `LICENSE` and the generated `THIRD-PARTY-NOTICES.txt` beside the app, and Settings → About can display both.
+
+`publish: null` is deliberate. electron-builder otherwise infers a publisher from the repository field on a tag build and writes `latest-mac.yml` / `latest.yml`; WageRoute has no updater, so those files would advertise an update channel that does not exist. Releases are assembled by the workflow's release job instead.
 
 No database is bundled. On first launch the app seeds one blank local user with default settings if no user row exists, and the dashboard offers a start-from-scratch or import-a-backup path. The demo profile (Alex) is seeded only in development builds (`app.isPackaged` false); it is **not** a release asset.
 
@@ -320,15 +323,18 @@ Architectures are passed on the command line, never as `arch` lists inside `elec
 
 ### Steps
 
-1. `actions/checkout@v4`
-2. `actions/setup-node@v4` with Node **24** and npm cache
+1. `actions/checkout` (pinned by commit SHA)
+2. `actions/setup-node` (pinned by commit SHA) with Node **24** and npm cache
 3. `npm ci`
-4. `npm test`
-5. `npm run build` (typecheck and production bundles)
-6. `npx electron-builder <arch flag> --publish never`
-7. Platform smoke test — see below
-8. `actions/upload-artifact@v4` with `if-no-files-found: error`
-9. On a tag push only: create a **draft** release if none exists and attach the raw installers with `gh release upload --clobber`
+4. `npm run lint`
+5. `npm test`
+6. `npm run build` (notices, typecheck and production bundles)
+7. `npx electron-builder <arch flag> --publish never`
+8. Platform smoke test — see below
+9. `actions/upload-artifact` (pinned by commit SHA) with `if-no-files-found: error`
+10. On a tag push only, the separate `release` job downloads every artifact, writes `SHA256SUMS`, creates a **draft** release if none exists and uploads the files with `gh release upload --clobber`
+
+The build matrix runs with `permissions: contents: read`. Only the `release` job declares `contents: write`, so a compromised build step cannot alter the repository or a release.
 
 ### Smoke tests
 
@@ -342,14 +348,14 @@ The rpm is built but not launched, because `rpm2cpio` is not installed on the ru
 
 ### What CI does not do
 
-- It does not lint. There is no linter configured.
 - It does not launch the macOS app. The Windows MSI and the Linux AppImage and deb are launched; the DMG is not, because the runner has no display session the app will accept.
 - It does not test the NSIS installer, the portable exe, the zip or the rpm at run time. They share the packaged payload with the MSI or the deb.
-- It does not create a tag or write release notes. On a tag push it attaches files to a **draft** release; publishing stays manual.
-- It does not sign with a real identity or notarize. macOS artifacts get an ad-hoc signature from the afterSign hook; Windows and Linux artifacts are unsigned.
-- It does not compute checksums.
-- It does not publish anywhere. `npm run dist:*` passes `--publish never`, because electron-builder treats a tag build as an implicit publish request and fails when `GH_TOKEN` is absent. Artifacts expire according to the repository's retention setting (GitHub's default is 90 days).
-- It does not pin actions to commit SHAs; the major tags are mutable. See [SECURITY.md](SECURITY.md#supply-chain).
+- It does not create a tag or write release notes. On a tag push it creates or updates a **draft** release and attaches the files plus `SHA256SUMS`; publishing stays manual.
+- It does not sign with a real identity or notarize. macOS artifacts get an ad-hoc signature from the afterSign and afterAllArtifactBuild hooks; Windows and Linux artifacts are unsigned.
+- It does not run `npm audit`, generate an SBOM or attest build provenance.
+- It does not publish anywhere. `npm run dist:*` and the workflow pass `--publish never` (and `publish: null` is set in the config), because electron-builder treats a tag build as an implicit publish request and fails when `GH_TOKEN` is absent. Artifacts expire according to the repository's retention setting (GitHub's default is 90 days).
+
+Every action is pinned by commit SHA with its release version in a comment; a bump means replacing the SHA, not the tag. See [SECURITY.md](SECURITY.md#supply-chain).
 
 Artifacts are downloaded from the workflow run page. They are zip files containing the installer, and may lose the executable bit or macOS metadata depending on the download path. For distribution, publish the raw installer files rather than the artifact zip.
 
@@ -374,7 +380,7 @@ Practical workarounds, in order of convenience:
 3. Install via **Homebrew** (`brew install --cask ReVax-2007/wageroute/wageroute`) or **curl** — see [DEPLOYMENT.md](DEPLOYMENT.md#homebrew-tap). A curl download carries no quarantine attribute, so Gatekeeper never checks it. Homebrew does quarantine, so its first launch still needs option 1 unless you clear the flag with option 4.
 4. `sudo xattr -rd com.apple.quarantine /Applications/WageRoute.app` (only for a build you trust; it removes a real protection). This needs your password. Without `sudo` the same command fails with EPERM on browser-downloaded apps, which also carry the `com.apple.provenance` attribute; prefer options 1–3.
 
-Apple Silicon requires at least an ad-hoc signature for the executable to run, and an *invalid* signature produces the "damaged" dialog rather than the "cannot be verified" one. electron-builder's default no-identity path leaves the bundle with a broken signature, which is why the build re-signs it explicitly with `codesign --force --deep --sign -` in the afterSign hook, then runs `codesign --verify --strict` on the bundle so a failed signature fails the build instead of shipping. (`spctl --assess` is not used: it rejects ad-hoc signatures by design.) The hook runs **after** electron-builder applies the electron fuses: flipping a fuse rewrites the binary and invalidates any signature made before it, so a hook on `afterPack` would leave the shipped bundle invalid. Ad-hoc is not notarization and does not satisfy Gatekeeper for downloaded copies. Verify the artifact on a clean machine rather than assuming a local launch proves it will open elsewhere.
+Apple Silicon requires at least an ad-hoc signature for the executable to run, and an *invalid* signature produces the "damaged" dialog rather than the "cannot be verified" one. electron-builder's default no-identity path leaves the bundle with a broken signature, so `scripts/adhoc-sign.js` (the `afterSign` hook) re-signs the bundle explicitly: nested Mach-O files (`.dylib`, `.so`, `.node` and the helper executables) first, then any nested `.app` bundles deepest-first, then the outer bundle, and finally runs `codesign --verify --deep --strict` so a failed signature fails the build instead of shipping. The hook runs **after** electron-builder applies the electron fuses — flipping a fuse rewrites the binary and invalidates any signature made before it, so a hook on `afterPack` would leave the shipped bundle invalid. `scripts/adhoc-sign-dmg.js` (`afterAllArtifactBuild`) then signs and verifies each `.dmg`, so the container matches the app inside it. (`spctl --assess` is not used: it rejects ad-hoc signatures by design.) Ad-hoc is not notarization and does not satisfy Gatekeeper for downloaded copies. Verify the artifact on a clean machine rather than assuming a local launch proves it will open elsewhere.
 
 To ship properly you need:
 
@@ -463,13 +469,15 @@ Install from the DMG/EXE on a machine or VM that has never run WageRoute:
 
 A build that launches from `out/` is not evidence that the packaged app works. The asar layout and native module unpacking only exist in the packaged artifact.
 
-### 6. Record checksums
+### 6. Checksums
+
+The tag build's release job computes `SHA256SUMS` over the artifacts it downloads and attaches it to the draft release, so the published hashes come from the same run that built the files. For a locally assembled release, or to compare against CI, compute them yourself:
 
 ```bash
-shasum -a 256 release/*.dmg release/*.exe release/*.AppImage release/*.deb release/*.rpm
+shasum -a 256 release/*.dmg release/*.exe release/*.msi release/*.zip release/*.AppImage release/*.deb release/*.rpm
 ```
 
-Publish the checksums alongside the installers. They let a recipient confirm the file was not truncated or replaced.
+They let a recipient confirm the file was not truncated or replaced.
 
 ### 7. Commit and tag
 
@@ -489,7 +497,7 @@ Both matrix jobs must pass. Download the macOS and Windows artifacts. Compare th
 
 ### 9. Publish the release
 
-See [Publishing a GitHub Release](#publishing-a-github-release). Attach the raw installers and checksums, write notes from the template, and mark a build as pre-release only when it is not meant to be the default download.
+See [Publishing a GitHub Release](#publishing-a-github-release). Confirm the draft carries the raw installers and `SHA256SUMS`, write notes from the template, and mark a build as pre-release only when it is not meant to be the default download.
 
 ### 10. Archive
 
@@ -519,9 +527,9 @@ CI uploads workflow artifacts only. Creating a release is a manual, deliberate s
    - `WageRoute-<version>-x64.msi` and `WageRoute-<version>-arm64.msi`
    - `WageRoute-<version>.portable.exe` and the two zips
    - the AppImage, deb and rpm for x64 (`-x86_64.AppImage`, `-amd64.deb`, `-x86_64.rpm`) and arm64 (`-arm64.AppImage`, `-arm64.deb`, `-aarch64.rpm`)
-   - `SHA256SUMS.txt` covering all of the above
+   - `SHA256SUMS` covering all of the above
 
-   The draft release created by the tag build already carries these files; the `gh release upload` step in [`.github/workflows/build.yml`](../.github/workflows/build.yml) attaches them. Check the draft rather than re-uploading by hand.
+   The draft release created by the tag build already carries these files, including `SHA256SUMS`; the `release` job in [`.github/workflows/build.yml`](../.github/workflows/build.yml) attaches them. Check the draft rather than re-uploading by hand.
 6. Mark as **pre-release** only if you do not intend this build as the default download.
 7. Publish.
 
@@ -660,7 +668,7 @@ Schema: 8 (migrates 3 → 4 → 5 → 6 → 7 → 8) · Backups: accepts 2–8
 
 ## Checksums
 
-SHA-256, one line per attached installer (see SHA256SUMS.txt):
+SHA-256, one line per attached installer (see SHA256SUMS):
 - WageRoute-<version>-arm64.dmg — ...
 - WageRoute-<version>-x64.dmg — ...
 - WageRoute.Setup.<version>.exe — ...
@@ -697,16 +705,16 @@ Keep the notes honest about signing, because that is the first thing a recipient
 
 - [ ] Commit is on the intended branch.
 - [ ] Tag matches the app version exactly (`vX.Y.Z`).
-- [ ] CI macOS and Windows jobs pass.
-- [ ] Checksums generated.
-- [ ] GitHub Release created with raw installers, checksums and notes.
+- [ ] Every CI build job passes.
+- [ ] The draft release carries the raw installers and `SHA256SUMS`; local hashes match CI.
+- [ ] GitHub Release notes written and checked.
 - [ ] Pre-release flag set only when this build is not the default download.
 - [ ] No database or backup attached.
 
 ### After release
 
 - [ ] Install from the published assets on a clean machine.
-- [ ] Bump the `homebrew-wageroute` tap: set `version` and both arch `sha256`s in `Casks/wageroute.rb` to the new release's checksums from `SHA256SUMS.txt`.
+- [ ] Bump the `homebrew-wageroute` tap: set `version` and both arch `sha256`s in `Casks/wageroute.rb` to the new release's checksums from `SHA256SUMS`.
 - [ ] Archive installers, checksums, notes, schema version and commit SHA.
 - [ ] Keep the previous installer until the new one has been used successfully.
 - [ ] Record any signing or Gatekeeper/SmartScreen feedback.
@@ -721,10 +729,8 @@ These are real limitations, not TODOs that are already handled elsewhere:
 | --- | --- |
 | No code signing or notarization | Gatekeeper and SmartScreen warn or block; unsuitable for broad public distribution |
 | No auto-update | Users must download and install each release manually |
-| No published release automation | CI produces artifacts only; a human must create the release |
-| No checksums in CI | Checksums are manual and easy to skip |
-| No SBOM or build provenance | Cannot attest to dependency contents beyond the lockfile |
-| Actions pinned by major tag | A compromised or retagged action could affect builds |
+| No published release automation | CI builds, hashes and attaches to a **draft**; a human publishes it |
+| No dependency audit or SBOM | `npm ci`, SHA-pinned actions and review are the only supply-chain controls |
 | No packaged-app smoke test for macOS or the NSIS-family formats | The MSI and the Linux packages are installed or booted by CI; the DMG, NSIS installer, portable exe and zip still need a human launch |
 | No x64 app verification on Apple Silicon | The config requests x64, but only arm64 has been exercised locally |
 | No rollback automation | Rollback is a manual file restore with a quarantine step |

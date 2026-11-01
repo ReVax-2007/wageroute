@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-WageRoute is at 1.1.x. Security fixes are applied to the latest 1.1.x release on the current schema version (7). Older builds and unsupported backup versions are not patched.
+The published line is 1.1.x; the unreleased 1.2.x line carries schema 8. Security fixes are applied to the newest supported line (1.1.0 is schema 6). Older builds and unsupported backup versions are not patched.
 
 ## Reporting a vulnerability
 

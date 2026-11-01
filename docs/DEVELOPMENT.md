@@ -54,19 +54,21 @@ npm run postinstall
 | --- | --- | --- |
 | `npm run dev` | `electron-vite dev` | Dev server, main/preload rebuild, hot renderer reload |
 | `npm start` | `electron-vite preview` | Run the production bundles in `out/` |
-| `npm test` | `node --import tsx --test` (twenty-six files listed explicitly) | Domain, cadence, categories, credit, payoff, history, accounts, importer, backup-example, merge, migration, maintenance, files, statements, preload bridge and repository tests |
+| `npm run lint` | `node scripts/lint.mjs` | Repository-local checks: no `debugger`, no `console.log`/`console.debug`, no `@ts-ignore`/`@ts-expect-error`, no `any` cast and no `: any` annotation |
+| `npm test` | `node --import tsx --test` (twenty-six files listed explicitly) | Domain, cadence, categories, credit, payoff, history, accounts, importer, statements, backup-example, merge, migration, maintenance, entries, files, product model, preload bridge and repository tests |
+| `npm run notices` | `node scripts/third-party-notices.mjs` | Regenerate `THIRD-PARTY-NOTICES.txt` from the production tree in `package-lock.json`; also runs as `prebuild` |
 | `npm run typecheck` | node + web type checks | Both TypeScript projects |
 | `npm run typecheck:node` | `tsc --noEmit -p tsconfig.node.json` | Main, preload, shared, config |
 | `npm run typecheck:web` | `tsc --noEmit -p tsconfig.json` | Renderer and shared |
-| `npm run build` | typecheck + `electron-vite build` | `out/main`, `out/preload`, `out/renderer` |
-| `npm run dist` | build + `electron-builder` | Current platform |
-| `npm run dist:mac` | build + `electron-builder --mac` | DMG, arm64 + x64 |
-| `npm run dist:win` | build + `electron-builder --win --x64 --arm64` | NSIS + MSI + portable + zip (MSI needs Windows: WiX) |
-| `npm run dist:linux` | build + `electron-builder --linux --x64 --arm64` | AppImage + deb + rpm |
+| `npm run build` | notices + typecheck + `electron-vite build` | `out/main`, `out/preload`, `out/renderer` |
+| `npm run dist` | build + `electron-builder --publish never` | Current platform |
+| `npm run dist:mac` | build + `electron-builder --mac --x64 --arm64 --publish never` | DMG, arm64 + x64 |
+| `npm run dist:win` | build + `electron-builder --win --x64 --arm64 --publish never` | NSIS + MSI + portable + zip (MSI needs Windows: WiX) |
+| `npm run dist:linux` | build + `electron-builder --linux --publish never` | AppImage + deb + rpm |
 
 Architectures are passed as flags, not as `arch` lists in `electron-builder.yml`: electron-builder merges a target's declared arches into every build, so a declared list overrides `--x64`.
 
-There is no lint script and no formatter configuration. Consistency is maintained by convention and type checking.
+There is no formatter configuration and no ESLint/Prettier dependency. `npm run lint` is a small script that covers the mistakes the type checker cannot see; formatting is maintained by convention. CI runs `npm run lint` before the tests.
 
 ## Project layout
 
@@ -75,7 +77,7 @@ src/
 ├── main/
 │   ├── index.ts              app lifecycle, window, security policy
 │   ├── ipc.ts                channel handlers, dialogs, file I/O
-│   ├── files.ts              atomic, mode-restricted writes
+│   ├── files.ts              atomic writes, read-back verification
 │   ├── log.ts                crash/uncaught-error log
 │   └── db/
 │       ├── connection.ts     singleton, pragmas, path, boot checks
@@ -154,6 +156,8 @@ Two projects:
 
 Both enable `strict`, `verbatimModuleSyntax`, `isolatedModules` and `noEmit`. Type-only imports must use `import type`, because of `verbatimModuleSyntax`.
 
+`noUncheckedIndexedAccess` is **not** enabled. Enabling it was evaluated and measured: it surfaces 122 errors — 52 in 13 source files and 70 in tests — mostly array and record indexing in the projection, CSV and grid code. That is a real refactor rather than a flag flip, so it stays off until the affected paths are rewritten and their tests updated. Do not enable it in one config only; the two projects share `src/shared`.
+
 Aliases are defined in both the TS configs and `electron.vite.config.ts`:
 
 | Alias | Resolves to |
@@ -214,7 +218,7 @@ When a test requires moving a database aside, move it to a dated quarantine fold
 
 ## Testing
 
-Twenty-six files run by `npm test` through `node --test` with `tsx` as the loader — 200 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**; the `pretest` guard ([`scripts/check-test-list.mjs`](../scripts/check-test-list.mjs)) fails the run when a `*.test.ts` on disk is missing from that list, or when the list names a file that no longer exists.
+Twenty-six files run by `npm test` through `node --test` with `tsx` as the loader — 205 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**; the `pretest` guard ([`scripts/check-test-list.mjs`](../scripts/check-test-list.mjs)) fails the run when a `*.test.ts` on disk is missing from that list, or when the list names a file that no longer exists.
 
 | File | Style | Covers |
 | --- | --- | --- |
@@ -226,6 +230,7 @@ Twenty-six files run by `npm test` through `node --test` with `tsx` as the loade
 | `csv.test.ts` | pure functions | export round-trip; text cells beginning `=`, `+`, `-`, `@`, tab or CR are prefixed with an apostrophe; amount cells stay numeric |
 | `cadence.test.ts` | pure functions | which paycheck slot a date falls in for each pay cadence; the check closest to a due day, ties going earlier; which slots a month is certain to contain; an unreachable target is clamped rather than dropped; `last_check` lands on the last guaranteed slot and nowhere else; `all_checks` has no single funding check; a single-check bill carries the **month** ($50 weekly → $216.67) on one check and nothing on the other; every strategy's monthly total equals the obligation it owes; no paycheck date means the spread, never the clock |
 | `importRepair.test.ts` | pure functions | a clean backup needs nothing; each missing, invalid or dangling value becomes exactly one question; nullable versus required references; answers repair rows, unanswered rows are dropped rather than thrown; a still-invalid answer drops with the validation message; clearing a nullable reference is a valid answer; rows inside one file can satisfy each other's references; the accounts↔goals cycle is answerable in one pass; unmatched CSV account names collapse to one question each |
+| `statements.test.ts` | pure functions | SGML and XML OFX/QFX statements read signed lines without a timezone shift; an impossible OFX date is reported rather than rolled forward; a statement with no transaction block is refused; a bank CSV without an Account column names its own problem line |
 | `accounts.test.ts` | pure functions | the explicit Safe-to-spend choice versus the kind default; a dedicated account staying out of the spendable pool; archived accounts counting for nothing; credit subtracting from total wealth; wealth buckets partitioning the total exactly; the allocator skipping an account-funded goal and the leftover falling to savings |
 | `categories.test.ts` | pure functions | name normalisation and the case/space-insensitive key; the seed list; spending for a month groups by linked id, falls back to stored text, ignores non-spending kinds and sorts largest first |
 | `credit.test.ts` | pure functions | the close date walked first, then the first due day after it (both orderings); amount due never below zero; the previous close date of a date |
@@ -237,6 +242,8 @@ Twenty-six files run by `npm test` through `node --test` with `tsx` as the loade
 | `migrations.test.ts` | **real in-memory SQLite** | forward-only `user_version`; `SchemaTooNewError` carries the found and supported numbers and leaves `user_version` unchanged; each migration preserves existing rows |
 | `reserves.test.ts` | **real in-memory SQLite** | `bill_reserves` rows are written and cleared with the bill lifecycle; a partial payment moves the reserve; the v7 migration backfills nothing it should not |
 | `legacy.test.ts` | temp directories | pre-rename adoption moves the database and its sidecars or leaves everything in place and reports why |
+| `entries.test.ts` | **real in-memory SQLite** | a statement lands on the account the wizard chose and re-imports as duplicates; an unanswered statement is reported once, not once per line |
+| `api.test.ts` | pure | every bridge method reaches one declared channel and the contract has no extras; the bridge exposes exactly the channels the contract declares |
 | `maintenance.test.ts` | real SQLite file | `quick_check` passes on a healthy file; a non-SQLite file raises `DatabaseCorruptError`; a pre-upgrade copy carries every row and prunes to the newest three; `VACUUM` + `secure_delete` leave a sentinel memo absent from the database file |
 | `ledger-guards.test.ts` | **real in-memory SQLite** | archived accounts are refused where they would be spent; a counter account on a non-transfer entry is refused; a round-up memo is clamped to 240 characters |
 | `files.test.ts` | temp directories | an atomic write replaces the file, leaves mode `0600` on POSIX and no temporary behind; a failed write leaves the previous file intact |
@@ -298,9 +305,10 @@ A typical feature crosses most layers. Use this checklist.
 
 ### 3. IPC
 
-- Add a channel in `src/main/ipc.ts`.
+- Add the channel to the `IpcContract` map and the `CHANNELS` list in `src/shared/channels.ts` (the compile-time check rejects a handler with no contract entry).
+- Add the handler in `src/main/ipc.ts`.
 - Add the method to `FinanceApi` in `src/shared/api.ts`.
-- Add the bridge method in `src/preload/index.ts`.
+- Add the bridge call in `src/preload/api.ts`.
 - Add the store action in `src/renderer/src/store/useFinanceStore.ts`.
 
 ### 4. UI
@@ -323,27 +331,27 @@ A typical feature crosses most layers. Use this checklist.
 ## Adding an IPC channel
 
 1. Define the input and output types in `src/shared/types.ts` or `src/shared/api.ts`.
-2. Add the method signature to `FinanceApi`.
+2. Add the method signature to `FinanceApi` and its entry to the `IpcContract` map in `src/shared/channels.ts`; add the name to the `CHANNELS` list. A channel missing from that list fails the compile-time `UnlistedChannel` check.
 3. Register `ipcMain.handle('domain:action', ...)` in `src/main/ipc.ts`.
    - Validate IDs with `requireId`.
    - Delegate payload rules to the repository; do not duplicate them in the handler.
-4. Expose it in `src/preload/index.ts`.
+4. Expose it through the typed `call()` helper in `src/preload/api.ts` (the bridge is built from the contract, not hand-written per channel).
 5. Add a store action that calls it, refreshes the snapshot and surfaces errors.
 6. Keep channel names `domain:verb` (`account:create`, `data:preview`, `data:confirm`).
 
-Do not expose `ipcRenderer`, `require`, `fs` or raw SQL to the renderer.
+Do not expose `ipcRenderer`, `require`, `fs` or raw SQL to the renderer. `src/preload/api.test.ts` fails if the bridge and the contract drift apart.
 
 ## Adding a schema migration
 
-Migrations are append-only. Never modify a `SCHEMA_V*` string once its version has shipped (`SCHEMA_V1`–`SCHEMA_V7` are released); databases in the field have already run them.
+Migrations are append-only. Never modify a `SCHEMA_V*` string once its version has shipped (`SCHEMA_V1`–`SCHEMA_V6` shipped in 1.1.0; `SCHEMA_V7` and `SCHEMA_V8` are the unreleased 1.2.0 schemas, and `SCHEMA_V8` becomes immutable when 1.2.0 ships); databases in the field have already run them.
 
 ### Procedure
 
-1. Add a new SQL string, e.g. `SCHEMA_V8`.
-2. Add `{ version: 8, up: (db) => db.exec(SCHEMA_V8) }` to `MIGRATIONS`.
+1. Add a new SQL string, e.g. `SCHEMA_V9`.
+2. Add `{ version: 9, up: (db) => db.exec(SCHEMA_V9) }` to `MIGRATIONS`.
 3. `SCHEMA_VERSION` updates automatically from the last entry.
 4. Update types, repositories, backup allowlists and the seed. A column declared `NOT NULL` with a schema default also needs an entry in `TABLE_DEFAULTS`, or an older backup that omits it inserts `NULL` and aborts that row.
-5. Test against a **copy** of a version-7 database (see [Working safely with data](#working-safely-with-data) — never the live file, and there is no downgrade path):
+5. Test against a **copy** of a version-8 database (see [Working safely with data](#working-safely-with-data) — never the live file, and there is no downgrade path):
    - `PRAGMA user_version` before and after;
    - row counts preserved;
    - new columns present with correct defaults;
@@ -536,7 +544,7 @@ Architecture matters too: an arm64 Electron build needs an arm64 native module. 
 | Database changes seem lost | App still running and WAL not checkpointed | Quit before copying; copy `.db`, `-wal` and `-shm` |
 | macOS refuses to open a build | Unsigned app, Gatekeeper | Right-click → Open, or sign/notarize |
 | Windows SmartScreen warning | Unsigned installer, portable exe or zip | Expected for unsigned builds |
-| Linux package manager warning | Unsigned deb/rpm, unverified AppImage | Expected for unsigned builds; verify the SHA-256 from SHA256SUMS.txt |
+| Linux package manager warning | Unsigned deb/rpm, unverified AppImage | Expected for unsigned builds; verify the SHA-256 from `SHA256SUMS` |
 | Dev server port in use | Another Vite process | Stop it; Vite will otherwise choose the next port |
 | TypeScript cannot resolve `@shared` | Alias missing in one config | Update both tsconfigs and `electron.vite.config.ts` |
 | `electron-builder` uses the default icon | Icon path wrong or missing | Confirm `build/icon.icns` and `build/icon.png` |

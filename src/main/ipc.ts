@@ -51,7 +51,9 @@ import type {
   TransactionKind,
   TransactionPatch
 } from '@shared/types'
-import { databasePath } from './db/connection'
+import { backupsPath, databasePath } from './db/connection'
+import { backupBeforeErase } from './db/maintenance'
+import { logPath, recentLogTail } from './log'
 import {
   backupToJson,
   buildBackup,
@@ -377,6 +379,52 @@ export function registerIpcHandlers(db: Database.Database): void {
     electron: process.versions.electron
   }))
 
+  handle('app:diagnostics', () => {
+    const file = databasePath()
+    const counts = emptyImportCounts()
+    for (const table of IMPORT_TABLES) {
+      const row = db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }
+      counts[table] = row.n
+    }
+    let bytes = 0
+    try {
+      bytes = statSync(file).size
+    } catch {
+      // A missing file is itself the diagnosis; zero bytes says so.
+    }
+    return {
+      generatedAt: new Date().toISOString(),
+      version: app.getVersion(),
+      schemaVersion: SCHEMA_VERSION,
+      electron: process.versions.electron,
+      chrome: process.versions.chrome,
+      node: process.versions.node,
+      platform: process.platform,
+      arch: process.arch,
+      packaged: app.isPackaged,
+      databasePath: file,
+      databaseBytes: bytes,
+      backupsPath: backupsPath(),
+      logPath: logPath(),
+      logTail: recentLogTail(),
+      counts
+    }
+  })
+
+  handle('app:legal', () => {
+    // Packaged builds carry both files as resources; a checkout keeps them at
+    // the repo root, two levels above out/main.
+    const root = app.isPackaged ? process.resourcesPath : join(__dirname, '../..')
+    const read = (name: string): string => {
+      try {
+        return readFileSync(join(root, name), 'utf8')
+      } catch {
+        return `(${name} is missing from this build)`
+      }
+    }
+    return { license: read('LICENSE'), notices: read('THIRD-PARTY-NOTICES.txt') }
+  })
+
   handle('account:create', (_event, input: AccountInput) =>
     write(db, userId, ['accounts', 'goals'], () => repo.createAccount(db, userId(), input))
   )
@@ -689,6 +737,9 @@ export function registerIpcHandlers(db: Database.Database): void {
       userId,
       ['user', 'settings', 'accounts', 'categories', 'bills', 'goals', 'transactions', 'paychecks', 'billReserves', 'balanceSnapshots'],
       () => {
+        // A disclosed last-resort copy, kept beside the pre-upgrade ones. The
+        // erase itself is still immediate and complete.
+        backupBeforeErase(db, backupsPath())
         repo.wipeAllData(db)
         // A held import points at the ledger that just disappeared; keeping it
         // would let a stale wizard confirm into the next profile.

@@ -1562,6 +1562,23 @@ span.wizard-step-chip {
   border-radius: 7px;
 }
 
+.diagnostics-text {
+  max-height: 320px;
+  margin: 10px 0 0;
+  padding: 12px 14px;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  user-select: text;
+}
+
 .setting-empty {
   display: flex;
   align-items: center;

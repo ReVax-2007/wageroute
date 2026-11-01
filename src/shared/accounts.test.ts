@@ -6,10 +6,18 @@ import {
   poolEarmarkedGoalsCents,
   safeToSpendPoolCents,
   totalWealthCents,
+  unsettledRoutingCents,
   wealthBuckets
 } from './accounts'
 import type { AllocatorGoal, AllocationPlan } from './allocator'
-import type { AccountKind, AccountWithBalance, GoalWithProgress } from './types'
+import type {
+  AccountKind,
+  AccountWithBalance,
+  AllocationBucket,
+  GoalWithProgress,
+  PaycheckWithAllocations,
+  TransactionRow
+} from './types'
 
 function allocated(plan: AllocationPlan): number {
   return (
@@ -118,6 +126,126 @@ test('the Safe-to-spend pool is the chosen accounts, not all cash', () => {
     account({ id: 'd', kind: 'credit', balanceCents: -12_000 })
   ]
   assert.equal(safeToSpendPoolCents(accounts), 140_000)
+})
+
+function paycheck(
+  receivedOn: string,
+  buckets: Partial<Record<AllocationBucket, number>>
+): PaycheckWithAllocations {
+  return {
+    id: `pay-${receivedOn}`,
+    userId: 'user-1',
+    amountCents: 150_000,
+    receivedOn,
+    source: 'Employer',
+    depositAccountId: 'acc-1',
+    priorityCents: 21_313,
+    surplusCents: 128_687,
+    leisureCents: 12_869,
+    health: 'covered',
+    createdAt: `${receivedOn}T00:00:00.000Z`,
+    updatedAt: `${receivedOn}T00:00:00.000Z`,
+    deletedAt: null,
+    revision: 1,
+    allocations: Object.entries(buckets).map(([bucket, cents], index) => ({
+      id: `alloc-${receivedOn}-${index}`,
+      userId: 'user-1',
+      paycheckId: `pay-${receivedOn}`,
+      bucket: bucket as AllocationBucket,
+      goalId: null,
+      label: bucket,
+      amountCents: cents ?? 0,
+      createdAt: `${receivedOn}T00:00:00.000Z`,
+      updatedAt: `${receivedOn}T00:00:00.000Z`,
+      deletedAt: null,
+      revision: 1
+    }))
+  }
+}
+
+function entry(
+  accountId: string,
+  occurredOn: string,
+  amountCents: number
+): TransactionRow {
+  return {
+    id: `tx-${accountId}-${occurredOn}-${amountCents}`,
+    userId: 'user-1',
+    accountId,
+    kind: 'transfer',
+    amountCents,
+    occurredOn,
+    memo: '',
+    category: 'Transfer',
+    categoryId: null,
+    externalId: null,
+    billId: null,
+    goalId: null,
+    paycheckId: null,
+    counterAccountId: null,
+    transferGroupId: null,
+    createdAt: `${occurredOn}T00:00:00.000Z`,
+    updatedAt: `${occurredOn}T00:00:00.000Z`,
+    deletedAt: null,
+    revision: 1,
+    accountName: accountId,
+    accountInstitution: null
+  }
+}
+
+test('routed debt and investing leave Safe to Spend until the money actually moves', () => {
+  const accounts = [
+    account({ id: 'chequing', kind: 'checking' }),
+    account({ id: 'card', kind: 'credit' }),
+    account({ id: 'broker', kind: 'investment' })
+  ]
+  const routed = paycheck('2026-11-02', { debt: 115_800, investment: 40_000 })
+  const today = '2026-11-10'
+
+  assert.equal(
+    unsettledRoutingCents({ paychecks: [routed], transactions: [], accounts, todayISO: today }),
+    155_800,
+    'nothing has moved yet'
+  )
+
+  const paid = [
+    entry('card', '2026-11-04', 115_800),
+    entry('broker', '2026-11-05', 10_000)
+  ]
+  assert.equal(
+    unsettledRoutingCents({ paychecks: [routed], transactions: paid, accounts, todayISO: today }),
+    30_000,
+    'the card payment settles debt; only the unmoved investment remains'
+  )
+})
+
+test('money moved before the paycheque does not settle this cycle', () => {
+  const accounts = [
+    account({ id: 'chequing', kind: 'checking' }),
+    account({ id: 'card', kind: 'credit' })
+  ]
+  const moved = [entry('card', '2026-10-28', 115_800)]
+  assert.equal(
+    unsettledRoutingCents({
+      paychecks: [paycheck('2026-11-02', { debt: 115_800 })],
+      transactions: moved,
+      accounts,
+      todayISO: '2026-11-10'
+    }),
+    115_800
+  )
+})
+
+test('last month’s routing is not deducted from this month', () => {
+  assert.equal(
+    unsettledRoutingCents({
+      paychecks: [paycheck('2026-10-16', { debt: 115_800 })],
+      transactions: [],
+      accounts: [account({ id: 'chequing', kind: 'checking' })],
+      todayISO: '2026-11-10'
+    }),
+    0
+  )
 })
 
 test('credit balances subtract from total wealth', () => {

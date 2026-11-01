@@ -4,7 +4,13 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { assertHealthy, backupBeforeUpgrade, compact, DatabaseCorruptError } from './maintenance'
+import {
+  assertHealthy,
+  backupBeforeErase,
+  backupBeforeUpgrade,
+  compact,
+  DatabaseCorruptError
+} from './maintenance'
 import { migrate } from './migrations'
 
 function workspace(): string {
@@ -64,6 +70,22 @@ test('an upgrade copy carries every row and keeps only the newest three', () => 
   assert.equal(kept.length, 3)
   assert.equal(kept[2], 'pre-upgrade-6-to-7-20261005-100000.db')
 
+  db.close()
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('an erase keeps a disclosed copy and prunes it separately from upgrades', () => {
+  const dir = workspace()
+  const backups = join(dir, 'backups')
+  const db = seeded(join(dir, 'ledger.db'))
+  backupBeforeUpgrade(db, backups, 7, 8, new Date('2026-09-01T10:00:00Z'))
+
+  for (let day = 1; day <= 4; day += 1) {
+    backupBeforeErase(db, backups, new Date(`2026-10-0${day}T10:00:00Z`))
+  }
+  const kept = readdirSync(backups).sort()
+  assert.equal(kept.filter((name) => name.startsWith('pre-erase-')).length, 3)
+  assert.equal(kept.filter((name) => name.startsWith('pre-upgrade-')).length, 1)
   db.close()
   rmSync(dir, { recursive: true, force: true })
 })

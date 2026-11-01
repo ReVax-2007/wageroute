@@ -21,5 +21,6 @@ export {
   selectPoolEarmarkedGoalsCents,
   selectSafeToSpendCents,
   selectSafeToSpendPoolCents,
-  selectTotalWealthCents
+  selectTotalWealthCents,
+  selectUnsettledRoutingCents
 } from './selectors'

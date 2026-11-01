@@ -441,7 +441,8 @@ None of the following are stored. They are recomputed from rows.
 | Per-paycheck wall | `SUM(billFundingReserveCents(bill, cadence, paycheckDate))` — the spread under `all_checks`, otherwise `monthlyEquivalentCents` on the one funding check and `0` on every other check. When the month already has a claim from an earlier cheque (`reservedBillIdsFor`), a single-check bill reserves `0` here | `cadence.ts`, `allocator.ts` |
 | Spendable pool | Sum of non-archived balances where `countsInSafeToSpend` holds (`in_safe_to_spend`, else not dedicated and kind in `checking,savings,cash`) | `accounts.ts` |
 | Pool-earmarked goals | `SUM(fundedCents)` for goals whose `fundedFrom` is `allocations`; account-funded goals are already outside the pool | `poolEarmarkedGoalsCents` |
-| Safe to Spend | Spendable pool − monthly wall − pool-earmarked goals | `store/selectors.ts` |
+| Unsettled routing | This month's `debt` + `investment` allocations, each bucket less positive entries on an account of the matching kind since the earliest paycheque in the month, clamped per bucket at 0 | `unsettledRoutingCents` |
+| Safe to Spend | Spendable pool − monthly wall − pool-earmarked goals − unsettled routing | `store/selectors.ts` |
 | Total wealth | Sum of every non-archived balance; credit is already negative | `accounts.ts` |
 | Wealth buckets | Cash / Saved for goals / Invested / Credit owed, partitioning total wealth exactly | `accounts.ts` |
 | Months to goal | `max(1, ceil(daysUntil / 30.4375))` | `dates.ts` |

@@ -11,7 +11,13 @@ import {
   emergencyMonthlyEssentialsCents,
   recommendedEmergencyTargetCents
 } from './emergency'
-import { centsToEditable, formatMoney, formatMoneyCompact, parseMoneyToCents } from './money'
+import {
+  centsToEditable,
+  currencySymbol,
+  formatMoney,
+  formatMoneyCompact,
+  parseMoneyToCents
+} from './money'
 import { projectUpcoming } from './projections'
 import { parseSettings, settingsToRecord } from './settings'
 import { roundUpRemainderCents, transferLegs } from './transfers'
@@ -58,6 +64,14 @@ test('the compact formatter is compact, not a full two-decimal amount', () => {
     formatMoneyCompact(250_000_000, 'USD').length < formatMoney(250_000_000, 'USD').length,
     'a compact figure must drop the minor units'
   )
+})
+
+test('a currency prefix comes from the currency, never a hard-coded dollar sign', () => {
+  assert.notEqual(currencySymbol('EUR'), '$')
+  assert.notEqual(currencySymbol('GBP'), '$')
+  assert.equal(currencySymbol('XXX'), 'XXX', 'an unknown code falls back to itself')
+  assert.equal(currencySymbol(''), currencySymbol('USD'), 'a blank code is US dollars')
+  assert.equal(currencySymbol('EUR'), currencySymbol('EUR'), 'the lookup is stable')
 })
 
 test('bill cadence is smoothed into per-paycheck reserves', () => {

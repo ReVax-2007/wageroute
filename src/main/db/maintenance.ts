@@ -50,7 +50,24 @@ export function backupBeforeUpgrade(
   mkdirSync(directory, { recursive: true })
   const file = join(directory, `pre-upgrade-${from}-to-${to}-${stamp(now)}.db`)
   db.exec(`VACUUM INTO ${quote(file)}`)
-  prune(directory, 3)
+  prune(directory, 'pre-upgrade-', 3)
+  return file
+}
+
+/**
+ * A last-resort copy taken immediately before an erase. Erase is deliberate and
+ * the dialog says so, but a mis-click should not be the end of a ledger: the
+ * copy is disclosed in the confirmation and pruned like the upgrade copies.
+ */
+export function backupBeforeErase(
+  db: Database.Database,
+  directory: string,
+  now = new Date()
+): string {
+  mkdirSync(directory, { recursive: true })
+  const file = join(directory, `pre-erase-${stamp(now)}.db`)
+  db.exec(`VACUUM INTO ${quote(file)}`)
+  prune(directory, 'pre-erase-', 3)
   return file
 }
 
@@ -61,10 +78,10 @@ export function compact(db: Database.Database): void {
   db.pragma('wal_checkpoint(TRUNCATE)')
 }
 
-function prune(directory: string, keep: number): void {
+function prune(directory: string, prefix: string, keep: number): void {
   if (!existsSync(directory)) return
   const copies = readdirSync(directory)
-    .filter((name) => name.startsWith('pre-upgrade-') && name.endsWith('.db'))
+    .filter((name) => name.startsWith(prefix) && name.endsWith('.db'))
     .sort()
     .reverse()
   for (const name of copies.slice(keep)) {

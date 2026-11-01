@@ -29,6 +29,7 @@ import {
   selectSafeToSpendCents,
   selectSafeToSpendPoolCents,
   selectTotalWealthCents,
+  selectUnsettledRoutingCents,
   useFinanceStore
 } from '../store/useFinanceStore'
 
@@ -60,6 +61,7 @@ export function Dashboard() {
   const pool = useFinanceStore(selectSafeToSpendPoolCents)
   const earmarked = useFinanceStore(selectPoolEarmarkedGoalsCents)
   const monthlyPriority = useFinanceStore(selectMonthlyWallCents)
+  const unsettled = useFinanceStore(selectUnsettledRoutingCents)
 
   if (!snapshot) return null
 
@@ -82,7 +84,7 @@ export function Dashboard() {
   const committedLabel =
     pool <= 0
       ? committed > 0
-        ? `No spendable cash is tracked, and ${formatMoney(committed, currency)} of bills and goals is already claimed.`
+        ? `No spendable cash is tracked, and ${formatMoney(committed, currency)} of bills, goals and routing is already claimed.`
         : 'No spendable cash is tracked yet.'
       : committedShare > 1
         ? `${committedPercent}% of spendable cash is committed — more than you have`
@@ -190,7 +192,8 @@ export function Dashboard() {
             <Money cents={safeToSpend} currency={currency} />
           </p>
           <p className="safe-note">
-            Cash you can spend without touching a bill or a funded goal.
+            Cash no bill, funded goal or this month&apos;s routing has claimed yet. Routing
+            records a plan; it does not move the money.
           </p>
           <div className="safe-meter" aria-hidden="true">
             <span style={{ width: `${Math.min(100, committedPercent)}%` }} />
@@ -217,6 +220,14 @@ export function Dashboard() {
               − <Money cents={earmarked} currency={currency} />
             </dd>
           </div>
+          {unsettled > 0 && (
+            <div>
+              <dt>Routed to debt and investing, not yet moved</dt>
+              <dd className="deduct">
+                − <Money cents={unsettled} currency={currency} />
+              </dd>
+            </div>
+          )}
           <div className="safe-total">
             <dt>Safe to spend</dt>
             <dd>

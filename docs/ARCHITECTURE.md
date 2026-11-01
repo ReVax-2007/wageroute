@@ -219,7 +219,7 @@ Notes:
 | `dates.ts` | Calendar-safe ISO helpers | `todayISO`, `addMonthsISO`, `nextDueDateISO`, `previousDueDateISO`, `advanceByFrequency` |
 | `money.ts` | Parsing, formatting, rounding | `parseMoneyToCents`, `centsToEditable`, `formatMoney`, `percentOf`, `floorToDollarCents` |
 | `emergency.ts` | Emergency target and coverage | `averageMonthlyVariableCents`, `emergencyMonthlyEssentialsCents`, `recommendedEmergencyTargetCents`, `emergencyCoverageMonths` |
-| `accounts.ts` | Spendable pool and wealth rules | `countsInSafeToSpend`, `safeToSpendPoolCents`, `poolEarmarkedGoalsCents`, `totalWealthCents`, `wealthBuckets` |
+| `accounts.ts` | Spendable pool and wealth rules | `countsInSafeToSpend`, `safeToSpendPoolCents`, `poolEarmarkedGoalsCents`, `unsettledRoutingCents`, `totalWealthCents`, `wealthBuckets` |
 | `importRepair.ts` | Import problem detection and repair rules | `findImportProblems`, `applyImportAnswers`, `validateFieldValue`, `findUnmappedAccounts`, `buildAccountMap` |
 | `projections.ts` | 90-day bill/goal forecast | `projectUpcoming` |
 | `billPrompts.ts` | Past-due bill detection | `dueBillPrompts` |

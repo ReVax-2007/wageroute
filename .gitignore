@@ -9,6 +9,9 @@ coverage/
 *.tsbuildinfo
 *.blockmap
 
+# Generated before every build from package-lock.json
+THIRD-PARTY-NOTICES.txt
+
 # Logs
 *.log
 npm-debug.log*

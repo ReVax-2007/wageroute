@@ -88,6 +88,31 @@ export function formatMoneyCompact(cents: number, currency = 'USD'): string {
   return formatterFor(currency, true).format(cents / 100)
 }
 
+const symbolCache = new Map<string, string>()
+
+/**
+ * The symbol a currency prints with, for fields that show the unit beside a
+ * bare input instead of a formatted amount. A code with no distinct symbol
+ * (or an unsupported one) comes back as the code itself, never as a stray `$`.
+ */
+export function currencySymbol(currency = 'USD'): string {
+  const code = currency || 'USD'
+  const cached = symbolCache.get(code)
+  if (cached) return cached
+
+  let symbol = code
+  try {
+    const parts = new Intl.NumberFormat(undefined, { style: 'currency', currency: code }).formatToParts(0)
+    const found = parts.find((part) => part.type === 'currency')?.value
+    // `Intl` prints the generic currency sign for a code it does not know.
+    if (found && found !== '¤') symbol = found
+  } catch {
+    symbol = code
+  }
+  symbolCache.set(code, symbol)
+  return symbol
+}
+
 export function percentOf(cents: number, percent: number): number {
   if (!Number.isFinite(cents) || !Number.isFinite(percent)) return 0
   return Math.round((cents * percent) / 100)

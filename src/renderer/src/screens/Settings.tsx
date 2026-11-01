@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import {
+  ClipboardCheck,
   Coffee,
+  Copy,
   Download,
   ExternalLink,
   FileSpreadsheet,
@@ -8,24 +10,69 @@ import {
   Info,
   Moon,
   RefreshCw,
+  ScrollText,
   Sun,
   Trash2,
   Upload
 } from 'lucide-react'
+import type { AppDiagnostics, LegalTexts } from '@shared/api'
 import { PAY_CADENCE_LABEL } from '@shared/cadence'
 import { isISODate } from '@shared/dates'
+import { currencySymbol, formatMoney } from '@shared/money'
 import type { PayCadence, RoundUpIncrementCents, ThemePreference } from '@shared/types'
 import { roundUpRemainderCents } from '@shared/transfers'
 import { Button, Card, Field, Modal, Segmented, Switch } from '../components/ui'
 import { useFinanceStore } from '../store/useFinanceStore'
 
-const INCREMENTS: { value: string; label: string; cents: RoundUpIncrementCents }[] = [
-  { value: '100', label: '$1', cents: 100 },
-  { value: '200', label: '$2', cents: 200 },
-  { value: '500', label: '$5', cents: 500 }
+const INCREMENTS: { value: string; cents: RoundUpIncrementCents }[] = [
+  { value: '100', cents: 100 },
+  { value: '200', cents: 200 },
+  { value: '500', cents: 500 }
+]
+
+// A short list of the currencies a personal ledger is most often kept in. A
+// hand-edited backup may still carry another valid code, so the select adds it
+// rather than silently showing the first option.
+const CURRENCIES: { code: string; label: string }[] = [
+  { code: 'USD', label: 'US dollar' },
+  { code: 'CAD', label: 'Canadian dollar' },
+  { code: 'EUR', label: 'Euro' },
+  { code: 'GBP', label: 'British pound' },
+  { code: 'AUD', label: 'Australian dollar' },
+  { code: 'NZD', label: 'New Zealand dollar' },
+  { code: 'CHF', label: 'Swiss franc' },
+  { code: 'JPY', label: 'Japanese yen' },
+  { code: 'SEK', label: 'Swedish krona' },
+  { code: 'NOK', label: 'Norwegian krone' },
+  { code: 'DKK', label: 'Danish krone' },
+  { code: 'INR', label: 'Indian rupee' },
+  { code: 'SGD', label: 'Singapore dollar' },
+  { code: 'ZAR', label: 'South African rand' },
+  { code: 'BRL', label: 'Brazilian real' },
+  { code: 'MXN', label: 'Mexican peso' }
 ]
 
 const CADENCES = Object.keys(PAY_CADENCE_LABEL) as PayCadence[]
+
+/** The text behind Copy diagnostics: no balances, no names, just the shape. */
+function describeDiagnostics(info: AppDiagnostics): string {
+  const counts = Object.entries(info.counts)
+    .map(([table, rows]) => `  ${table}: ${rows}`)
+    .join('\n')
+  return [
+    `WageRoute ${info.version}`,
+    `Generated: ${info.generatedAt}`,
+    `Schema: v${info.schemaVersion}`,
+    `Electron ${info.electron} · Chrome ${info.chrome} · Node ${info.node}`,
+    `Platform: ${info.platform} ${info.arch} (${info.packaged ? 'packaged' : 'development'})`,
+    `Database: ${info.databasePath} (${(info.databaseBytes / 1024).toFixed(1)} kB)`,
+    `Backups: ${info.backupsPath}`,
+    `Log: ${info.logPath}`,
+    info.logTail ? `Last log lines:\n${info.logTail}` : 'Log: no entries',
+    'Row counts:',
+    counts
+  ].join('\n')
+}
 
 export function Settings() {
   const settings = useFinanceStore((state) => state.settings)
@@ -42,6 +89,10 @@ export function Settings() {
   const [eraseStep, setEraseStep] = useState<0 | 1 | 2>(0)
   const [paydayDraft, setPaydayDraft] = useState(settings.paydayLabel)
   const [anchorDraft, setAnchorDraft] = useState(settings.payAnchorDate ?? '')
+  const [diagnostics, setDiagnostics] = useState<AppDiagnostics | null>(null)
+  const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+  const [legal, setLegal] = useState<{ title: string; body: string } | null>(null)
 
   useEffect(() => {
     setPaydayDraft(settings.paydayLabel)
@@ -53,6 +104,7 @@ export function Settings() {
 
   if (!snapshot) return null
 
+  const currency = settings.currency
   const savingsAccounts = snapshot.accounts.filter(
     (account) => account.kind === 'savings' && !account.isArchived
   )
@@ -76,6 +128,41 @@ export function Settings() {
 
   const update = (patch: Partial<typeof settings>) => {
     void saveSettings({ ...settings, ...patch })
+  }
+
+  const loadDiagnostics = async (): Promise<AppDiagnostics | null> => {
+    try {
+      const data = await window.api.getDiagnostics()
+      setDiagnostics(data)
+      setDiagnosticsError(null)
+      return data
+    } catch (error) {
+      setDiagnosticsError(error instanceof Error ? error.message : String(error))
+      return null
+    }
+  }
+
+  const copyDiagnostics = async () => {
+    const data = diagnostics ?? (await loadDiagnostics())
+    if (!data) return
+    try {
+      await navigator.clipboard.writeText(describeDiagnostics(data))
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 2000)
+    } catch {
+      setDiagnosticsError('The clipboard refused the copy. The details below stay selectable.')
+      await loadDiagnostics()
+    }
+  }
+
+  const openLegal = async (which: 'license' | 'notices') => {
+    const title = which === 'license' ? 'Licence' : 'Third-party notices'
+    try {
+      const texts: LegalTexts = await window.api.getLegalTexts()
+      setLegal({ title, body: which === 'license' ? texts.license : texts.notices })
+    } catch (error) {
+      setLegal({ title, body: error instanceof Error ? error.message : String(error) })
+    }
   }
 
   return (
@@ -117,6 +204,28 @@ export function Settings() {
           <p className="field-hint">
             System follows your macOS or Windows appearance setting and switches live.
           </p>
+        </Card>
+
+        <Card title="Money" subtitle="The symbol shown beside every amount">
+          <Field
+            label="Currency"
+            hint="Changes the symbol and grouping only. Amounts already in the ledger are not converted."
+          >
+            <select
+              className="select"
+              value={settings.currency}
+              onChange={(event) => update({ currency: event.target.value })}
+            >
+              {!CURRENCIES.some((item) => item.code === settings.currency) && (
+                <option value={settings.currency}>{settings.currency}</option>
+              )}
+              {CURRENCIES.map((item) => (
+                <option key={item.code} value={item.code}>
+                  {item.code} — {item.label}
+                </option>
+              ))}
+            </select>
+          </Field>
         </Card>
 
         <Card
@@ -266,14 +375,18 @@ export function Settings() {
                 <div>
                   <strong>Round to</strong>
                   <p className="field-hint">
-                    A $12.40 coffee sweeps ${(sampleSweepCents / 100).toFixed(2)}.
+                    A {formatMoney(1240, currency)} coffee sweeps{' '}
+                    {formatMoney(sampleSweepCents, currency)}.
                   </p>
                 </div>
                 <Segmented<string>
                   label="Round up to"
                   value={String(settings.roundUpToCents)}
                   onChange={(value) => update({ roundUpToCents: Number(value) as RoundUpIncrementCents })}
-                  options={INCREMENTS.map((item) => ({ value: item.value, label: item.label }))}
+                  options={INCREMENTS.map((item) => ({
+                    value: item.value,
+                    label: `${currencySymbol(currency)}${item.cents / 100}`
+                  }))}
                 />
               </div>
             </>
@@ -377,6 +490,47 @@ export function Settings() {
               <ExternalLink size={13} aria-hidden="true" />
             </a>
           </div>
+          <div className="data-actions">
+            <Button
+              icon={<ScrollText size={15} />}
+              onClick={() => void openLegal('license')}
+            >
+              Licence
+            </Button>
+            <Button
+              icon={<ScrollText size={15} />}
+              onClick={() => void openLegal('notices')}
+            >
+              Third-party notices
+            </Button>
+          </div>
+        </Card>
+
+        <Card
+          title="Diagnostics"
+          subtitle="What to send when something goes wrong"
+          actions={<Info size={16} className="stat-icon" />}
+        >
+          <p className="field-hint">
+            Version, runtime, file paths, the end of the crash log and how many rows each table
+            holds. No account names, amounts or settings leave this machine unless you copy them.
+          </p>
+          <div className="data-actions">
+            <Button icon={copied ? <ClipboardCheck size={15} /> : <Copy size={15} />} onClick={() => void copyDiagnostics()} disabled={busy}>
+              {copied ? 'Copied' : 'Copy diagnostics'}
+            </Button>
+            <Button onClick={() => void loadDiagnostics()}>Show details</Button>
+          </div>
+          {diagnosticsError && (
+            <p className="form-error" role="alert">
+              {diagnosticsError}
+            </p>
+          )}
+          {diagnostics && (
+            <pre className="diagnostics-text" tabIndex={0}>
+              {describeDiagnostics(diagnostics)}
+            </pre>
+          )}
         </Card>
 
         <Card
@@ -396,8 +550,10 @@ export function Settings() {
           </div>
           <p className="field-hint">
             Erases every account, bill, sinking fund, paycheck, entry and setting, returning
-            WageRoute to a blank first-run profile. The database file stays on disk, empty.
-            Exported backups and CSV files are not touched. This cannot be undone.
+            WageRoute to a blank first-run profile. The database file stays on disk, empty, and a
+            last-resort copy is written to the app&apos;s <code>backups</code> folder first (the
+            newest three are kept). Exported backups and CSV files are not touched. The live ledger
+            cannot be recovered after this.
           </p>
         </Card>
       </div>
@@ -409,7 +565,7 @@ export function Settings() {
           onClose={() => setEraseStep(0)}
           footer={
             <>
-              <Button variant="quiet" onClick={() => setEraseStep(0)}>
+              <Button variant="quiet" onClick={() => setEraseStep(0)} autoFocus>
                 Cancel
               </Button>
               <Button variant="ghost" onClick={() => setEraseStep(2)}>
@@ -419,12 +575,14 @@ export function Settings() {
           }
         >
           <p className="field-hint">
-            This permanently deletes every account, bill, sinking fund, paycheck and ledger entry
-            stored on this device, and resets settings to their defaults.
+            This deletes every account, bill, sinking fund, paycheck and ledger entry from the live
+            database, and resets settings to their defaults.
           </p>
           <p className="field-hint">
-            Exported backups and CSV files on disk are not affected. If there is any chance you
-            will want this data back later, export a backup first.
+            A last-resort copy of the database is written to the app&apos;s <code>backups</code>{' '}
+            folder before the erase (the newest three are kept). Exported backups and CSV files on
+            disk are not affected. If you will want this data back as a normal import, export a
+            backup first.
           </p>
         </Modal>
       )}
@@ -436,7 +594,7 @@ export function Settings() {
           onClose={() => setEraseStep(0)}
           footer={
             <>
-              <Button variant="quiet" onClick={() => setEraseStep(0)}>
+              <Button variant="quiet" onClick={() => setEraseStep(0)} autoFocus>
                 Cancel
               </Button>
               <Button
@@ -456,6 +614,24 @@ export function Settings() {
             Clicking <strong>Erase everything</strong> empties the local database immediately and
             drops you back on the dashboard with a blank profile, exactly like a first launch.
           </p>
+        </Modal>
+      )}
+
+      {legal && (
+        <Modal
+          title={legal.title}
+          subtitle="Shipped with this build, not fetched from the network"
+          onClose={() => setLegal(null)}
+          wide
+          footer={
+            <Button variant="quiet" autoFocus onClick={() => setLegal(null)}>
+              Close
+            </Button>
+          }
+        >
+          <pre className="diagnostics-text" tabIndex={0}>
+            {legal.body}
+          </pre>
         </Modal>
       )}
     </>

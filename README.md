@@ -70,7 +70,7 @@ These are product and engineering constraints, not aspirations.
 
 | Screen | Purpose | Key formulas |
 | --- | --- | --- |
-| **Overview** | Safe to Spend hero, total wealth strip, accounts, month-to-date donut, last routing, goal progress, recent activity, bill prompts | `spendable pool − monthly wall − pool-funded goals`; `Σ balances − credit owed` |
+| **Overview** | Safe to Spend hero, total wealth strip, accounts, month-to-date donut, last routing, goal progress, recent activity, bill prompts | `spendable pool − monthly wall − pool-funded goals − unsettled routing`; `Σ balances − credit owed` |
 | **Priority Wall** | Bill CRUD, pause/resume, per-paycheck and monthly totals | `amount × bill periods / 12`; `amount × bill periods / pay periods` |
 | **Sinking funds** | Goal CRUD, progress, emergency calculator | `funded / target`; dedicated goals read `account balance`; `essentials × months` |
 | **Accounts** | Bank-grouped account CRUD, purpose and safe-to-spend choices, balance adjustments, credit payments | `starting + SUM(entries)`; `max(0, −balance)` owed |
