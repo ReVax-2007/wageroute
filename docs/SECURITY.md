@@ -4,7 +4,7 @@ WageRoute is a **single-user, local-only desktop ledger**. It does not authentic
 
 This document describes what is actually implemented, what the trust boundaries are, what an attacker with local access can do, and which weaknesses are known and accepted. It is deliberately specific; “secure” without a threat model is not useful.
 
-> **Scope:** the application in this repository, versions `1.1.x`. There is no production server, hosted service or multi-tenant deployment to assess.
+> **Scope:** the application in this repository, the unreleased `1.2.x` line and the published `1.1.x` line. There is no production server, hosted service or multi-tenant deployment to assess.
 
 ---
 
@@ -32,7 +32,8 @@ This document describes what is actually implemented, what the trust boundaries 
 
 | Version | Supported | Notes |
 | --- | --- | --- |
-| `1.1.x` | Yes | Current line; fixes land here. 1.1.0 carries schema 6 and writes backup format 6. |
+| `1.2.x` (unreleased) | Yes | Current line; fixes land here. Carries schema 8, writes backup format 8 and accepts backups from schema 2–8. |
+| `1.1.x` | Yes until 1.2.0 ships | Latest published line. 1.1.0 carries schema 6; it cannot open a schema-8 database and is not patched once 1.2.0 ships. |
 | `1.0.x` | No | Superseded. 1.0.2 carries schema 3 and cannot open a 1.1.0 database; upgrade instead of patching. |
 | Older app versions | No | No security backports; upgrade or restore a backup |
 | Backups with schema `1` | No | Rejected by the importer |
@@ -142,8 +143,10 @@ The app does not defend against malware running as the same user, an administrat
 | Size checks in bytes | `Buffer.byteLength` before a 64 MiB cap | A multi-byte import cannot slip past a character-count check |
 | Atomic export writes | `writeFileAtomic()` in [src/main/files.ts](../src/main/files.ts) | An interrupted or failed export leaves the previous file intact instead of a truncated one |
 | Export file mode | `openSync(..., 0o600)` in `files.ts` | On macOS and Linux, exported ledger data is not world-readable. Windows has no POSIX mode bits, so there the file inherits the user profile's ACL |
+| Export read-back verification | SHA-256 digest compared after the rename in `files.ts` | A write that silently truncated or was substituted is reported instead of being presented as a backup |
 | Boot integrity check | `assertHealthy()` in [src/main/db/maintenance.ts](../src/main/db/maintenance.ts) | A corrupt file is reported instead of being migrated, written to, or silently misread |
 | Pre-upgrade copies | `backupBeforeUpgrade()` | A forward-only migration cannot destroy the only copy of an older schema |
+| Pre-erase copies | `backupBeforeErase()` in [src/main/db/maintenance.ts](../src/main/db/maintenance.ts) | An accidental erase is disclosed and recoverable from the newest three `pre-erase-*.db` copies |
 | Secure delete | `PRAGMA secure_delete = ON` | Deleted rows do not linger in free pages |
 | Erase compacts the file | `VACUUM` + `wal_checkpoint(TRUNCATE)` in `compact()` | "Erase all data" leaves no recoverable rows in the database or the WAL |
 | Crash log | `logCrash()` in [src/main/log.ts](../src/main/log.ts) | A boot or renderer failure is recorded instead of vanishing |
@@ -176,7 +179,7 @@ Repository functions validate renderer input: text length, cent ranges, enum val
 | --- | --- |
 | `wageroute.db` | **None beyond the OS.** Plaintext SQLite, tightened to mode `0600` on open where the filesystem allows it. |
 | `wageroute.db-wal` / `-shm` | Same, inherited from the database file's directory and umask. Recent commits may exist only in the WAL. |
-| Pre-upgrade copies | `backups/` in the app data folder; plaintext, newest three kept. |
+| Pre-upgrade and pre-erase copies | `backups/pre-upgrade-*.db` and `backups/pre-erase-*.db` in the app data folder; plaintext, newest three of each kept. The pre-erase copies deliberately outlive the erase. |
 | JSON backups | Plaintext JSON at the user-selected path; default name is in Documents. |
 | CSV exports | Plaintext at the user-selected path, written `0600` on macOS and Linux; on Windows it inherits the profile ACL. |
 | Logs | `logs/main.log` in the app data folder, mode `0600`, rotated at 512 KB to `main.log.1`. Contains error messages and stack traces, not ledger rows. |
@@ -191,7 +194,9 @@ WageRoute does **not**:
 
 The database file is `chmod 0600` best effort on every open, so other local accounts cannot read it on a normal single-user install; the app does not verify this and a filesystem may refuse the change. The `-wal` and `-shm` sidecars inherit the directory's ACLs and umask. Windows has no POSIX mode bits: there the database, the exports and the log are protected by the ACL of the user profile they live in, which is what the app data folder and the default export path sit inside.
 
-**Deleted data is retained.** A normal delete sets `deleted_at`; rows remain in the table and are included in `SELECT *` exports. “Delete” means “hide from the UI”, not “erase”. A backup taken after a deletion still contains the deleted row, memo and amount. **Erase all data** is different: it drops every row *and* compacts the file, so the previous contents are not recoverable from free pages or the WAL. Erase deliberately keeps no safety copy — the confirmation dialog says the data is gone, so it is.
+**Deleted data is retained.** A normal delete sets `deleted_at`; rows remain in the table and are included in `SELECT *` exports. “Delete” means “hide from the UI”, not “erase” — see [ADR 0015](decisions/0015-archive-is-not-delete.md). A backup taken after a deletion still contains the deleted row, memo and amount. **Erase all data** is different: it first writes a consistent `pre-erase-*.db` copy under `backups/`, then drops every row and compacts the file, so the live database holds no recoverable rows in free pages or the WAL. The confirmation dialog discloses that copy, and the newest three are kept. An erase is therefore recoverable from disk until those copies are rotated out; if that is unacceptable, delete the `backups` folder afterwards.
+
+The plaintext-at-rest decision is recorded in [ADR 0019](decisions/0019-the-ledger-is-plaintext-at-rest.md), and the absence of an in-app lock in [ADR 0020](decisions/0020-there-is-no-app-lock.md).
 
 ### Practical implications
 
@@ -217,6 +222,8 @@ The packaged binary is not a general-purpose Node runtime, and it does not expos
 - **The packaged page cannot talk to a local server.** The CSP baked into the built `index.html` is `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`. The development policy (inline script for React Refresh, `ws://localhost` for HMR) never ships.
 - **IPC is bound to the app's own page.** Every handler runs `isTrustedFrame()` first and refuses a sender whose frame URL is not the built `index.html` (or the dev server while developing). A compromised or injected frame cannot exercise the ledger API on the app's behalf.
 - **A boot failure is visible.** The main process logs to `logs/main.log`, shows an error dialog naming the problem and the log file, and quits — it cannot end up running with no window.
+- **The build can say what it is without guessing.** Settings → Diagnostics reports the version, schema, Electron/Chromium/Node versions, platform, database and log paths, log tail and row counts, and copies that report as text. It is assembled from runtime values, not from the source tree, so a support report describes the binary in front of the user.
+- **The licence and third-party notices ship with the app.** The packaged build carries `LICENSE` and a generated `THIRD-PARTY-NOTICES.txt` as extra resources, and Settings → About can display both, so the dependency set is disclosed rather than implied.
 - **Repository refusals are typed.** `RepositoryError` carries a code (`VALIDATION`, `NOT_FOUND`, `CONFLICT`, `STATE`) that survives IPC through an encoded marker, so the UI can distinguish "the record is gone" from "the input is wrong" without parsing prose.
 
 Signing remains ad-hoc only — see [Known weaknesses](#known-weaknesses). Fuses and ASAR integrity protect the shape of the bundle, not its authenticity.
@@ -250,14 +257,17 @@ Current controls:
 - The runtime dependency set is small: React, React DOM, Zustand, react-data-grid, lucide-react and better-sqlite3. The rest is build tooling.
 - `better-sqlite3` is rebuilt against the installed Electron ABI by `postinstall` and unpacked from the asar archive, so the binary that loads is the one built for that app.
 - No runtime CDN, remote font, remote image or remote script is used. The CSP blocks remote origins by default.
+- **GitHub Actions are pinned by commit SHA**, not by a moving major tag. The version each SHA corresponds to is in a comment beside it, and Dependabot-style bumps must replace the SHA.
+- **CI builds from the lockfile and runs the gates** — `npm run lint`, `npm test`, `npm run build` and an unpacked `electron-builder --dir` pass — before any artifact is uploaded. The build matrix has read-only token permissions; a separate release job holds `contents: write` and only runs for a tag.
+- **Every release artifact is checksummed in CI.** The release job writes `SHA256SUMS` over the installers it downloads and attaches it to the draft release, so a published checksum is produced by the same run that built the file rather than by hand afterwards.
+- **Third-party notices are generated, not remembered.** `npm run notices` (also run by `prebuild`) walks the production dependency tree in `package-lock.json`, reads each licence file and writes `THIRD-PARTY-NOTICES.txt`, which is packaged as an extra resource.
 - The repository is public at `ReVax-2007/wageroute`. The source-available [LICENSE](../LICENSE) keeps commercial redistribution with the licensor, and nothing user-financial is ever committed.
 
 Known gaps:
 
 - no `npm audit`, Dependabot/Renovate or dependency-review gate in CI;
 - no SBOM, build provenance or reproducible-build check;
-- GitHub Actions are referenced by major tag (`@v4`), not by commit SHA;
-- installers are unsigned, so a tampered build cannot be distinguished from a legitimate one;
+- installers are unsigned, so a tampered build cannot be distinguished from a legitimate one by the OS — the published `SHA256SUMS` is the only integrity check;
 - an Electron major upgrade changes the native ABI and needs a full packaged-app test, not just a typecheck.
 
 A compromised dependency or action runs with the build's privileges. Because the app makes no outbound requests, a malicious package would have to add that capability itself; review diffs and lockfile changes rather than assuming the network policy protects the build. Recommendations are in [Hardening recommendations](#hardening-recommendations).
@@ -301,15 +311,9 @@ JSON backups and CSV entry files are the only external data the app accepts.
 
 ### Formula injection on export
 
-`transactionsToCsv` quotes cells containing commas, quotes or newlines, but it does **not** neutralize cells beginning with `=`, `+`, `-` or `@`. A memo such as `=HYPERLINK("https://example.invalid","click")` remains a formula when the CSV is opened in Excel or another spreadsheet that evaluates formulas.
+`transactionsToCsv` treats text as data, not as a possible formula. A cell in a text column whose first character is `=`, `+`, `-`, `@`, tab or carriage return is prefixed with a single quote by `defuseFormula()` in [src/shared/csv.ts](../src/shared/csv.ts), so a memo such as `=HYPERLINK("https://example.invalid","click")` opens as text in Excel and other spreadsheet applications. Dates and amounts are deliberately not defused: they are machine-readable values and never begin with an ambiguous character except the amount's leading `-`, which a spreadsheet reads as a negative number.
 
-This is a **known, unfixed weakness**. It requires the user to export and open a ledger containing attacker-influenced text (for example, a memo from an imported file). Mitigations until it is fixed:
-
-- open exported CSV files in a plain-text editor or import them as text, not by double-clicking;
-- review memos before exporting data you did not enter yourself;
-- do not open a CSV from an untrusted ledger in a spreadsheet with macros enabled.
-
-The correct fix is to prefix dangerous leading characters (typically with a single quote) or to provide a “safe export” option. That change belongs in `src/shared/csv.ts` and needs tests; it is not implemented.
+Residual risk: an import pipeline that strips a leading apostrophe can turn the cell back into a formula, and re-saving an exported file in a spreadsheet can reintroduce formulas. When a ledger contains text you did not enter yourself, open the export in a text editor or import it as text. The export is a review copy, not a backup — see [ADR 0017](decisions/0017-the-csv-is-a-review-copy.md).
 
 ### Backups as data, not instructions
 
@@ -328,8 +332,8 @@ Likelihood assumes a normal personal installation, not a targeted investigation.
 | 3 | Malicious import | A crafted JSON/CSV adds false rows or oversized text | Parser allowlists, size/row caps, SQLite constraints, transaction rollback | **Medium** — fabricated data, misleading UI, slow projections |
 | 4 | Renderer compromise | XSS or a malicious dependency runs in the renderer | Sandbox, context isolation, no Node, CSP, no HTML sinks, narrow bridge | **High for the ledger** — full read/write via `window.api`; possible external-URL exfiltration |
 | 5 | Supply chain | A compromised npm package or GitHub Action alters the build | Lockfile, `npm ci`, small dependency set, review | **Medium** — no audit, SBOM, provenance or SHA-pinned actions |
-| 6 | Tampered installer | A modified DMG/EXE is distributed | Checksums are manual; source is private | **High** — no code signing or notarization |
-| 7 | Shared computer | A colleague or family member uses the same OS session | None inside the app | **High** — no app lock, no separate profiles |
+| 6 | Tampered installer | A modified DMG/EXE is distributed | Published `SHA256SUMS` from the build run; public source | **Medium** — no code signing, so the OS cannot vouch for the binary |
+| 7 | Shared computer | A colleague or family member uses the same OS session | None inside the app ([ADR 0020](decisions/0020-there-is-no-app-lock.md)) | **High** — no app lock, no separate profiles |
 | 8 | Accidental deletion | A transaction or account is deleted | Soft delete retains the row; backups | **Low** for recovery, but no undo UI and no purge |
 | 9 | Disk/database corruption | Power loss, disk failure, killed process | WAL, `synchronous=NORMAL`, transactions, FK | **Medium** — no automatic backup, no scheduled `integrity_check` |
 | 10 | SQL injection | A crafted ID or imported value reaches SQL | Prepared statements, ID checks, column allowlists | **Low** |
@@ -337,7 +341,7 @@ Likelihood assumes a normal personal installation, not a targeted investigation.
 | 12 | Denial of service | A huge import or many rows | 64 MiB cap, 200k rows/table, UI limits | **Medium** — startup and derived calculations can still slow |
 | 13 | CSV formula execution | Exported memo begins with `=` and is opened in Excel | `defuseFormula()` prefixes `= + - @ tab CR` on text columns | **Low** — amounts stay numeric; a deliberately apostrophe-prefixed cell is still text |
 | 14 | Backup exposure | Plaintext backup in iCloud/OneDrive/Documents | User choice of path; no encryption | **Medium** — provider and sync history can read it |
-| 15 | Deleted-data retention | User expects deletion to erase data | Soft deletes for a single row; **Erase all data** drops rows and compacts | **Low–Medium** — a single delete is a tombstone |
+| 15 | Deleted-data retention | User expects deletion to erase data | Soft deletes for a single row; **Erase all data** drops rows and compacts, after a disclosed `pre-erase-*.db` copy | **Low–Medium** — a single delete is a tombstone; an erase is recoverable from that copy until it is rotated out |
 
 ### Explicitly out of scope
 
@@ -354,13 +358,13 @@ Listed with severity for this app's context. None are fixed in `1.1.x` unless st
 
 | Weakness | Severity | Impact | Notes |
 | --- | --- | --- | --- |
-| Unsigned macOS and Windows builds | **High** for distribution | Tampering is hard to detect; Gatekeeper/SmartScreen friction | See [RELEASING.md](RELEASING.md#code-signing-and-notarization) |
-| No encryption at rest | **High** on a stolen disk | Full ledger readable | Rely on FileVault/BitLocker |
+| Unsigned macOS and Windows builds | **High** for distribution | Tampering is hard to detect; Gatekeeper/SmartScreen friction | Published `SHA256SUMS` is the only integrity check; see [RELEASING.md](RELEASING.md#code-signing-and-notarization) |
+| No encryption at rest | **High** on a stolen disk | Full ledger readable | Rely on FileVault/BitLocker ([ADR 0019](decisions/0019-the-ledger-is-plaintext-at-rest.md)) |
 | Soft-deleted rows retained | **Medium** (privacy) | A normal “delete” keeps the row in the database and in backups | **Erase all data** drops every row and compacts the file; per-row deletion is still a tombstone |
+| Pre-erase copies outlive the erase | **Low–Medium** (privacy) | The ledger can be recovered from `backups/pre-erase-*.db` | Disclosed in the confirmation dialog; delete the `backups` folder to remove it |
 | Backup import bypasses length/date validators | **Medium** (integrity) | Oversized strings, malformed dates, odd revision values | SQLite constraints still apply |
-| No dependency audit, SBOM or provenance | **Medium** | Supply-chain issues are found late | `npm ci` and review only |
-| GitHub Actions pinned by major tag | **Medium** | A moved/compromised action tag affects builds | Pin to commit SHAs |
-| No app lock or idle timeout | **Medium** on shared devices | Anyone at an unlocked session can read the ledger | No auth by design |
+| No dependency audit, SBOM or provenance | **Medium** | Supply-chain issues are found late | `npm ci`, SHA-pinned actions and review only |
+| No app lock or idle timeout | **Medium** on shared devices | Anyone at an unlocked session can read the ledger | No auth by design ([ADR 0020](decisions/0020-there-is-no-app-lock.md)) |
 | External URL handler is unrestricted | **Low** today | Potential exfiltration if renderer is compromised | Only the Settings support link uses it; remove or allowlist |
 | Default backup path is Documents | **Low–Medium** | May be cloud-synced | User can choose another path |
 | No audit log of edits/deletes | **Low–Medium** | Cannot reconstruct who changed what | Single-user app; backups are the fallback |
@@ -377,9 +381,9 @@ Ordered by value for this project. None are implemented unless explicitly noted.
 ### Before distributing beyond your own machines
 
 1. **Sign and notarize macOS builds; sign Windows builds.** Without this, users cannot distinguish your build from a modified one. See [RELEASING.md](RELEASING.md#code-signing-and-notarization).
-2. **Publish SHA-256 checksums** with every installer, and verify them after download.
-3. **Pin GitHub Actions to commit SHAs** and add a dependency review step.
-4. **Add `permissions: contents: read`** to the workflow so the default token is not broader than needed.
+2. **Publish SHA-256 checksums** with every installer, and verify them after download. *(Done: the release job writes `SHA256SUMS` over the artifacts and attaches it to the draft release.)*
+3. **Pin GitHub Actions to commit SHAs** and add a dependency review step. *(Partly done: every action is SHA-pinned with its version in a comment; there is still no dependency-review step.)*
+4. **Add `permissions: contents: read`** to the workflow so the default token is not broader than needed. *(Done: the build matrix is read-only; only the tag-triggered release job holds `contents: write`.)*
 
 ### Data protection
 

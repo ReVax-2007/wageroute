@@ -6,6 +6,13 @@
   "main": "./out/main/index.js",
   "author": "Xavier Voet",
   "homepage": "https://github.com/ReVax-2007/wageroute",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ReVax-2007/wageroute.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ReVax-2007/wageroute/issues"
+  },
   "license": "SEE LICENSE IN LICENSE",
   "packageManager": "npm@11.20.0",
   "engines": {
@@ -15,6 +22,9 @@
     "dev": "electron-vite dev",
     "start": "electron-vite preview",
     "pretest": "node scripts/check-test-list.mjs",
+    "lint": "node scripts/lint.mjs",
+    "notices": "node scripts/third-party-notices.mjs",
+    "prebuild": "node scripts/third-party-notices.mjs",
     "test": "node --import tsx --test src/shared/dates.test.ts src/shared/errors.test.ts src/shared/domain.test.ts src/shared/cadence.test.ts src/shared/occurrences.test.ts src/shared/accounts.test.ts src/shared/backup-example.test.ts src/shared/backup-merge.test.ts src/shared/importRepair.test.ts src/shared/kinds.test.ts src/shared/csv.test.ts src/shared/statements.test.ts src/shared/categories.test.ts src/shared/credit.test.ts src/shared/payoff.test.ts src/shared/history.test.ts src/preload/api.test.ts src/main/db/entries.test.ts src/main/db/dedicated-accounts.test.ts src/main/db/migrations.test.ts src/main/db/reserves.test.ts src/main/db/legacy.test.ts src/main/db/maintenance.test.ts src/main/db/ledger-guards.test.ts src/main/db/product-model.test.ts src/main/files.test.ts",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "tsc --noEmit -p tsconfig.json",

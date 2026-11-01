@@ -1,11 +1,25 @@
 import { app } from 'electron'
-import { appendFileSync, mkdirSync, renameSync, statSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 const MAX_BYTES = 512 * 1024
 
 function logFile(): string {
   return join(app.getPath('userData'), 'logs', 'main.log')
+}
+
+export function logPath(): string {
+  return logFile()
+}
+
+/** The tail a bug report needs, without shipping the whole ring to the UI. */
+export function recentLogTail(maxLines = 12): string {
+  try {
+    const lines = readFileSync(logFile(), 'utf8').trimEnd().split('\n')
+    return lines.slice(-maxLines).join('\n')
+  } catch {
+    return ''
+  }
 }
 
 /**

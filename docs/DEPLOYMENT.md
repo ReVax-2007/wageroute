@@ -282,7 +282,7 @@ If auto-update is added later, it needs a signed release feed, platform signing 
 
 ## Repository hosting: GitHub or GitLab
 
-The project lives in **`ReVax-2007/wageroute` on GitHub** — a public repository with protected `main`, pull-request-only merges, the `verify` CI check and releases that carry the installers and `SHA256SUMS.txt`. The comparison below is the reasoning that led there, kept because it still explains the trade-offs if that ever changes.
+The project lives in **`ReVax-2007/wageroute` on GitHub** — a public repository with protected `main`, pull-request-only merges, the `verify` CI check and releases that carry the installers and `SHA256SUMS`. The comparison below is the reasoning that led there, kept because it still explains the trade-offs if that ever changes.
 
 ### Why GitHub won
 

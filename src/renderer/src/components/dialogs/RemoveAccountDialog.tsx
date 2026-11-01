@@ -15,7 +15,7 @@ export function RemoveAccountDialog({
   const archiveAccount = useFinanceStore((state) => state.archiveAccount)
   const accountEntryCount = useFinanceStore((state) => state.accountEntryCount)
   const [entries, setEntries] = useState<number | null>(null)
-  const { saving, run } = useDialogSave(onClose)
+  const { saving, error, setError, run } = useDialogSave(onClose)
 
   useEffect(() => {
     let live = true
@@ -27,8 +27,14 @@ export function RemoveAccountDialog({
     }
   }, [account.id, accountEntryCount])
 
-  const archive = () => run(() => archiveAccount(account.id, true))
-  const remove = () => run(() => deleteAccount(account.id, true))
+  const archive = async () => {
+    const ok = await run(() => archiveAccount(account.id, true))
+    if (!ok) setError('The account could not be archived. The reason is in the notification.')
+  }
+  const remove = async () => {
+    const ok = await run(() => deleteAccount(account.id, true))
+    if (!ok) setError('The account could not be removed. The reason is in the notification.')
+  }
 
   const entryWord = entries === 1 ? '1 entry' : `${entries ?? '…'} entries`
 
@@ -39,7 +45,7 @@ export function RemoveAccountDialog({
       onClose={onClose}
       footer={
         <>
-          <Button variant="quiet" onClick={onClose}>
+          <Button variant="quiet" onClick={onClose} autoFocus>
             Cancel
           </Button>
           {entries !== null && entries > 0 && (
@@ -64,6 +70,11 @@ export function RemoveAccountDialog({
         the Archived list. Deleting removes the account and everything recorded in it from every
         total.
       </p>
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
     </Modal>
   )
 }

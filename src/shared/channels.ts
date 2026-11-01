@@ -1,8 +1,10 @@
 import type {
+  AppDiagnostics,
   AppInfo,
   CommittedPaycheck,
   ImportPreview,
   ImportResult,
+  LegalTexts,
   WriteResult
 } from './api'
 import type { ImportAnswer } from './importRepair'
@@ -32,6 +34,8 @@ export interface IpcContract {
   'snapshot:get': { args: []; result: Snapshot }
   'db:path': { args: []; result: string }
   'app:info': { args: []; result: AppInfo }
+  'app:diagnostics': { args: []; result: AppDiagnostics }
+  'app:legal': { args: []; result: LegalTexts }
 
   'account:create': { args: [AccountInput]; result: WriteResult<string> }
   'account:update': { args: [string, Partial<AccountInput>]; result: WriteResult<void> }
@@ -83,6 +87,8 @@ export const CHANNELS = [
   'snapshot:get',
   'db:path',
   'app:info',
+  'app:diagnostics',
+  'app:legal',
   'account:create',
   'account:update',
   'account:delete',

@@ -12,6 +12,13 @@ files:
 extraResources:
   - from: LICENSE
     to: LICENSE
+  # Generated from the lockfile by scripts/third-party-notices.mjs before every
+  # build, so the file installed beside the app always matches what it carries.
+  - from: THIRD-PARTY-NOTICES.txt
+    to: THIRD-PARTY-NOTICES.txt
+# No updater is wired into the app, so electron-builder must not write
+# latest-mac.yml / latest.yml and imply one exists.
+publish: null
 asarUnpack:
   - '**/*.node'
 npmRebuild: true
@@ -19,6 +26,8 @@ npmRebuild: true
 # the ad-hoc signature covers the final binary. Signing in afterPack would be
 # invalidated by the fuse flip that follows it.
 afterSign: scripts/adhoc-sign.js
+# Runs once the disk image exists, so the container carries a signature too.
+afterAllArtifactBuild: scripts/adhoc-sign-dmg.js
 # Flipped before the ad-hoc signature in scripts/adhoc-sign.js. The packaged
 # binary is a ledger, not a Node runtime: it must not be launchable as node,
 # must not read NODE_OPTIONS or --inspect, and must load only the signed asar.
@@ -54,6 +63,18 @@ win:
 # architecture instead of inheriting electron-builder's per-target defaults.
 dmg:
   artifactName: WageRoute-${version}-${arch}.dmg
+  title: WageRoute ${version}
+  window:
+    width: 540
+    height: 380
+  contents:
+    - x: 140
+      y: 190
+      type: file
+    - x: 400
+      y: 190
+      type: link
+      path: /Applications
 nsis:
   # No ${arch} on purpose: when the pattern omits it, electron-builder builds
   # one installer that carries both architectures. Adding ${arch} makes it
@@ -65,6 +86,10 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   shortcutName: WageRoute
+  uninstallDisplayName: WageRoute
+  # Shown as a page in the installer, from the same licence the app ships with.
+  license: LICENSE
+  installerIcon: build/icon.png
 msi:
   # `${ext}` rather than a literal `.msi`: MsiTarget's constructor deep-assigns
   # this block into the shared `win` options, so a target without its own

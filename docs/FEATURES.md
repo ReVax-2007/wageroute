@@ -53,11 +53,13 @@ The Overview is assembled from the snapshot and a few derived helpers.
 
 ```text
 Safe to Spend = spendable pool − monthly Priority Wall − funded goals whose money is in the pool
+                − this month's debt and investment routing that has not moved yet
 ```
 
 - **Spendable pool** is the sum of the balances of the accounts the user treats as spendable (see [Accounts](#accounts)). It is *not* cash on hand: an investment account can be opted in and a savings account opted out. With no per-account choice recorded, the pool is the non-archived checking, savings and cash balances, so pre-v4 data behaves exactly as before.
 - **Monthly Priority Wall** is the smoothed monthly obligation of all **active** bills.
 - **Funded goals whose money is in the pool** is every goal's funded amount *except* goals fed by a dedicated account (`poolEarmarkedGoalsCents`).
+- **Routing not moved yet** is this month's `debt` and `investment` allocation lines, less money actually transferred to a credit or investment account since the earliest of those paycheques (`unsettledRoutingCents`). Routing records a plan and moves nothing ([ADR 0013](decisions/0013-a-route-is-a-plan-not-a-movement.md)), so the dollars are still in checking until the card is paid or the brokerage transfer lands; deducting them only while they are still there avoids charging the same dollar twice once it has moved. Savings is not deducted: a savings account in the pool is still spendable, and one outside it is already excluded from the pool.
 
 An account dedicated to a goal is left out of the pool by default, and its goal's progress is therefore not deducted either. The money has already been set aside — it is neither spendable nor inside the pool, so deducting it a second time would subtract the same amount twice and could push the hero number far below zero for no reason. Ordinary (allocation-funded) goals keep their deduction because that money really is still sitting in the pool.
 
@@ -616,12 +618,17 @@ Transfers create both legs, and an expense may trigger a round-up. The dialog cl
 
 Three choices in the sidebar, presented as a radio group — **System**, **Light**, **Dark** — with the resolved state printed beside the label (`System · light`). System follows `prefers-color-scheme` and switches live across a running app, because the preference is read through `useSyncExternalStore` rather than sampled once at startup. The resolved theme is written to `document.documentElement.dataset.theme` and cached in `localStorage['cfr-theme']` so the next launch paints the right palette immediately. Settings remain the source of truth; the cache is only a first-paint hint.
 
+### Money
+
+- **Currency** — the code every amount is formatted in. The select offers the common ledger currencies above; a backup that carries another valid ISO code keeps it and is listed rather than silently replaced. `parseSettings` rejects anything that is not a three-letter code `Intl` knows, so a typo cannot become a ledger that shows one currency and no error.
+- Changing the currency changes the symbol, grouping and decimal places only. Amounts already recorded are **not** converted and no exchange rate is fetched; a ledger kept in euros but switched to dollars reads the same numbers with a different sign.
+
 ### Round-up
 
 - Toggle “Round up debit spending”. It is disabled when no active savings account exists, with a shortcut to Accounts; turning it on preselects the first active savings account.
 - Choose the destination savings account. When the saved destination is archived or is no longer a savings account, the switch reads off and the select says the destination needs re-choosing before sweeps resume; when no destination was ever chosen, the select simply asks for one.
-- Choose the increment: $1, $2 or $5.
-- The hint shows a live example using $12.40.
+- Choose the increment: 1, 2 or 5 in the ledger's currency, labelled with its symbol (`$`, `€`, `£`, `CA$`, …).
+- The hint shows a live example in the chosen currency, e.g. “A $12.40 coffee sweeps $0.60.”
 
 Rules enforced at write time:
 
@@ -670,12 +677,17 @@ The database path is displayed below the actions. The sidebar footer shows the r
 - **Database schema** — `SCHEMA_VERSION`, the last migration this build applies. A database at a lower `user_version` is migrated on launch; one above it is refused before any window opens, and the file is left untouched.
 - **Electron** — the runtime version the bundle carries, useful when a bug could be a runtime bug.
 - **Buy me a coffee** — an `https://buymeacoffee.com/revax` link with `target="_blank"`. The main process denies in-app windows and hands `http(s)` URLs to the system browser, so the app never navigates away from the ledger.
+- **Licence** and **Third-party notices** — open the packaged `LICENSE` and the generated `THIRD-PARTY-NOTICES.txt` in a scrollable dialog instead of sending the user to the repository. Both files are copied beside the packaged app as extra resources, so a build always carries the texts it is required to.
+
+### Diagnostics
+
+A **Diagnostics** card next to About prints version, schema, Electron/Chromium/Node, platform and architecture, whether the build is packaged, the database path and size, the backups and log paths, the last lines of `logs/main.log`, and how many rows each imported table currently holds. **Copy diagnostics** puts that report on the clipboard, and **Show details** reveals it as selectable text. Every value comes from the running process (`app.getVersion()`, `process.versions`, the live database), not from the checkout, so the report describes the binary in front of the user.
 
 ### Danger zone
 
 **Erase all data…** starts a two-step confirmation. The first dialog explains what is deleted (every account, bill, sinking fund, paycheck and ledger entry, plus settings) and that exported backups and CSV files are untouched; **Continue** opens a second dialog with a final **Erase everything** button. The erase wipes the database, re-seeds a blank local user with default settings, and returns to the dashboard in the same blank state as a first launch.
 
-The erase is physical, not a tombstone: every row is dropped and the file is compacted (`VACUUM`), so the previous contents are not recoverable from free pages or the write-ahead log. It deliberately keeps no safety copy — the dialog promises the data is gone. A single row deleted elsewhere in the app is different: it is soft-deleted and still present in backups.
+The erase is physical, not a tombstone: every row is dropped and the file is compacted (`VACUUM`), so the previous contents are not recoverable from free pages or the write-ahead log. Before the wipe the main process writes one last-resort copy with `VACUUM INTO` to the app's `backups` folder (`pre-erase-<timestamp>.db`, newest three kept), and the dialog says so — a user who erases by mistake has a way back, and a user who wants the data gone can delete that file too. The live ledger itself cannot be recovered. A single row deleted elsewhere in the app is different: it is soft-deleted and still present in backups.
 
 ### Safety copies
 
@@ -776,7 +788,7 @@ All domain dates are constructed as UTC dates from `YYYY-MM-DD` strings. “Toda
 | CSV export and entries import | Implemented | Export covers the whole ledger; Debit/Credit columns are read |
 | Bank statement import (OFX/QFX, account-less CSV) | Implemented | Destinations chosen in the wizard; `FITID`/reference dedupe; balance shown, not reconciled |
 | Keyboard dialogs and focus management | Implemented | Trap, Escape, focus restore, skip link, named headings |
-| Multi-currency display | Partial | Currency setting exists; no selector and no conversion |
+| Multi-currency display | Implemented | Selector in Settings → Money; display only, no conversion or exchange rates |
 | Bank connections / statement sync | Not implemented | Manual entry and file import only |
 | Recurring transaction generation | Partial | Autopay bills are posted at launch; other bills stay a reserve model |
 | Paycheck editing or deletion | Not implemented | Commit is append-only in the UI |

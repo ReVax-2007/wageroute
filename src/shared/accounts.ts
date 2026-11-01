@@ -1,4 +1,10 @@
-import type { AccountKind, AccountWithBalance, GoalWithProgress } from './types'
+import type {
+  AccountKind,
+  AccountWithBalance,
+  GoalWithProgress,
+  PaycheckWithAllocations,
+  TransactionRow
+} from './types'
 
 /**
  * Kinds whose balance a user can spend without thinking about it. Investment
@@ -55,6 +61,59 @@ export function poolEarmarkedGoalsCents(goals: readonly GoalWithProgress[]): num
   return goals
     .filter((goal) => !goal.isArchived && goal.fundedFrom !== 'account')
     .reduce((total, goal) => total + goal.fundedCents, 0)
+}
+
+/**
+ * Money this month's routing promised to debt or investing that is still
+ * sitting in a spendable account.
+ *
+ * Routing is a plan, not a movement (ADR 0013): the cents stay in checking
+ * until a card payment or a transfer actually moves them. Deducting the whole
+ * allocation forever would charge the same dollar twice once it *is* paid, so
+ * a bucket is only deducted to the extent that no matching money has left the
+ * pool since the paycheque arrived. Savings is deliberately absent — a savings
+ * account in the pool is still spendable, and one outside it is already
+ * excluded from the pool.
+ */
+export function unsettledRoutingCents(input: {
+  paychecks: readonly PaycheckWithAllocations[]
+  transactions: readonly TransactionRow[]
+  accounts: readonly AccountWithBalance[]
+  todayISO: string
+}): number {
+  const month = input.todayISO.slice(0, 7)
+  const cycle = input.paychecks.filter((paycheck) => paycheck.receivedOn.startsWith(month))
+  if (cycle.length === 0) return 0
+
+  const since = cycle.reduce(
+    (earliest, paycheck) => (paycheck.receivedOn < earliest ? paycheck.receivedOn : earliest),
+    cycle[0].receivedOn
+  )
+  const routed = (bucket: 'debt' | 'investment'): number =>
+    cycle.reduce(
+      (total, paycheck) =>
+        total +
+        paycheck.allocations
+          .filter((allocation) => allocation.bucket === bucket)
+          .reduce((sum, allocation) => sum + allocation.amountCents, 0),
+      0
+    )
+
+  const kindById = new Map(input.accounts.map((account) => [account.id, account.kind]))
+  const movedTo = (kind: 'credit' | 'investment'): number =>
+    input.transactions
+      .filter(
+        (transaction) =>
+          transaction.occurredOn >= since &&
+          transaction.amountCents > 0 &&
+          kindById.get(transaction.accountId) === kind
+      )
+      .reduce((total, transaction) => total + transaction.amountCents, 0)
+
+  return (
+    Math.max(0, routed('debt') - movedTo('credit')) +
+    Math.max(0, routed('investment') - movedTo('investment'))
+  )
 }
 
 export interface WealthBucket {

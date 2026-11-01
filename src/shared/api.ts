@@ -119,10 +119,41 @@ export interface AppInfo {
   electron: string
 }
 
+/**
+ * Everything a bug report needs and nothing it does not: no account names, no
+ * amounts, no settings. The row counts say whether the ledger is empty, not
+ * what is in it.
+ */
+export interface AppDiagnostics {
+  generatedAt: string
+  version: string
+  schemaVersion: number
+  electron: string
+  chrome: string
+  node: string
+  platform: string
+  arch: string
+  packaged: boolean
+  databasePath: string
+  databaseBytes: number
+  backupsPath: string
+  logPath: string
+  logTail: string
+  counts: ImportCounts
+}
+
+/** The licence the app ships under and the notices for the code it carries. */
+export interface LegalTexts {
+  license: string
+  notices: string
+}
+
 export interface FinanceApi {
   getSnapshot(): Promise<Snapshot>
   getDatabasePath(): Promise<string>
   getAppInfo(): Promise<AppInfo>
+  getDiagnostics(): Promise<AppDiagnostics>
+  getLegalTexts(): Promise<LegalTexts>
 
   createAccount(input: AccountInput): Promise<WriteResult<string>>
   updateAccount(id: string, input: Partial<AccountInput>): Promise<WriteResult<void>>

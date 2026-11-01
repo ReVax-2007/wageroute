@@ -1,15 +1,17 @@
 name: Build desktop installers
 
-# Packaging runs on demand and on a tag. A tag run attaches every artifact to a
-# draft GitHub Release; publishing that release stays a separate, explicit step.
+# Packaging runs on demand and on a tag. A tag run builds every platform, then
+# a single release job hashes the assets and attaches them to a draft GitHub
+# Release; publishing that release stays a separate, explicit step.
 on:
   workflow_dispatch:
   push:
     tags:
       - 'v*'
 
+# The default token is read-only; only the release job asks for more.
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: build-${{ github.ref }}
@@ -49,16 +51,17 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
 
       # Same gate as the `verify` job: nothing is packaged from a tree that has
-      # not passed the tests and both type checks.
+      # not passed the tests, the lint and both type checks.
       - run: npm ci
+      - run: npm run lint
       - run: npm test
       - run: npm run build
 
@@ -185,20 +188,42 @@ jobs:
           fi
           check_boot "deb" "$(mktemp -d)" "$deb_bin"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: wageroute-${{ matrix.name }}
           path: ${{ matrix.artifact }}
           if-no-files-found: error
+          retention-days: 14
+
+  release:
+    # Only a tag publishes. The job is deliberately separate so that the build
+    # matrix never holds a token that can write to the repository.
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: wageroute-*
+          merge-multiple: true
+          path: release
+
+      - name: Hash every asset
+        run: |
+          cd release
+          find . -maxdepth 1 -type f -printf '%f\n' | sort | while read -r file; do
+            sha256sum "$file"
+          done > SHA256SUMS
+          cat SHA256SUMS
 
       # A draft release keeps the artifacts together without publishing them;
       # the release notes and the publish step stay under human control.
-      - name: Attach the installers to the draft release
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: bash
+      - name: Attach everything to the draft release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 ||
             gh release create "$GITHUB_REF_NAME" --draft --title "WageRoute $GITHUB_REF_NAME"
-          gh release upload "$GITHUB_REF_NAME" ${{ matrix.artifact }} --clobber
+          gh release upload "$GITHUB_REF_NAME" release/* --clobber
