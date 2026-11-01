@@ -4,6 +4,7 @@ import { RepositoryError } from '@shared/errors'
 import type { AccountInput, AccountKind, AccountWithBalance } from '@shared/types'
 import {
   assertCents,
+  assertDueDay,
   assertOneOf,
   assertSortOrder,
   assertText,
@@ -42,6 +43,11 @@ export function listAccounts(db: Db, userId: string): AccountWithBalance[] {
               a.color,
               a.dedicated_goal_id AS dedicatedGoalId,
               a.in_safe_to_spend AS inSafeToSpend,
+              a.apr_bps AS aprBps,
+              a.minimum_payment_cents AS minimumPaymentCents,
+              a.statement_day AS statementDay,
+              a.payment_due_day AS paymentDueDay,
+              a.last_statement_balance_cents AS lastStatementBalanceCents,
               a.is_archived AS isArchived, a.sort_order AS sortOrder,
               a.created_at AS createdAt, a.updated_at AS updatedAt,
               a.deleted_at AS deletedAt, a.revision,
@@ -71,8 +77,10 @@ export function createAccount(db: Db, userId: string, input: AccountInput): stri
     `INSERT INTO accounts
        (id, user_id, name, kind, institution, starting_balance_cents, credit_limit_cents,
         color, dedicated_goal_id, in_safe_to_spend,
+        apr_bps, minimum_payment_cents, statement_day, payment_due_day,
+        last_statement_balance_cents,
         is_archived, sort_order, created_at, updated_at, deleted_at, revision)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, NULL, 1)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, NULL, 1)`
   ).run(
     id,
     userId,
@@ -89,6 +97,11 @@ export function createAccount(db: Db, userId: string, input: AccountInput): stri
     optionalText(input.color, 'Color', 30),
     dedicatedGoalId,
     flagColumn(input.inSafeToSpend),
+    aprBpsColumn(input.aprBps) ?? null,
+    minimumPaymentColumn(input.minimumPaymentCents) ?? null,
+    dayColumn(input.statementDay, 'Statement day') ?? null,
+    dayColumn(input.paymentDueDay, 'Payment due day') ?? null,
+    statementBalanceColumn(input.lastStatementBalanceCents) ?? null,
     assertSortOrder(input.sortOrder),
     ts,
     ts
@@ -137,9 +150,64 @@ export function updateAccount(
           : null,
     in_safe_to_spend:
       patch.inSafeToSpend === undefined ? undefined : flagColumn(patch.inSafeToSpend),
+    apr_bps:
+      patch.aprBps === undefined
+        ? undefined
+        : patch.aprBps === null
+          ? null
+          : assertAprBps(patch.aprBps),
+    minimum_payment_cents: minimumPaymentColumn(patch.minimumPaymentCents),
+    statement_day:
+      patch.statementDay === undefined ? undefined : dayColumn(patch.statementDay, 'Statement day'),
+    payment_due_day:
+      patch.paymentDueDay === undefined
+        ? undefined
+        : dayColumn(patch.paymentDueDay, 'Payment due day'),
+    last_statement_balance_cents: statementBalanceColumn(patch.lastStatementBalanceCents),
     sort_order:
       patch.sortOrder === undefined ? undefined : assertSortOrder(patch.sortOrder)
   })
+}
+
+/** 0–1000% is a wide enough band to catch a typo like 1999 meaning 19.99%. */
+function assertAprBps(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new RepositoryError('VALIDATION', 'APR must be a number')
+  }
+  const rounded = Math.round(value)
+  if (rounded < 0 || rounded > 100_000) {
+    throw new RepositoryError('VALIDATION', 'APR must be between 0% and 1000%')
+  }
+  return rounded
+}
+
+function aprBpsColumn(value: number | null | undefined): number | null | undefined {
+  if (value === undefined) return undefined
+  if (value === null) return null
+  return assertAprBps(value)
+}
+
+function minimumPaymentColumn(value: number | null | undefined): number | null | undefined {
+  if (value === undefined) return undefined
+  if (value === null) return null
+  return assertCents(value, 'Minimum payment', { allowZero: true })
+}
+
+function dayColumn(value: number | null | undefined, label: string): number | null | undefined {
+  if (value === undefined) return undefined
+  if (value === null) return null
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new RepositoryError('VALIDATION', `${label} must be a number`)
+  }
+  return assertDueDay(value)
+}
+
+function statementBalanceColumn(
+  value: number | null | undefined
+): number | null | undefined {
+  if (value === undefined) return undefined
+  if (value === null) return null
+  return assertCents(value, 'Statement balance', { allowZero: true })
 }
 
 export interface DeleteAccountOptions {

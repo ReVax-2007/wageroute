@@ -1,7 +1,9 @@
 import type { ImportChoice, ImportChoiceTable } from '@shared/importRepair'
 import type { Snapshot, SnapshotPatch } from '@shared/types'
 import { listAccounts } from './accounts'
+import { listBalanceSnapshots } from './balances'
 import { listBillReserves, listBills } from './bills'
+import { listCategories } from './categories'
 import { getUser } from './users'
 import { listGoals } from './goals'
 import { listPaychecks, paycheckCount } from './paychecks'
@@ -14,11 +16,13 @@ export type SnapshotPart =
   | 'user'
   | 'settings'
   | 'accounts'
+  | 'categories'
   | 'bills'
   | 'goals'
   | 'transactions'
   | 'paychecks'
   | 'billReserves'
+  | 'balanceSnapshots'
 
 /**
  * Rows an import can point at when a reference is missing or dangling. There is
@@ -35,6 +39,11 @@ export function listImportChoices(
   return {
     accounts: rows(
       `SELECT id, name AS label FROM accounts
+       WHERE user_id = ? AND deleted_at IS NULL
+       ORDER BY sort_order, name`
+    ),
+    categories: rows(
+      `SELECT id, name AS label FROM categories
        WHERE user_id = ? AND deleted_at IS NULL
        ORDER BY sort_order, name`
     ),
@@ -59,20 +68,22 @@ export function listImportChoices(
 // ---------------------------------------------------------------- snapshot
 
 export function getSnapshot(db: Db, userId: string): Snapshot {
-  // One read transaction: eight separate statements could otherwise straddle a
+  // One read transaction: the separate statements could otherwise straddle a
   // write and hand the UI a snapshot that never existed.
   return db.transaction(
     (): Snapshot => ({
       user: getUser(db, userId),
       settings: readSettings(db, userId),
       accounts: listAccounts(db, userId),
+      categories: listCategories(db, userId),
       bills: listBills(db, userId),
       goals: listGoals(db, userId),
       transactions: listTransactions(db, userId),
       transactionTotal: transactionCount(db, userId),
       paychecks: listPaychecks(db, userId),
       paycheckTotal: paycheckCount(db, userId),
-      billReserves: listBillReserves(db, userId)
+      billReserves: listBillReserves(db, userId),
+      balanceSnapshots: listBalanceSnapshots(db, userId)
     })
   )()
 }
@@ -92,6 +103,7 @@ export function readSnapshotParts(
     if (wanted.has('user')) patch.user = getUser(db, userId)
     if (wanted.has('settings')) patch.settings = readSettings(db, userId)
     if (wanted.has('accounts')) patch.accounts = listAccounts(db, userId)
+    if (wanted.has('categories')) patch.categories = listCategories(db, userId)
     if (wanted.has('bills')) patch.bills = listBills(db, userId)
     if (wanted.has('goals')) patch.goals = listGoals(db, userId)
     if (wanted.has('transactions')) {
@@ -103,6 +115,9 @@ export function readSnapshotParts(
       patch.paycheckTotal = paycheckCount(db, userId)
     }
     if (wanted.has('billReserves')) patch.billReserves = listBillReserves(db, userId)
+    if (wanted.has('balanceSnapshots')) {
+      patch.balanceSnapshots = listBalanceSnapshots(db, userId)
+    }
     return patch
   })()
 }

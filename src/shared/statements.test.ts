@@ -106,7 +106,8 @@ test('a CSV with no Account column is described by its own lines', () => {
       kind: 'expense',
       category: 'Uncategorized',
       memo: 'Lunch',
-      amountCents: -1200
+      amountCents: -1200,
+      externalId: null
     },
     {
       line: 3,
@@ -116,7 +117,8 @@ test('a CSV with no Account column is described by its own lines', () => {
       kind: 'income',
       category: 'Uncategorized',
       memo: 'Refund',
-      amountCents: 500
+      amountCents: 500,
+      externalId: null
     }
   ])
 

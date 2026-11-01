@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type Database from 'better-sqlite3'
 import type { CsvEntry, CsvIssue } from '@shared/csv'
 import { signedAmountError } from '@shared/kinds'
+import { ensureCategory } from './repo/categories'
 
 type Db = Database.Database
 
@@ -62,14 +63,21 @@ export function mergeEntries(
   const insert = db.prepare(
     `INSERT INTO transactions
        (id, user_id, account_id, kind, amount_cents, occurred_on, memo, category,
-        bill_id, goal_id, paycheck_id, counter_account_id, transfer_group_id,
-        created_at, updated_at, deleted_at, revision)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?, ?, NULL, 1)`
+        category_id, external_id, bill_id, goal_id, paycheck_id, counter_account_id,
+        transfer_group_id, created_at, updated_at, deleted_at, revision)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?, ?, NULL, 1)`
   )
   const countExisting = db.prepare(
     `SELECT COUNT(*) AS total FROM transactions
      WHERE user_id = ? AND account_id = ? AND kind = ? AND amount_cents = ?
        AND occurred_on = ? AND memo = ? AND category = ? AND deleted_at IS NULL`
+  )
+  // The bank's own id is the only reliable "I already have this line" marker:
+  // re-importing last month's statement should add nothing, even though the
+  // rows themselves look like any other purchase.
+  const findExternal = db.prepare(
+    `SELECT 1 AS present FROM transactions
+     WHERE user_id = ? AND account_id = ? AND external_id = ? AND deleted_at IS NULL`
   )
 
   const issues: CsvIssue[] = []
@@ -170,7 +178,22 @@ export function mergeEntries(
   }
 
   db.transaction(() => {
+    const claimedExternal = new Set<string>()
     for (const { entry, accountId } of resolved) {
+      const externalKey =
+        entry.externalId === null ? null : `${accountId}\u0000${entry.externalId}`
+      if (externalKey !== null) {
+        // A statement can repeat an id (a corrected line) and re-importing the
+        // same file must not add a second copy of every row.
+        const already =
+          claimedExternal.has(externalKey) ||
+          findExternal.get(userId, accountId, entry.externalId) !== undefined
+        if (already) {
+          skipped += 1
+          continue
+        }
+      }
+
       const id = fingerprint(entry, accountId)
       const remaining = existing.get(id) ?? 0
       if (remaining > 0) {
@@ -189,9 +212,12 @@ export function mergeEntries(
           entry.occurredOn,
           entry.memo,
           entry.category,
+          ensureCategory(db, userId, entry.category, entry.kind),
+          entry.externalId,
           now,
           now
         )
+        if (externalKey !== null) claimedExternal.add(externalKey)
         added += 1
       } catch (error) {
         // One row that breaks a constraint must not cost the whole file.

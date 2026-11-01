@@ -5,10 +5,13 @@ import type {
   AccountWithBalance,
   AppSettings,
   BillInput,
+  CategoryInput,
   GoalInput,
+  LedgerQuery,
   PaycheckDraftInput,
   Snapshot,
   TransactionInput,
+  TransactionPage,
   TransactionPatch
 } from '@shared/types'
 
@@ -79,6 +82,9 @@ export interface DataSlice {
   createBill: (input: BillInput) => Promise<boolean>
   updateBill: (id: string, input: Partial<BillInput>) => Promise<boolean>
   deleteBill: (id: string) => Promise<boolean>
+  createCategory: (input: CategoryInput) => Promise<boolean>
+  updateCategory: (id: string, input: Partial<CategoryInput>) => Promise<boolean>
+  deleteCategory: (id: string) => Promise<boolean>
   createGoal: (input: GoalInput) => Promise<boolean>
   updateGoal: (id: string, input: Partial<GoalInput>) => Promise<boolean>
   deleteGoal: (id: string) => Promise<boolean>
@@ -86,6 +92,10 @@ export interface DataSlice {
   createTransaction: (input: TransactionInput) => Promise<boolean>
   updateTransaction: (id: string, patch: TransactionPatch) => Promise<boolean>
   deleteTransaction: (id: string) => Promise<boolean>
+  /** Resolves to how many rows went, or null when the batch failed. */
+  deleteTransactions: (ids: string[]) => Promise<number | null>
+  /** A filtered page of the ledger, read straight from the database. */
+  queryTransactions: (query: LedgerQuery) => Promise<TransactionPage>
   commitPaycheck: (input: PaycheckDraftInput) => Promise<boolean>
   saveSettings: (next: AppSettings) => Promise<boolean>
   exportBackup: () => Promise<void>

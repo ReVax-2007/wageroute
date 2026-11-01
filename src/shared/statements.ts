@@ -145,6 +145,9 @@ export function parseOfxStatement(text: string): StatementParse {
       name && memo && !memo.toLocaleLowerCase().startsWith(name.toLocaleLowerCase())
         ? `${name} — ${memo}`
         : name || memo
+    // FITID is the bank's stable id for the line; importing the same statement
+    // twice recognises it instead of duplicating the month.
+    const fitId = tagValue(block, 'FITID')
 
     entries.push({
       line: ordinal,
@@ -156,7 +159,8 @@ export function parseOfxStatement(text: string): StatementParse {
       kind: amountCents > 0 ? 'income' : 'expense',
       category: 'Uncategorized',
       memo: description,
-      amountCents
+      amountCents,
+      externalId: fitId ? fitId.slice(0, 120) : null
     })
   })
 

@@ -33,10 +33,10 @@ WageRoute has three independent version numbers. Confusing them is the most comm
 | Version | Where it lives | Current value | What it means |
 | --- | --- | --- | --- |
 | App version | `package.json` → `version` | `1.1.0` | The build users install. Drives installer names, macOS bundle version and release tags. |
-| Database schema version | `src/main/db/migrations.ts` → `SCHEMA_VERSION`, stored in SQLite `PRAGMA user_version` | `7` | The shape of the on-disk database. Changes only when a migration is added. |
-| Backup format version | Written into every JSON backup, equal to `SCHEMA_VERSION` | `7` | The newest backup the app writes. The reader accepts versions `2` through `7`. |
+| Database schema version | `src/main/db/migrations.ts` → `SCHEMA_VERSION`, stored in SQLite `PRAGMA user_version` | `8` | The shape of the on-disk database. Changes only when a migration is added. |
+| Backup format version | Written into every JSON backup, equal to `SCHEMA_VERSION` | `8` | The newest backup the app writes. The reader accepts versions `2` through `8`. |
 
-`package.json` reads `1.1.0` at the moment of the 1.1.0 release; between releases it keeps the last released number even though newer commits have landed, so the **commit SHA** is the only reliable identifier of an un-released build. Bump the version as part of the release, never before. Every build users had before 1.1.0 was schema 3; 1.1.0 was the first installer carrying schemas 4, 5 and 6, and this build adds schema 7 (bill reserves).
+`package.json` reads `1.1.0` at the moment of the 1.1.0 release; between releases it keeps the last released number even though newer commits have landed, so the **commit SHA** is the only reliable identifier of an un-released build. Bump the version as part of the release, never before. Every build users had before 1.1.0 was schema 3; 1.1.0 was the first installer carrying schemas 4, 5 and 6, and the next builds add schema 7 (bill reserves) and then schema 8 (categories, card terms and balance history).
 
 The source of truth for the app version is `package.json`. `npm` updates `package-lock.json` with it; electron-builder reads it when naming artifacts and writing bundle metadata.
 
@@ -77,8 +77,9 @@ Tags use the `v` prefix and match the app version exactly: `v1.0.0`. The CI work
 | `4` | Accepted; `accounts.color`, `funding_strategy` and `funding_paycheck_index` receive defaults |
 | `5` | Accepted; version 6 added no column |
 | `6` | Accepted; no `bill_reserves` rows |
-| `7` | Accepted; the newest format this app writes |
-| `> 7` | Rejected: `This backup came from a newer version` |
+| `7` | Accepted; no `categories` or `balance_snapshots` rows and no card terms |
+| `8` | Accepted; the newest format this app writes |
+| `> 8` | Rejected: `This backup came from a newer version` |
 
 Imports are additive and idempotent. Re-importing the same file skips rows that already exist by UUID. See [IMPORT-EXPORT.md](IMPORT-EXPORT.md).
 
@@ -626,7 +627,7 @@ If the fix requires a schema change, it is not a patch. Follow the schema proced
 # WageRoute 1.2.0
 
 Released: 2026-11-01
-Schema: 7 (migrates 3 → 4 → 5 → 6 → 7) · Backups: accepts 2–7
+Schema: 8 (migrates 3 → 4 → 5 → 6 → 7 → 8) · Backups: accepts 2–8
 
 ## Highlights
 
@@ -646,8 +647,8 @@ Schema: 7 (migrates 3 → 4 → 5 → 6 → 7) · Backups: accepts 2–7
 
 ## Data and compatibility
 
-- Database schema: 3 → 4 → 5 → 6 → 7, automatic on first launch, forward-only.
-- Backups from versions 2–7 are accepted; a backup written by a newer app is refused by an older one.
+- Database schema: 3 → 4 → 5 → 6 → 7 → 8, automatic on first launch, forward-only.
+- Backups from versions 2–8 are accepted; a backup written by a newer app is refused by an older one.
 - Existing data: preserved / requires the following step.
 
 ## Upgrade notes

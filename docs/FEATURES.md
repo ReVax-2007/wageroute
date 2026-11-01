@@ -1,6 +1,6 @@
 # Features and behaviour
 
-This is the functional reference for WageRoute 1.1.0. It describes what each screen does, which numbers it derives, what happens on save, and where the edge cases are.
+This is the functional reference for the current build. It describes what each screen does, which numbers it derives, what happens on save, and where the edge cases are. Features merged but not released yet are marked in [UNRELEASED.md](UNRELEASED.md); this file describes the behaviour the code has, not only what the last installer contains.
 
 Related references: [DATA-MODEL.md](DATA-MODEL.md) for formulas and storage, [IMPORT-EXPORT.md](IMPORT-EXPORT.md) for file behaviour, [ARCHITECTURE.md](ARCHITECTURE.md) for the mutation loop.
 
@@ -79,6 +79,25 @@ Total wealth = sum of every non-archived account balance
 ```
 
 Credit balances are stored negative, so they subtract. The strip splits the same number into Cash, Saved for goals, Invested and Credit owed; the split is tested to add back to the total exactly. The figure also appears as the first tile on Accounts and as a second line in the sidebar stat.
+
+When at least two days of history exist, a **sparkline** sits under the total: one point per day, sum of every live account's recorded balance, coloured green when the last point is at or above the first and red when it is below. The line's accessible name reads the exact figures and dates (`Net worth from $17,200.00 on Oct 2 to $17,900.00 today`), and the caption reads **Since Oct 2**. The series is sampled to at most 90 points, always keeping the last. With one day of history, or none, nothing is drawn rather than a flat line that implies measurement.
+
+### Due in the next two weeks
+
+A queue of bills and credit-card payments falling in the next fourteen days, soonest first:
+
+- a bill contributes its amount;
+- a card contributes `last_statement_balance_cents` minus payments recorded since the statement closed — only when the statement balance and the cycle days are known, so the app never invents a card due date;
+- each row shows name, `Today` or `in Nd`, the date and the amount; rows due within two days are highlighted;
+- an empty state reads **Nothing due** with *"No bill or card payment lands in the next fourteen days."*
+
+### Spending this month
+
+The month's expenses and bill payments (`expense` and `bill_payment` dated in the current calendar month) grouped by category:
+
+- up to six category rows, each with the category colour, a share bar and its total, largest first;
+- a footnote with the month total and the category count, plus *", top six shown"* when more exist;
+- an entry with no linked category falls under its stored text; an empty month shows **No spending recorded**.
 
 ### Stat cards
 
@@ -169,7 +188,8 @@ Actions:
 ### Bill dialog
 
 Fields: name, amount, cadence, due day (1–31), category, paid-from account, autopay checkbox, **Funding schedule** and — when it is needed — **Which paycheck?**.
-Autopay is a label, not a payment. WageRoute never moves money, so the checkbox only marks the bill; the wall keeps counting what is owed until the payment is logged. A note under the checkbox says so.
+
+Autopay marks a bill as one WageRoute records for you. At launch, every active autopay bill whose latest occurrence has passed without a matching payment gets one `bill_payment` dated the due day with a `· autopay` memo, and the month's reserve flips to **Paid**. A part payment already in the ledger counts, so only the remainder is posted; a bill with no usable account (neither its own nor the default deposit account) is skipped and stays on the wall rather than being guessed at. The app still does not move money between accounts — you pay the bill — it keeps the ledger honest without a manual prompt. A hint under the checkbox says exactly that. New bills default to autopay on.
 
 
 Funding schedule offers the five choices in this order, numbered so the list reads as an answer rather than a set of labels:
@@ -199,7 +219,7 @@ New bills get `nextDueOn = null`. Editing preserves the existing `nextDueOn` unl
 
 ### Notes
 
-- The wall is a reservation model, not an automatic payment schedule.
+- The wall is a reservation model; autopay only records the payment, it never moves money.
 - Monthly figures are smoothed; a large annual bill does not create a spike in the month it lands.
 - Deleting a bill does not delete its past payments.
 
@@ -358,6 +378,14 @@ Display rules:
 
 Credit utilization is `min(100, round(displayBalance / limit × 100))`, shown only when the limit is a positive number.
 
+A credit card with its cycle recorded also prints a second line:
+
+```text
+$412.30 due · closes Oct 18 · due Nov 8
+```
+
+The amount is `max(0, last_statement_balance_cents − payments recorded since the close)`, so a payment logged early reduces it. When the APR and minimum payment are set, the row adds a payoff line — `19 mo at minimum · $263.14 interest` — or says the minimum never clears the balance when the payment cannot cover the month's interest. Missing terms print nothing rather than an estimate.
+
 ### Add / edit account
 
 Fields:
@@ -367,6 +395,10 @@ Fields:
 - **Type** — checking, savings, cash, investment, credit.
 - **Starting balance** — create only. For credit cards the label becomes “Balance owed today” and a positive entry is stored as a negative balance.
 - **Credit limit** — credit cards only.
+- **APR** — credit cards only. A percentage between 0 and 100, stored in basis points; validated on the field.
+- **Minimum payment** — credit cards only. The monthly figure the card asks for; drives the payoff estimate.
+- **Last statement balance** — credit cards only. What the last statement asked for; drives the amount due.
+- **Statement closes on** / **Payment due on** — credit cards only. Days 1–31; the due date is resolved as the first due day after the close date, so either ordering works. A hint explains that the cycle and APR drive the due queue and the payoff estimate.
 - **Mine only for** — any live sinking fund, or **Nothing in particular**. Choosing a goal makes the account dedicated: its balance becomes that goal's progress, a hint explains that money parked here is spent when the goal is funded, and the account drops out of the spendable pool by default. This is the same relation the goal dialog's **Funded by** picker writes, seen from the other side; whichever end you edit last wins, and an account never funds two goals.
 - **Safe to spend** — Automatic / Always count it / Never count it. Automatic follows the account type (checking, savings and cash are included; investment, credit and dedicated accounts are not), and an explicit choice wins in both directions.
 - **Colour** — eight swatches plus **Automatic colour**. The chosen colour paints the account's dot on the Accounts list; *Automatic* stores nothing and lets the account type decide, so an account that has never been touched keeps the type colour and a v4 database shows no change at all.
@@ -519,25 +551,28 @@ Because settings are saved before the commit, a failed commit can still update t
 
 The toolbar switches between:
 
-- **Transactions (N)** — the editable ledger;
+- **Transactions (N)** — the editable ledger. `N` is the number of entries matching the current filter, so it changes as the filter does and is not capped at the page.
 - **Next 90 days (N)** — a read-only projection.
 
 The hint text changes with the tab.
 
 ### Ledger grid
 
-Columns: Date, Account, Kind, Category, Description, Amount, delete action.
+The ledger is queried, not filtered in the renderer: every filter, the sort and the page go to `transaction:query`, which returns one page of rows and the number of matches. The grid therefore holds 100 rows at a time and can page through the whole table, not the 500-row snapshot.
+
+**Filter bar** (`role="search"`, labelled **Filter the ledger**): a search field matching description or category text, From and To dates, Account, Kind, Category and Sort — **Newest first**, **Oldest first**, **Largest amount** (by absolute value) or **Smallest amount** — plus **Clear**. Changing any filter resets to the first page. The empty state offers **Clear the filter**; with no entries at all it offers an add action.
+
+**Columns:** Date, Account, Kind, Category, Description, Amount, delete action.
 
 - Click or double-click a cell to edit in place.
 - Date uses a native date input and accepts only `YYYY-MM-DD`.
-- Account and Kind use selects.
-- Category and Description use text editors.
+- Account and Kind use selects; both are read-only on a paired transfer row.
+- Category is a text editor with a `datalist` of existing category names; the typed or picked name is resolved back to its category id, so reports stay grouped. Description uses a plain text editor.
 - Amount parses through `parseMoneyToCents`; invalid input cancels the edit.
-- Sorting is available on Date, Category and Amount; multiple sort columns are supported by the grid.
 - Each changed cell produces a patch containing only the fields that changed, then calls `updateTransaction`.
 - Delete asks for confirmation. For a paired transfer, the prompt says “Delete both legs” and the repository removes the whole group.
 
-The grid receives the snapshot's newest 500 non-deleted transactions.
+**Paging and selection.** The footer prints the visible range (`1–100 of 520`), the page number and previous/next controls. A header checkbox selects every row on the current page only; the bar above the grid reads `N entries selected` and offers **Clear selection** and **Delete selected**, which asks one confirm (`Delete 3 entries?`) and removes exactly those rows. A selection does not survive a page change or a new filter.
 
 ### Projections
 
@@ -550,7 +585,7 @@ The grid receives the snapshot's newest 500 non-deleted transactions.
 
 ### Add entry dialog
 
-Fields: date, account, kind, destination account (transfers only), amount, category, description.
+Fields: date, account, kind, destination account (transfers only), amount, category, description. Category offers the existing category names as a `datalist` and resolves the typed text to its id; a new name becomes a new category through `ensureCategory`.
 
 Amount direction:
 
@@ -699,8 +734,7 @@ It rejects more than two decimals, non-numeric text, an empty string (returns `n
 
 - Success messages are toasts, auto-dismissed after 4.2 seconds; errors stay until dismissed, because an error is a fact the user has to read. Hovering or focusing a toast pauses its timer, so it does not vanish mid-read.
 - A toast is a live region — `role="status"` for success, `role="alert"` for errors — with a dedicated **Dismiss notification** button. Its text is selectable, so an error can be copied into a bug report.
-- Destructive actions use the native `window.confirm` dialog: deleting accounts, bills, goals and transactions.
-- Import uses a confirmation before opening the file picker.
+- Destructive actions — deleting a bill, a goal, a ledger row or a selection, and a grid edit that changes an entry's kind or account — use one styled `askConfirm` dialog that names the consequence. Import uses a confirmation before opening the file picker.
 
 ### Keyboard, focus and dialogs
 
@@ -731,7 +765,8 @@ All domain dates are constructed as UTC dates from `YYYY-MM-DD` strings. “Toda
 | Paycheck routing with priority-first allocation | Implemented | Pure, tested |
 | Sinking funds and goal priorities | Implemented | |
 | Emergency fund auto/manual target | Implemented | 3–6 month presets |
-| Credit accounts, limits and utilization | Implemented | No interest/APR modelling |
+| Credit accounts, limits and utilization | Implemented | Credit limit and utilization |
+| Card terms: APR, minimum payment, statement cycle | Implemented | Payoff estimate is arithmetic on the entered terms; no statement download |
 | Paired transfers | Implemented | |
 | Round-up sweeps | Implemented | Expense creation only |
 | Bill payment prompts | Implemented | Session-only, per-occurrence snooze |
@@ -739,15 +774,15 @@ All domain dates are constructed as UTC dates from `YYYY-MM-DD` strings. “Toda
 | Dark/light/system themes | Implemented | Tri-state, follows `prefers-color-scheme` live |
 | JSON backup, partial JSON import | Implemented | Additive |
 | CSV export and entries import | Implemented | Export covers the whole ledger; Debit/Credit columns are read |
-| Bank statement import (OFX/QFX, account-less CSV) | Implemented | Destinations chosen in the wizard; balance shown, not reconciled |
+| Bank statement import (OFX/QFX, account-less CSV) | Implemented | Destinations chosen in the wizard; `FITID`/reference dedupe; balance shown, not reconciled |
 | Keyboard dialogs and focus management | Implemented | Trap, Escape, focus restore, skip link, named headings |
 | Multi-currency display | Partial | Currency setting exists; no selector and no conversion |
 | Bank connections / statement sync | Not implemented | Manual entry and file import only |
-| Recurring transaction generation | Not implemented | Bills are a reserve model |
+| Recurring transaction generation | Partial | Autopay bills are posted at launch; other bills stay a reserve model |
 | Paycheck editing or deletion | Not implemented | Commit is append-only in the UI |
 | Goal withdrawals or spending from a goal | Partial | Spending from a **dedicated account** lowers that goal's progress, because its balance is the progress. Allocation-funded goals have no withdrawal path — their money never left the spendable accounts |
-| Debt payoff schedule / APR | Not implemented | Debt is a percentage bucket plus credit balances |
-| Category budgets and reports | Not implemented | |
+| Debt payoff schedule / APR | Partial | Payoff months, interest and a two-year payment are computed from the entered terms; no extra-payment planner |
+| Category budgets and reports | Partial | Monthly spending by category; no budgets |
 | Cloud sync, multi-device, accounts | Not implemented | Schema prepared only |
 | Auto-update | Not implemented | |
 | Encryption at rest | Not implemented | Rely on OS full-disk encryption |
@@ -781,7 +816,12 @@ All domain dates are constructed as UTC dates from `YYYY-MM-DD` strings. “Toda
 | Round-up destination is the source account | No sweep |
 | Round-up on an exact dollar amount | No sweep |
 | Round-up on a credit card | No sweep |
-| Import duplicate transaction | Skipped by ID (JSON) or fingerprint allowance (CSV) |
+| Import duplicate transaction | Skipped by ID (JSON), by the bank's `FITID`/reference (statement), or by the fingerprint allowance (CSV without one) |
+| Autopay bill whose account is archived or missing | Skipped, not guessed; the wall keeps showing it |
+| Autopay bill with a part payment already logged | Posts only the remainder |
+| Re-import a statement after a line was reworded | Skipped again, because the bank's id matches |
+| Category deleted while entries reference it | Entries keep their text and lose the link; reports show the text |
+| Card terms left blank | No amount due, no payoff estimate; nothing is invented |
 | Import unknown CSV account | Row reported as an issue, other rows still import |
 | Import transfer row from CSV | Reported as an issue; use a JSON backup to keep both legs |
 | Import settings that already exist | Local value wins |

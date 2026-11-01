@@ -10,11 +10,14 @@ import type {
   AccountInput,
   AppSettings,
   BillInput,
+  CategoryInput,
   GoalInput,
+  LedgerQuery,
   PaycheckDraftInput,
   Snapshot,
   SnapshotPatch,
   TransactionInput,
+  TransactionPage,
   TransactionPatch
 } from './types'
 import type { StatementInfo } from './statements'
@@ -38,6 +41,8 @@ export interface WriteResult<T> {
 
 export interface ImportCounts {
   accounts: number
+  balance_snapshots: number
+  categories: number
   bills: number
   goals: number
   paychecks: number
@@ -92,6 +97,8 @@ export interface ImportResult {
 export function emptyImportCounts(): ImportCounts {
   return {
     accounts: 0,
+    balance_snapshots: 0,
+    categories: 0,
     bills: 0,
     goals: 0,
     paychecks: 0,
@@ -134,6 +141,11 @@ export interface FinanceApi {
   updateBill(id: string, input: Partial<BillInput>): Promise<WriteResult<void>>
   deleteBill(id: string): Promise<WriteResult<void>>
 
+  createCategory(input: CategoryInput): Promise<WriteResult<string>>
+  updateCategory(id: string, input: Partial<CategoryInput>): Promise<WriteResult<void>>
+  /** Removes the category; entries keep their last text and lose the pointer. */
+  deleteCategory(id: string): Promise<WriteResult<void>>
+
   createGoal(input: GoalInput): Promise<WriteResult<string>>
   updateGoal(id: string, input: Partial<GoalInput>): Promise<WriteResult<void>>
   deleteGoal(id: string): Promise<WriteResult<void>>
@@ -142,6 +154,10 @@ export interface FinanceApi {
   createTransaction(input: TransactionInput): Promise<WriteResult<string>>
   updateTransaction(id: string, input: TransactionPatch): Promise<WriteResult<void>>
   deleteTransaction(id: string): Promise<WriteResult<void>>
+  /** Deletes a selection, removing both legs of any transfer it touches. */
+  deleteTransactions(ids: string[]): Promise<WriteResult<number>>
+  /** One filtered, sorted page of the ledger, with the filter's own total. */
+  queryTransactions(query: LedgerQuery): Promise<TransactionPage>
 
   commitPaycheck(input: PaycheckDraftInput): Promise<WriteResult<CommittedPaycheck>>
   saveSettings(settings: AppSettings): Promise<WriteResult<void>>

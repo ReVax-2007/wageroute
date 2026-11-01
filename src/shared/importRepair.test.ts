@@ -33,6 +33,7 @@ const ACCOUNT_CHOICES: ImportChoice[] = [
 function context(overrides: Partial<ImportContext> = {}): ImportContext {
   const choices: Record<ImportChoiceTable, ImportChoice[]> = {
     accounts: ACCOUNT_CHOICES,
+    categories: [],
     bills: [],
     goals: [{ id: 'goal-1', label: 'Emergency fund' }],
     paychecks: [{ id: 'pay-1', label: '2026-02-15 · Paycheck' }]

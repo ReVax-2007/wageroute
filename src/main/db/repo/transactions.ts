@@ -5,8 +5,11 @@ import { parseSettings } from '@shared/settings'
 import { roundUpRemainderCents, transferLegs } from '@shared/transfers'
 import type {
   AccountKind,
+  LedgerQuery,
+  LedgerSort,
   TransactionInput,
   TransactionKind,
+  TransactionPage,
   TransactionPatch,
   TransactionRow
 } from '@shared/types'
@@ -21,6 +24,7 @@ import {
   updateRow,
   type Db
 } from './common'
+import { ensureCategory } from './categories'
 import { setBillReserveState } from './bills'
 import { readSettings } from './settings'
 
@@ -37,6 +41,7 @@ const TRANSACTION_KINDS: readonly TransactionKind[] = [
 const TRANSACTION_SELECT = `
   SELECT t.id, t.user_id AS userId, t.account_id AS accountId, t.kind,
          t.amount_cents AS amountCents, t.occurred_on AS occurredOn, t.memo, t.category,
+         t.category_id AS categoryId, t.external_id AS externalId,
          t.bill_id AS billId, t.goal_id AS goalId, t.paycheck_id AS paycheckId,
          t.counter_account_id AS counterAccountId, t.transfer_group_id AS transferGroupId,
          t.created_at AS createdAt,
@@ -68,6 +73,83 @@ export function transactionCount(db: Db, userId: string): number {
   return row.total
 }
 
+const LEDGER_SORTS: Record<LedgerSort, string> = {
+  date_desc: 't.occurred_on DESC, t.created_at DESC',
+  date_asc: 't.occurred_on ASC, t.created_at ASC',
+  amount_desc: 'ABS(t.amount_cents) DESC, t.occurred_on DESC',
+  amount_asc: 'ABS(t.amount_cents) ASC, t.occurred_on DESC'
+}
+
+/**
+ * One indexed query for the ledger's filter bar. The same WHERE feeds the count,
+ * so "showing 40 of 1,240" is the filter's own number, not the table's.
+ */
+export function queryTransactions(db: Db, userId: string, query: LedgerQuery): TransactionPage {
+  const where: string[] = ['t.user_id = ?', 't.deleted_at IS NULL']
+  const args: unknown[] = [userId]
+
+  const text = query.filter.text?.trim()
+  if (text) {
+    where.push('(instr(lower(t.memo), lower(?)) > 0 OR instr(lower(t.category), lower(?)) > 0)')
+    args.push(text, text)
+  }
+  if (query.filter.from) {
+    where.push('t.occurred_on >= ?')
+    args.push(assertDate(query.filter.from, 'From date'))
+  }
+  if (query.filter.to) {
+    where.push('t.occurred_on <= ?')
+    args.push(assertDate(query.filter.to, 'To date'))
+  }
+  if (query.filter.accountId) {
+    where.push('t.account_id = ?')
+    args.push(query.filter.accountId)
+  }
+  if (query.filter.kind) {
+    where.push('t.kind = ?')
+    args.push(assertOneOf(query.filter.kind, TRANSACTION_KINDS, 'transaction kind'))
+  }
+  if (query.filter.categoryId) {
+    where.push('t.category_id = ?')
+    args.push(query.filter.categoryId)
+  }
+
+  const whereSql = where.join(' AND ')
+  const sort = LEDGER_SORTS[query.sort] ?? LEDGER_SORTS.date_desc
+  const limit = Math.min(500, Math.max(1, Math.round(query.limit)))
+  const offset = Math.max(0, Math.round(query.offset))
+
+  const rows = db
+    .prepare(
+      `SELECT t.id, t.user_id AS userId, t.account_id AS accountId, t.kind,
+              t.amount_cents AS amountCents, t.occurred_on AS occurredOn, t.memo, t.category,
+              t.category_id AS categoryId, t.external_id AS externalId,
+              t.bill_id AS billId, t.goal_id AS goalId, t.paycheck_id AS paycheckId,
+              t.counter_account_id AS counterAccountId,
+              t.transfer_group_id AS transferGroupId,
+              t.created_at AS createdAt, t.updated_at AS updatedAt,
+              t.deleted_at AS deletedAt, t.revision,
+              a.name AS accountName, a.institution AS accountInstitution
+       FROM transactions t
+       JOIN accounts a ON a.id = t.account_id
+       WHERE ${whereSql}
+       ORDER BY ${sort}
+       LIMIT ? OFFSET ?`
+    )
+    .all(...args, limit, offset) as TransactionRow[]
+
+  const total = (
+    db
+      .prepare(
+        `SELECT COUNT(*) AS total FROM transactions t
+         WHERE ${whereSql}`
+      )
+      .get(...args) as { total: number }
+  ).total
+
+  return { rows, total }
+}
+
 
 
 export interface NewTransactionInput {
@@ -77,6 +159,8 @@ export interface NewTransactionInput {
   occurredOn: string
   memo: string
   category: string
+  categoryId?: string | null
+  externalId?: string | null
   billId?: string | null
   goalId?: string | null
   paycheckId?: string | null
@@ -85,15 +169,46 @@ export interface NewTransactionInput {
   roundUpSourceId?: string | null
 }
 
+/**
+ * Labels the app writes itself belong to a seeded category, so the list stays
+ * short instead of gaining one row per internal payment type.
+ */
+const INTERNAL_CATEGORY_ALIASES: Record<string, string> = {
+  'round-up': 'Transfer',
+  'credit payment': 'Debt',
+  paycheck: 'Income'
+}
+
+function resolveCategory(
+  db: Db,
+  userId: string,
+  kind: TransactionKind,
+  input: { category: string; categoryId?: string | null }
+): { id: string | null; name: string } {
+  if (input.categoryId) {
+    const row = db
+      .prepare(
+        'SELECT id, name FROM categories WHERE id = ? AND user_id = ? AND deleted_at IS NULL'
+      )
+      .get(input.categoryId, userId) as { id: string; name: string } | undefined
+    if (!row) throw new RepositoryError('NOT_FOUND', 'Category not found')
+    return { id: row.id, name: row.name }
+  }
+  const raw = optionalText(input.category, 'Category', 60) ?? 'Uncategorized'
+  const name = INTERNAL_CATEGORY_ALIASES[raw.toLocaleLowerCase()] ?? raw
+  return { id: ensureCategory(db, userId, name, kind), name }
+}
+
 export function insertTransactionRow(db: Db, userId: string, input: NewTransactionInput): string {
   const id = randomUUID()
   const ts = nowISO()
+  const category = resolveCategory(db, userId, input.kind, input)
   db.prepare(
     `INSERT INTO transactions
        (id, user_id, account_id, kind, amount_cents, occurred_on, memo, category,
-        bill_id, goal_id, paycheck_id, counter_account_id, transfer_group_id,
-        round_up_source_id, created_at, updated_at, deleted_at, revision)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1)`
+        category_id, external_id, bill_id, goal_id, paycheck_id, counter_account_id,
+        transfer_group_id, round_up_source_id, created_at, updated_at, deleted_at, revision)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1)`
   ).run(
     id,
     userId,
@@ -102,7 +217,9 @@ export function insertTransactionRow(db: Db, userId: string, input: NewTransacti
     input.amountCents,
     input.occurredOn,
     input.memo,
-    input.category,
+    category.name,
+    category.id,
+    input.externalId ?? null,
     input.billId ?? null,
     input.goalId ?? null,
     input.paycheckId ?? null,
@@ -189,7 +306,8 @@ export function createTransaction(db: Db, userId: string, input: TransactionInpu
   )
   const occurredOn = assertDate(input.occurredOn, 'Date')
   const memo = optionalText(input.memo, 'Memo', 240) ?? ''
-  const category = optionalText(input.category, 'Category', 60) ?? 'Uncategorized'
+  const category = input.category
+  const categoryId = input.categoryId ?? null
   const account = requireAccount(db, userId, input.accountId)
 
   if (kind === 'transfer') {
@@ -210,6 +328,7 @@ export function createTransaction(db: Db, userId: string, input: TransactionInpu
         occurredOn,
         memo,
         category,
+        categoryId,
         counterAccountId,
         transferGroupId: groupId
       })
@@ -238,6 +357,7 @@ export function createTransaction(db: Db, userId: string, input: TransactionInpu
       occurredOn,
       memo,
       category,
+      categoryId,
       billId: input.billId ?? null,
       goalId: input.goalId ?? null
     })
@@ -285,7 +405,7 @@ export function updateTransaction(
     .prepare(
       `SELECT transfer_group_id AS groupId, round_up_source_id AS roundUpSourceId,
               bill_id AS billId, amount_cents AS amountCents, kind, account_id AS accountId,
-              occurred_on AS occurredOn, memo
+              occurred_on AS occurredOn, memo, category, category_id AS categoryId
        FROM transactions
        WHERE id = ? AND user_id = ? AND deleted_at IS NULL`
     )
@@ -299,6 +419,8 @@ export function updateTransaction(
         accountId: string
         occurredOn: string
         memo: string
+        category: string
+        categoryId: string | null
       }
     | undefined
   if (!existing) throw new RepositoryError('NOT_FOUND', 'Entry not found')
@@ -327,10 +449,13 @@ export function updateTransaction(
     const occurredOn =
       patch.occurredOn === undefined ? undefined : assertDate(patch.occurredOn, 'Date')
     const memo = patch.memo === undefined ? undefined : optionalText(patch.memo, 'Memo', 240) ?? ''
-    const category =
-      patch.category === undefined
-        ? undefined
-        : optionalText(patch.category, 'Category', 60) ?? 'Uncategorized'
+    const categoryChange =
+      patch.category === undefined && patch.categoryId === undefined
+        ? null
+        : resolveCategory(db, userId, existing.kind, {
+            category: patch.category ?? existing.category,
+            categoryId: patch.categoryId
+          })
 
     db.transaction(() => {
       for (const leg of transferGroupRows(db, userId, existing.groupId!)) {
@@ -339,7 +464,8 @@ export function updateTransaction(
           amount_cents: magnitude === null ? undefined : sign * magnitude,
           occurred_on: occurredOn,
           memo,
-          category
+          category: categoryChange?.name,
+          category_id: categoryChange?.id
         })
       }
     })()
@@ -374,6 +500,13 @@ export function updateTransaction(
     patch.occurredOn === undefined ? existing.occurredOn : assertDate(patch.occurredOn, 'Date')
   const nextMemo = patch.memo === undefined ? existing.memo : optionalText(patch.memo, 'Memo', 240) ?? ''
   const nextAccountId = patch.accountId ?? existing.accountId
+  const categoryChange =
+    patch.category === undefined && patch.categoryId === undefined
+      ? null
+      : resolveCategory(db, userId, nextKind, {
+          category: patch.category ?? existing.category,
+          categoryId: patch.categoryId
+        })
 
   db.transaction(() => {
     updateRow(db, 'transactions', id, userId, {
@@ -382,10 +515,8 @@ export function updateTransaction(
       amount_cents: patchTouchesAmount ? nextAmount : undefined,
       occurred_on: patch.occurredOn === undefined ? undefined : nextOccurredOn,
       memo: patch.memo === undefined ? undefined : nextMemo,
-      category:
-        patch.category === undefined
-          ? undefined
-          : optionalText(patch.category, 'Category', 60) ?? 'Uncategorized'
+      category: categoryChange?.name,
+      category_id: categoryChange?.id
     })
 
     // A purchase's sweep is derived from it: remove the old pair, then let the
@@ -469,5 +600,35 @@ export function deleteTransaction(db: Db, userId: string, id: string): void {
     if (row.billId) {
       setBillReserveState(db, userId, row.billId, row.occurredOn, 'reserved')
     }
+  })()
+}
+
+/**
+ * Deletes every selected entry as one movement. Transfer legs are deleted in
+ * pairs, so a selection that contains one leg also removes its twin; the twin
+ * is then skipped instead of aborting the batch with "not found". The whole
+ * batch is one transaction: either every row goes or none does.
+ */
+export function deleteTransactions(db: Db, userId: string, ids: readonly string[]): number {
+  const unique = [...new Set(ids)]
+  if (unique.length === 0) return 0
+
+  return db.transaction(() => {
+    const live = new Set<string>()
+    const statement = db.prepare(
+      'SELECT 1 AS present FROM transactions WHERE id = ? AND user_id = ? AND deleted_at IS NULL'
+    )
+    for (const id of unique) {
+      if (statement.get(id, userId)) live.add(id)
+    }
+    let removed = 0
+    for (const id of unique) {
+      if (!live.has(id)) continue
+      // A paired leg may already have been removed by its twin earlier in the loop.
+      if (!statement.get(id, userId)) continue
+      deleteTransaction(db, userId, id)
+      removed += 1
+    }
+    return removed
   })()
 }

@@ -26,6 +26,15 @@ function safeToSpendChoice(account: AccountWithBalance | null): SafeToSpendChoic
   return account.inSafeToSpend ? 'in' : 'out'
 }
 
+/** A day-of-month field: blank stays null, anything else must be 1–31. */
+function parseDay(raw: string): number | null {
+  const text = raw.trim()
+  if (!text) return null
+  if (!/^\d{1,2}$/.test(text)) return null
+  const day = Number(text)
+  return day >= 1 && day <= 31 ? day : null
+}
+
 export function AccountDialog({
   account,
   onClose
@@ -53,6 +62,24 @@ export function AccountDialog({
     startingBalance: account ? centsToEditable(Math.abs(account.startingBalanceCents)) : '',
     creditLimit:
       account && account.creditLimitCents !== null ? centsToEditable(account.creditLimitCents) : '',
+    // Stored in basis points; the form speaks percent because that is what a
+    // statement prints.
+    apr:
+      account && account.aprBps !== null ? String(Number((account.aprBps / 100).toFixed(2))) : '',
+    minimumPayment:
+      account && account.minimumPaymentCents !== null
+        ? centsToEditable(account.minimumPaymentCents)
+        : '',
+    statementDay: account?.statementDay !== null && account?.statementDay !== undefined
+      ? String(account.statementDay)
+      : '',
+    paymentDueDay: account?.paymentDueDay !== null && account?.paymentDueDay !== undefined
+      ? String(account.paymentDueDay)
+      : '',
+    lastStatementBalance:
+      account && account.lastStatementBalanceCents !== null
+        ? centsToEditable(account.lastStatementBalanceCents)
+        : '',
     dedicatedGoalId: account?.dedicatedGoalId ?? '',
     safeToSpend: safeToSpendChoice(account),
     color: account?.color ?? ''
@@ -61,6 +88,11 @@ export function AccountDialog({
     name?: string
     creditLimit?: string
     startingBalance?: string
+    apr?: string
+    minimumPayment?: string
+    statementDay?: string
+    paymentDueDay?: string
+    lastStatementBalance?: string
   }>({})
   const { saving, error, run } = useDialogSave(onClose)
 
@@ -75,6 +107,16 @@ export function AccountDialog({
     const startingTyped = form.startingBalance.trim()
       ? parseMoneyToCents(form.startingBalance)
       : 0
+    const aprTyped = form.apr.trim() ? Number(form.apr.trim().replace(/%$/, '')) : null
+    const minimumTyped = form.minimumPayment.trim()
+      ? parseMoneyToCents(form.minimumPayment)
+      : null
+    const lastStatementTyped = form.lastStatementBalance.trim()
+      ? parseMoneyToCents(form.lastStatementBalance)
+      : null
+    const statementDayTyped = parseDay(form.statementDay)
+    const paymentDueDayTyped = parseDay(form.paymentDueDay)
+
     const problems: typeof fieldErrors = {}
     if (!form.name.trim()) problems.name = 'Give the account a name'
     if (form.creditLimit.trim() && limitTyped === null) {
@@ -83,12 +125,46 @@ export function AccountDialog({
     if (!account && startingTyped === null) {
       problems.startingBalance = 'Starting balance must be a number'
     }
+    if (aprTyped !== null && (!Number.isFinite(aprTyped) || aprTyped < 0 || aprTyped > 100)) {
+      problems.apr = 'APR must be a percentage between 0 and 100'
+    }
+    if (form.minimumPayment.trim() && minimumTyped === null) {
+      problems.minimumPayment = 'Minimum payment must be a number'
+    }
+    if (form.statementDay.trim() && statementDayTyped === null) {
+      problems.statementDay = 'Statement day must be a whole number from 1 to 31'
+    }
+    if (form.paymentDueDay.trim() && paymentDueDayTyped === null) {
+      problems.paymentDueDay = 'Due day must be a whole number from 1 to 31'
+    }
+    if (form.lastStatementBalance.trim() && lastStatementTyped === null) {
+      problems.lastStatementBalance = 'Last statement balance must be a number'
+    }
     setFieldErrors(problems)
     if (Object.keys(problems).length > 0 || startingTyped === null) return
 
     const dedicatedGoalId = form.dedicatedGoalId || null
     const inSafeToSpend = form.safeToSpend === 'auto' ? null : form.safeToSpend === 'in'
     const purposeFields = { dedicatedGoalId, inSafeToSpend, color: form.color || null }
+
+    // Terms only mean something on a card; switching a draft away from credit
+    // must not leave the old numbers behind.
+    const terms = isCredit
+      ? {
+          aprBps: aprTyped === null ? null : Math.round(aprTyped * 100),
+          minimumPaymentCents: minimumTyped === null ? null : Math.abs(minimumTyped),
+          statementDay: statementDayTyped,
+          paymentDueDay: paymentDueDayTyped,
+          lastStatementBalanceCents:
+            lastStatementTyped === null ? null : Math.abs(lastStatementTyped)
+        }
+      : {
+          aprBps: null,
+          minimumPaymentCents: null,
+          statementDay: null,
+          paymentDueDay: null,
+          lastStatementBalanceCents: null
+        }
 
     await run(() => {
       if (account) {
@@ -97,6 +173,7 @@ export function AccountDialog({
           kind: form.kind,
           institution: form.institution.trim(),
           creditLimitCents: isCredit ? limitTyped : null,
+          ...terms,
           ...purposeFields
         })
       }
@@ -107,6 +184,7 @@ export function AccountDialog({
         // A credit card's opening balance is money owed, stored as a negative balance.
         startingBalanceCents: isCredit ? -Math.abs(startingTyped) : startingTyped,
         creditLimitCents: isCredit ? limitTyped : null,
+        ...terms,
         ...purposeFields
       }
       return createAccount(input)
@@ -207,22 +285,110 @@ export function AccountDialog({
         )}
 
         {isCredit && (
-          <Field
-            label="Credit limit"
-            hint="Used for the utilization meter"
-            error={fieldErrors.creditLimit}
-          >
-            <input
-              className="input"
-              inputMode="decimal"
-              value={form.creditLimit}
-              placeholder="5,000.00"
-              onChange={(event) => {
-                clearField('creditLimit')
-                setForm({ ...form, creditLimit: event.target.value })
-              }}
-            />
-          </Field>
+          <>
+            <Field
+              label="Credit limit"
+              hint="Used for the utilization meter"
+              error={fieldErrors.creditLimit}
+            >
+              <input
+                className="input"
+                inputMode="decimal"
+                value={form.creditLimit}
+                placeholder="5,000.00"
+                onChange={(event) => {
+                  clearField('creditLimit')
+                  setForm({ ...form, creditLimit: event.target.value })
+                }}
+              />
+            </Field>
+
+            <Field label="APR" hint="Annual rate, as printed on the statement" error={fieldErrors.apr}>
+              <input
+                className="input"
+                inputMode="decimal"
+                value={form.apr}
+                placeholder="20.99"
+                onChange={(event) => {
+                  clearField('apr')
+                  setForm({ ...form, apr: event.target.value })
+                }}
+              />
+            </Field>
+
+            <Field
+              label="Minimum payment"
+              hint="What the bank asks for each month"
+              error={fieldErrors.minimumPayment}
+            >
+              <input
+                className="input"
+                inputMode="decimal"
+                value={form.minimumPayment}
+                placeholder="25.00"
+                onChange={(event) => {
+                  clearField('minimumPayment')
+                  setForm({ ...form, minimumPayment: event.target.value })
+                }}
+              />
+            </Field>
+
+            <Field
+              label="Last statement balance"
+              hint="What the last statement says you owe"
+              error={fieldErrors.lastStatementBalance}
+            >
+              <input
+                className="input"
+                inputMode="decimal"
+                value={form.lastStatementBalance}
+                placeholder="420.00"
+                onChange={(event) => {
+                  clearField('lastStatementBalance')
+                  setForm({ ...form, lastStatementBalance: event.target.value })
+                }}
+              />
+            </Field>
+
+            <Field
+              label="Statement closes on"
+              hint="Day of the month the cycle ends"
+              error={fieldErrors.statementDay}
+            >
+              <input
+                className="input"
+                inputMode="numeric"
+                value={form.statementDay}
+                placeholder="18"
+                onChange={(event) => {
+                  clearField('statementDay')
+                  setForm({ ...form, statementDay: event.target.value })
+                }}
+              />
+            </Field>
+
+            <Field
+              label="Payment due on"
+              hint="Day of the month the bill is due"
+              error={fieldErrors.paymentDueDay}
+            >
+              <input
+                className="input"
+                inputMode="numeric"
+                value={form.paymentDueDay}
+                placeholder="8"
+                onChange={(event) => {
+                  clearField('paymentDueDay')
+                  setForm({ ...form, paymentDueDay: event.target.value })
+                }}
+              />
+            </Field>
+
+            <p className="field-hint span-2">
+              The cycle and APR drive the due-today queue and the payoff estimate. Days near the end
+              of the month clamp to the last day of shorter months.
+            </p>
+          </>
         )}
 
         <Field

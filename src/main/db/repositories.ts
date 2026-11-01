@@ -17,6 +17,15 @@ export {
 export { listBills, createBill, updateBill, deleteBill } from './repo/bills'
 export { listBillReserves, reservedBillIdsFor } from './repo/bills'
 export {
+  listCategories,
+  createCategory,
+  updateCategory,
+  deleteCategory,
+  ensureCategory
+} from './repo/categories'
+export { listBalanceSnapshots, recordDailySnapshots } from './repo/balances'
+export { postDueAutopay } from './repo/posting'
+export {
   listGoals,
   createGoal,
   updateGoal,
@@ -26,11 +35,13 @@ export {
 export {
   listTransactions,
   listAllTransactions,
+  queryTransactions,
   transactionCount,
   insertTransactionRow,
   createTransaction,
   updateTransaction,
   deleteTransaction,
+  deleteTransactions,
   type NewTransactionInput
 } from './repo/transactions'
 export {

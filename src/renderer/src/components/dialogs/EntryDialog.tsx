@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { categoryKey } from '@shared/categories'
 import { todayISO } from '@shared/dates'
 import { parseMoneyToCents } from '@shared/money'
 import type { TransactionInput, TransactionKind } from '@shared/types'
@@ -19,6 +20,7 @@ export function EntryDialog({ onClose }: { onClose: () => void }) {
   const createTransaction = useFinanceStore((state) => state.createTransaction)
 
   const accounts = (snapshot?.accounts ?? []).filter((account) => !account.isArchived)
+  const categories = snapshot?.categories ?? []
   const [form, setForm] = useState({
     occurredOn: todayISO(),
     accountId: accounts[0]?.id ?? '',
@@ -26,9 +28,15 @@ export function EntryDialog({ onClose }: { onClose: () => void }) {
     kind: 'expense' as TransactionKind,
     amount: '',
     category: 'Misc',
+    categoryId: null as string | null,
     memo: ''
   })
   const { saving, error, setError, run } = useDialogSave(onClose)
+
+  const setCategory = (value: string) => {
+    const match = categories.find((category) => categoryKey(category.name) === categoryKey(value))
+    setForm((current) => ({ ...current, category: value, categoryId: match?.id ?? null }))
+  }
 
   const submit = async () => {
     const typed = parseMoneyToCents(form.amount)
@@ -66,6 +74,7 @@ export function EntryDialog({ onClose }: { onClose: () => void }) {
       amountCents,
       occurredOn: form.occurredOn,
       category: form.category.trim() || 'Misc',
+      categoryId: form.category.trim() ? form.categoryId : null,
       memo: form.memo.trim(),
       counterAccountId: form.kind === 'transfer' ? form.counterAccountId : null
     }
@@ -163,12 +172,21 @@ export function EntryDialog({ onClose }: { onClose: () => void }) {
             onChange={(event) => setForm({ ...form, amount: event.target.value })}
           />
         </Field>
-        <Field label="Category">
+        <Field
+          label="Category"
+          hint="Pick one you already use, or name a new one"
+        >
           <input
             className="input"
+            list="entry-category-options"
             value={form.category}
-            onChange={(event) => setForm({ ...form, category: event.target.value })}
+            onChange={(event) => setCategory(event.target.value)}
           />
+          <datalist id="entry-category-options">
+            {categories.map((category) => (
+              <option key={category.id} value={category.name} />
+            ))}
+          </datalist>
         </Field>
         <Field label="Description" hint="Shown in the ledger and the dashboard feed">
           <input

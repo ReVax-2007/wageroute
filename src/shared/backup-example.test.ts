@@ -14,6 +14,8 @@ test('examples/backup.example.json parses as a valid backup', () => {
   assert.equal(payload.format, 'cash-flow-routing-backup')
   assert.equal(payload.version, SCHEMA_VERSION)
   assert.equal(payload.tables.accounts.length, 2)
+  assert.equal(payload.tables.balance_snapshots.length, 2)
+  assert.equal(payload.tables.categories.length, 3)
   assert.equal(payload.tables.bills.length, 2)
   assert.equal(payload.tables.goals.length, 1)
   assert.equal(payload.tables.paychecks.length, 1)
@@ -27,9 +29,14 @@ test('the example keeps its cross-table links intact', () => {
   const text = readFileSync(join(here, '../../examples/backup.example.json'), 'utf8')
   const { tables } = parseBackupJson(text)
   const accountIds = new Set(tables.accounts.map((row) => row.id))
+  const categoryIds = new Set(tables.categories.map((row) => row.id))
   const billIds = new Set(tables.bills.map((row) => row.id))
   const goalIds = new Set(tables.goals.map((row) => row.id))
   const paycheckIds = new Set(tables.paychecks.map((row) => row.id))
+
+  for (const snapshot of tables.balance_snapshots) {
+    assert.ok(accountIds.has(snapshot.account_id), `snapshot ${snapshot.on_date} links to an account in the file`)
+  }
 
   for (const account of tables.accounts) {
     if (account.dedicated_goal_id !== null) {
@@ -42,6 +49,9 @@ test('the example keeps its cross-table links intact', () => {
   for (const bill of tables.bills) assert.ok(accountIds.has(bill.account_id), `bill ${bill.name} links to an account`)
   for (const txn of tables.transactions) {
     assert.ok(accountIds.has(txn.account_id), `txn ${txn.memo} links to an account`)
+    if (txn.category_id !== null) {
+      assert.ok(categoryIds.has(txn.category_id), `txn ${txn.memo} links to a category in the file`)
+    }
     if (txn.bill_id !== null) assert.ok(billIds.has(txn.bill_id), `txn ${txn.memo} links to a bill`)
     if (txn.paycheck_id !== null) assert.ok(paycheckIds.has(txn.paycheck_id), `txn ${txn.memo} links to a paycheck`)
     if (txn.counter_account_id !== null) assert.ok(accountIds.has(txn.counter_account_id), `txn ${txn.memo} links a counter-account`)

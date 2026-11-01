@@ -5,6 +5,8 @@ import { pathToFileURL } from 'node:url'
 import { adoptLegacyDatabase, closeDatabase, getDatabase } from './db/connection'
 import { DatabaseCorruptError } from './db/maintenance'
 import { SchemaTooNewError } from './db/migrations'
+import { postDueAutopay, recordDailySnapshots } from './db/repositories'
+import type { Db } from './db/repo/common'
 import { seedDemoIfEmpty, seedIfEmpty } from './db/seed'
 import { registerIpcHandlers } from './ipc'
 import { installCrashLogging, logCrash } from './log'
@@ -101,6 +103,24 @@ function createWindow(): void {
   }
 }
 
+/**
+ * Work that has to happen once per launch, before the first screen reads the
+ * data. Each step is isolated: a failing autopay run must not stop the daily
+ * balance record, and neither may stop the window from opening.
+ */
+function runBootTasks(db: Db, userId: string): void {
+  try {
+    postDueAutopay(db, userId)
+  } catch (error) {
+    logCrash('autopay', error)
+  }
+  try {
+    recordDailySnapshots(db, userId)
+  } catch (error) {
+    logCrash('snapshots', error)
+  }
+}
+
 function boot(): void {
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => {
     callback(false)
@@ -146,11 +166,8 @@ function boot(): void {
     }
   })()
   if (!db) return
-  if (app.isPackaged) {
-    seedIfEmpty(db)
-  } else {
-    seedDemoIfEmpty(db)
-  }
+  const userId = app.isPackaged ? seedIfEmpty(db) : seedDemoIfEmpty(db)
+  runBootTasks(db, userId)
   registerIpcHandlers(db)
   installMenu()
 
