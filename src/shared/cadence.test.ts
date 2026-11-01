@@ -7,7 +7,8 @@ import {
   monthlyEquivalentCents,
   paycheckIndexInMonth,
   reachableCheckIndexes,
-  reservePerPaycheckCents
+  reservePerPaycheckCents,
+  unpaidMonthlyWallCents
 } from './cadence'
 import type { PayCadence } from './types'
 
@@ -216,4 +217,36 @@ test('without a paycheck date the reserve falls back to the spread, never the cl
     billFundingReserveCents({ ...input, paycheckDate: null }),
     'the same call twice gives the same number'
   )
+})
+
+test('a bill already paid stops being withheld, and only the paid part is released', () => {
+  const rent = { id: 'rent', amountCents: 120_000, frequency: 'monthly' as const }
+  const gym = { id: 'gym', amountCents: 30_000, frequency: 'monthly' as const }
+  assert.equal(
+    unpaidMonthlyWallCents([rent, gym], new Map()),
+    150_000,
+    'nothing paid: the whole wall is still owed'
+  )
+  assert.equal(
+    unpaidMonthlyWallCents([rent, gym], new Map([['rent', 120_000]])),
+    30_000,
+    'rent is gone from the wall, gym is not'
+  )
+  assert.equal(
+    unpaidMonthlyWallCents([rent, gym], new Map([['rent', 120_000], ['gym', 30_000]])),
+    0,
+    'paying every bill empties the wall'
+  )
+})
+
+test('a weekly bill keeps its smoothed remainder after one instance is paid', () => {
+  const weekly = { id: 'food', amountCents: 20_000, frequency: 'weekly' as const }
+  const monthly = monthlyEquivalentCents(20_000, 'weekly')
+  assert.equal(unpaidMonthlyWallCents([weekly], new Map([['food', 20_000]])), monthly - 20_000)
+})
+
+test('an overpayment cannot push a bill below zero, and an unknown bill is ignored', () => {
+  const bill = { id: 'rent', amountCents: 100_000, frequency: 'monthly' as const }
+  assert.equal(unpaidMonthlyWallCents([bill], new Map([['rent', 150_000]])), 0)
+  assert.equal(unpaidMonthlyWallCents([bill], new Map([['other', 500_000]])), 100_000)
 })

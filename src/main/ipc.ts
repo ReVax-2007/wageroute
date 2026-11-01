@@ -47,9 +47,11 @@ import type {
   LedgerQuery,
   LedgerSort,
   PaycheckDraftInput,
+  PlanMoveTarget,
   TransactionInput,
   TransactionKind,
-  TransactionPatch
+  TransactionPatch,
+  TransactionRowsPatch
 } from '@shared/types'
 import { backupsPath, databasePath } from './db/connection'
 import { backupBeforeErase } from './db/maintenance'
@@ -125,22 +127,41 @@ function handle<C extends Channel>(
  * Runs a write and returns the tables it touched. The follow-up read happens in
  * the same main-process turn, so no other handler can slip between the write and
  * the patch; if that read still fails the write stands, and the result says so.
+ *
+ * `rowsOf` is for ledger edits: instead of re-reading the capped 500-row window,
+ * the handler names the rows the write changed and the grid merges those.
  */
 function write<T>(
   db: Database.Database,
   userId: () => string,
   parts: readonly repo.SnapshotPart[],
-  task: () => T
+  task: () => T,
+  rowsOf?: (value: T) => TransactionRowsPatch
 ): WriteResult<T> {
   const value = task()
   try {
-    return { value, patch: repo.readSnapshotParts(db, userId(), parts) }
+    const patch = repo.readSnapshotParts(db, userId(), parts)
+    const rows = rowsOf?.(value)
+    return rows ? { value, patch, rows: { transactions: rows } } : { value, patch }
   } catch (error) {
     return {
       value,
       patch: {},
       refreshError: error instanceof Error ? error.message : String(error)
     }
+  }
+}
+
+function transactionRowsPatch(
+  db: Database.Database,
+  userId: string,
+  id: string
+): TransactionRowsPatch {
+  return {
+    upsert: repo.transactionRowsFor(db, userId, id),
+    remove: [],
+    total: repo.transactionCount(db, userId),
+    billPayments: repo.listBillPaymentsThisMonth(db, userId, todayISO().slice(0, 7))
   }
 }
 
@@ -185,6 +206,17 @@ function ledgerQueryOf(raw: unknown): LedgerQuery {
     limit: number(source.limit, 50),
     offset: number(source.offset, 0)
   }
+}
+
+function planMoveTargetsOf(raw: unknown): PlanMoveTarget[] {
+  if (!Array.isArray(raw)) return []
+  return raw.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return []
+    const { allocationId, accountId } = entry as Partial<PlanMoveTarget>
+    return typeof allocationId === 'string' && typeof accountId === 'string'
+      ? [{ allocationId, accountId }]
+      : []
+  })
 }
 
 function defaultFile(name: string): string {
@@ -501,15 +533,24 @@ export function registerIpcHandlers(db: Database.Database): void {
   )
 
   handle('transaction:create', (_event, input: TransactionInput) =>
-    write(db, userId, ['transactions', 'accounts', 'goals', 'billReserves', 'categories'], () =>
-      repo.createTransaction(db, userId(), input)
+    write(
+      db,
+      userId,
+      ['accounts', 'goals', 'billReserves', 'categories'],
+      () => repo.createTransaction(db, userId(), input),
+      (id) => transactionRowsPatch(db, userId(), id)
     )
   )
-  handle('transaction:update', (_event, id: unknown, patch: TransactionPatch) =>
-    write(db, userId, ['transactions', 'accounts', 'goals', 'billReserves', 'categories'], () =>
-      repo.updateTransaction(db, userId(), requireId(id), patch)
+  handle('transaction:update', (_event, id: unknown, patch: TransactionPatch) => {
+    const entryId = requireId(id)
+    return write(
+      db,
+      userId,
+      ['accounts', 'goals', 'billReserves', 'categories'],
+      () => repo.updateTransaction(db, userId(), entryId, patch),
+      () => transactionRowsPatch(db, userId(), entryId)
     )
-  )
+  })
   handle('transaction:delete', (_event, id: unknown) =>
     write(db, userId, ['transactions', 'accounts', 'goals', 'billReserves'], () =>
       repo.deleteTransaction(db, userId(), requireId(id))
@@ -534,6 +575,17 @@ export function registerIpcHandlers(db: Database.Database): void {
       userId,
       ['paychecks', 'transactions', 'accounts', 'goals', 'billReserves', 'categories'],
       () => repo.commitPaycheck(db, userId(), input)
+    )
+  )
+
+  handle('paycheck:apply', (_event, id: unknown, targets: unknown) =>
+    write(db, userId, ['transactions', 'accounts', 'paychecks', 'billReserves'], () =>
+      repo.applyPaycheckPlan(
+        db,
+        userId(),
+        typeof id === 'string' ? id : '',
+        planMoveTargetsOf(targets)
+      )
     )
   )
 

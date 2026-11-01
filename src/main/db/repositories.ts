@@ -37,6 +37,8 @@ export {
   listAllTransactions,
   queryTransactions,
   transactionCount,
+  transactionRowsFor,
+  listBillPaymentsThisMonth,
   insertTransactionRow,
   createTransaction,
   updateTransaction,
@@ -48,6 +50,7 @@ export {
   listPaychecks,
   insertPaycheckRecord,
   commitPaycheck,
+  applyPaycheckPlan,
   paycheckCount,
   type PaycheckRecordAllocation,
   type PaycheckRecordInput

@@ -271,6 +271,24 @@ export function monthlyEquivalentCents(amountCents: number, frequency: Frequency
 }
 
 /**
+ * The part of the smoothed wall a bill still needs this month. Once a payment
+ * lands, its money has already left the pool, so withholding the same bill
+ * again would subtract it twice. The clamp keeps an overpayment from turning
+ * the wall negative, and the smoothing buffer survives: paying one weekly
+ * instance leaves the rest of that bill's month claimed.
+ */
+export function unpaidMonthlyWallCents(
+  bills: readonly { id: string; amountCents: number; frequency: Frequency }[],
+  paidByBillCents: ReadonlyMap<string, number>
+): number {
+  return bills.reduce((total, bill) => {
+    const monthly = monthlyEquivalentCents(bill.amountCents, bill.frequency)
+    const paid = paidByBillCents.get(bill.id) ?? 0
+    return total + Math.max(0, monthly - paid)
+  }, 0)
+}
+
+/**
  * The amount that must be reserved out of a single paycheck so the bill is
  * covered when it lands, regardless of whether pay and bill cadences line up.
  */

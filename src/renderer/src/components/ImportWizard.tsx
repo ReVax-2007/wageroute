@@ -104,6 +104,7 @@ export function ImportWizard() {
   const preview = useFinanceStore((state) => state.importPreview)
   const step = useFinanceStore((state) => state.importStep)
   const busy = useFinanceStore((state) => state.busy)
+  const currency = useFinanceStore((state) => state.settings.currency)
   const goStep = useFinanceStore((state) => state.goImportStep)
   const closeImport = useFinanceStore((state) => state.closeImport)
   const runImport = useFinanceStore((state) => state.runImport)
@@ -350,7 +351,7 @@ export function ImportWizard() {
                       label={problem.field.label}
                       hint={
                         problem.field.input === 'money'
-                          ? 'Dollars and cents: 12.34 means $12.34, not 1,234'
+                          ? `Enter 12.34 for ${formatMoney(1_234, currency)} — do not enter 1234`
                           : undefined
                       }
                     >

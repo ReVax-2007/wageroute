@@ -40,6 +40,7 @@ export function createFinanceApi(call: IpcCaller): FinanceApi {
     queryTransactions: (query) => call('transaction:query', query),
 
     commitPaycheck: (input) => call('paycheck:commit', input),
+    applyPaycheckPlan: (id, targets) => call('paycheck:apply', id, targets),
     saveSettings: (settings) => call('settings:save', settings),
 
     exportBackup: () => call('backup:export'),

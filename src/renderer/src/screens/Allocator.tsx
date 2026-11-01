@@ -1,12 +1,12 @@
-import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AlertTriangle, ArrowLeft, ArrowRight, Sparkles, X } from 'lucide-react'
 import { buildAllocationPlan, type PlanWarning } from '@shared/allocator'
 import { PAY_CADENCE_LABEL } from '@shared/cadence'
-import { todayISO } from '@shared/dates'
+import { daysBetweenISO, todayISO } from '@shared/dates'
 import { currencySymbol, formatMoney, parseMoneyToCents } from '@shared/money'
 import type { PayCadence } from '@shared/types'
 import { backdropHandlers, Button, Money, useDialog } from '../components/ui'
-import { activeBills } from '../lib/finance'
+import { activeBills, fundableAccounts } from '../lib/finance'
 import { useFinanceStore } from '../store/useFinanceStore'
 
 const CADENCES = Object.keys(PAY_CADENCE_LABEL) as PayCadence[]
@@ -18,6 +18,16 @@ const STEPS = [
 ] as const
 
 type Step = (typeof STEPS)[number]['id']
+
+/** One id per open draft, so a retried commit cannot write the paycheck twice. */
+function newDraftId(): string {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  const bytes = crypto.getRandomValues(new Uint8Array(16))
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
 
 function warningText(warning: PlanWarning, currency: string): string {
   switch (warning.code) {
@@ -58,6 +68,7 @@ export function Allocator() {
   const backdrop = backdropHandlers(closeIfIdle)
   const titleId = useId()
   const subtitleId = useId()
+  const draftId = useRef(newDraftId())
 
   const [step, setStep] = useState<Step>(1)
   const [income, setIncome] = useState('')
@@ -75,16 +86,13 @@ export function Allocator() {
 
   // A paycheck lands in a deposit account, never on a credit card.
   const depositAccounts = useMemo(
-    () =>
-      (snapshot?.accounts ?? []).filter(
-        (account) =>
-          !account.isArchived && (account.kind === 'checking' || account.kind === 'savings')
-      ),
+    () => fundableAccounts(snapshot?.accounts ?? []),
     [snapshot?.accounts]
   )
 
   useEffect(() => {
     if (!open) return
+    draftId.current = newDraftId()
     const preferred =
       depositAccounts.find((account) => account.id === settings.defaultDepositAccountId) ??
       depositAccounts.find((account) => account.kind === 'checking') ??
@@ -122,16 +130,22 @@ export function Allocator() {
     [snapshot?.billReserves, receivedOn]
   )
 
-  const duplicate = useMemo(
-    () =>
-      (snapshot?.paychecks ?? []).find(
-        (paycheck) =>
-          paycheck.receivedOn === receivedOn &&
-          paycheck.amountCents === incomeCents &&
-          paycheck.depositAccountId === accountId
-      ) ?? null,
-    [snapshot?.paychecks, receivedOn, incomeCents, accountId]
-  )
+  // The repository refuses both cases. Say which one the screen found, so the
+  // confirmation the user gives is about the deposit they actually made.
+  const duplicate = useMemo(() => {
+    const checks = snapshot?.paychecks ?? []
+    const sameDay = checks.find(
+      (paycheck) => paycheck.depositAccountId === accountId && paycheck.receivedOn === receivedOn
+    )
+    if (sameDay) return { kind: 'same-day' as const, paycheck: sameDay }
+    const near = checks.find(
+      (paycheck) =>
+        paycheck.depositAccountId === accountId &&
+        paycheck.amountCents === incomeCents &&
+        Math.abs(daysBetweenISO(paycheck.receivedOn, receivedOn)) <= 3
+    )
+    return near ? { kind: 'near-amount' as const, paycheck: near } : null
+  }, [snapshot?.paychecks, receivedOn, incomeCents, accountId])
 
   useEffect(() => {
     setConfirmedDuplicate(false)
@@ -233,6 +247,7 @@ export function Allocator() {
       payCadence: cadence,
       splits,
       wholeDollarBuckets: wholeDollars,
+      draftId: draftId.current,
       allowDuplicate: confirmedDuplicate
     })
 
@@ -623,9 +638,10 @@ export function Allocator() {
 
                 {duplicate && (
                   <Warning tone="danger" alert>
-                    A paycheck of {formatMoney(incomeCents, currency)} was already routed on{' '}
-                    {receivedOn} into this account. Routing it again adds the income a second time
-                    and reserves the wall twice.
+                    {duplicate.kind === 'same-day'
+                      ? `A paycheck of ${formatMoney(duplicate.paycheck.amountCents, currency)} is already routed into this account on ${receivedOn}. Confirm only if a second deposit really landed that day.`
+                      : `${formatMoney(incomeCents, currency)} was already routed into this account on ${duplicate.paycheck.receivedOn}. Confirm only if this is a separate deposit.`}{' '}
+                    Routing it twice adds the income a second time and reserves the wall twice.
                   </Warning>
                 )}
 

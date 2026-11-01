@@ -10,12 +10,14 @@ import type {
 import type { ImportAnswer } from './importRepair'
 import type {
   AccountInput,
+  AppliedPlan,
   AppSettings,
   BillInput,
   CategoryInput,
   GoalInput,
   LedgerQuery,
   PaycheckDraftInput,
+  PlanMoveTarget,
   Snapshot,
   TransactionInput,
   TransactionPage,
@@ -63,6 +65,7 @@ export interface IpcContract {
   'transaction:query': { args: [LedgerQuery]; result: TransactionPage }
 
   'paycheck:commit': { args: [PaycheckDraftInput]; result: WriteResult<CommittedPaycheck> }
+  'paycheck:apply': { args: [string, PlanMoveTarget[]]; result: WriteResult<AppliedPlan> }
   'settings:save': { args: [AppSettings]; result: WriteResult<void> }
 
   'backup:export': { args: []; result: string | null }
@@ -110,6 +113,7 @@ export const CHANNELS = [
   'transaction:delete-many',
   'transaction:query',
   'paycheck:commit',
+  'paycheck:apply',
   'settings:save',
   'backup:export',
   'csv:export',

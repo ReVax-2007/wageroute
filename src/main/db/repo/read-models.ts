@@ -1,3 +1,4 @@
+import { SNAPSHOT_TRANSACTION_LIMIT } from '@shared/api'
 import type { ImportChoice, ImportChoiceTable } from '@shared/importRepair'
 import type { Snapshot, SnapshotPatch } from '@shared/types'
 import { listAccounts } from './accounts'
@@ -8,8 +9,9 @@ import { getUser } from './users'
 import { listGoals } from './goals'
 import { listPaychecks, paycheckCount } from './paychecks'
 import { readSettings } from './settings'
-import { listTransactions, transactionCount } from './transactions'
+import { listBillPaymentsThisMonth, listTransactions, transactionCount } from './transactions'
 import type { Db } from './common'
+import { todayISO } from '@shared/dates'
 
 /** The tables a write can change; a patch names only the ones it touched. */
 export type SnapshotPart =
@@ -80,6 +82,7 @@ export function getSnapshot(db: Db, userId: string): Snapshot {
       goals: listGoals(db, userId),
       transactions: listTransactions(db, userId),
       transactionTotal: transactionCount(db, userId),
+      billPaymentsThisMonth: listBillPaymentsThisMonth(db, userId, todayISO().slice(0, 7)),
       paychecks: listPaychecks(db, userId),
       paycheckTotal: paycheckCount(db, userId),
       billReserves: listBillReserves(db, userId),
@@ -107,8 +110,9 @@ export function readSnapshotParts(
     if (wanted.has('bills')) patch.bills = listBills(db, userId)
     if (wanted.has('goals')) patch.goals = listGoals(db, userId)
     if (wanted.has('transactions')) {
-      patch.transactions = listTransactions(db, userId)
+      patch.transactions = listTransactions(db, userId, SNAPSHOT_TRANSACTION_LIMIT)
       patch.transactionTotal = transactionCount(db, userId)
+      patch.billPaymentsThisMonth = listBillPaymentsThisMonth(db, userId, todayISO().slice(0, 7))
     }
     if (wanted.has('paychecks')) {
       patch.paychecks = listPaychecks(db, userId)

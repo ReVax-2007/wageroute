@@ -22,6 +22,7 @@ import { currencySymbol, formatMoney } from '@shared/money'
 import type { PayCadence, RoundUpIncrementCents, ThemePreference } from '@shared/types'
 import { roundUpRemainderCents } from '@shared/transfers'
 import { Button, Card, Field, Modal, Segmented, Switch } from '../components/ui'
+import { fundableAccounts } from '../lib/finance'
 import { useFinanceStore } from '../store/useFinanceStore'
 
 const INCREMENTS: { value: string; cents: RoundUpIncrementCents }[] = [
@@ -110,10 +111,7 @@ export function Settings() {
   )
   // A paycheck cannot land on a credit card or a brokerage account, so the
   // default-deposit list only offers accounts money can actually be paid into.
-  const depositAccounts = snapshot.accounts.filter(
-    (account) =>
-      !account.isArchived && (account.kind === 'checking' || account.kind === 'savings')
-  )
+  const depositAccounts = fundableAccounts(snapshot.accounts)
   // The visible destination and the one the sweep will use are the same resolved
   // account: a stored id that no longer exists must not silently become another.
   const roundUpAccount =

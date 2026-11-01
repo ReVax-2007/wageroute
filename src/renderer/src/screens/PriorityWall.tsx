@@ -10,7 +10,7 @@ import {
   reservePerPaycheckCents
 } from '@shared/cadence'
 import { formatDateLabel, todayISO } from '@shared/dates'
-import { formatMoney } from '@shared/money'
+import { formatMoney, formatMoneyCompact } from '@shared/money'
 import type { Bill, PayCadence } from '@shared/types'
 import { Button, Card, EmptyState, IconButton, Money } from '../components/ui'
 import { BillDialog } from '../components/dialogs/BillDialog'
@@ -254,10 +254,11 @@ export function PriorityWall() {
       </Card>
 
       <p className="footnote">
-        Monthly figures are annualised and divided by twelve, so a $600 yearly insurance premium
-        counts as $50 of obligation every month. A bill funded on one check reserves that whole
-        month on its check. Set a known payday in Settings and the wall shows the exact reserve
-        for the next real check instead of an average.
+        Monthly figures are annualised and divided by twelve, so a{' '}
+        {formatMoneyCompact(60_000, currency)} yearly insurance premium counts as{' '}
+        {formatMoneyCompact(5_000, currency)} of obligation every month. A bill funded on one
+        check reserves that whole month on its check. Set a known payday in Settings and the wall
+        shows the exact reserve for the next real check instead of an average.
       </p>
 
       {editing !== null && (

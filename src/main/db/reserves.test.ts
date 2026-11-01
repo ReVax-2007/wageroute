@@ -136,6 +136,7 @@ test('a second cheque in the same month does not reserve a single-check bill twi
   route(db, accountId, '2026-03-05')
 
   const second = route(db, accountId, '2026-03-20')
+  assert.ok(second.plan)
   const line = second.plan.priorityReserves.find((reserve) => reserve.billId === billId)
   assert.equal(line?.reserveCents, 0, 'the bill already has a claim this month')
   assert.equal(listBillReserves(db, USER_ID).length, 1)
@@ -147,6 +148,7 @@ test('a shortfalling cheque records no reservation at all', () => {
   rent(db, accountId)
 
   const routed = route(db, accountId, '2026-03-05', 50_000)
+  assert.ok(routed.plan)
   assert.ok(routed.plan.shortfallCents > 0)
   assert.deepEqual(listBillReserves(db, USER_ID), [])
 })
@@ -157,7 +159,7 @@ test('the same deposit twice is refused until the user confirms it', () => {
   rent(db, accountId)
   route(db, accountId, '2026-03-05')
 
-  assert.throws(() => route(db, accountId, '2026-03-05'), /already exists/)
+  assert.throws(() => route(db, accountId, '2026-03-05'), /already recorded on this date/)
   route(db, accountId, '2026-03-05', 500_000, true)
   assert.equal(
     listBillReserves(db, USER_ID).length,

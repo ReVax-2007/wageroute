@@ -20,6 +20,7 @@ import {
   listTransactions,
   readSettings,
   setAccountArchived,
+  transactionRowsFor,
   updateTransaction,
   updateGoal,
   writeSettings
@@ -204,6 +205,7 @@ test('an archived goal gets no slice of a paycheck', () => {
     wholeDollarBuckets: false
   })
 
+  assert.ok(plan)
   assert.equal(plan.goalFundings.length, 0)
   assert.equal(getSnapshot(db, USER_ID).goals[0]?.fundedCents, 0)
 })
@@ -485,3 +487,57 @@ test('imported text is cleaned to the limits the app itself enforces', () => {
   assert.ok(!row?.memo.includes('\u0000'))
 })
 
+
+test('a ledger edit names its own row instead of re-reading the window', () => {
+  const db = freshDb()
+  const checking = account(db, 'Chequing')
+  const id = entry(db, checking, { amountCents: -1_000 })
+
+  const rows = transactionRowsFor(db, USER_ID, id)
+  assert.deepEqual(
+    rows.map((row) => row.id),
+    [id]
+  )
+})
+
+test('a transfer edit brings both legs back', () => {
+  const db = freshDb()
+  const checking = account(db, 'Chequing')
+  const savings = account(db, 'Savings', 'savings')
+  const outId = entry(db, checking, {
+    kind: 'transfer',
+    amountCents: 5_000,
+    counterAccountId: savings
+  })
+
+  const rows = transactionRowsFor(db, USER_ID, outId)
+  assert.equal(rows.length, 2)
+  assert.deepEqual(
+    new Set(rows.map((row) => row.accountId)),
+    new Set([checking, savings])
+  )
+})
+
+test('a round-up sweep comes back with the purchase that made it', () => {
+  const db = freshDb()
+  const checking = account(db, 'Chequing')
+  const savings = account(db, 'Savings', 'savings')
+  writeSettings(db, USER_ID, {
+    roundUpEnabled: '1',
+    roundUpAccountId: savings,
+    roundUpToCents: '100'
+  })
+  const purchaseId = entry(db, checking, { amountCents: -1_040 })
+
+  const rows = transactionRowsFor(db, USER_ID, purchaseId)
+  assert.deepEqual(
+    new Set(rows.map((row) => row.id)),
+    new Set([
+      purchaseId,
+      ...listTransactions(db, USER_ID)
+        .filter((row) => row.kind === 'transfer')
+        .map((row) => row.id)
+    ])
+  )
+  assert.equal(rows.length, 3, 'the purchase and both sweep legs')
+})
