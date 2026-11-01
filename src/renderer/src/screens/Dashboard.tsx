@@ -1,11 +1,14 @@
-import { CreditCard, Plus, ShieldCheck, Sparkles, Target, Wallet } from 'lucide-react'
-import { formatDateLong, formatMonthLong, todayISO } from '@shared/dates'
+import { CalendarClock, CreditCard, Plus, ShieldCheck, Sparkles, Target, Wallet } from 'lucide-react'
+import { formatDateLabel, formatDateLong, formatMonthLong, todayISO } from '@shared/dates'
 import { wealthBuckets } from '@shared/accounts'
+import { spendingByCategory } from '@shared/categories'
+import { netWorthSeries } from '@shared/history'
 import { formatMoney } from '@shared/money'
 import type { AllocationBucket } from '@shared/types'
 import { BillPrompts } from '../components/BillPrompts'
 import { DataTable } from '../components/DataTable'
 import { Donut, type DonutSlice } from '../components/Donut'
+import { Sparkline } from '../components/Sparkline'
 import { Button, Card, EmptyState, Money, Progress } from '../components/ui'
 import {
   ACCOUNT_KIND_LABEL,
@@ -16,7 +19,8 @@ import {
   latestPaycheck,
   monthRoutingBreakdown,
   monthlyWall,
-  perPaycheckWall
+  perPaycheckWall,
+  upcomingPayments
 } from '../lib/finance'
 import {
   selectCashOnHandCents,
@@ -85,6 +89,26 @@ export function Dashboard() {
         : `${committedPercent}% of spendable cash is already spoken for`
 
   const monthKey = todayISO().slice(0, 7)
+  const today = todayISO()
+  const liveAccounts = snapshot.accounts.filter((account) => !account.isArchived)
+  const history = netWorthSeries({
+    snapshots: snapshot.balanceSnapshots,
+    accounts: liveAccounts,
+    untilISO: today,
+    maxPoints: 90
+  })
+  const spending = spendingByCategory({
+    transactions: snapshot.transactions,
+    categories: snapshot.categories,
+    month: monthKey
+  })
+  const spendingTotal = spending.reduce((total, row) => total + row.totalCents, 0)
+  const upcoming = upcomingPayments({
+    bills,
+    accounts: liveAccounts,
+    transactions: snapshot.transactions,
+    todayISO: today
+  })
   const routing = monthRoutingBreakdown(snapshot.paychecks, monthKey)
   const firstRun = snapshot.accounts.length === 0 && snapshot.paychecks.length === 0
   const slices: DonutSlice[] = [
@@ -212,6 +236,20 @@ export function Dashboard() {
             Money you cannot spend today is still money you own. This is the whole picture, debts
             taken off.
           </p>
+          {history.length > 1 && (
+            <div className="wealth-trend">
+              <Sparkline
+                points={history.map((point) => ({
+                  onDate: point.onDate,
+                  valueCents: point.netWorthCents
+                }))}
+                label={`Net worth from ${formatMoney(history[0].netWorthCents, currency)} on ${formatDateLabel(history[0].onDate)} to ${formatMoney(history[history.length - 1].netWorthCents, currency)} today`}
+              />
+              <span className="wealth-trend-note">
+                Since {formatDateLabel(history[0].onDate)}
+              </span>
+            </div>
+          )}
         </div>
         <dl className="wealth-breakdown">
           {wealthSplit.map((bucket) => (
@@ -226,6 +264,82 @@ export function Dashboard() {
       </section>
 
       <BillPrompts />
+
+      <div className="dashboard-grid">
+        <Card
+          title="Due in the next two weeks"
+          subtitle="Bills and card payments, soonest first"
+        >
+          {upcoming.length === 0 ? (
+            <EmptyState
+              icon={<CalendarClock size={20} />}
+              title="Nothing due"
+              body="No bill or card payment lands in the next fourteen days."
+            />
+          ) : (
+            <ul className="due-list">
+              {upcoming.map((item) => (
+                <li
+                  key={item.key}
+                  className={item.daysUntil <= 2 ? 'due-row due-row-soon' : 'due-row'}
+                >
+                  <span className={`account-dot ${item.kind === 'card' ? 'kind-credit' : 'kind-bill'}`} />
+                  <span className="due-name">{item.name}</span>
+                  <span className="due-when">
+                    {item.daysUntil === 0 ? 'Today' : `in ${item.daysUntil}d`} ·{' '}
+                    {formatDateLabel(item.dueOn)}
+                  </span>
+                  <Money cents={item.amountCents} currency={currency} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+
+        <Card
+          title="Spending this month"
+          subtitle={`${formatMonthLong(monthKey)} · expenses and bill payments by category`}
+        >
+          {spending.length === 0 ? (
+            <EmptyState
+              icon={<Wallet size={20} />}
+              title="No spending recorded"
+              body="Expenses and bill payments dated this month will show up here, grouped by category."
+            />
+          ) : (
+            <>
+              <ul className="spend-list">
+                {spending.slice(0, 6).map((row) => (
+                  <li key={row.key}>
+                    <span
+                      className="dot"
+                      style={{ background: row.color ?? 'var(--text-muted)' }}
+                    />
+                    <span className="spend-name">{row.name}</span>
+                    <span className="spend-bar" aria-hidden="true">
+                      <span
+                        style={{
+                          width: `${spendingTotal > 0 ? (row.totalCents / spendingTotal) * 100 : 0}%`,
+                          background: row.color ?? 'var(--text-muted)'
+                        }}
+                      />
+                    </span>
+                    <Money cents={row.totalCents} currency={currency} />
+                  </li>
+                ))}
+              </ul>
+              <p className="footnote">
+                {formatMoney(spendingTotal, currency)} across{' '}
+                {spending.length === 1 ? '1 category' : `${spending.length} categories`}
+                {spending.length > 6 ? ', top six shown' : ''}
+                {snapshot.transactions.length < snapshot.transactionTotal
+                  ? `, from the newest ${snapshot.transactions.length} entries`
+                  : ''}
+              </p>
+            </>
+          )}
+        </Card>
+      </div>
 
       <div className="stat-grid">
         <article className="stat-card">

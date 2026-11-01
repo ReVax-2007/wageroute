@@ -269,8 +269,9 @@ export function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () =
           </label>
         </div>
         <p className="field-hint hint-below">
-          A note for you: WageRoute never posts a payment, so marking a bill autopay only changes
-          how it is labelled. What you still owe stays on the wall until you log the payment.
+          Marked autopay, WageRoute records the payment for you the next time it opens after this
+          bill&apos;s due date, dated the due day. It does not move money between accounts — you
+          still pay the bill — but the wall clears itself instead of asking.
         </p>
         {!form.isActive && (
           <p className="field-hint hint-below">

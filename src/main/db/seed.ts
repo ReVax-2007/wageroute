@@ -1,12 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import type Database from 'better-sqlite3'
 import { reservePerPaycheckCents } from '@shared/cadence'
+import { DEFAULT_CATEGORIES } from '@shared/categories'
 import { addDaysISO, todayISO } from '@shared/dates'
 import { DEFAULT_SETTINGS, settingsToRecord } from '@shared/settings'
 import type { Frequency } from '@shared/types'
 import {
   createAccount,
   createBill,
+  createCategory,
   createGoal,
   createTransaction,
   insertPaycheckRecord,
@@ -14,6 +16,17 @@ import {
 } from './repositories'
 
 type Db = Database.Database
+
+/** The starter list every new ledger begins with, so the grid is usable at once. */
+function seedCategories(db: Db, userId: string): void {
+  for (const category of DEFAULT_CATEGORIES) {
+    createCategory(db, userId, {
+      name: category.name,
+      kind: category.kind,
+      color: category.color
+    })
+  }
+}
 
 interface BillSpec {
   name: string
@@ -53,6 +66,7 @@ export function seedIfEmpty(db: Db): string {
        VALUES (?, NULL, ?, 'USD', ?, ?, NULL, 1)`
     ).run(userId, '', ts, ts)
     writeSettings(db, userId, settingsToRecord(DEFAULT_SETTINGS))
+    seedCategories(db, userId)
     return userId
   })()
 }
@@ -86,6 +100,7 @@ export function seedDemoIfEmpty(db: Db): string {
         wholeDollarBuckets: true
       })
     )
+    seedCategories(db, userId)
 
     const checking = createAccount(db, userId, {
       name: 'Everyday Checking',
@@ -121,6 +136,11 @@ export function seedDemoIfEmpty(db: Db): string {
       institution: 'Tangerine',
       startingBalanceCents: -42000,
       creditLimitCents: 500000,
+      aprBps: 2099,
+      minimumPaymentCents: 2500,
+      statementDay: 18,
+      paymentDueDay: 8,
+      lastStatementBalanceCents: 42000,
       sortOrder: 5
     })
 

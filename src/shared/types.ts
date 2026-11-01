@@ -25,6 +25,8 @@ export type TransactionKind =
   | 'investment'
   | 'adjustment'
 
+export type CategoryKind = 'expense' | 'income' | 'transfer' | 'other'
+
 export type AllocationBucket =
   | 'priority'
   | 'savings'
@@ -71,6 +73,13 @@ export interface Account extends SyncMeta {
   inSafeToSpend: boolean | null
   isArchived: boolean
   sortOrder: number
+  /** Debt terms, meaningful on a credit account (and on a loan-like account). */
+  aprBps: number | null
+  minimumPaymentCents: number | null
+  /** Card cycle: the day the statement closes and the day its payment is due. */
+  statementDay: number | null
+  paymentDueDay: number | null
+  lastStatementBalanceCents: number | null
 }
 
 export interface AccountWithBalance extends Account {
@@ -136,6 +145,10 @@ export interface Transaction extends SyncMeta {
   occurredOn: string
   memo: string
   category: string
+  /** The category row this entry points at; null for rows imported before schema 8. */
+  categoryId: string | null
+  /** The bank's own id (OFX FITID or CSV transaction id) when it was stated. */
+  externalId: string | null
   billId: string | null
   goalId: string | null
   paycheckId: string | null
@@ -194,12 +207,31 @@ export interface BillReserve extends SyncMeta {
   state: BillReserveState
 }
 
+export interface Category extends SyncMeta {
+  id: string
+  userId: string
+  name: string
+  kind: CategoryKind
+  color: string | null
+  sortOrder: number
+}
+
+/** One account's balance on one calendar day, recorded once per day on open. */
+export interface BalanceSnapshot extends SyncMeta {
+  id: string
+  userId: string
+  accountId: string
+  onDate: string
+  balanceCents: number
+}
+
 export interface Snapshot {
   user: User
   settings: Record<string, string>
   accounts: AccountWithBalance[]
   bills: Bill[]
   goals: GoalWithProgress[]
+  categories: Category[]
   /** The newest entries only; `transactionTotal` says how many exist. */
   transactions: TransactionRow[]
   /** Every live entry, including any the capped grid leaves out. */
@@ -208,6 +240,8 @@ export interface Snapshot {
   paychecks: PaycheckWithAllocations[]
   paycheckTotal: number
   billReserves: BillReserve[]
+  /** Daily balances for the trend; capped at the newest year. */
+  balanceSnapshots: BalanceSnapshot[]
 }
 
 /**
@@ -227,6 +261,17 @@ export interface AccountInput {
   dedicatedGoalId?: string | null
   inSafeToSpend?: boolean | null
   sortOrder?: number
+  aprBps?: number | null
+  minimumPaymentCents?: number | null
+  statementDay?: number | null
+  paymentDueDay?: number | null
+  lastStatementBalanceCents?: number | null
+}
+
+export interface CategoryInput {
+  name: string
+  kind: CategoryKind
+  color?: string | null
 }
 
 export interface BillInput {
@@ -266,6 +311,8 @@ export interface TransactionInput {
   occurredOn: string
   memo: string
   category: string
+  /** The picker's choice; when omitted the name is matched or created. */
+  categoryId?: string | null
   billId?: string | null
   goalId?: string | null
   counterAccountId?: string | null
@@ -274,9 +321,38 @@ export interface TransactionInput {
 export type TransactionPatch = Partial<
   Pick<
     TransactionInput,
-    'accountId' | 'kind' | 'amountCents' | 'occurredOn' | 'memo' | 'category'
+    'accountId' | 'kind' | 'amountCents' | 'occurredOn' | 'memo' | 'category' | 'categoryId'
   >
 >
+
+/**
+ * What the ledger grid is asking for. The main process turns this into one
+ * indexed query, so filtering 20,000 rows never means shipping them to the
+ * renderer first.
+ */
+export interface LedgerFilter {
+  text?: string
+  from?: string | null
+  to?: string | null
+  accountId?: string | null
+  kind?: TransactionKind | null
+  categoryId?: string | null
+}
+
+export type LedgerSort = 'date_desc' | 'date_asc' | 'amount_desc' | 'amount_asc'
+
+export interface LedgerQuery {
+  filter: LedgerFilter
+  sort: LedgerSort
+  limit: number
+  offset: number
+}
+
+export interface TransactionPage {
+  rows: TransactionRow[]
+  /** Rows matching the filter, ignoring the page window. */
+  total: number
+}
 
 export interface AllocatorSplitsInput {
   savingsPercent: number

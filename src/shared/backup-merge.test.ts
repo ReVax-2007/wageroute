@@ -31,6 +31,8 @@ function payload(tables: Partial<BackupPayload['tables']>): BackupPayload {
     exportedAt: '2026-01-01T00:00:00.000Z',
     tables: {
       accounts: [],
+      balance_snapshots: [],
+      categories: [],
       bills: [],
       goals: [],
       paychecks: [],

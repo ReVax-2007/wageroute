@@ -84,7 +84,7 @@ export function assertSortOrder(value: unknown): number {
   return Math.round(value)
 }
 
-export type Table = 'accounts' | 'bills' | 'goals' | 'transactions'
+export type Table = 'accounts' | 'bills' | 'goals' | 'transactions' | 'categories'
 
 export function updateRow(
   db: Db,

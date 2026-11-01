@@ -1,6 +1,6 @@
 # Data model
 
-WageRoute stores everything in one SQLite database, `wageroute.db`, using `STRICT` tables, integer cents, UUID text keys and ISO-8601 timestamps. This document describes the schema at version 7, the semantics of each column, the derived values the app computes at read time, and the invariants that keep the ledger coherent.
+WageRoute stores everything in one SQLite database, `wageroute.db`, using `STRICT` tables, integer cents, UUID text keys and ISO-8601 timestamps. This document describes the schema at version 8, the semantics of each column, the derived values the app computes at read time, and the invariants that keep the ledger coherent.
 
 Source of truth: [`src/main/db/migrations.ts`](../src/main/db/migrations.ts). Read model assembly: [`src/main/db/repo/read-models.ts`](../src/main/db/repo/read-models.ts).
 
@@ -79,6 +79,9 @@ erDiagram
   paychecks ||--o{ transactions : "income entry"
   bills ||--o{ bill_reserves : "claimed by"
   paychecks ||--o{ bill_reserves : "claims from"
+  users ||--o{ categories : "owns"
+  accounts ||--o{ balance_snapshots : "recorded daily"
+  categories ||--o{ transactions : "groups"
 ```
 
 Cardinality in practice: one local user, many accounts/bills/goals/paychecks/transactions; each paycheck has zero or more allocation rows; each transaction optionally references a bill, goal, paycheck and counter-account.
@@ -130,6 +133,11 @@ Writes use `INSERT ... ON CONFLICT(user_id, key) DO UPDATE`. Reads return the ra
 | `dedicated_goal_id` | TEXT | nullable, **no FK**, partial index | Added in v4. The goal whose progress this account's balance *is*; validated in the repository |
 | `in_safe_to_spend` | INTEGER | nullable, CHECK null / 0 / 1 | Added in v4. Tri-state: `NULL` = derive from `kind` |
 | `color` | TEXT | nullable | Added in v5. Hex swatch chosen in the account dialog; `NULL` = the colour implied by `kind` |
+| `apr_bps` | INTEGER | nullable, CHECK null or ≥ 0 | Added in v8. Annual rate in basis points (`2099` = 20.99%) |
+| `minimum_payment_cents` | INTEGER | nullable, CHECK null or ≥ 0 | Added in v8. What the card asks for each month |
+| `statement_day` | INTEGER | nullable, CHECK 1–31 | Added in v8. Day the statement closes |
+| `payment_due_day` | INTEGER | nullable, CHECK 1–31 | Added in v8. Day the payment is due; resolved after the close date |
+| `last_statement_balance_cents` | INTEGER | nullable, CHECK null or ≥ 0 | Added in v8. What the last statement asked for |
 | `is_archived` | INTEGER | NOT NULL, default 0, CHECK 0/1 | |
 | `sort_order` | INTEGER | NOT NULL, default 0 | |
 | `created_at` | TEXT | NOT NULL | |
@@ -145,6 +153,55 @@ Semantics:
 - `dedicated_goal_id` has no `REFERENCES` clause on purpose: `goals.account_id` already points at `accounts`, so a declared key would make the pair cyclic and no static insert order could restore a backup. `createAccount`/`updateAccount` check the goal exists and belongs to the user, and `deleteGoal` nulls every pointer to it. See [ADR 0007](decisions/0007-dedicated-accounts-balance-is-progress.md).
 - `in_safe_to_spend` is consulted by `countsInSafeToSpend` before the kind default; a dedicated account defaults to excluded because its balance is already goal progress.
 - Deleting nulls `bills.account_id`, `goals.account_id` and `paychecks.deposit_account_id` before soft-deleting the account. Transactions are kept.
+- The v8 card columns are all `NULL` until the user enters them. A card with no `last_statement_balance_cents` has no amount due to report, and a card with no `apr_bps` or `minimum_payment_cents` gets no payoff estimate — the UI says nothing rather than guessing.
+
+### `categories`
+
+Added in v8. A user-owned list that groups entries for reports. The text on `transactions.category` is still stored so an entry reads even without a linked row; `transactions.category_id` is what reports group by.
+
+| Column | Type | Constraints | Notes |
+| --- | --- | --- | --- |
+| `id` | TEXT | PK | |
+| `user_id` | TEXT | NOT NULL, FK users ON DELETE CASCADE | |
+| `name` | TEXT | NOT NULL | Trimmed; unique per user, case- and space-insensitively, among live rows |
+| `kind` | TEXT | NOT NULL, default `'expense'`, CHECK in `expense,income,transfer,other` | A hint for the dialog, not a constraint on entries |
+| `color` | TEXT | nullable | |
+| `sort_order` | INTEGER | NOT NULL, default 0 | |
+| `created_at` | TEXT | NOT NULL | |
+| `updated_at` | TEXT | NOT NULL | |
+| `deleted_at` | TEXT | nullable | |
+| `revision` | INTEGER | NOT NULL, default 1 | |
+
+Semantics:
+
+- `DEFAULT_CATEGORIES` seeds eighteen names, starting with `Uncategorized`, on first run and in the v8 backfill. A fresh or upgraded profile therefore has something to pick before the user creates anything.
+- `normalizeCategoryName` trims and caps at 60 characters; `categoryKey` lowercases and collapses whitespace, and is both the dedupe key and the match the grid and entry dialog use to turn what was typed into an id.
+- Renaming a category rewrites `transactions.category` on its linked entries in the same transaction, so the displayed text never contradicts the group.
+- Deleting a category nulls `transactions.category_id` and keeps the text; the entry still reads, it is simply unlinked.
+- The write path (`resolveCategory`) accepts an explicit `categoryId` only when the row exists (`NOT_FOUND` otherwise). Free text goes through `ensureCategory`, so an entry never names a category that has no row — except where an import deliberately leaves it unlinked.
+
+### `balance_snapshots`
+
+Added in v8. One row per live account per day, written at launch, so net worth has a history instead of only a current figure.
+
+| Column | Type | Constraints | Notes |
+| --- | --- | --- | --- |
+| `id` | TEXT | PK | |
+| `user_id` | TEXT | NOT NULL, FK users ON DELETE CASCADE | |
+| `account_id` | TEXT | NOT NULL, FK accounts ON DELETE CASCADE | |
+| `on_date` | TEXT | NOT NULL, CHECK `length(on_date) = 10` | `YYYY-MM-DD` |
+| `balance_cents` | INTEGER | NOT NULL | The derived balance on that day, signed |
+| `created_at` | TEXT | NOT NULL | |
+| `updated_at` | TEXT | NOT NULL | |
+| `deleted_at` | TEXT | nullable | |
+| `revision` | INTEGER | NOT NULL, default 1 | |
+
+Semantics:
+
+- `recordDailySnapshots` runs once at boot with `INSERT OR IGNORE` on `(account_id, on_date)`. The first read of a day is the record; a later edit shows through the live balance and never rewrites history.
+- The balance recorded is `starting_balance_cents + SUM(transactions.amount_cents)` for entries dated that day or earlier, so a future-dated entry is not counted yet.
+- `listBalanceSnapshots` returns the last 400 days, oldest first. `netWorthSeries` fills gaps forward from the last known balance per account and samples to at most 90 points for the sparkline.
+- Only live accounts are written; archiving an account stops new rows. Deleting an account cascades its history.
 
 ### `bills`
 
@@ -312,12 +369,15 @@ The ledger. Every balance in the app is derived from this table.
 | `amount_cents` | INTEGER | NOT NULL | Signed cents |
 | `occurred_on` | TEXT | NOT NULL | `YYYY-MM-DD` |
 | `memo` | TEXT | NOT NULL, default `''` | Description shown in the UI |
-| `category` | TEXT | NOT NULL, default `'Uncategorized'` | Free text |
+| `category` | TEXT | NOT NULL, default `'Uncategorized'` | The displayed label. Written from the category's name, but readable without a link |
+| `category_id` | TEXT | nullable, index | Added in v8. The category reports group by. `NULL` = unlinked text |
+| `external_id` | TEXT | nullable, partial unique index | Added in v8. The bank's own line id (OFX `FITID` or a CSV reference), capped at 120 characters |
 | `bill_id` | TEXT | nullable, FK bills | Links a payment to a bill prompt |
 | `goal_id` | TEXT | nullable, FK goals | Informational link only |
 | `paycheck_id` | TEXT | nullable, FK paychecks | Links the income entry |
 | `counter_account_id` | TEXT | nullable, FK accounts | Other side of a transfer |
 | `transfer_group_id` | TEXT | nullable | Added in v3; shared by both legs |
+| `round_up_source_id` | TEXT | nullable, partial index | Added in v7; the expense that produced this sweep leg |
 | `created_at` | TEXT | NOT NULL | |
 | `updated_at` | TEXT | NOT NULL | |
 | `deleted_at` | TEXT | nullable | |
@@ -331,6 +391,12 @@ Transfer rules:
 - Editing a paired leg may change amount magnitude, date, memo and category. It may not change account or kind; the UI edits the sibling leg in the same transaction.
 - Deleting either leg soft-deletes the whole group.
 - Round-up sweeps use the same paired-transfer structure, so deleting a round-up leg deletes both.
+
+Category and external-id rules:
+
+- An entry's `category` text and `category_id` are written together. Editing the text through the grid or the entry dialog re-resolves it to an existing row by `categoryKey`, or creates one; an import may leave the text unlinked.
+- `external_id` is set only by a bank-statement import. `(user_id, account_id, external_id)` is unique among live rows, and the importer also checks it against the file's own rows, so the same line cannot land twice even when its wording moved.
+- The column carries no global uniqueness: the same `FITID` text may legitimately appear on two different accounts.
 
 `goal_funding` and `investment` are available kinds for manual entries, but neither changes goal progress nor the allocator's investment bucket. They are ledger labels, not routing records.
 
@@ -351,6 +417,12 @@ Transfer rules:
 | `idx_accounts_dedicated_goal` | `accounts(dedicated_goal_id) WHERE dedicated_goal_id IS NOT NULL` | Goal progress from a dedicated account |
 | `idx_bill_reserves_cycle` | `bill_reserves(user_id, bill_id, cycle) WHERE deleted_at IS NULL` | "What has this month already claimed?" |
 | `idx_bill_reserves_paycheck` | `bill_reserves(paycheck_id)` | Reserves written by one route |
+| `idx_transactions_round_up_source` | `transactions(round_up_source_id) WHERE round_up_source_id IS NOT NULL` | Find the sweep for a purchase |
+| `idx_transactions_category` | `transactions(category_id) WHERE category_id IS NOT NULL` | Category reports and filters |
+| `idx_transactions_external` | `UNIQUE transactions(user_id, account_id, external_id) WHERE external_id IS NOT NULL AND deleted_at IS NULL` | Statement re-import is a no-op |
+| `idx_categories_name` | `UNIQUE categories(user_id, lower(name)) WHERE deleted_at IS NULL` | One live category per name, case-insensitively |
+| `idx_balance_snapshots_day` | `UNIQUE balance_snapshots(account_id, on_date) WHERE deleted_at IS NULL` | One record per account per day |
+| `idx_balance_snapshots_user` | `balance_snapshots(user_id, on_date DESC) WHERE deleted_at IS NULL` | The net-worth series |
 
 ## Derived values
 
@@ -379,16 +451,20 @@ None of the following are stored. They are recomputed from rows.
 | Emergency target | `essentials × months` (or manual cents) | `emergency.ts` |
 | Emergency coverage | `funded / essentials` | `emergency.ts` |
 | Round-up sweep | `increment − (|amount| mod increment)`, zero when divisible | `transfers.ts` |
+| Card cycle | Next `statement_day` on or after today, then the first `payment_due_day` strictly after it | `credit.ts` |
+| Card amount due | `max(0, last_statement_balance_cents − payments since the close)` | `credit.ts` |
+| Card payoff | Monthly amortisation at `apr_bps / 12`, interest rounded per month; `null` when the payment cannot clear the interest | `payoff.ts` |
+| Spending by category | Sum of live `expense` and `bill_payment` amounts dated in the month, grouped by `category_id`, largest first | `categories.ts` |
+| Net worth series | Per-day snapshot balances summed by `on_date`, gaps filled forward, sampled to 90 points | `history.ts` |
+| Due queue | Bills and card payments falling in the next 14 days, soonest first | `finance.ts` |
 
 ### Transaction limits
 
-`getSnapshot` reads at most **500 transactions** and **24 paychecks**. All UI totals that use the snapshot therefore see that window:
+`getSnapshot` reads at most **500 transactions** and **24 paychecks**. The dashboard's recent activity, month-to-date figures and the last-paycheck card therefore see that window, and the snapshot reports `transactionTotal`/`paycheckTotal` so a slice can say so.
 
-- the ledger grid and CSV export use the 500-row window;
-- month-to-date routing and the last-paycheck card use the 24-paycheck window;
-- account balances, goal progress and emergency averages are computed in SQL or over the returned rows and are affected by these limits where noted.
+The ledger no longer depends on it: `queryTransactions` pages the whole table in SQL — filter, sort, `limit` (1–500, the spreadsheet asks for 100) and `offset` — and returns the matching total. The CSV export also reads every row directly. JSON backup is not limited either.
 
-JSON backup is not limited: it queries every row for the user.
+The 500-row cap remains the boot payload bound; it is not a correctness limit for anything that shows a total.
 
 ## Settings keys
 
@@ -433,8 +509,9 @@ Migrations run inside a transaction per version and are tracked by `PRAGMA user_
 | **5** | Adds `bills.funding_strategy` (`NOT NULL DEFAULT 'all_checks'`, CHECKed enum), `bills.funding_paycheck_index` (nullable) and `accounts.color` (nullable) | Bill funding schedule, per-bill paycheck choice, user-chosen account colour. Every existing bill lands on `all_checks`, which is exactly the pre-v5 behaviour, so no number moves on an upgraded database |
 | **6** | Rebuilds `bills` to widen the `funding_strategy` CHECK to include `last_check`; no new columns, no data moves | "Last check of every month" needs an enum value; SQLite cannot alter a CHECK in place, so the table is copied by id, dropped and renamed with `PRAGMA legacy_alter_table = ON` so `transactions.bill_id` keeps pointing at `bills` |
 | **7** | Adds `bill_reserves` and its two indexes, adds `transactions.round_up_source_id` and its index, rebuilds `idx_transactions_user_date` to cover live rows, and deletes the draft settings keys `emergencyAccountIds`, `insurance_floor_cents` and `round_up_enabled` | The wall needs a stored claim per bill per month ([ADR 0012](decisions/0012-the-wall-remembers-its-claims.md)); the round-up legs need a link back to the purchase that produced them; the ledger's month query must stay indexed; and the three settings rows are read by no released build ([ADR 0009](decisions/0009-the-goal-chooses-its-funding-accounts.md)) |
+| **8** | Adds `transactions.category_id` and `transactions.external_id` with their indexes, the five card columns on `accounts`, and the `categories` and `balance_snapshots` tables; then, in JS, seeds `DEFAULT_CATEGORIES`, links every distinct category text to a row by its normalised key, and writes today's balance for every live account | Categories need an identity to group by; a statement re-import needs the bank's own line id; the card rows need their terms; and net worth needs a history. The backfill only adds rows and sets `category_id` — no existing text, amount or date is rewritten, so every number on an upgraded database is unchanged |
 
-`SCHEMA_VERSION` is derived from the last migration and is reported in JSON backups. Backups with a higher version are rejected. Backups older than version 2 are rejected; versions 2, 3, 4, 5, 6 and 7 are accepted.
+`SCHEMA_VERSION` is derived from the last migration and is reported in JSON backups. Backups with a higher version are rejected. Backups older than version 2 are rejected; versions 2, 3, 4, 5, 6, 7 and 8 are accepted.
 
 Migration procedure for future work is in [DEVELOPMENT.md](DEVELOPMENT.md#adding-a-schema-migration).
 
@@ -455,13 +532,19 @@ These should hold after every successful mutation.
 10. **Currency display.** Every formatted amount uses `settings.currency`, not `users.currency`.
 11. **One account funds one goal.** `accounts.dedicated_goal_id` holds a single goal, so binding an account elsewhere releases the previous goal, which falls back to its allocation rows. `applyFundingAccounts` does the release and the binding inside the goal's own transaction.
 12. **A month is collected once.** For any bill and cadence, the reserves across a calendar month sum to that month's obligation — `monthlyEquivalentCents` under the four single-check strategies, the spread under `all_checks`. A strategy changes *which* paycheck pays, never *how much*.
+13. **A category link is real.** `transactions.category_id`, when set, points at a live category of the same user; deleting the category nulls it. The `category` text may exist without a link, never a link without a category.
+14. **One bank line lands once.** Among live rows, `(user_id, account_id, external_id)` is unique, and an import checks the file's own rows as well. A fingerprint match is a secondary allowance, not the primary rule.
+15. **A day is recorded once.** At most one live `balance_snapshots` row exists per `(account_id, on_date)`; a later launch or edit the same day leaves it untouched.
+16. **History is append-only in practice.** Snapshots are written by launch and never recomputed from the ledger; a corrected entry changes the live balance and future days, not what was recorded before.
 
 ## Retention and soft deletes
 
 | Action | What happens |
 | --- | --- |
-| Delete account | References nulled; account soft-deleted; transactions retained |
+| Delete account | References nulled; account soft-deleted; transactions retained; its snapshots stop being read into the series (a hard delete would cascade them) |
 | Delete bill | Bill soft-deleted; past payments and prompts disappear |
+| Delete category | Category soft-deleted; linked entries keep their text and lose `category_id` |
+| Archive account | No new snapshots are written; the existing rows stay and are left out of the series while archived |
 | Delete goal | Goal soft-deleted; allocations retained but no longer shown as progress; `accounts.dedicated_goal_id` nulled for every account dedicated to it |
 | Delete transaction | Row soft-deleted; if paired, both legs are soft-deleted |
 | Delete paycheck | No delete path in the UI |
@@ -475,6 +558,9 @@ Soft-deleted rows are included in JSON backups, so a backup taken before a delet
 | --- | --- | --- |
 | Snapshot transactions | 500 newest | `listTransactions` |
 | Snapshot paychecks | 24 newest | `listPaychecks` |
+| Ledger page | 1–500 rows (the spreadsheet asks for 100) | `queryTransactions` |
+| Balance history | 400 days read; 90 points drawn | `balances.ts`, `history.ts` |
+| External id | 120 characters | `statements.ts`, `csv.ts` |
 | Import file size | 64 MiB | `ipc.ts` |
 | Rows per JSON table | 200,000 | `backup.ts` |
 | Projection horizon | 90 days | `Spreadsheet.tsx` |

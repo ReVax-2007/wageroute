@@ -166,6 +166,14 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
     createBill: (input) => run(() => window.api.createBill(input), 'Bill locked into the wall'),
     updateBill: (id, input) => run(() => window.api.updateBill(id, input), 'Bill updated'),
     deleteBill: (id) => run(() => window.api.deleteBill(id), 'Bill deleted'),
+    createCategory: (input) => run(() => window.api.createCategory(input), 'Category added'),
+    updateCategory: (id, input) =>
+      run(() => window.api.updateCategory(id, input), 'Category updated'),
+    deleteCategory: (id) =>
+      run(
+        () => window.api.deleteCategory(id),
+        'Category removed — its entries keep their label'
+      ),
     createGoal: (input) => run(() => window.api.createGoal(input), 'Goal created'),
     updateGoal: (id, input) => run(() => window.api.updateGoal(id, input), 'Goal updated'),
     deleteGoal: (id) => run(() => window.api.deleteGoal(id), 'Goal deleted'),
@@ -178,6 +186,35 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
     updateTransaction: (id, patch) =>
       run(() => window.api.updateTransaction(id, patch), 'Entry saved', id),
     deleteTransaction: (id) => run(() => window.api.deleteTransaction(id), 'Entry removed', id),
+
+    deleteTransactions: async (ids) => {
+      const unique = [...new Set(ids)]
+      if (unique.length === 0) return 0
+      set({ busy: true })
+      try {
+        const result = await enqueue(() => window.api.deleteTransactions(unique))
+        if (result.refreshError) {
+          get().notify(
+            `Removed ${result.value}, but the screen could not refresh — ${result.refreshError}`,
+            'error'
+          )
+          return result.value
+        }
+        applyPatch(result.patch)
+        get().notify(
+          result.value === 1 ? 'Entry removed' : `${result.value} entries removed`,
+          'success'
+        )
+        return result.value
+      } catch (error) {
+        get().notify(messageOf(error), 'error')
+        return null
+      } finally {
+        set({ busy: false })
+      }
+    },
+
+    queryTransactions: (query) => window.api.queryTransactions(query),
 
     commitPaycheck: async (input) => {
       const ok = await run(() => window.api.commitPaycheck(input), 'Paycheck routed')

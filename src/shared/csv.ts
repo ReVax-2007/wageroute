@@ -95,6 +95,11 @@ export interface CsvEntry {
   category: string
   memo: string
   amountCents: number
+  /**
+   * The bank's own id for the line (OFX FITID, or a reference column), used to
+   * recognise a statement that was already imported. Null when the file has none.
+   */
+  externalId: string | null
 }
 
 export interface CsvIssue {
@@ -116,6 +121,7 @@ const COLUMN_ALIASES = {
   kind: ['kind', 'type', 'transaction type'],
   category: ['category'],
   memo: ['description', 'memo', 'note', 'notes', 'details', 'transaction details'],
+  external: ['transaction id', 'transaction_id', 'fitid', 'reference', 'reference number'],
   amount: ['amount', 'value'],
   debit: ['debit', 'debit amount', 'withdrawal', 'withdrawals', 'money out'],
   credit: ['credit', 'credit amount', 'deposit', 'deposits', 'money in']
@@ -305,6 +311,7 @@ export function parseEntriesCsv(text: string): CsvEntryParse {
     }
 
     const institution = cell('institution')
+    const externalId = cell('external')
 
     entries.push({
       line,
@@ -316,7 +323,8 @@ export function parseEntriesCsv(text: string): CsvEntryParse {
       memo: cell('memo'),
       // A file that states the kind but writes an unsigned amount is common;
       // the kind decides the sign so an expense can never import as income.
-      amountCents: normalizeSignedCents(kind, amountCents)
+      amountCents: normalizeSignedCents(kind, amountCents),
+      externalId: externalId ? externalId.slice(0, 120) : null
     })
   }
 

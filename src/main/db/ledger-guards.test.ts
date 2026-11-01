@@ -159,7 +159,8 @@ test('a CSV row whose sign contradicts its kind is reported, not written', () =>
       kind: 'expense',
       category: 'Misc',
       memo: 'wrong way round',
-      amountCents: 9_900
+      amountCents: 9_900,
+      externalId: null
     },
     {
       line: 3,
@@ -169,7 +170,8 @@ test('a CSV row whose sign contradicts its kind is reported, not written', () =>
       kind: 'expense',
       category: 'Misc',
       memo: 'fine',
-      amountCents: -9_900
+      amountCents: -9_900,
+      externalId: null
     }
   ])
 
@@ -470,7 +472,8 @@ test('imported text is cleaned to the limits the app itself enforces', () => {
       kind: 'expense',
       category: 'C'.repeat(80),
       memo: `bad\u0000memo ${'x'.repeat(300)}`,
-      amountCents: -1_000
+      amountCents: -1_000,
+      externalId: null
     }
   ])
 

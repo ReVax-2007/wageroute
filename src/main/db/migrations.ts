@@ -1,4 +1,6 @@
+import { randomUUID } from 'node:crypto'
 import type Database from 'better-sqlite3'
+import { DEFAULT_CATEGORIES, normalizeCategoryName } from '@shared/categories'
 
 /**
  * Sync-readiness rules baked into this schema:
@@ -352,6 +354,158 @@ DELETE FROM settings
  WHERE key IN ('emergencyAccountIds', 'insurance_floor_cents', 'round_up_enabled');
 `
 
+/**
+ * v8 turns the audit's product findings into data:
+ *  - `categories` replaces free-text labels; entries keep the text as a
+ *    fallback, but `category_id` is what reports group by.
+ *  - `accounts` gains the debt and card-cycle fields (APR, minimum payment,
+ *    statement close day, payment due day, last statement balance).
+ *  - `balance_snapshots` records each account once per day so net worth has a
+ *    history instead of only a "now".
+ *  - `transactions.external_id` carries a bank's own id (OFX FITID), which makes
+ *    re-importing the same statement a no-op instead of a duplicate.
+ *
+ * Existing rows are backfilled in JS after the DDL: every distinct category text
+ * becomes a row, every entry is pointed at its row, and today's balances seed
+ * the history so the first chart is not empty.
+ */
+const SCHEMA_V8 = `
+ALTER TABLE transactions ADD COLUMN category_id TEXT;
+ALTER TABLE transactions ADD COLUMN external_id TEXT;
+
+CREATE INDEX idx_transactions_category ON transactions(category_id)
+  WHERE category_id IS NOT NULL;
+
+CREATE UNIQUE INDEX idx_transactions_external
+  ON transactions(user_id, account_id, external_id)
+  WHERE external_id IS NOT NULL AND deleted_at IS NULL;
+
+ALTER TABLE accounts ADD COLUMN apr_bps INTEGER
+  CHECK (apr_bps IS NULL OR apr_bps >= 0);
+ALTER TABLE accounts ADD COLUMN minimum_payment_cents INTEGER
+  CHECK (minimum_payment_cents IS NULL OR minimum_payment_cents >= 0);
+ALTER TABLE accounts ADD COLUMN statement_day INTEGER
+  CHECK (statement_day IS NULL OR statement_day BETWEEN 1 AND 31);
+ALTER TABLE accounts ADD COLUMN payment_due_day INTEGER
+  CHECK (payment_due_day IS NULL OR payment_due_day BETWEEN 1 AND 31);
+ALTER TABLE accounts ADD COLUMN last_statement_balance_cents INTEGER
+  CHECK (last_statement_balance_cents IS NULL OR last_statement_balance_cents >= 0);
+
+CREATE TABLE categories (
+  id          TEXT PRIMARY KEY NOT NULL,
+  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name        TEXT NOT NULL,
+  kind        TEXT NOT NULL DEFAULT 'expense'
+                CHECK (kind IN ('expense','income','transfer','other')),
+  color       TEXT,
+  sort_order  INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL,
+  deleted_at  TEXT,
+  revision    INTEGER NOT NULL DEFAULT 1
+) STRICT;
+
+CREATE UNIQUE INDEX idx_categories_name
+  ON categories(user_id, lower(name)) WHERE deleted_at IS NULL;
+
+CREATE TABLE balance_snapshots (
+  id             TEXT PRIMARY KEY NOT NULL,
+  user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  account_id     TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  on_date        TEXT NOT NULL CHECK (length(on_date) = 10),
+  balance_cents  INTEGER NOT NULL,
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL,
+  deleted_at     TEXT,
+  revision       INTEGER NOT NULL DEFAULT 1
+) STRICT;
+
+CREATE UNIQUE INDEX idx_balance_snapshots_day
+  ON balance_snapshots(account_id, on_date) WHERE deleted_at IS NULL;
+CREATE INDEX idx_balance_snapshots_user
+  ON balance_snapshots(user_id, on_date DESC) WHERE deleted_at IS NULL;
+`
+
+function isoDay(): string {
+  const now = new Date()
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+}
+
+/**
+ * Fills the tables v8 created. Kept as a function (not SQL) because category
+ * ids are UUIDs and the name matching is the same rule the app uses at runtime.
+ */
+function backfillSchema8(db: Database.Database): void {
+  const ts = new Date().toISOString()
+  const users = db.prepare('SELECT id FROM users').all() as { id: string }[]
+  const insertCategory = db.prepare(
+    `INSERT INTO categories
+       (id, user_id, name, kind, color, sort_order, created_at, updated_at, deleted_at, revision)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 1)`
+  )
+
+  for (const user of users) {
+    const byKey = new Map<string, string>()
+    const categories = db
+      .prepare('SELECT id, name FROM categories WHERE user_id = ? AND deleted_at IS NULL')
+      .all(user.id) as { id: string; name: string }[]
+    for (const category of categories) byKey.set(category.name.toLocaleLowerCase(), category.id)
+
+    let order = 0
+    const ensure = (name: string, kind: string, color: string | null): string => {
+      const key = name.toLocaleLowerCase()
+      const found = byKey.get(key)
+      if (found) return found
+      const id = randomUUID()
+      insertCategory.run(id, user.id, name, kind, color, order++, ts, ts)
+      byKey.set(key, id)
+      return id
+    }
+
+    for (const seed of DEFAULT_CATEGORIES) {
+      ensure(seed.name, seed.kind, seed.color)
+    }
+
+    const texts = db
+      .prepare(
+        `SELECT DISTINCT category FROM transactions
+         WHERE user_id = ? AND deleted_at IS NULL`
+      )
+      .all(user.id) as { category: string }[]
+    for (const row of texts) {
+      const name = normalizeCategoryName(row.category) || 'Uncategorized'
+      const id = ensure(name, 'other', null)
+      db.prepare(
+        `UPDATE transactions SET category_id = ?
+         WHERE user_id = ? AND category_id IS NULL AND lower(category) = lower(?) AND deleted_at IS NULL`
+      ).run(id, user.id, row.category)
+    }
+
+    const day = isoDay()
+    const accounts = db
+      .prepare(
+        `SELECT a.id,
+                a.starting_balance_cents + COALESCE((
+                  SELECT SUM(t.amount_cents) FROM transactions t
+                  WHERE t.account_id = a.id AND t.deleted_at IS NULL
+                ), 0) AS balance
+         FROM accounts a
+         WHERE a.user_id = ? AND a.deleted_at IS NULL`
+      )
+      .all(user.id) as { id: string; balance: number }[]
+    const insertSnapshot = db.prepare(
+      `INSERT OR IGNORE INTO balance_snapshots
+         (id, user_id, account_id, on_date, balance_cents,
+          created_at, updated_at, deleted_at, revision)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 1)`
+    )
+    for (const account of accounts) {
+      insertSnapshot.run(randomUUID(), user.id, account.id, day, account.balance, ts, ts)
+    }
+  }
+}
+
 export const MIGRATIONS: readonly Migration[] = [
   {
     version: 1,
@@ -394,6 +548,13 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 7,
     up: (db) => {
       db.exec(SCHEMA_V7)
+    }
+  },
+  {
+    version: 8,
+    up: (db) => {
+      db.exec(SCHEMA_V8)
+      backfillSchema8(db)
     }
   }
 ]

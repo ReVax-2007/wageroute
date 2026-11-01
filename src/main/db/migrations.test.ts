@@ -57,8 +57,8 @@ test('v6 rebuilds bills, keeps every row and restores enforcement', () => {
   const db = v5Database()
   migrate(db)
 
-  assert.equal(SCHEMA_VERSION, 7)
-  assert.equal(db.pragma('user_version', { simple: true }), 7)
+  assert.equal(SCHEMA_VERSION, 8)
+  assert.equal(db.pragma('user_version', { simple: true }), 8)
   assert.equal(db.pragma('foreign_keys', { simple: true }), 1, 'enforcement is back on')
   assert.deepEqual(db.pragma('foreign_key_check'), [])
   assert.equal(db.pragma('integrity_check', { simple: true }), 'ok')

@@ -19,6 +19,8 @@ export type BackupTable = ImportTable
 
 const TABLE_LABEL: Record<BackupTable, string> = {
   accounts: 'account',
+  balance_snapshots: 'balance snapshot',
+  categories: 'category',
   bills: 'bill',
   goals: 'goal',
   paychecks: 'paycheck',
@@ -32,9 +34,19 @@ const TABLE_LABEL: Record<BackupTable, string> = {
 const TABLE_COLUMNS: Record<BackupTable, readonly string[]> = {
   accounts: [
     'id', 'user_id', 'name', 'kind', 'institution', 'starting_balance_cents',
-    'credit_limit_cents', 'color', 'dedicated_goal_id', 'in_safe_to_spend',
+    'credit_limit_cents', 'apr_bps', 'minimum_payment_cents', 'statement_day',
+    'payment_due_day', 'last_statement_balance_cents', 'color',
+    'dedicated_goal_id', 'in_safe_to_spend',
     'is_archived', 'sort_order', 'created_at', 'updated_at',
     'deleted_at', 'revision'
+  ],
+  balance_snapshots: [
+    'id', 'user_id', 'account_id', 'on_date', 'balance_cents',
+    'created_at', 'updated_at', 'deleted_at', 'revision'
+  ],
+  categories: [
+    'id', 'user_id', 'name', 'kind', 'color', 'sort_order',
+    'created_at', 'updated_at', 'deleted_at', 'revision'
   ],
   bills: [
     'id', 'user_id', 'name', 'amount_cents', 'frequency', 'due_day', 'category',
@@ -62,9 +74,9 @@ const TABLE_COLUMNS: Record<BackupTable, readonly string[]> = {
   ],
   transactions: [
     'id', 'user_id', 'account_id', 'kind', 'amount_cents', 'occurred_on', 'memo',
-    'category', 'bill_id', 'goal_id', 'paycheck_id', 'counter_account_id',
-    'transfer_group_id', 'round_up_source_id', 'created_at', 'updated_at',
-    'deleted_at', 'revision'
+    'category', 'category_id', 'external_id', 'bill_id', 'goal_id', 'paycheck_id',
+    'counter_account_id', 'transfer_group_id', 'round_up_source_id',
+    'created_at', 'updated_at', 'deleted_at', 'revision'
   ],
   settings: ['user_id', 'key', 'value', 'updated_at']
 }
@@ -81,6 +93,12 @@ const TABLE_DEFAULTS: Record<BackupTable, Record<string, SqlValue>> = {
   accounts: {
     starting_balance_cents: 0,
     is_archived: 0,
+    sort_order: 0
+  },
+  balance_snapshots: {},
+  categories: {
+    kind: 'expense',
+    color: '#94A3B8',
     sort_order: 0
   },
   bills: {
@@ -211,6 +229,8 @@ export interface MergeResult {
 function emptyCounts(): ImportCounts {
   return {
     accounts: 0,
+    balance_snapshots: 0,
+    categories: 0,
     bills: 0,
     goals: 0,
     paychecks: 0,

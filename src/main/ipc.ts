@@ -42,9 +42,13 @@ import type {
   AccountInput,
   AppSettings,
   BillInput,
+  CategoryInput,
   GoalInput,
+  LedgerQuery,
+  LedgerSort,
   PaycheckDraftInput,
   TransactionInput,
+  TransactionKind,
   TransactionPatch
 } from '@shared/types'
 import { databasePath } from './db/connection'
@@ -140,6 +144,45 @@ function write<T>(
 
 function ownerWindow(event: IpcMainInvokeEvent): BrowserWindow | null {
   return BrowserWindow.fromWebContents(event.sender)
+}
+
+const LEDGER_SORT_VALUES: readonly LedgerSort[] = [
+  'date_desc',
+  'date_asc',
+  'amount_desc',
+  'amount_asc'
+]
+
+/**
+ * Coerces the renderer's filter into the shape the repository reads. The
+ * repository still validates dates and enums; this only guarantees the query
+ * builder receives strings and finite numbers instead of whatever arrived.
+ */
+function ledgerQueryOf(raw: unknown): LedgerQuery {
+  const source = (raw && typeof raw === 'object' ? raw : {}) as Partial<LedgerQuery>
+  const filter = (source.filter && typeof source.filter === 'object'
+    ? source.filter
+    : {}) as LedgerQuery['filter']
+  const text = (value: unknown): string | null =>
+    typeof value === 'string' && value.trim() ? value.trim() : null
+  const number = (value: unknown, fallback: number): number =>
+    typeof value === 'number' && Number.isFinite(value) ? value : fallback
+
+  return {
+    filter: {
+      text: text(filter.text) ?? undefined,
+      from: text(filter.from),
+      to: text(filter.to),
+      accountId: text(filter.accountId),
+      kind: (text(filter.kind) as TransactionKind | null) ?? null,
+      categoryId: text(filter.categoryId)
+    },
+    sort: LEDGER_SORT_VALUES.includes(source.sort as LedgerSort)
+      ? (source.sort as LedgerSort)
+      : 'date_desc',
+    limit: number(source.limit, 50),
+    offset: number(source.offset, 0)
+  }
 }
 
 function defaultFile(name: string): string {
@@ -378,6 +421,20 @@ export function registerIpcHandlers(db: Database.Database): void {
     )
   )
 
+  handle('category:create', (_event, input: CategoryInput) =>
+    write(db, userId, ['categories'], () => repo.createCategory(db, userId(), input))
+  )
+  handle('category:update', (_event, id: unknown, patch: Partial<CategoryInput>) =>
+    write(db, userId, ['categories', 'transactions'], () =>
+      repo.updateCategory(db, userId(), requireId(id), patch)
+    )
+  )
+  handle('category:delete', (_event, id: unknown) =>
+    write(db, userId, ['categories', 'transactions'], () =>
+      repo.deleteCategory(db, userId(), requireId(id))
+    )
+  )
+
   handle('goal:create', (_event, input: GoalInput) =>
     write(db, userId, ['goals', 'accounts'], () => repo.createGoal(db, userId(), input))
   )
@@ -396,12 +453,12 @@ export function registerIpcHandlers(db: Database.Database): void {
   )
 
   handle('transaction:create', (_event, input: TransactionInput) =>
-    write(db, userId, ['transactions', 'accounts', 'goals', 'billReserves'], () =>
+    write(db, userId, ['transactions', 'accounts', 'goals', 'billReserves', 'categories'], () =>
       repo.createTransaction(db, userId(), input)
     )
   )
   handle('transaction:update', (_event, id: unknown, patch: TransactionPatch) =>
-    write(db, userId, ['transactions', 'accounts', 'goals', 'billReserves'], () =>
+    write(db, userId, ['transactions', 'accounts', 'goals', 'billReserves', 'categories'], () =>
       repo.updateTransaction(db, userId(), requireId(id), patch)
     )
   )
@@ -410,10 +467,25 @@ export function registerIpcHandlers(db: Database.Database): void {
       repo.deleteTransaction(db, userId(), requireId(id))
     )
   )
+  handle('transaction:delete-many', (_event, ids: unknown) =>
+    write(db, userId, ['transactions', 'accounts', 'goals', 'billReserves'], () =>
+      repo.deleteTransactions(
+        db,
+        userId(),
+        Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []
+      )
+    )
+  )
+  handle('transaction:query', (_event, query: unknown) =>
+    repo.queryTransactions(db, userId(), ledgerQueryOf(query))
+  )
 
   handle('paycheck:commit', (_event, input: PaycheckDraftInput) =>
-    write(db, userId, ['paychecks', 'transactions', 'accounts', 'goals', 'billReserves'], () =>
-      repo.commitPaycheck(db, userId(), input)
+    write(
+      db,
+      userId,
+      ['paychecks', 'transactions', 'accounts', 'goals', 'billReserves', 'categories'],
+      () => repo.commitPaycheck(db, userId(), input)
     )
   )
 
@@ -615,7 +687,7 @@ export function registerIpcHandlers(db: Database.Database): void {
     write(
       db,
       userId,
-      ['user', 'settings', 'accounts', 'bills', 'goals', 'transactions', 'paychecks', 'billReserves'],
+      ['user', 'settings', 'accounts', 'categories', 'bills', 'goals', 'transactions', 'paychecks', 'billReserves', 'balanceSnapshots'],
       () => {
         repo.wipeAllData(db)
         // A held import points at the ledger that just disappeared; keeping it
@@ -625,6 +697,8 @@ export function registerIpcHandlers(db: Database.Database): void {
         // with the demo profile, a packaged one comes back blank.
         if (app.isPackaged) seedIfEmpty(db)
         else seedDemoIfEmpty(db)
+        // The new profile has no history yet, so today is day one of the chart.
+        repo.recordDailySnapshots(db, userId())
       }
     )
   )

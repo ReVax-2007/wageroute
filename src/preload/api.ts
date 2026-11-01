@@ -22,6 +22,10 @@ export function createFinanceApi(call: IpcCaller): FinanceApi {
     updateBill: (id, input) => call('bill:update', id, input),
     deleteBill: (id) => call('bill:delete', id),
 
+    createCategory: (input) => call('category:create', input),
+    updateCategory: (id, input) => call('category:update', id, input),
+    deleteCategory: (id) => call('category:delete', id),
+
     createGoal: (input) => call('goal:create', input),
     updateGoal: (id, input) => call('goal:update', id, input),
     deleteGoal: (id) => call('goal:delete', id),
@@ -30,6 +34,8 @@ export function createFinanceApi(call: IpcCaller): FinanceApi {
     createTransaction: (input) => call('transaction:create', input),
     updateTransaction: (id, input) => call('transaction:update', id, input),
     deleteTransaction: (id) => call('transaction:delete', id),
+    deleteTransactions: (ids) => call('transaction:delete-many', ids),
+    queryTransactions: (query) => call('transaction:query', query),
 
     commitPaycheck: (input) => call('paycheck:commit', input),
     saveSettings: (settings) => call('settings:save', settings),

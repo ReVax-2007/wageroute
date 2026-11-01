@@ -54,7 +54,7 @@ npm run postinstall
 | --- | --- | --- |
 | `npm run dev` | `electron-vite dev` | Dev server, main/preload rebuild, hot renderer reload |
 | `npm start` | `electron-vite preview` | Run the production bundles in `out/` |
-| `npm test` | `node --import tsx --test` (twenty-one files listed explicitly) | Domain, cadence, accounts, importer, backup-example, merge, migration, maintenance, files, statements, preload bridge and repository tests |
+| `npm test` | `node --import tsx --test` (twenty-six files listed explicitly) | Domain, cadence, categories, credit, payoff, history, accounts, importer, backup-example, merge, migration, maintenance, files, statements, preload bridge and repository tests |
 | `npm run typecheck` | node + web type checks | Both TypeScript projects |
 | `npm run typecheck:node` | `tsc --noEmit -p tsconfig.node.json` | Main, preload, shared, config |
 | `npm run typecheck:web` | `tsc --noEmit -p tsconfig.json` | Renderer and shared |
@@ -82,7 +82,8 @@ src/
 │       ├── maintenance.ts    quick_check, pre-upgrade copies, compaction
 │       ├── migrations.ts     versioned schema
 │       ├── repositories.ts   façade re-exporting the repo/ modules
-│       ├── repo/             CRUD per entity, read models, transfers, round-up
+│       ├── repo/             CRUD per entity, read models, transfers, round-up,
+│       │                     categories, autopay posting, balance snapshots
 │       ├── backup.ts         JSON build/parse/merge
 │       ├── entries.ts        CSV entry merge
 │       ├── legacy.ts         pre-rename database adoption
@@ -213,7 +214,7 @@ When a test requires moving a database aside, move it to a dated quarantine fold
 
 ## Testing
 
-Twenty-one files run by `npm test` through `node --test` with `tsx` as the loader — 172 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**; the `pretest` guard ([`scripts/check-test-list.mjs`](../scripts/check-test-list.mjs)) fails the run when a `*.test.ts` on disk is missing from that list, or when the list names a file that no longer exists.
+Twenty-six files run by `npm test` through `node --test` with `tsx` as the loader — 200 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**; the `pretest` guard ([`scripts/check-test-list.mjs`](../scripts/check-test-list.mjs)) fails the run when a `*.test.ts` on disk is missing from that list, or when the list names a file that no longer exists.
 
 | File | Style | Covers |
 | --- | --- | --- |
@@ -226,6 +227,11 @@ Twenty-one files run by `npm test` through `node --test` with `tsx` as the loade
 | `cadence.test.ts` | pure functions | which paycheck slot a date falls in for each pay cadence; the check closest to a due day, ties going earlier; which slots a month is certain to contain; an unreachable target is clamped rather than dropped; `last_check` lands on the last guaranteed slot and nowhere else; `all_checks` has no single funding check; a single-check bill carries the **month** ($50 weekly → $216.67) on one check and nothing on the other; every strategy's monthly total equals the obligation it owes; no paycheck date means the spread, never the clock |
 | `importRepair.test.ts` | pure functions | a clean backup needs nothing; each missing, invalid or dangling value becomes exactly one question; nullable versus required references; answers repair rows, unanswered rows are dropped rather than thrown; a still-invalid answer drops with the validation message; clearing a nullable reference is a valid answer; rows inside one file can satisfy each other's references; the accounts↔goals cycle is answerable in one pass; unmatched CSV account names collapse to one question each |
 | `accounts.test.ts` | pure functions | the explicit Safe-to-spend choice versus the kind default; a dedicated account staying out of the spendable pool; archived accounts counting for nothing; credit subtracting from total wealth; wealth buckets partitioning the total exactly; the allocator skipping an account-funded goal and the leftover falling to savings |
+| `categories.test.ts` | pure functions | name normalisation and the case/space-insensitive key; the seed list; spending for a month groups by linked id, falls back to stored text, ignores non-spending kinds and sorts largest first |
+| `credit.test.ts` | pure functions | the close date walked first, then the first due day after it (both orderings); amount due never below zero; the previous close date of a date |
+| `payoff.test.ts` | pure functions | amortisation in integer cents; the final payment when it is smaller; no plan when the payment cannot clear the interest; the two-year required payment |
+| `history.test.ts` | pure functions | the net-worth series fills gaps forward, starts at the first recorded day, samples to 90 points and always keeps the last |
+| `product-model.test.ts` | **real in-memory SQLite** | the v8 seed and text backfill; category dedupe, rename and delete; the ledger query filter/sort/page; bulk delete dedupe; daily snapshots once per day; autopay posts once, posts only the remainder of a part payment, and never guesses an account |
 | `backup-example.test.ts` | real file | `examples/backup.example.json` parses at the current `SCHEMA_VERSION` and every cross-table link — including an account dedicated to a goal — resolves, so the shipped example cannot silently drift |
 | `backup-merge.test.ts` | **real in-memory SQLite** | schema-defaulted columns import with the default instead of failing NOT NULL; one unusable row is reported rather than aborting the file; a settings row without a key is skipped; existing values survive while missing timestamps fill in; a dedicated account and its goal survive an export/import round trip; CSV names mapped in the wizard land on the chosen account; an unmapped name is left out once and the rest still imports; a mapping whose account disappeared reports the row instead of throwing |
 | `migrations.test.ts` | **real in-memory SQLite** | forward-only `user_version`; `SchemaTooNewError` carries the found and supported numbers and leaves `user_version` unchanged; each migration preserves existing rows |

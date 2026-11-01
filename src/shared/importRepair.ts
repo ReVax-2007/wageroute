@@ -2,6 +2,8 @@ import { parseMoneyToCents } from './money'
 
 export type ImportTable =
   | 'accounts'
+  | 'balance_snapshots'
+  | 'categories'
   | 'bills'
   | 'goals'
   | 'paychecks'
@@ -12,6 +14,8 @@ export type ImportTable =
 
 export const IMPORT_TABLES: readonly ImportTable[] = [
   'accounts',
+  'balance_snapshots',
+  'categories',
   'bills',
   'goals',
   'paychecks',
@@ -23,7 +27,7 @@ export const IMPORT_TABLES: readonly ImportTable[] = [
 
 export type ImportTables = Record<ImportTable, Record<string, unknown>[]>
 
-export type ImportChoiceTable = 'accounts' | 'bills' | 'goals' | 'paychecks'
+export type ImportChoiceTable = 'accounts' | 'categories' | 'bills' | 'goals' | 'paychecks'
 
 export interface ImportChoice {
   id: string
@@ -50,6 +54,7 @@ const KIND_FREQUENCY = ['weekly', 'biweekly', 'semimonthly', 'monthly', 'quarter
 const KIND_HEALTH = ['covered', 'tight', 'shortfall']
 const KIND_BUCKET = ['priority', 'savings', 'investment', 'goal', 'debt', 'leisure']
 const KIND_RESERVE = ['reserved', 'paid']
+const KIND_CATEGORY = ['expense', 'income', 'transfer', 'other']
 const KIND_TRANSACTION = [
   'income',
   'expense',
@@ -69,6 +74,14 @@ const REQUIRED_FIELDS: Record<ImportTable, readonly FieldSpec[]> = {
   accounts: [
     { column: 'name', label: 'Account name', input: 'text' },
     { column: 'kind', label: 'Account type', input: 'enum', options: KIND_ACCOUNT }
+  ],
+  balance_snapshots: [
+    { column: 'on_date', label: 'Snapshot day', input: 'date' },
+    { column: 'balance_cents', label: 'Snapshot balance', input: 'money' }
+  ],
+  categories: [
+    { column: 'name', label: 'Category name', input: 'text' },
+    { column: 'kind', label: 'Category type', input: 'enum', options: KIND_CATEGORY }
   ],
   bills: [
     { column: 'name', label: 'Bill name', input: 'text' },
@@ -111,6 +124,10 @@ const REFERENCE_FIELDS: Record<ImportTable, readonly FieldSpec[]> = {
   accounts: [
     { column: 'dedicated_goal_id', label: 'Dedicated goal', input: 'ref', refTable: 'goals', nullable: true }
   ],
+  balance_snapshots: [
+    { column: 'account_id', label: 'Snapshot account', input: 'ref', refTable: 'accounts', nullable: false }
+  ],
+  categories: [],
   bills: [
     { column: 'account_id', label: 'Posting account', input: 'ref', refTable: 'accounts', nullable: true }
   ],
@@ -130,6 +147,7 @@ const REFERENCE_FIELDS: Record<ImportTable, readonly FieldSpec[]> = {
   ],
   transactions: [
     { column: 'account_id', label: 'Posting account', input: 'ref', refTable: 'accounts', nullable: false },
+    { column: 'category_id', label: 'Category', input: 'ref', refTable: 'categories', nullable: true },
     { column: 'bill_id', label: 'Bill', input: 'ref', refTable: 'bills', nullable: true },
     { column: 'goal_id', label: 'Goal', input: 'ref', refTable: 'goals', nullable: true },
     { column: 'paycheck_id', label: 'Paycheck', input: 'ref', refTable: 'paychecks', nullable: true },
@@ -140,6 +158,8 @@ const REFERENCE_FIELDS: Record<ImportTable, readonly FieldSpec[]> = {
 
 const TABLE_NOUN: Record<ImportTable, string> = {
   accounts: 'account',
+  balance_snapshots: 'balance snapshot',
+  categories: 'category',
   bills: 'bill',
   goals: 'goal',
   paychecks: 'paycheck',

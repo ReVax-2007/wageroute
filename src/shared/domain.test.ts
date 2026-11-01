@@ -453,6 +453,11 @@ test('CSV export quotes commas, quotes and newlines', () => {
       institution: 'Tangerine',
       startingBalanceCents: 0,
       creditLimitCents: null,
+      aprBps: null,
+      minimumPaymentCents: null,
+      statementDay: null,
+      paymentDueDay: null,
+      lastStatementBalanceCents: null,
       color: null,
       dedicatedGoalId: null,
       inSafeToSpend: null,
@@ -476,6 +481,8 @@ test('CSV export quotes commas, quotes and newlines', () => {
       occurredOn: '2026-10-27',
       memo: 'Coffee, large',
       category: 'Food',
+      categoryId: null,
+      externalId: null,
       billId: null,
       goalId: null,
       paycheckId: null,
@@ -518,7 +525,8 @@ test('entries CSV round-trips exports and tolerates bank-style dates', () => {
     kind: 'expense',
     category: 'Groceries',
     memo: 'Metro, downtown',
-    amountCents: -4215
+    amountCents: -4215,
+    externalId: null
   })
   assert.equal(parsed.entries[1].occurredOn, '2026-10-02')
   assert.equal(parsed.entries[1].kind, 'income')

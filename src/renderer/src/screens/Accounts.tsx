@@ -10,6 +10,7 @@ import {
   Trash2
 } from 'lucide-react'
 import { countsInSafeToSpend, totalWealthCents } from '@shared/accounts'
+import { formatDateLabel, todayISO } from '@shared/dates'
 import { formatMoney } from '@shared/money'
 import type { AccountWithBalance } from '@shared/types'
 import { Button, Card, EmptyState, IconButton, Money, Progress } from '../components/ui'
@@ -20,6 +21,7 @@ import { PayCardDialog } from '../components/dialogs/PayCardDialog'
 import {
   ACCOUNT_KIND_LABEL,
   accountDisplayBalanceCents,
+  cardStatus,
   cashOnHand,
   creditAvailableCents,
   creditOwedCents
@@ -63,6 +65,8 @@ export function Accounts() {
   if (!snapshot) return null
 
   const currency = settings.currency
+  const today = todayISO()
+  const transactions = snapshot.transactions
   const cash = cashOnHand(active)
   const owed = creditOwedCents(active)
   const available = creditAvailableCents(active)
@@ -164,6 +168,7 @@ export function Accounts() {
                       isCredit && limit && limit > 0
                         ? Math.min(100, Math.round((displayCents / limit) * 100))
                         : 0
+                    const card = cardStatus({ account, transactions, todayISO: today })
 
                     return (
                       <li key={account.id} className="account-row bank-row">
@@ -195,6 +200,31 @@ export function Accounts() {
                                 label={`${account.name} credit used`}
                               />
                               <span>{usedPercent}% used</span>
+                            </span>
+                          )}
+                          {card && (
+                            <span className="card-terms">
+                              <span>
+                                Statement {formatDateLabel(card.closesOn)} · payment{' '}
+                                {formatDateLabel(card.dueOn)}
+                                {card.daysUntilDue <= 7 ? ` (in ${card.daysUntilDue}d)` : ''}
+                              </span>
+                              {card.amountDueCents !== null && (
+                                <span>
+                                  {card.amountDueCents > 0
+                                    ? `${formatMoney(card.amountDueCents, currency)} due`
+                                    : 'Statement paid'}
+                                </span>
+                              )}
+                              {account.minimumPaymentCents !== null && displayCents > 0 && (
+                                <span>
+                                  {card.payoffMonths === null
+                                    ? 'Minimum never clears the balance'
+                                    : `${card.payoffMonths} mo at minimum · ${formatMoney(card.payoffInterestCents, currency)} interest`}
+                                  {card.twoYearPaymentCents !== null &&
+                                    ` · ${formatMoney(card.twoYearPaymentCents, currency)}/mo clears it in 2 years`}
+                                </span>
+                              )}
                             </span>
                           )}
                         </div>

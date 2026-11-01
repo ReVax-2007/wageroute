@@ -10,10 +10,13 @@ import type {
   AccountInput,
   AppSettings,
   BillInput,
+  CategoryInput,
   GoalInput,
+  LedgerQuery,
   PaycheckDraftInput,
   Snapshot,
   TransactionInput,
+  TransactionPage,
   TransactionPatch
 } from './types'
 
@@ -40,6 +43,10 @@ export interface IpcContract {
   'bill:update': { args: [string, Partial<BillInput>]; result: WriteResult<void> }
   'bill:delete': { args: [string]; result: WriteResult<void> }
 
+  'category:create': { args: [CategoryInput]; result: WriteResult<string> }
+  'category:update': { args: [string, Partial<CategoryInput>]; result: WriteResult<void> }
+  'category:delete': { args: [string]; result: WriteResult<void> }
+
   'goal:create': { args: [GoalInput]; result: WriteResult<string> }
   'goal:update': { args: [string, Partial<GoalInput>]; result: WriteResult<void> }
   'goal:delete': { args: [string]; result: WriteResult<void> }
@@ -48,6 +55,8 @@ export interface IpcContract {
   'transaction:create': { args: [TransactionInput]; result: WriteResult<string> }
   'transaction:update': { args: [string, TransactionPatch]; result: WriteResult<void> }
   'transaction:delete': { args: [string]; result: WriteResult<void> }
+  'transaction:delete-many': { args: [string[]]; result: WriteResult<number> }
+  'transaction:query': { args: [LedgerQuery]; result: TransactionPage }
 
   'paycheck:commit': { args: [PaycheckDraftInput]; result: WriteResult<CommittedPaycheck> }
   'settings:save': { args: [AppSettings]; result: WriteResult<void> }
@@ -82,6 +91,9 @@ export const CHANNELS = [
   'bill:create',
   'bill:update',
   'bill:delete',
+  'category:create',
+  'category:update',
+  'category:delete',
   'goal:create',
   'goal:update',
   'goal:delete',
@@ -89,6 +101,8 @@ export const CHANNELS = [
   'transaction:create',
   'transaction:update',
   'transaction:delete',
+  'transaction:delete-many',
+  'transaction:query',
   'paycheck:commit',
   'settings:save',
   'backup:export',

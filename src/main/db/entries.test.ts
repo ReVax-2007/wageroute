@@ -39,7 +39,8 @@ function statementLine(line: number, occurredOn: string, amountCents: number): C
     kind: amountCents > 0 ? 'income' : 'expense',
     category: 'Uncategorized',
     memo: `line ${line}`,
-    amountCents
+    amountCents,
+    externalId: null
   }
 }
 

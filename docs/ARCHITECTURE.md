@@ -79,9 +79,10 @@ The same `src/shared` modules are imported by both the main process and the rend
    - every permission request is denied (`session.defaultSession.setPermissionRequestHandler`);
    - on macOS in development only, the dock icon is set from `build/icon.png`;
    - `adoptLegacyDatabase()` copies a pre-rename database if the new one is absent;
-   - `getDatabase()` opens `wageroute.db`, sets WAL/NORMAL/foreign keys/busy timeout, and runs migrations;
+   - `getDatabase()` opens `wageroute.db`, sets WAL/NORMAL/foreign keys/busy timeout, runs `PRAGMA quick_check`, writes a pre-upgrade copy when the file is older than the build, and runs migrations;
    - packaged builds run `seedIfEmpty()` (a blank local user plus default settings, only when no user row exists); development runs `seedDemoIfEmpty()` (the Alex demo profile);
    - `registerIpcHandlers(db)` binds every channel;
+   - `runBootTasks(db)` posts autopay bills that fell due (`postDueAutopay`) and records one balance snapshot per live account per day (`recordDailySnapshots`), each in its own `try/catch` that reports to the crash log, so neither can prevent the window;
    - `createWindow()` builds the BrowserWindow.
 4. `before-quit` closes the SQLite handle.
 
@@ -186,6 +187,11 @@ Every write resolves with `WriteResult<T>` — `{ value, patch, refreshError? }`
 | `transaction:create` | `TransactionInput` | `WriteResult<string>` |
 | `transaction:update` | `id`, `TransactionPatch` | `WriteResult<void>` |
 | `transaction:delete` | `id` | `WriteResult<void>` |
+| `transaction:delete-many` | `ids: string[]` | `WriteResult<number>` (rows removed) |
+| `transaction:query` | `LedgerQuery` | `TransactionPage` (`{ rows, total }`) |
+| `category:create` | `CategoryInput` | `WriteResult<string>` |
+| `category:update` | `id`, `Partial<CategoryInput>` | `WriteResult<void>` |
+| `category:delete` | `id` | `WriteResult<void>` |
 | `paycheck:commit` | `PaycheckDraftInput` | `WriteResult<CommittedPaycheck>` |
 | `settings:save` | `AppSettings` | `WriteResult<void>` |
 | `backup:export` | — | saved path or `null` |
@@ -220,6 +226,10 @@ Notes:
 | `transfers.ts` | Paired legs and round-up remainder | `transferLegs`, `roundUpRemainderCents` |
 | `settings.ts` | Settings defaults, parsing, serialization | `DEFAULT_SETTINGS`, `parseSettings`, `settingsToRecord` |
 | `csv.ts` | CSV export, RFC 4180 parsing, entries import grammar | `toCsv`, `parseCsv`, `parseEntriesCsv`, `transactionsToCsv` |
+| `categories.ts` | Category seeds, normalisation key and month spending | `DEFAULT_CATEGORIES`, `CATEGORY_NAME_MAX`, `normalizeCategoryName`, `categoryKey`, `spendingByCategory` |
+| `credit.ts` | A card's statement close and payment due dates | `creditCycle`, `creditAmountDue`, `previousCloseDate` |
+| `payoff.ts` | Debt amortisation at an APR | `debtPayoff`, `requiredPaymentCents` |
+| `history.ts` | Net-worth series from daily snapshots | `netWorthSeries`, `NetWorthPoint` |
 | `api.ts` | IPC contract | `FinanceApi`, `ImportResult`, `ImportCounts` |
 | `types.ts` | Domain types and inputs | `Snapshot`, `AppSettings`, all row types |
 
@@ -273,7 +283,10 @@ If the wall exceeds income, the wall is partially funded, every other bucket is 
 | Module | Holds |
 | --- | --- |
 | `common.ts` | validation helpers (`assertText`, `assertCents`, `assertOneOf`, `assertDate`, `requireId`), soft delete and update helpers that bump `revision` and `updated_at` |
-| `accounts.ts`, `bills.ts`, `goals.ts`, `transactions.ts`, `paychecks.ts`, `settings.ts`, `users.ts` | one aggregate root each, including transfers, round-up, reserves and paycheck commit |
+| `accounts.ts`, `bills.ts`, `goals.ts`, `transactions.ts`, `paychecks.ts`, `settings.ts`, `users.ts` | one aggregate root each, including transfers, round-up, reserves, ledger query/paging and paycheck commit |
+| `categories.ts` | the category list, case-insensitive find/create/rename/delete, `ensureCategory` for free text, and the v8 backfill |
+| `posting.ts` | `postDueAutopay`, the boot-time writer for bills marked `autopay`; it shares `dueBillPrompts` with the prompt card |
+| `balances.ts` | `recordDailySnapshots` (one row per live account per day) and `listBalanceSnapshots` (the newest 400 days) |
 | `read-models.ts` | `getSnapshot` and `readSnapshotParts` (a `SnapshotPatch` for the tables one write touched) |
 
 There is no ORM. SQL is explicit and parameterised; column names come from internal allowlists, never from user input.
@@ -286,15 +299,18 @@ There is no ORM. SQL is explicit and parameterised; column names come from inter
 {
   user,
   settings,               // raw key/value record
-  accounts,               // includes archived, each with balanceCents
+  accounts,               // includes archived, each with balanceCents and card terms
   bills,                  // non-deleted, active first
   goals,                  // non-deleted, with fundedCents/remainingCents
-  transactions,            // non-deleted, newest first, LIMIT 500
-  paychecks               // non-deleted, newest first, LIMIT 24 + allocations
+  categories,             // non-deleted, sort_order then name
+  transactions,            // non-deleted, newest first, LIMIT 500 (+ transactionTotal)
+  paychecks,              // non-deleted, newest first, LIMIT 24 + allocations (+ paycheckTotal)
+  billReserves,           // the wall's claims
+  balanceSnapshots         // one row per account per day, newest 400 days
 }
 ```
 
-Limits are deliberate: the UI is a working ledger, not an archive browser. JSON backup bypasses these limits and reads every row.
+Limits are deliberate: the UI is a working ledger, not an archive browser. The ledger screen does not use the capped `transactions` list — it calls `transaction:query` and pages the whole table in SQL — and JSON backup and CSV export read every row.
 
 ### Transaction boundaries
 
@@ -448,12 +464,13 @@ Both use `strict: true`, `verbatimModuleSyntax`, `isolatedModules` and no emit. 
 | `src/shared/settings.ts` | Settings defaults, corrupt-input recovery, serialization |
 | `src/shared/importRepair.ts` | Import problem detection, repair questions and field validation |
 | `src/shared/csv.ts` | CSV encoding/parsing and entry-row validation |
+| `src/shared/categories.ts`, `credit.ts`, `payoff.ts`, `history.ts` | Category seeds and spending, card cycles, debt payoff, net-worth series |
 | `src/shared/api.ts` | The `FinanceApi` contract the preload implements, plus `WriteResult` |
 | `src/shared/channels.ts` | The typed IPC contract and the exhaustive channel list |
 | `src/main/index.ts` | App lifecycle, window, navigation policy, permissions |
 | `src/main/ipc.ts` | Typed channel registration, dialogs, file reads/writes |
 | `src/main/db/connection.ts` | Database singleton, pragmas, path |
-| `src/main/db/migrations.ts` | Schema versions 1–7 |
+| `src/main/db/migrations.ts` | Schema versions 1–8 |
 | `src/main/db/repositories.ts` | Façade re-exporting `repo/` |
 | `src/main/db/repo/*` | CRUD per entity, derived reads, transfers, round-up, paycheck commit, read models |
 | `src/main/db/backup.ts` | Backup build/parse/merge |
@@ -466,7 +483,7 @@ Both use `strict: true`, `verbatimModuleSyntax`, `isolatedModules` and no emit. 
 | `src/renderer/src/store/session.ts`, `data.ts`, `selectors.ts` | Session state, snapshot mutations, pure totals |
 | `src/renderer/src/lib/finance.ts` | UI-facing derived totals and labels |
 | `src/renderer/src/screens/*` | Screen-level behaviour |
-| `src/renderer/src/components/*` | Reusable UI, grids, prompts, data table |
+| `src/renderer/src/components/*` | Reusable UI, grids, prompts, data table, the net-worth sparkline |
 | `src/renderer/src/components/dialogs/*` | The seven screen dialogs |
 | `src/renderer/src/styles/tokens.css` | Dark/light design tokens |
 | `src/renderer/src/styles/app.css` | Import list for the layered sheets |

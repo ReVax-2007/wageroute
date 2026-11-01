@@ -6,15 +6,17 @@ import '../styles/grid.css'
 import { Trash2 } from 'lucide-react'
 import {
   DataGrid,
+  SelectColumn,
   renderTextEditor,
   type Column,
-  type RenderEditCellContentProps,
-  type SortColumn
+  type RenderEditCellContentProps
 } from 'react-data-grid'
+import { categoryKey } from '@shared/categories'
 import { formatDateLabel } from '@shared/dates'
 import { formatMoney, centsToEditable, parseMoneyToCents } from '@shared/money'
 import type {
   AccountWithBalance,
+  Category,
   TransactionKind,
   TransactionPatch,
   TransactionRow
@@ -27,11 +29,17 @@ const KINDS = Object.keys(TRANSACTION_KIND_LABEL) as TransactionKind[]
 export function TransactionsGrid({
   rows,
   accounts,
-  currency
+  categories,
+  currency,
+  selected,
+  onSelectedChange
 }: {
   rows: TransactionRow[]
   accounts: AccountWithBalance[]
+  categories: readonly Category[]
   currency: string
+  selected?: ReadonlySet<string>
+  onSelectedChange?: (ids: string[]) => void
 }) {
   const updateTransaction = useFinanceStore((state) => state.updateTransaction)
   const deleteTransaction = useFinanceStore((state) => state.deleteTransaction)
@@ -39,28 +47,16 @@ export function TransactionsGrid({
   const pending = useFinanceStore((state) => state.pending)
   const refresh = useFinanceStore((state) => state.refresh)
 
-  const [sortColumns, setSortColumns] = useState<readonly SortColumn[]>([])
-
-  const orderedRows = useMemo(() => {
-    if (sortColumns.length === 0) return rows
-    return [...rows].sort((a, b) => {
-      for (const sort of sortColumns) {
-        const result = compareRows(a, b, sort.columnKey)
-        if (result !== 0) return sort.direction === 'ASC' ? result : -result
-      }
-      return 0
-    })
-  }, [rows, sortColumns])
-
   const handleRowsChange = (nextRows: TransactionRow[], indexes: number[]) => {
     for (const index of indexes) {
       const next = nextRows[index]
-      const previous = orderedRows[index]
+      const previous = rows[index]
       if (!next || !previous) continue
 
       const patch: TransactionPatch = {}
       if (next.occurredOn !== previous.occurredOn) patch.occurredOn = next.occurredOn
       if (next.category !== previous.category) patch.category = next.category
+      if (next.categoryId !== previous.categoryId) patch.categoryId = next.categoryId
       if (next.memo !== previous.memo) patch.memo = next.memo
       if (next.amountCents !== previous.amountCents) patch.amountCents = next.amountCents
 
@@ -97,11 +93,11 @@ export function TransactionsGrid({
 
   const columns = useMemo<Column<TransactionRow>[]>(
     () => [
+      ...(onSelectedChange ? [SelectColumn as Column<TransactionRow>] : []),
       {
         key: 'occurredOn',
         name: 'Date',
         width: 108,
-        sortable: true,
         renderCell: ({ row }) => formatDateLabel(row.occurredOn),
         renderEditCell: (props) => <DateEditor {...props} />
       },
@@ -159,8 +155,13 @@ export function TransactionsGrid({
         key: 'category',
         name: 'Category',
         width: 126,
-        sortable: true,
-        renderEditCell: renderTextEditor
+        renderCell: ({ row }) =>
+          row.categoryId !== null ? (
+            <span className="grid-account">{row.category}</span>
+          ) : (
+            <span className="grid-account muted">{row.category}</span>
+          ),
+        renderEditCell: (props) => <CategoryEditor {...props} categories={categories} />
       },
       {
         key: 'memo',
@@ -172,7 +173,6 @@ export function TransactionsGrid({
         key: 'amountCents',
         name: 'Amount',
         width: 118,
-        sortable: true,
         renderCell: ({ row }) => (
           <span
             className={
@@ -216,7 +216,7 @@ export function TransactionsGrid({
         }
       }
     ],
-    [accounts, askConfirm, currency, deleteTransaction, pending, refresh, updateTransaction]
+    [accounts, askConfirm, categories, currency, deleteTransaction, onSelectedChange, pending, refresh, updateTransaction]
   )
 
   return (
@@ -225,11 +225,15 @@ export function TransactionsGrid({
       aria-label="Ledger entries"
       aria-busy={Object.keys(pending).length > 0}
       columns={columns}
-      rows={orderedRows}
+      rows={rows}
       rowKeyGetter={(row) => row.id}
       onRowsChange={(nextRows, data) => handleRowsChange(nextRows, data.indexes)}
-      sortColumns={sortColumns}
-      onSortColumnsChange={setSortColumns}
+      selectedRows={selected}
+      onSelectedRowsChange={
+        onSelectedChange
+          ? (next) => onSelectedChange([...next].filter((key): key is string => typeof key === 'string'))
+          : undefined
+      }
       rowHeight={38}
       headerRowHeight={38}
       defaultColumnOptions={{ resizable: true }}
@@ -237,17 +241,53 @@ export function TransactionsGrid({
   )
 }
 
-function compareRows(a: TransactionRow, b: TransactionRow, columnKey: string): number {
-  switch (columnKey) {
-    case 'occurredOn':
-      return a.occurredOn.localeCompare(b.occurredOn)
-    case 'amountCents':
-      return a.amountCents - b.amountCents
-    case 'category':
-      return a.category.localeCompare(b.category)
-    default:
-      return 0
+/**
+ * A typeahead over the categories the ledger already knows. Typing a new name
+ * is allowed — the repository creates it on save — but matching an existing one
+ * writes its id, which is what keeps the category reports grouped.
+ */
+function CategoryEditor({
+  row,
+  onRowChange,
+  onClose,
+  categories
+}: RenderEditCellContentProps<TransactionRow> & { categories: readonly Category[] }) {
+  const [value, setValue] = useState(row.category)
+  const settled = useRef(false)
+
+  const commit = (close: boolean) => {
+    if (settled.current) return
+    settled.current = true
+    const name = value.trim() || row.category
+    const match = categories.find((category) => categoryKey(category.name) === categoryKey(name))
+    onRowChange({ ...row, category: name, categoryId: match?.id ?? null }, close)
   }
+
+  return (
+    <>
+      <input
+        className="grid-editor"
+        autoFocus
+        value={value}
+        list="grid-category-options"
+        aria-label="Category"
+        onChange={(event) => setValue(event.target.value)}
+        onBlur={() => commit(true)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') commit(true)
+          if (event.key === 'Escape') {
+            settled.current = true
+            onClose(false)
+          }
+        }}
+      />
+      <datalist id="grid-category-options">
+        {categories.map((category) => (
+          <option key={category.id} value={category.name} />
+        ))}
+      </datalist>
+    </>
+  )
 }
 
 function MoneyEditor({ row, onRowChange, onClose }: RenderEditCellContentProps<TransactionRow>) {
