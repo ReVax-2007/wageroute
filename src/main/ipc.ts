@@ -8,9 +8,16 @@ import type {
   ImportDroppedRow,
   ImportIssue,
   ImportPreview,
-  ImportResult
+  ImportResult,
+  WriteResult
 } from '@shared/api'
 import { emptyImportCounts } from '@shared/api'
+import {
+  CHANNELS,
+  type Channel,
+  type ChannelArgs,
+  type ChannelResult
+} from '@shared/channels'
 import { parseEntriesCsv, transactionsToCsv, type CsvEntry } from '@shared/csv'
 import { todayISO } from '@shared/dates'
 import { encodeError, RepositoryError } from '@shared/errors'
@@ -83,20 +90,52 @@ function isTrustedFrame(event: IpcMainInvokeEvent): boolean {
  * Registers a handler whose thrown errors keep their type across the process
  * boundary: a RepositoryError's code is encoded into the message so preload can
  * rebuild it, and anything else is rethrown untouched.
+ *
+ * The channel and its payload come from the shared contract, so the two halves
+ * of the app cannot disagree about what is sent or returned.
  */
-function handle(
-  channel: string,
-  listener: (event: IpcMainInvokeEvent, ...args: never[]) => unknown
+const registeredChannels = new Set<Channel>()
+
+function handle<C extends Channel>(
+  channel: C,
+  listener: (
+    event: IpcMainInvokeEvent,
+    ...args: ChannelArgs<C>
+  ) => ChannelResult<C> | Promise<ChannelResult<C>>
 ): void {
+  registeredChannels.add(channel)
   ipcMain.handle(channel, async (event, ...args) => {
     if (!isTrustedFrame(event)) throw new Error('That window is not allowed to read this ledger')
     try {
-      return await listener(event, ...(args as never[]))
+      return await listener(event, ...(args as ChannelArgs<C>))
     } catch (error) {
       if (error instanceof Error) throw new Error(encodeError(error))
       throw error
     }
   })
+}
+
+/**
+ * Runs a write and returns the tables it touched. The follow-up read happens in
+ * the same main-process turn, so no other handler can slip between the write and
+ * the patch; if that read still fails the write stands, and the result says so.
+ */
+function write<T>(
+  db: Database.Database,
+  userId: () => string,
+  parts: readonly repo.SnapshotPart[],
+  task: () => T
+): WriteResult<T> {
+  const value = task()
+  try {
+    return { value, patch: repo.readSnapshotParts(db, userId(), parts) }
+  } catch (error) {
+    return {
+      value,
+      patch: {},
+      refreshError: error instanceof Error ? error.message : String(error)
+    }
+  }
 }
 
 function ownerWindow(event: IpcMainInvokeEvent): BrowserWindow | null {
@@ -282,6 +321,7 @@ function statementMapping(
 }
 
 export function registerIpcHandlers(db: Database.Database): void {
+  registeredChannels.clear()
   // Resolved per call: data:reset wipes the user row and re-seeds a fresh one,
   // so a value captured once here would go stale.
   const userId = (): string => repo.getLocalUserId(db)
@@ -295,69 +335,103 @@ export function registerIpcHandlers(db: Database.Database): void {
   }))
 
   handle('account:create', (_event, input: AccountInput) =>
-    repo.createAccount(db, userId(), input)
+    write(db, userId, ['accounts', 'goals'], () => repo.createAccount(db, userId(), input))
   )
   handle('account:update', (_event, id: unknown, patch: Partial<AccountInput>) =>
-    repo.updateAccount(db, userId(), requireId(id), patch)
+    write(db, userId, ['accounts', 'goals', 'transactions'], () =>
+      repo.updateAccount(db, userId(), requireId(id), patch)
+    )
   )
   handle('account:delete', (_event, id: unknown, options: unknown) =>
-    repo.deleteAccount(db, userId(), requireId(id), {
-      withEntries:
-        typeof options === 'object' &&
-        options !== null &&
-        (options as { withEntries?: unknown }).withEntries === true
-    })
+    write(
+      db,
+      userId,
+      ['accounts', 'goals', 'bills', 'transactions', 'billReserves', 'settings'],
+      () =>
+        repo.deleteAccount(db, userId(), requireId(id), {
+          withEntries:
+            typeof options === 'object' &&
+            options !== null &&
+            (options as { withEntries?: unknown }).withEntries === true
+        })
+    )
   )
   handle('account:archive', (_event, id: unknown, archived: unknown) =>
-    repo.setAccountArchived(db, userId(), requireId(id), archived === true)
+    write(db, userId, ['accounts', 'goals', 'settings'], () =>
+      repo.setAccountArchived(db, userId(), requireId(id), archived === true)
+    )
   )
   handle(
     'account:entry-count',
     (_event, id: unknown) => repo.accountEntryCount(db, userId(), requireId(id))
   )
 
-  handle('bill:create', (_event, input: BillInput) => repo.createBill(db, userId(), input))
+  handle('bill:create', (_event, input: BillInput) =>
+    write(db, userId, ['bills'], () => repo.createBill(db, userId(), input))
+  )
   handle('bill:update', (_event, id: unknown, patch: Partial<BillInput>) =>
-    repo.updateBill(db, userId(), requireId(id), patch)
+    write(db, userId, ['bills'], () => repo.updateBill(db, userId(), requireId(id), patch))
   )
-  handle('bill:delete', (_event, id: unknown) => repo.deleteBill(db, userId(), requireId(id)))
+  handle('bill:delete', (_event, id: unknown) =>
+    write(db, userId, ['bills', 'billReserves'], () =>
+      repo.deleteBill(db, userId(), requireId(id))
+    )
+  )
 
-  handle('goal:create', (_event, input: GoalInput) => repo.createGoal(db, userId(), input))
-  handle('goal:update', (_event, id: unknown, patch: Partial<GoalInput>) =>
-    repo.updateGoal(db, userId(), requireId(id), patch)
+  handle('goal:create', (_event, input: GoalInput) =>
+    write(db, userId, ['goals', 'accounts'], () => repo.createGoal(db, userId(), input))
   )
-  handle('goal:delete', (_event, id: unknown) => repo.deleteGoal(db, userId(), requireId(id)))
+  handle('goal:update', (_event, id: unknown, patch: Partial<GoalInput>) =>
+    write(db, userId, ['goals', 'accounts'], () =>
+      repo.updateGoal(db, userId(), requireId(id), patch)
+    )
+  )
+  handle('goal:delete', (_event, id: unknown) =>
+    write(db, userId, ['goals', 'accounts'], () => repo.deleteGoal(db, userId(), requireId(id)))
+  )
   handle('goal:archive', (_event, id: unknown, archived: unknown) =>
-    repo.setGoalArchived(db, userId(), requireId(id), archived === true)
+    write(db, userId, ['goals'], () =>
+      repo.setGoalArchived(db, userId(), requireId(id), archived === true)
+    )
   )
 
   handle('transaction:create', (_event, input: TransactionInput) =>
-    repo.createTransaction(db, userId(), input)
+    write(db, userId, ['transactions', 'accounts', 'goals', 'billReserves'], () =>
+      repo.createTransaction(db, userId(), input)
+    )
   )
   handle('transaction:update', (_event, id: unknown, patch: TransactionPatch) =>
-    repo.updateTransaction(db, userId(), requireId(id), patch)
+    write(db, userId, ['transactions', 'accounts', 'goals', 'billReserves'], () =>
+      repo.updateTransaction(db, userId(), requireId(id), patch)
+    )
   )
   handle('transaction:delete', (_event, id: unknown) =>
-    repo.deleteTransaction(db, userId(), requireId(id))
+    write(db, userId, ['transactions', 'accounts', 'goals', 'billReserves'], () =>
+      repo.deleteTransaction(db, userId(), requireId(id))
+    )
   )
 
   handle('paycheck:commit', (_event, input: PaycheckDraftInput) =>
-    repo.commitPaycheck(db, userId(), input)
+    write(db, userId, ['paychecks', 'transactions', 'accounts', 'goals', 'billReserves'], () =>
+      repo.commitPaycheck(db, userId(), input)
+    )
   )
 
-  handle('settings:save', (_event, settings: AppSettings) => {
-    const record = settingsToRecord(settings)
-    for (const [key, value] of Object.entries(record)) {
-      if (typeof value !== 'string') {
-        throw new RepositoryError('VALIDATION', `That settings save is missing "${key}"`, key)
+  handle('settings:save', (_event, settings: AppSettings) =>
+    write(db, userId, ['settings'], () => {
+      const record = settingsToRecord(settings)
+      for (const [key, value] of Object.entries(record)) {
+        if (typeof value !== 'string') {
+          throw new RepositoryError('VALIDATION', `That settings save is missing "${key}"`, key)
+        }
       }
-    }
-    // Every field is normalised to what the build can read, except the currency:
-    // an unknown code is refused by writeSettings rather than quietly swapped
-    // for USD, which would change the ledger's units without saying so.
-    const normalised = { ...settingsToRecord(parseSettings(record)), currency: record.currency }
-    return repo.writeSettings(db, userId(), normalised)
-  })
+      // Every field is normalised to what the build can read, except the currency:
+      // an unknown code is refused by writeSettings rather than quietly swapped
+      // for USD, which would change the ledger's units without saying so.
+      const normalised = { ...settingsToRecord(parseSettings(record)), currency: record.currency }
+      repo.writeSettings(db, userId(), normalised)
+    })
+  )
 
   handle('backup:export', async (event) => {
     const win = ownerWindow(event)
@@ -537,14 +611,28 @@ export function registerIpcHandlers(db: Database.Database): void {
     } satisfies ImportResult
   })
 
-  handle('data:reset', () => {
-    repo.wipeAllData(db)
-    // A held import points at the ledger that just disappeared; keeping it
-    // would let a stale wizard confirm into the next profile.
-    pendingImports.clear()
-    // Reset follows the same rule as boot: a development build comes back with
-    // the demo profile, a packaged one comes back blank.
-    if (app.isPackaged) seedIfEmpty(db)
-    else seedDemoIfEmpty(db)
-  })
+  handle('data:reset', () =>
+    write(
+      db,
+      userId,
+      ['user', 'settings', 'accounts', 'bills', 'goals', 'transactions', 'paychecks', 'billReserves'],
+      () => {
+        repo.wipeAllData(db)
+        // A held import points at the ledger that just disappeared; keeping it
+        // would let a stale wizard confirm into the next profile.
+        pendingImports.clear()
+        // Reset follows the same rule as boot: a development build comes back
+        // with the demo profile, a packaged one comes back blank.
+        if (app.isPackaged) seedIfEmpty(db)
+        else seedDemoIfEmpty(db)
+      }
+    )
+  )
+
+  // A channel the renderer can call but nothing answers would fail only when a
+  // user reaches that button; fail at boot instead.
+  const missing = CHANNELS.filter((channel) => !registeredChannels.has(channel))
+  if (missing.length > 0) {
+    throw new Error(`No IPC handler registered for: ${missing.join(', ')}`)
+  }
 }

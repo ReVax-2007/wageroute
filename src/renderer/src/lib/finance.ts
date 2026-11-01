@@ -56,6 +56,31 @@ export function accountDisplayBalanceCents(account: AccountWithBalance): number 
   return account.kind === 'credit' ? Math.max(0, -account.balanceCents) : account.balanceCents
 }
 
+/** 1 → "1st", 11 → "11th", 23 → "23rd". Used wherever a day of month is named. */
+export function ordinal(value: number): string {
+  const mod100 = value % 100
+  if (mod100 >= 11 && mod100 <= 13) return `${value}th`
+  switch (value % 10) {
+    case 1:
+      return `${value}st`
+    case 2:
+      return `${value}nd`
+    case 3:
+      return `${value}rd`
+    default:
+      return `${value}th`
+  }
+}
+
+/** Only money you can actually reach can back a fund. */
+export function fundableAccounts(accounts: readonly AccountWithBalance[]): AccountWithBalance[] {
+  return accounts.filter(
+    (account) =>
+      !account.isArchived &&
+      (account.kind === 'savings' || account.kind === 'checking' || account.kind === 'cash')
+  )
+}
+
 export function activeBills(bills: readonly Bill[]): Bill[] {
   return bills.filter((bill) => bill.isActive)
 }

@@ -1,0 +1,4 @@
+/* The cascade is fixed by name, not by where a rule happens to sit in a file:
+   tokens are declared in tokens.css, then base, components, screens and
+   utilities. Later layers win ties, which is the order the old flat sheet used. */
+@layer base, components, screens, utilities;

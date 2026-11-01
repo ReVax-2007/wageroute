@@ -21,43 +21,22 @@ import {
   recommendedEmergencyTargetCents
 } from '@shared/emergency'
 import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
-import type { AccountWithBalance, EmergencyMode, GoalInput, GoalWithProgress } from '@shared/types'
+import type { EmergencyMode, GoalInput, GoalWithProgress } from '@shared/types'
 import {
   Button,
   Card,
   EmptyState,
   Field,
   IconButton,
-  Modal,
   Money,
   Progress,
   Segmented,
   Switch
 } from '../components/ui'
-import { activeBills, monthlyWall } from '../lib/finance'
+import { GoalDialog } from '../components/dialogs/GoalDialog'
+import { FundingAccountsPicker } from '../components/FundingAccountsPicker'
+import { activeBills, fundableAccounts, monthlyWall } from '../lib/finance'
 import { useFinanceStore } from '../store/useFinanceStore'
-
-/**
- * Swatches are theme tokens, not fixed hex values, so a fund's colour stays
- * legible when the palette switches between dark and light.
- */
-const COLORS: { name: string; value: string }[] = [
-  { name: 'Sky', value: 'var(--savings)' },
-  { name: 'Amber', value: 'var(--goal)' },
-  { name: 'Violet', value: 'var(--investment)' },
-  { name: 'Green', value: 'var(--accent)' },
-  { name: 'Pink', value: 'var(--leisure)' },
-  { name: 'Orange', value: 'var(--debt)' }
-]
-
-/** Only money you can actually reach can back a fund. */
-function fundableAccounts(accounts: readonly AccountWithBalance[]): AccountWithBalance[] {
-  return accounts.filter(
-    (account) =>
-      !account.isArchived &&
-      (account.kind === 'savings' || account.kind === 'checking' || account.kind === 'cash')
-  )
-}
 
 export function Goals() {
   const snapshot = useFinanceStore((state) => state.snapshot)
@@ -257,113 +236,6 @@ export function Goals() {
       {editing !== null && (
         <GoalDialog goal={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />
       )}
-    </>
-  )
-}
-
-/**
- * One-or-several account picker. An account that already funds a different goal
- * is labelled with that goal, because moving it here is a deliberate swap.
- */
-function FundingAccountsPicker({
-  accounts,
-  goals,
-  currency,
-  value,
-  onChange,
-  label,
-  hint
-}: {
-  accounts: readonly AccountWithBalance[]
-  goals: readonly GoalWithProgress[]
-  currency: string
-  value: string[]
-  onChange: (ids: string[]) => void
-  label: string
-  hint: string
-}) {
-  const [many, setMany] = useState(value.length > 1)
-
-  const goalNameFundedBy = (accountId: string): string | null => {
-    const dedicated = accounts.find((account) => account.id === accountId)?.dedicatedGoalId
-    return goals.find((goal) => goal.id === dedicated)?.name ?? null
-  }
-
-  const chosen = accounts.filter((account) => value.includes(account.id))
-  const combinedCents = chosen.reduce(
-    (total, account) => total + Math.max(0, account.balanceCents),
-    0
-  )
-
-  return (
-    <>
-      <Field label={label} hint={hint} wide>
-        {many ? (
-          accounts.length === 0 ? (
-            <p className="field-hint">No savings, checking or cash account yet.</p>
-          ) : (
-            <div className="funding-account-list">
-              {accounts.map((account) => (
-                <label key={account.id} className="check funding-account-check">
-                  <input
-                    type="checkbox"
-                    checked={value.includes(account.id)}
-                    onChange={() =>
-                      onChange(
-                        value.includes(account.id)
-                          ? value.filter((id) => id !== account.id)
-                          : [...value, account.id]
-                      )
-                    }
-                  />
-                  <span className="funding-account-name">{account.name}</span>
-                  <span className="funding-account-balance num muted">
-                    {formatMoney(Math.max(0, account.balanceCents), currency)}
-                  </span>
-                </label>
-              ))}
-            </div>
-          )
-        ) : (
-          <select
-            className="select"
-            value={value[0] ?? ''}
-            onChange={(event) => onChange(event.target.value ? [event.target.value] : [])}
-          >
-            <option value="">No account — count allocations instead</option>
-            {accounts.map((account) => {
-              const funded = goalNameFundedBy(account.id)
-              return (
-                <option key={account.id} value={account.id}>
-                  {account.name} · {formatMoney(Math.max(0, account.balanceCents), currency)}
-                  {funded ? ` (funds ${funded})` : ''}
-                </option>
-              )
-            })}
-          </select>
-        )}
-      </Field>
-
-      <label className="check funding-many">
-        <input
-          type="checkbox"
-          checked={many}
-          onChange={(event) => {
-            const next = event.target.checked
-            setMany(next)
-            if (!next && value.length > 1) onChange(value.slice(0, 1))
-          }}
-        />
-        Let several accounts add up together
-      </label>
-
-      <p className="field-hint">
-        {chosen.length === 0
-          ? 'No account chosen — progress is counted from the allocations a paycheck routes.'
-          : `${formatMoney(combinedCents, currency)} across ${chosen.length} account${
-              chosen.length === 1 ? '' : 's'
-            } counts as funded.`}
-      </p>
     </>
   )
 }
@@ -595,173 +467,5 @@ function EmergencyCard() {
         </div>
       </div>
     </Card>
-  )
-}
-
-function GoalDialog({ goal, onClose }: { goal: GoalWithProgress | null; onClose: () => void }) {
-  const snapshot = useFinanceStore((state) => state.snapshot)
-  const settings = useFinanceStore((state) => state.settings)
-  const createGoal = useFinanceStore((state) => state.createGoal)
-  const updateGoal = useFinanceStore((state) => state.updateGoal)
-
-  const accounts = snapshot?.accounts ?? []
-  const [form, setForm] = useState({
-    name: goal?.name ?? '',
-    target: goal ? centsToEditable(goal.targetCents) : '',
-    targetDate: goal?.targetDate ?? '',
-    priority: goal ? String(goal.priority) : '100',
-    color: goal?.color ?? COLORS[0].value,
-    accountId: goal?.accountId ?? ''
-  })
-  const [fundingIds, setFundingIds] = useState<string[]>(
-    goal ? goal.dedicatedAccounts.map((account) => account.id) : []
-  )
-  const [error, setError] = useState<string | null>(null)
-  const [fieldErrors, setFieldErrors] = useState<{ name?: string; target?: string }>({})
-  const [saving, setSaving] = useState(false)
-
-  const clearField = (field: keyof typeof fieldErrors) =>
-    setFieldErrors((current) => ({ ...current, [field]: undefined }))
-
-  const submit = async () => {
-    const targetCents = parseMoneyToCents(form.target)
-    const problems: typeof fieldErrors = {}
-    if (!form.name.trim()) problems.name = 'Give the goal a name'
-    if (targetCents === null || targetCents <= 0) {
-      problems.target = 'Enter a target greater than zero'
-    }
-    setFieldErrors(problems)
-    if (Object.keys(problems).length > 0 || targetCents === null) return
-    setError(null)
-
-    const input: GoalInput = {
-      name: form.name.trim(),
-      targetCents,
-      targetDate: form.targetDate || null,
-      priority: Number(form.priority) || 100,
-      color: form.color,
-      accountId: form.accountId || null,
-      fundingAccountIds: fundingIds
-    }
-
-    setSaving(true)
-    const ok = goal ? await updateGoal(goal.id, input) : await createGoal(input)
-    setSaving(false)
-    if (ok) onClose()
-  }
-
-  return (
-    <Modal
-      title={goal ? 'Edit sinking fund' : 'New sinking fund'}
-      subtitle="Goals are filled in priority order, lowest number first."
-      onClose={onClose}
-      footer={
-        <>
-          <Button variant="quiet" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button variant="primary" onClick={submit} disabled={saving}>
-            {goal ? 'Save goal' : 'Create goal'}
-          </Button>
-        </>
-      }
-    >
-      <div className="form-grid">
-        <Field label="Goal name" wide error={fieldErrors.name}>
-          <input
-            className="input"
-            autoFocus
-            maxLength={60}
-            value={form.name}
-            placeholder="Tattoo Fund"
-            onChange={(event) => {
-              clearField('name')
-              setForm({ ...form, name: event.target.value })
-            }}
-          />
-        </Field>
-        <Field label="Target amount" error={fieldErrors.target}>
-          <input
-            className="input"
-            inputMode="decimal"
-            value={form.target}
-            placeholder="1,200.00"
-            onChange={(event) => {
-              clearField('target')
-              setForm({ ...form, target: event.target.value })
-            }}
-          />
-        </Field>
-        <Field label="Target date" hint="Optional, but it sets a monthly pace">
-          <input
-            className="input"
-            type="date"
-            value={form.targetDate}
-            onChange={(event) => setForm({ ...form, targetDate: event.target.value })}
-          />
-        </Field>
-        <Field label="Priority" hint="Lower numbers are funded first">
-          <input
-            className="input"
-            type="number"
-            min={1}
-            value={form.priority}
-            onChange={(event) => setForm({ ...form, priority: event.target.value })}
-          />
-        </Field>
-      </div>
-
-      <FundingAccountsPicker
-        accounts={fundableAccounts(accounts)}
-        goals={snapshot?.goals ?? []}
-        currency={settings.currency}
-        value={fundingIds}
-        onChange={setFundingIds}
-        label="Funded by"
-        hint="Point an account at this goal and its balance becomes the progress."
-      />
-
-      <Field
-        label="Deposit account"
-        hint="Where the lump lands when the goal is done. It does not measure progress."
-        wide
-      >
-        <select
-          className="select"
-          value={form.accountId}
-          onChange={(event) => setForm({ ...form, accountId: event.target.value })}
-        >
-          <option value="">Not assigned</option>
-          {accounts.map((account) => (
-            <option key={account.id} value={account.id}>
-              {account.name}
-            </option>
-          ))}
-        </select>
-      </Field>
-
-      <div className="field">
-        <span className="field-label">Colour</span>
-        <div className="swatches">
-          {COLORS.map((colour) => (
-            <button
-              key={colour.value}
-              type="button"
-              aria-label={`Use the ${colour.name} colour`}
-              aria-pressed={form.color === colour.value}
-              className={form.color === colour.value ? 'swatch active' : 'swatch'}
-              style={{ background: colour.value }}
-              onClick={() => setForm({ ...form, color: colour.value })}
-            />
-          ))}
-        </div>
-      </div>
-
-      {error && (
-        <p className="form-error" role="alert">
-          {error}
-        </p>
-      )}
-    </Modal>
   )
 }

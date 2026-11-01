@@ -13,6 +13,7 @@ import type {
   GoalInput,
   PaycheckDraftInput,
   Snapshot,
+  SnapshotPatch,
   TransactionInput,
   TransactionPatch
 } from './types'
@@ -21,6 +22,18 @@ import type { StatementInfo } from './statements'
 export interface CommittedPaycheck {
   paycheckId: string
   plan: AllocationPlan
+}
+
+/**
+ * What a write hands back. `patch` holds only the snapshot tables the write
+ * touched, so the screen can update itself without a second full read; when
+ * that follow-up read failed the write still committed, and `refreshError`
+ * says so instead of inviting the user to write again.
+ */
+export interface WriteResult<T> {
+  value: T
+  patch: SnapshotPatch
+  refreshError?: string
 }
 
 export interface ImportCounts {
@@ -104,31 +117,34 @@ export interface FinanceApi {
   getDatabasePath(): Promise<string>
   getAppInfo(): Promise<AppInfo>
 
-  createAccount(input: AccountInput): Promise<string>
-  updateAccount(id: string, input: Partial<AccountInput>): Promise<void>
+  createAccount(input: AccountInput): Promise<WriteResult<string>>
+  updateAccount(id: string, input: Partial<AccountInput>): Promise<WriteResult<void>>
   /**
    * Deletes an account. An account with entries is refused unless `withEntries`
    * is set, because deleting it alone would hide those entries from every total.
    */
-  deleteAccount(id: string, options?: { withEntries?: boolean }): Promise<void>
-  archiveAccount(id: string, archived: boolean): Promise<void>
+  deleteAccount(
+    id: string,
+    options?: { withEntries?: boolean }
+  ): Promise<WriteResult<void>>
+  archiveAccount(id: string, archived: boolean): Promise<WriteResult<void>>
   accountEntryCount(id: string): Promise<number>
 
-  createBill(input: BillInput): Promise<string>
-  updateBill(id: string, input: Partial<BillInput>): Promise<void>
-  deleteBill(id: string): Promise<void>
+  createBill(input: BillInput): Promise<WriteResult<string>>
+  updateBill(id: string, input: Partial<BillInput>): Promise<WriteResult<void>>
+  deleteBill(id: string): Promise<WriteResult<void>>
 
-  createGoal(input: GoalInput): Promise<string>
-  updateGoal(id: string, input: Partial<GoalInput>): Promise<void>
-  deleteGoal(id: string): Promise<void>
-  archiveGoal(id: string, archived: boolean): Promise<void>
+  createGoal(input: GoalInput): Promise<WriteResult<string>>
+  updateGoal(id: string, input: Partial<GoalInput>): Promise<WriteResult<void>>
+  deleteGoal(id: string): Promise<WriteResult<void>>
+  archiveGoal(id: string, archived: boolean): Promise<WriteResult<void>>
 
-  createTransaction(input: TransactionInput): Promise<string>
-  updateTransaction(id: string, input: TransactionPatch): Promise<void>
-  deleteTransaction(id: string): Promise<void>
+  createTransaction(input: TransactionInput): Promise<WriteResult<string>>
+  updateTransaction(id: string, input: TransactionPatch): Promise<WriteResult<void>>
+  deleteTransaction(id: string): Promise<WriteResult<void>>
 
-  commitPaycheck(input: PaycheckDraftInput): Promise<CommittedPaycheck>
-  saveSettings(settings: AppSettings): Promise<void>
+  commitPaycheck(input: PaycheckDraftInput): Promise<WriteResult<CommittedPaycheck>>
+  saveSettings(settings: AppSettings): Promise<WriteResult<void>>
 
   exportBackup(): Promise<string | null>
   exportTransactionsCsv(): Promise<string | null>
@@ -136,5 +152,5 @@ export interface FinanceApi {
   previewImport(): Promise<ImportPreview | null>
   /** Runs the import for a preview token, applying the wizard's answers. */
   confirmImport(token: string, answers: ImportAnswer[]): Promise<ImportResult>
-  resetData(): Promise<void>
+  resetData(): Promise<WriteResult<void>>
 }

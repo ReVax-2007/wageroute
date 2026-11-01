@@ -45,7 +45,7 @@ The architecture follows from five constraints:
 │       │                 ├──► seed.ts (first run only)               │
        │                 │      packaged: blank user + defaults      │
        │                 │      dev: demo profile (Alex)             │
-│       │                 └──► repositories.ts (all SQL)              │
+│       │                 └──► repo/ modules (all SQL)                │
 │       │                                                            │
 │       ├──► ipc.ts (handlers, dialogs, file I/O)                    │
 │       └──► BrowserWindow (sandboxed)                               │
@@ -62,7 +62,7 @@ The architecture follows from five constraints:
                                 │
 ┌───────────────────────────────▼────────────────────────────────────┐
 │ Renderer (React 19 + Zustand)                                      │
-│  screens ──► useFinanceStore ──► window.api ──► snapshot refresh   │
+│  screens ──► useFinanceStore ──► window.api ──► SnapshotPatch merge│
 │  pure helpers in src/renderer/src/lib/finance.ts                   │
 └────────────────────────────────────────────────────────────────────┘
 ```
@@ -116,20 +116,22 @@ Navigation is constrained: `setWindowOpenHandler` denies all child windows and s
 - renders a boot screen while loading or an error screen if the database cannot open;
 - switches screens with a plain conditional, not a router.
 
-The Zustand store (`src/renderer/src/store/useFinanceStore.ts`) holds:
+The Zustand store is a thin `create()` joining two slices in `src/renderer/src/store/`: `session.ts` (what the window is showing) and `data.ts` (the snapshot, the write queue and every action). `useFinanceStore.ts` re-exports `useFinanceStore` and the seven selectors, so screens import the same names they always have. It holds:
 
-| Field | Meaning |
-| --- | --- |
-| `status` | `loading`, `ready`, `error` |
-| `error` | Boot failure message |
-| `snapshot` | The complete read model from SQLite |
-| `settings` | Parsed `AppSettings`, derived from `snapshot.settings` |
-| `dbPath` | Absolute database path shown in the sidebar and Settings |
-| `screen` | Active screen id |
-| `allocatorOpen` | Wizard visibility |
-| `busy` | Mutation in flight, used to disable controls |
-| `notice` | Toast text and tone, auto-dismissed after 4.2 s |
-| `snoozedPrompts` | In-memory bill prompt dismissals for this session, keyed `billId:dueOn` |
+| Field | Slice | Meaning |
+| --- | --- | --- |
+| `status` | data | `loading`, `ready`, `error` |
+| `error` | data | Boot failure message |
+| `snapshot` | data | The complete read model from SQLite |
+| `settings` | data | Parsed `AppSettings`, derived from `snapshot.settings` |
+| `dbPath` | data | Absolute database path shown in the sidebar and Settings |
+| `pending` | data | Per-row write flags keyed by row id |
+| `screen` | session | Active screen id |
+| `allocatorOpen` | session | Wizard visibility |
+| `busy` | session | Mutation in flight, used to disable controls |
+| `notice` | session | Toast text and tone, auto-dismissed unless it is an error |
+| `confirm` | session | The one open confirmation question |
+| `snoozedPrompts` | session | In-memory bill prompt dismissals for this session, keyed `billId:dueOn` |
 
 ### The mutation loop
 
@@ -137,19 +139,18 @@ Every write follows the same path:
 
 ```text
 UI action
-  └─► store action
-        ├─ set busy = true
+  └─► store action (serial queue)
         ├─ await window.api.<mutation>(...)
-        ├─ await window.api.getSnapshot()
-        ├─ replace snapshot + parsed settings
+        ├─ receive WriteResult { value, patch, refreshError? }
+        ├─ merge patch.tables into snapshot + re-parse settings
         ├─ optionally show success toast
         ├─ on error: show error toast, keep old snapshot
-        └─ set busy = false
+        └─ on refreshError: the write happened, show the re-read failure
 ```
 
-There is no optimistic update and no client-side cache invalidation. The database is authoritative, and the UI cannot drift from it. The cost is one extra IPC round-trip per mutation; the benefit is that every screen always sees exactly what SQLite contains.
+`patch` is a `SnapshotPatch` (`Partial<Snapshot>`) read in the same SQLite transaction as the write, so the renderer adopts exactly the tables the write touched — an entry save no longer re-sends every bill, goal and paycheck. `getSnapshot()` is reserved for boot, an import confirm and an explicit `refresh()`. There is no optimistic update; the database is authoritative, and the UI cannot drift from it. Writes are serialised, so two fast saves cannot land an older snapshot over a newer one.
 
-`saveSettings` is the one exception: it updates local state immediately for responsiveness, then persists. If persistence fails, the user sees an error toast.
+`saveSettings` is the one exception: it updates local state immediately for responsiveness, then persists. If persistence fails, the user sees an error toast and the previous values return.
 
 ### Selectors
 
@@ -161,36 +162,41 @@ Two goal totals exist on purpose and are not interchangeable: `selectFundedGoals
 
 ## IPC surface
 
-Channels are registered once in `src/main/ipc.ts` and exposed through `src/preload/index.ts` as `window.api`. Every handler returns a promise; errors reject the invoke and are converted to a toast in the store.
+`src/shared/channels.ts` is the single declaration of the wire contract: every channel name, its argument tuple and its result. `Channel`, `ChannelArgs<C>`, `ChannelResult<C>` and `IpcCaller` derive from `IpcContract`, and the `CHANNELS` array is checked at compile time to name every member. `src/main/ipc.ts` registers typed handlers against it and throws at boot if a declared channel was never registered; `src/preload/api.ts` builds `FinanceApi` from one `IpcCaller`, and `src/preload/index.ts` is the only Electron code in the bridge. `src/preload/api.test.ts` proves every method maps to a declared channel and that the bridge exposes exactly one method per channel.
 
-| Channel | API method | Arguments | Result |
-| --- | --- | --- | --- |
-| `snapshot:get` | `getSnapshot` | — | Full `Snapshot` |
-| `db:path` | `getDatabasePath` | — | Absolute path |
-| `app:info` | `getAppInfo` | — | `AppInfo`: version, schema version, Electron version |
-| `account:create` | `createAccount` | `AccountInput` | `void` |
-| `account:update` | `updateAccount` | `id`, `Partial<AccountInput>` | `void` |
-| `account:delete` | `deleteAccount` | `id` | `void` |
-| `bill:create` | `createBill` | `BillInput` | `void` |
-| `bill:update` | `updateBill` | `id`, `Partial<BillInput>` | `void` |
-| `bill:delete` | `deleteBill` | `id` | `void` |
-| `goal:create` | `createGoal` | `GoalInput` | `void` |
-| `goal:update` | `updateGoal` | `id`, `Partial<GoalInput>` | `void` |
-| `goal:delete` | `deleteGoal` | `id` | `void` |
-| `transaction:create` | `createTransaction` | `TransactionInput` | `void` (id discarded) |
-| `transaction:update` | `updateTransaction` | `id`, `TransactionPatch` | `void` |
-| `transaction:delete` | `deleteTransaction` | `id` | `void` |
-| `paycheck:commit` | `commitPaycheck` | `PaycheckDraftInput` | `CommittedPaycheck` |
-| `settings:save` | `saveSettings` | `AppSettings` | `void` |
-| `backup:export` | `exportBackup` | — | saved path or `null` |
-| `csv:export` | `exportTransactionsCsv` | — | saved path or `null` |
-| `data:preview` | `previewImport` | — | `ImportPreview` or `null` (cancelled) |
-| `data:confirm` | `confirmImport` | `token`, `ImportAnswer[]` | `ImportResult` |
-| `data:reset` | `resetData` | — | `void` (wipes every table, re-seeds a blank profile) |
+Every write resolves with `WriteResult<T>` — `{ value, patch, refreshError? }` — where `patch` is a `SnapshotPatch` holding only the snapshot tables that write touched.
+
+| Channel | Arguments | Result |
+| --- | --- | --- |
+| `snapshot:get` | — | Full `Snapshot` |
+| `db:path` | — | Absolute path |
+| `app:info` | — | `AppInfo`: version, schema version, Electron version |
+| `account:create` | `AccountInput` | `WriteResult<string>` (new id) |
+| `account:update` | `id`, `Partial<AccountInput>` | `WriteResult<void>` |
+| `account:delete` | `id`, `{ withEntries?: boolean }?` | `WriteResult<void>` |
+| `account:archive` | `id`, `archived: boolean` | `WriteResult<void>` |
+| `account:entry-count` | `id` | `number` (used by the delete dialog) |
+| `bill:create` | `BillInput` | `WriteResult<string>` |
+| `bill:update` | `id`, `Partial<BillInput>` | `WriteResult<void>` |
+| `bill:delete` | `id` | `WriteResult<void>` |
+| `goal:create` | `GoalInput` | `WriteResult<string>` |
+| `goal:update` | `id`, `Partial<GoalInput>` | `WriteResult<void>` |
+| `goal:delete` | `id` | `WriteResult<void>` |
+| `goal:archive` | `id`, `archived: boolean` | `WriteResult<void>` |
+| `transaction:create` | `TransactionInput` | `WriteResult<string>` |
+| `transaction:update` | `id`, `TransactionPatch` | `WriteResult<void>` |
+| `transaction:delete` | `id` | `WriteResult<void>` |
+| `paycheck:commit` | `PaycheckDraftInput` | `WriteResult<CommittedPaycheck>` |
+| `settings:save` | `AppSettings` | `WriteResult<void>` |
+| `backup:export` | — | saved path or `null` |
+| `csv:export` | — | saved path or `null` |
+| `data:preview` | — | `ImportPreview` or `null` (cancelled) |
+| `data:confirm` | `token`, `ImportAnswer[]` | `ImportResult` |
+| `data:reset` | — | `WriteResult<void>` (wipes every table, re-seeds a blank profile) |
 
 Notes:
 
-- `requireId` rejects empty or non-string IDs at the boundary. Full payload validation happens in the repository helpers.
+- The types describe the wire; the main process still validates every id and option at runtime, because a type is not a guarantee. `requireId` rejects empty or non-string IDs at the boundary, and full payload validation happens in the repository helpers.
 - File dialogs are owned by the invoking window, so they are modal to WageRoute.
 - Export and import use native save/open dialogs. The main process reads and writes the chosen file.
 - The import reader rejects files larger than **64 MiB** before parsing.
@@ -262,13 +268,13 @@ If the wall exceeds income, the wall is partially funded, every other bucket is 
 
 ### Repositories
 
-`src/main/db/repositories.ts` is the only module that executes SQL for CRUD and snapshots. It provides:
+`src/main/db/repositories.ts` is a façade re-exporting the modules in `src/main/db/repo/`, which are the only code that executes SQL for CRUD and snapshots:
 
-- validation helpers (`assertText`, `assertCents`, `assertOneOf`, `assertDate`);
-- soft delete and update helpers that bump `revision` and `updated_at`;
-- derived read queries (account balances, goal funding);
-- transfer-group and round-up logic;
-- paycheck commit and snapshot assembly.
+| Module | Holds |
+| --- | --- |
+| `common.ts` | validation helpers (`assertText`, `assertCents`, `assertOneOf`, `assertDate`, `requireId`), soft delete and update helpers that bump `revision` and `updated_at` |
+| `accounts.ts`, `bills.ts`, `goals.ts`, `transactions.ts`, `paychecks.ts`, `settings.ts`, `users.ts` | one aggregate root each, including transfers, round-up, reserves and paycheck commit |
+| `read-models.ts` | `getSnapshot` and `readSnapshotParts` (a `SnapshotPatch` for the tables one write touched) |
 
 There is no ORM. SQL is explicit and parameterised; column names come from internal allowlists, never from user input.
 
@@ -442,23 +448,30 @@ Both use `strict: true`, `verbatimModuleSyntax`, `isolatedModules` and no emit. 
 | `src/shared/settings.ts` | Settings defaults, corrupt-input recovery, serialization |
 | `src/shared/importRepair.ts` | Import problem detection, repair questions and field validation |
 | `src/shared/csv.ts` | CSV encoding/parsing and entry-row validation |
-| `src/shared/api.ts` | The `FinanceApi` contract the preload implements |
+| `src/shared/api.ts` | The `FinanceApi` contract the preload implements, plus `WriteResult` |
+| `src/shared/channels.ts` | The typed IPC contract and the exhaustive channel list |
 | `src/main/index.ts` | App lifecycle, window, navigation policy, permissions |
-| `src/main/ipc.ts` | Channel registration, dialogs, file reads/writes |
+| `src/main/ipc.ts` | Typed channel registration, dialogs, file reads/writes |
 | `src/main/db/connection.ts` | Database singleton, pragmas, path |
 | `src/main/db/migrations.ts` | Schema versions 1–7 |
-| `src/main/db/repositories.ts` | All CRUD, derived reads, transfers, round-up, paycheck commit |
+| `src/main/db/repositories.ts` | Façade re-exporting `repo/` |
+| `src/main/db/repo/*` | CRUD per entity, derived reads, transfers, round-up, paycheck commit, read models |
 | `src/main/db/backup.ts` | Backup build/parse/merge |
 | `src/main/db/entries.ts` | CSV entry merge and account resolution |
 | `src/main/db/legacy.ts` | Pre-rename database adoption |
 | `src/main/db/seed.ts` | First-run seed: blank user in packaged builds, demo profile in development |
-| `src/preload/index.ts` | IPC bridge |
-| `src/renderer/src/store/useFinanceStore.ts` | Client state, mutation loop, selectors |
+| `src/preload/index.ts` | Electron-only bridge wiring |
+| `src/preload/api.ts` | `FinanceApi` built from one `IpcCaller` |
+| `src/renderer/src/store/useFinanceStore.ts` | Joins the session and data slices; re-exports selectors |
+| `src/renderer/src/store/session.ts`, `data.ts`, `selectors.ts` | Session state, snapshot mutations, pure totals |
 | `src/renderer/src/lib/finance.ts` | UI-facing derived totals and labels |
 | `src/renderer/src/screens/*` | Screen-level behaviour |
-| `src/renderer/src/components/*` | Reusable UI, grids, prompts |
+| `src/renderer/src/components/*` | Reusable UI, grids, prompts, data table |
+| `src/renderer/src/components/dialogs/*` | The seven screen dialogs |
 | `src/renderer/src/styles/tokens.css` | Dark/light design tokens |
-| `src/renderer/src/styles/app.css` | Layout and component styling |
+| `src/renderer/src/styles/app.css` | Import list for the layered sheets |
+| `src/renderer/src/styles/{base,components,screens,utilities}.css` | The app's cascade layers |
+| `src/renderer/src/styles/grid.css` | react-data-grid theme, imported by the grid module |
 
 ## Non-goals
 

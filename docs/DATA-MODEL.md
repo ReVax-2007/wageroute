@@ -2,7 +2,7 @@
 
 WageRoute stores everything in one SQLite database, `wageroute.db`, using `STRICT` tables, integer cents, UUID text keys and ISO-8601 timestamps. This document describes the schema at version 7, the semantics of each column, the derived values the app computes at read time, and the invariants that keep the ledger coherent.
 
-Source of truth: [`src/main/db/migrations.ts`](../src/main/db/migrations.ts). Read model assembly: [`src/main/db/repositories.ts`](../src/main/db/repositories.ts).
+Source of truth: [`src/main/db/migrations.ts`](../src/main/db/migrations.ts). Read model assembly: [`src/main/db/repo/read-models.ts`](../src/main/db/repo/read-models.ts).
 
 ---
 
@@ -369,7 +369,7 @@ None of the following are stored. They are recomputed from rows.
 | Per-paycheck wall | `SUM(billFundingReserveCents(bill, cadence, paycheckDate))` — the spread under `all_checks`, otherwise `monthlyEquivalentCents` on the one funding check and `0` on every other check. When the month already has a claim from an earlier cheque (`reservedBillIdsFor`), a single-check bill reserves `0` here | `cadence.ts`, `allocator.ts` |
 | Spendable pool | Sum of non-archived balances where `countsInSafeToSpend` holds (`in_safe_to_spend`, else not dedicated and kind in `checking,savings,cash`) | `accounts.ts` |
 | Pool-earmarked goals | `SUM(fundedCents)` for goals whose `fundedFrom` is `allocations`; account-funded goals are already outside the pool | `poolEarmarkedGoalsCents` |
-| Safe to Spend | Spendable pool − monthly wall − pool-earmarked goals | `useFinanceStore.ts` |
+| Safe to Spend | Spendable pool − monthly wall − pool-earmarked goals | `store/selectors.ts` |
 | Total wealth | Sum of every non-archived balance; credit is already negative | `accounts.ts` |
 | Wealth buckets | Cash / Saved for goals / Invested / Credit owed, partitioning total wealth exactly | `accounts.ts` |
 | Months to goal | `max(1, ceil(daysUntil / 30.4375))` | `dates.ts` |
@@ -479,7 +479,7 @@ Soft-deleted rows are included in JSON backups, so a backup taken before a delet
 | Rows per JSON table | 200,000 | `backup.ts` |
 | Projection horizon | 90 days | `Spreadsheet.tsx` |
 | Projection guard per bill | 400 occurrences | `projections.ts` |
-| Text fields | 160 chars default; memo 240; category/color 60/20 | `repositories.ts` |
+| Text fields | 160 chars default; memo 240; category/color 60/20 | `repo/` |
 | Bill due day | 1–31, clamped | schema + repository |
 
 Not in the backup: the `users` row (display name, email, legacy currency), the database file itself, the theme cache in `localStorage`, and the `snoozedPrompts` session state.

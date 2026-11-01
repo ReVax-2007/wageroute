@@ -193,12 +193,12 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full status matrix and the 
 │   ├── renderer/              React application
 │   │   ├── index.html         CSP and document title
 │   │   └── src/
-│   │       ├── components/    Sidebar, grids, prompts, UI primitives
+│   │       ├── components/    Sidebar, grids, prompts, dialogs, shared table
 │   │       ├── lib/           Renderer-side derived finance helpers
 │   │       ├── screens/       Dashboard, Wall, Goals, Accounts,
 │   │       │                  Spreadsheet, Settings, Allocator
-│   │       ├── store/         Zustand store and actions
-│   │       └── styles/        tokens.css, app.css
+│   │       ├── store/         Zustand slices, actions and selectors
+│   │       └── styles/        tokens, layered sheets, grid theme
 │   └── shared/                Pure domain layer used by all processes
 │       ├── allocator.ts       Paycheck routing algorithm
 │       ├── accounts.ts        Safe-to-spend membership, total wealth, buckets

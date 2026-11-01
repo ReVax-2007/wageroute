@@ -1,0 +1,74 @@
+/* This file stays out of the cascade layers on purpose: react-data-grid ships
+   its stylesheet unlayered, and unlayered rules beat layered ones regardless of
+   specificity. The grid theme is only imported by the grid module, so it still
+   loads after the app sheets. */
+.grid-host {
+  /* The page flexes, so the grid takes whatever height is left rather than
+     subtracting a guessed header height from the viewport. */
+  flex: 1;
+  min-height: 240px;
+  background: var(--inset-2);
+}
+
+.grid-host .rdg {
+  height: 100%;
+}
+
+.grid-amount {
+  font-variant-numeric: tabular-nums;
+}
+
+.grid-editor {
+  width: 100%;
+  height: 100%;
+  padding: 0 7px;
+  color: var(--text);
+  background: var(--inset-4);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  outline: none;
+}
+
+input.grid-editor.num {
+  text-align: right;
+}
+
+select.grid-editor {
+  cursor: pointer;
+}
+
+.grid-host .icon-btn {
+  width: 26px;
+  height: 26px;
+}
+
+/* RDG theme variables (v7 beta). The class is theme-neutral: every colour comes
+   from the token set and `color-scheme` is inherited from :root, so the grid
+   follows the light/dark switch like the rest of the app. */
+.rdg-themed {
+  --rdg-color: var(--text);
+  --rdg-background-color: transparent;
+  --rdg-header-background-color: var(--header-bg);
+  --rdg-row-hover-background-color: var(--tint-soft);
+  --rdg-row-selected-background-color: var(--accent-soft);
+  --rdg-row-selected-hover-background-color: var(--accent-soft-strong);
+  --rdg-border-color: var(--border);
+  --rdg-header-draggable-background-color: var(--panel-2);
+  --rdg-selection-color: var(--accent);
+  --rdg-font-size: 13px;
+  --rdg-cell-border-color: var(--border);
+  font-size: 13px;
+  border: none;
+}
+
+.rdg-themed .rdg-header-row {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.rdg-themed .rdg-cell {
+  padding-inline: 12px;
+}

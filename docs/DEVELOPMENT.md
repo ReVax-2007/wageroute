@@ -54,7 +54,7 @@ npm run postinstall
 | --- | --- | --- |
 | `npm run dev` | `electron-vite dev` | Dev server, main/preload rebuild, hot renderer reload |
 | `npm start` | `electron-vite preview` | Run the production bundles in `out/` |
-| `npm test` | `node --import tsx --test` (twenty files listed explicitly) | Domain, cadence, accounts, importer, backup-example, merge, migration, maintenance, files, statements and repository tests |
+| `npm test` | `node --import tsx --test` (twenty-one files listed explicitly) | Domain, cadence, accounts, importer, backup-example, merge, migration, maintenance, files, statements, preload bridge and repository tests |
 | `npm run typecheck` | node + web type checks | Both TypeScript projects |
 | `npm run typecheck:node` | `tsc --noEmit -p tsconfig.node.json` | Main, preload, shared, config |
 | `npm run typecheck:web` | `tsc --noEmit -p tsconfig.json` | Renderer and shared |
@@ -81,29 +81,33 @@ src/
 │       ├── connection.ts     singleton, pragmas, path, boot checks
 │       ├── maintenance.ts    quick_check, pre-upgrade copies, compaction
 │       ├── migrations.ts     versioned schema
-│       ├── repositories.ts   CRUD, derived reads, transfers, round-up
+│       ├── repositories.ts   façade re-exporting the repo/ modules
+│       ├── repo/             CRUD per entity, read models, transfers, round-up
 │       ├── backup.ts         JSON build/parse/merge
 │       ├── entries.ts        CSV entry merge
 │       ├── legacy.ts         pre-rename database adoption
 │       ├── seed.ts           first-run seed: blank (packaged) / demo (dev)
 │       └── dedicated-accounts.test.ts  repository behaviour for dedicated goals
 ├── preload/
-│   ├── index.ts              contextBridge API
+│   ├── index.ts              contextBridge wiring (Electron only)
+│   ├── api.ts                FinanceApi built from the typed channel contract
+│   ├── api.test.ts           every bridge method maps to one declared channel
 │   └── index.d.ts            window.api typing
 ├── renderer/
 │   ├── index.html            CSP, title
 │   └── src/
 │       ├── main.tsx          root, theme cache, error boundary
 │       ├── App.tsx           screen switch, theme effect
-│       ├── components/       Sidebar, grids, prompts, UI primitives
+│       ├── components/       Sidebar, grids, prompts, dialogs/, shared table and save hook
 │       ├── lib/finance.ts    derived totals and labels
 │       ├── screens/          one file per screen
-│       ├── store/            Zustand store and selectors
-│       └── styles/           tokens.css, app.css
+│       ├── store/            session + data slices, selectors, useFinanceStore
+│       └── styles/           tokens, layered sheets, grid sheet
 └── shared/
     ├── accounts.ts       Safe-to-spend pool, total wealth, wealth buckets
     ├── allocator.ts
     ├── api.ts
+    ├── channels.ts       typed IPC contract and the exhaustive channel list
     ├── billPrompts.ts
     ├── cadence.ts
     ├── csv.ts
@@ -209,7 +213,7 @@ When a test requires moving a database aside, move it to a dated quarantine fold
 
 ## Testing
 
-Twenty files run by `npm test` through `node --test` with `tsx` as the loader — 170 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**; the `pretest` guard ([`scripts/check-test-list.mjs`](../scripts/check-test-list.mjs)) fails the run when a `*.test.ts` on disk is missing from that list, or when the list names a file that no longer exists.
+Twenty-one files run by `npm test` through `node --test` with `tsx` as the loader — 172 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**; the `pretest` guard ([`scripts/check-test-list.mjs`](../scripts/check-test-list.mjs)) fails the run when a `*.test.ts` on disk is missing from that list, or when the list names a file that no longer exists.
 
 | File | Style | Covers |
 | --- | --- | --- |
