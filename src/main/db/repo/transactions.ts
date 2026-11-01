@@ -5,6 +5,7 @@ import { parseSettings } from '@shared/settings'
 import { roundUpRemainderCents, transferLegs } from '@shared/transfers'
 import type {
   AccountKind,
+  BillPaymentTotal,
   LedgerQuery,
   LedgerSort,
   TransactionInput,
@@ -38,6 +39,13 @@ const TRANSACTION_KINDS: readonly TransactionKind[] = [
   'adjustment'
 ]
 
+function requirePaycheck(db: Db, userId: string, id: string): void {
+  const row = db
+    .prepare(`SELECT 1 FROM paychecks WHERE id = ? AND user_id = ? AND deleted_at IS NULL`)
+    .get(id, userId)
+  if (!row) throw new RepositoryError('VALIDATION', 'That paycheck no longer exists')
+}
+
 const TRANSACTION_SELECT = `
   SELECT t.id, t.user_id AS userId, t.account_id AS accountId, t.kind,
          t.amount_cents AS amountCents, t.occurred_on AS occurredOn, t.memo, t.category,
@@ -48,19 +56,72 @@ const TRANSACTION_SELECT = `
          t.updated_at AS updatedAt, t.deleted_at AS deletedAt, t.revision,
          a.name AS accountName, a.institution AS accountInstitution
   FROM transactions t
-  JOIN accounts a ON a.id = t.account_id
-  WHERE t.user_id = ? AND t.deleted_at IS NULL
-  ORDER BY t.occurred_on DESC, t.created_at DESC`
+  JOIN accounts a ON a.id = t.account_id`
+
+const TRANSACTION_ORDER = 'ORDER BY t.occurred_on DESC, t.created_at DESC'
 
 export function listTransactions(db: Db, userId: string, limit = 500): TransactionRow[] {
   return db
-    .prepare(`${TRANSACTION_SELECT} LIMIT ?`)
+    .prepare(
+      `${TRANSACTION_SELECT}
+       WHERE t.user_id = ? AND t.deleted_at IS NULL
+       ${TRANSACTION_ORDER}
+       LIMIT ?`
+    )
     .all(userId, limit) as TransactionRow[]
 }
 
 /** Every live entry, for exports. The grid keeps its own capped query. */
 export function listAllTransactions(db: Db, userId: string): TransactionRow[] {
-  return db.prepare(TRANSACTION_SELECT).all(userId) as TransactionRow[]
+  return db
+    .prepare(`${TRANSACTION_SELECT} WHERE t.user_id = ? AND t.deleted_at IS NULL ${TRANSACTION_ORDER}`)
+    .all(userId) as TransactionRow[]
+}
+
+/**
+ * The rows one edit produced: the entry, its other transfer leg, and the
+ * round-up sweep derived from it. Lets the grid patch itself instead of
+ * re-reading the newest 500 entries after every keystroke-sized save.
+ */
+export function transactionRowsFor(db: Db, userId: string, id: string): TransactionRow[] {
+  const row = db
+    .prepare(
+      `SELECT transfer_group_id AS transferGroupId
+       FROM transactions WHERE id = ? AND user_id = ? AND deleted_at IS NULL`
+    )
+    .get(id, userId) as { transferGroupId: string | null } | undefined
+  if (!row) return []
+  return db
+    .prepare(
+      `${TRANSACTION_SELECT}
+       WHERE t.user_id = ? AND t.deleted_at IS NULL
+         AND (t.id = ? OR t.round_up_source_id = ? OR t.transfer_group_id = ?)
+       ${TRANSACTION_ORDER}`
+    )
+    .all(userId, id, id, row.transferGroupId ?? '') as TransactionRow[]
+}
+
+/**
+ * This calendar month's payments linked to a bill, per bill. The wall is a
+ * smoothed monthly figure; a payment releases the part of the month it covered,
+ * so money is never withheld after it has left the account. Stored payments are
+ * negative, so the sum is negated; a linked refund therefore reduces the total.
+ */
+export function listBillPaymentsThisMonth(
+  db: Db,
+  userId: string,
+  monthISO: string
+): BillPaymentTotal[] {
+  return db
+    .prepare(
+      `SELECT bill_id AS billId, SUM(-amount_cents) AS paidCents
+       FROM transactions
+       WHERE user_id = ? AND deleted_at IS NULL
+         AND bill_id IS NOT NULL
+         AND substr(occurred_on, 1, 7) = ?
+       GROUP BY bill_id`
+    )
+    .all(userId, monthISO) as BillPaymentTotal[]
 }
 
 /** How many live entries exist, so a capped grid can say what it is not showing. */
@@ -309,6 +370,7 @@ export function createTransaction(db: Db, userId: string, input: TransactionInpu
   const category = input.category
   const categoryId = input.categoryId ?? null
   const account = requireAccount(db, userId, input.accountId)
+  if (input.paycheckId) requirePaycheck(db, userId, input.paycheckId)
 
   if (kind === 'transfer') {
     if (!input.counterAccountId) throw new RepositoryError('VALIDATION', 'Transfers need a destination account')
@@ -330,7 +392,8 @@ export function createTransaction(db: Db, userId: string, input: TransactionInpu
         category,
         categoryId,
         counterAccountId,
-        transferGroupId: groupId
+        transferGroupId: groupId,
+        paycheckId: input.paycheckId ?? null
       })
       insertTransactionRow(db, userId, {
         accountId: counterAccountId,
@@ -340,7 +403,8 @@ export function createTransaction(db: Db, userId: string, input: TransactionInpu
         memo,
         category,
         counterAccountId: input.accountId,
-        transferGroupId: groupId
+        transferGroupId: groupId,
+        paycheckId: input.paycheckId ?? null
       })
       return outId
     })()
@@ -359,7 +423,8 @@ export function createTransaction(db: Db, userId: string, input: TransactionInpu
       category,
       categoryId,
       billId: input.billId ?? null,
-      goalId: input.goalId ?? null
+      goalId: input.goalId ?? null,
+      paycheckId: input.paycheckId ?? null
     })
     if (kind === 'expense' && amountCents < 0) {
       applyRoundUp(db, userId, {

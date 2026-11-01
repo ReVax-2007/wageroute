@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-29
+- **Amended:** 2026-11-01 — **Move this plan** turns a route into transfers on request (see *Amended*).
 - **Deciders:** Project owner
 - **Related:** [ADR 0012](0012-the-wall-remembers-its-claims.md), [DATA-MODEL.md](../DATA-MODEL.md), [FEATURES.md](../FEATURES.md)
 
@@ -34,6 +35,12 @@ The chronology prompt's **Yes, it cleared** writes a `bill_payment` transaction 
 
 Routing the same amount, date and account twice is refused by the repository; the wizard detects the match and shows a warning before submission. Only after **Route it anyway** is `allowDuplicate` passed. A double-click or a re-entry can no longer reserve the wall twice, and a genuine second deposit of the same size on the same day remains expressible.
 
+### Amended 2026-11-01: the plan has an explicit second step
+
+The rejection of automatic transfers below still holds — routing must not invent a destination. What changed is that the user can now ask for the movement, line by line. **Move this plan** on the dashboard lists the routed lines that have a real destination (debt, savings, investments, and goals with their own account), lets the user pick or confirm the destination account, and posts one paired transfer per line, dated today and carrying the paycheck id. Priority Wall and guilt-free money are not offered; they stay where they are. Applying the same plan twice moves nothing the second time, because a line is recognised by the transfer that already exists for that paycheck, source and destination. A goal with no bound account still has nowhere to send money, so the dialog tells the user to give it one rather than choosing an account for them.
+
+The route itself remains a plan. The dashboard's **Move this plan** is the deliberate act that turns it into ledger rows, and the ledger remains a record of what the user says happened.
+
 ## Consequences
 
 ### Positive
@@ -44,7 +51,7 @@ Routing the same amount, date and account twice is refused by the repository; th
 
 ### Negative
 
-- **The user still has to move the money.** WageRoute computes the plan; the transfers happen at the bank. A user who expected the app to do it will find out at step 3, which is later than ideal but earlier than a wrong balance.
+- **The user still has to move the money.** WageRoute can now record the movement (**Move this plan**), but recording a transfer is not moving money at the bank. A user who expects the balances to change on their bank's side will still find out otherwise; the app's ledger is the record, not the bank.
 - **The plan and the ledger can drift.** If the user moves a different amount than the plan said, nothing reconciles the two; the wall keeps its claim and the account keeps its balance. The batch does not add a "planned vs actual" report.
 - **The copy is load-bearing.** "Reserved" is honest only because the UI explains it; a future screen that uses the word without the explanation will reintroduce the confusion this ADR removes.
 

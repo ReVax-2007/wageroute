@@ -12,19 +12,25 @@ import type {
   BillInput,
   CategoryInput,
   GoalInput,
+  AppliedPlan,
   LedgerQuery,
   PaycheckDraftInput,
+  PlanMoveTarget,
   Snapshot,
   SnapshotPatch,
   TransactionInput,
   TransactionPage,
-  TransactionPatch
+  TransactionPatch,
+  TransactionRowsPatch
 } from './types'
 import type { StatementInfo } from './statements'
 
 export interface CommittedPaycheck {
   paycheckId: string
-  plan: AllocationPlan
+  /** Null on an idempotent retry: the first attempt already planned this draft. */
+  plan: AllocationPlan | null
+  /** True when this draft had already committed; nothing was written twice. */
+  alreadyCommitted?: boolean
 }
 
 /**
@@ -32,12 +38,19 @@ export interface CommittedPaycheck {
  * touched, so the screen can update itself without a second full read; when
  * that follow-up read failed the write still committed, and `refreshError`
  * says so instead of inviting the user to write again.
+ *
+ * `rows.transactions` is the narrower path for ledger edits: the changed rows
+ * themselves instead of a re-read of the capped window.
  */
 export interface WriteResult<T> {
   value: T
   patch: SnapshotPatch
+  rows?: { transactions?: TransactionRowsPatch }
   refreshError?: string
 }
+
+/** The newest entries a snapshot carries, and the grid shows. */
+export const SNAPSHOT_TRANSACTION_LIMIT = 500
 
 export interface ImportCounts {
   accounts: number
@@ -191,6 +204,11 @@ export interface FinanceApi {
   queryTransactions(query: LedgerQuery): Promise<TransactionPage>
 
   commitPaycheck(input: PaycheckDraftInput): Promise<WriteResult<CommittedPaycheck>>
+  /**
+   * Moves the money a committed paycheck reserved to its target accounts.
+   * Posting the same plan twice moves nothing the second time.
+   */
+  applyPaycheckPlan(paycheckId: string, targets: PlanMoveTarget[]): Promise<WriteResult<AppliedPlan>>
   saveSettings(settings: AppSettings): Promise<WriteResult<void>>
 
   exportBackup(): Promise<string | null>

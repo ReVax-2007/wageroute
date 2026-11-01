@@ -56,7 +56,7 @@ The draft fell back to the current date when a caller had no paycheck date, whic
 
 ### The UI says which check pays, and never claims twice
 
-The bill dialog shows a live derived line — "Reserves the whole month's obligation on the 2nd paycheck, closest to the due day" — and hides the "Which paycheck?" field for cadences with only one slot. A wall row funded by one check prints its monthly figure in the per-paycheck column with a **"Nth check only"** sub-label, so a $216.67 cell cannot be misread as a recurring deduction.
+The bill dialog shows a live derived line — "Reserves the whole month's obligation on the 2nd paycheck, closest to the due day" — and hides the "Which paycheck?" field for cadences with only one slot. A wall row funded by one check prints its monthly figure in the per-paycheck column with a **"Reserved on the 2nd check of the month"** sub-label, so a $216.67 cell cannot be misread as a recurring deduction.
 
 ## Consequences
 
@@ -109,4 +109,4 @@ Rejected: it made plans unreproducible and made a pure module depend on the wall
 - [src/shared/cadence.test.ts](../../src/shared/cadence.test.ts) — slot placement, tie-breaks, clamping, the $50-weekly → $216.67 figure, the month-total invariant per strategy, the no-clock fallback
 - [src/shared/allocator.ts](../../src/shared/allocator.ts) — `paycheckDate` threaded into the plan
 - [src/main/db/migrations.ts](../../src/main/db/migrations.ts) — `SCHEMA_V5`
-- [src/renderer/src/screens/PriorityWall.tsx](../../src/renderer/src/screens/PriorityWall.tsx) — the four numbered options, the conditional "Which paycheck?" field, the derived hint and the "Nth check only" sub-label
+- [src/renderer/src/screens/PriorityWall.tsx](../../src/renderer/src/screens/PriorityWall.tsx) — the four numbered options, the conditional "Which paycheck?" field, the derived hint and the "Reserved on the Nth check" sub-label

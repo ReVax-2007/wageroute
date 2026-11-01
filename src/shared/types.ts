@@ -162,6 +162,15 @@ export interface TransactionRow extends Transaction {
   accountInstitution: string | null
 }
 
+/**
+ * What a bill has already been paid this calendar month. The wall is smoothed,
+ * so a payment only releases the part of the month it actually covered.
+ */
+export interface BillPaymentTotal {
+  billId: string
+  paidCents: number
+}
+
 export interface Paycheck extends SyncMeta {
   id: string
   userId: string
@@ -187,6 +196,19 @@ export interface Allocation extends SyncMeta {
 
 export interface PaycheckWithAllocations extends Paycheck {
   allocations: Allocation[]
+}
+
+/** One plan line and the account the money should actually land in. */
+export interface PlanMoveTarget {
+  allocationId: string
+  accountId: string
+}
+
+export interface AppliedPlan {
+  movedCents: number
+  transfers: number
+  /** Lines that already had a transfer, so applying twice moves nothing twice. */
+  alreadyMoved: string[]
 }
 
 /**
@@ -236,6 +258,8 @@ export interface Snapshot {
   transactions: TransactionRow[]
   /** Every live entry, including any the capped grid leaves out. */
   transactionTotal: number
+  /** This month's bill payments, so Safe to Spend stops withholding them. */
+  billPaymentsThisMonth: BillPaymentTotal[]
   /** The newest routed checks only; `paycheckTotal` says how many exist. */
   paychecks: PaycheckWithAllocations[]
   paycheckTotal: number
@@ -250,6 +274,19 @@ export interface Snapshot {
  * every account, goal and payment in the file.
  */
 export type SnapshotPatch = Partial<Snapshot>
+
+/**
+ * The ledger rows a write changed, so a screen can update the grid it is
+ * showing without re-reading the capped 500-row window (PF-1).
+ */
+export interface TransactionRowsPatch {
+  upsert: TransactionRow[]
+  remove: string[]
+  /** Exact live-entry count after the write. */
+  total: number
+  /** This month's per-bill payments after the write. */
+  billPayments: BillPaymentTotal[]
+}
 
 export interface AccountInput {
   name: string
@@ -316,6 +353,8 @@ export interface TransactionInput {
   billId?: string | null
   goalId?: string | null
   counterAccountId?: string | null
+  /** Set when the entry settles a routed paycheck; the way a plan is marked moved. */
+  paycheckId?: string | null
 }
 
 export type TransactionPatch = Partial<
@@ -369,6 +408,11 @@ export interface PaycheckDraftInput {
   payCadence: PayCadence
   splits: AllocatorSplitsInput
   wholeDollarBuckets: boolean
+  /**
+   * One id per open allocator draft, so a retried commit returns the paycheck
+   * it already wrote instead of reserving the wall and recording income twice.
+   */
+  draftId?: string
   /** Set only after the user confirms a likely double entry. */
   allowDuplicate?: boolean
 }

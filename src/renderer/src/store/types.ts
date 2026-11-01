@@ -3,12 +3,14 @@ import type { ImportAnswer } from '@shared/importRepair'
 import type {
   AccountInput,
   AccountWithBalance,
+  AppliedPlan,
   AppSettings,
   BillInput,
   CategoryInput,
   GoalInput,
   LedgerQuery,
   PaycheckDraftInput,
+  PlanMoveTarget,
   Snapshot,
   TransactionInput,
   TransactionPage,
@@ -97,6 +99,10 @@ export interface DataSlice {
   /** A filtered page of the ledger, read straight from the database. */
   queryTransactions: (query: LedgerQuery) => Promise<TransactionPage>
   commitPaycheck: (input: PaycheckDraftInput) => Promise<boolean>
+  applyPaycheckPlan: (
+    paycheckId: string,
+    targets: PlanMoveTarget[]
+  ) => Promise<AppliedPlan | null>
   saveSettings: (next: AppSettings) => Promise<boolean>
   exportBackup: () => Promise<void>
   exportCsv: () => Promise<void>

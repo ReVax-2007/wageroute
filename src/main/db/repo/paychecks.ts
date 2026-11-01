@@ -1,15 +1,18 @@
 import { randomUUID } from 'node:crypto'
 import { buildAllocationPlan } from '@shared/allocator'
 import type { CommittedPaycheck } from '@shared/api'
+import { todayISO } from '@shared/dates'
 import { RepositoryError } from '@shared/errors'
 import { parseSettings } from '@shared/settings'
 import type {
   Allocation,
+  AppliedPlan,
   PayCadence,
   Paycheck,
   PaycheckDraftInput,
   PaycheckWithAllocations,
-  PlanHealth
+  PlanHealth,
+  PlanMoveTarget
 } from '@shared/types'
 import {
   assertCents,
@@ -23,7 +26,7 @@ import {
 import { listBills, recordBillReserves, reservedBillIdsFor } from './bills'
 import { listGoals } from './goals'
 import { readSettings } from './settings'
-import { insertTransactionRow } from './transactions'
+import { createTransaction, insertTransactionRow } from './transactions'
 
 const PAY_CADENCES: readonly PayCadence[] = ['weekly', 'biweekly', 'semimonthly', 'monthly']
 
@@ -86,6 +89,17 @@ export interface PaycheckRecordInput {
   health: PlanHealth
   allocations: PaycheckRecordAllocation[]
   recordIncome: boolean
+  /** The draft's own id, so a retry cannot create a second paycheck. */
+  id?: string
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+export function assertDraftId(value: string): string {
+  if (!UUID_PATTERN.test(value)) {
+    throw new RepositoryError('VALIDATION', 'The draft id is not a UUID')
+  }
+  return value
 }
 
 export function insertPaycheckRecord(
@@ -93,7 +107,7 @@ export function insertPaycheckRecord(
   userId: string,
   input: PaycheckRecordInput
 ): string {
-  const paycheckId = randomUUID()
+  const paycheckId = input.id ?? randomUUID()
   const ts = nowISO()
 
   db.prepare(
@@ -167,20 +181,50 @@ export function commitPaycheck(
   if (!depositAccountId) throw new RepositoryError('VALIDATION', 'Choose the account this paycheck landed in')
   requireAccount(db, userId, depositAccountId)
 
-  // A double-click or a re-entry of the same deposit would reserve the wall
-  // twice and add phantom income. The renderer asks before passing the flag.
+  // A retried commit returns the paycheck the first attempt wrote. The draft id
+  // doubles as the row id, so the unique key itself refuses a second insert.
+  const draftId = input.draftId ? assertDraftId(input.draftId) : null
+  if (draftId) {
+    const existing = db
+      .prepare(
+        `SELECT id FROM paychecks WHERE id = ? AND user_id = ? AND deleted_at IS NULL`
+      )
+      .get(draftId, userId)
+    if (existing) {
+      return { paycheckId: draftId, plan: null, alreadyCommitted: true }
+    }
+  }
+
+  // A double-click or a re-entry would reserve the wall twice and add phantom
+  // income. A second deposit on the same payday is as suspicious as an exact
+  // copy, and the same amount a day or two either side is usually a re-entry
+  // typed from the wrong date. The renderer asks before passing the flag.
   if (!input.allowDuplicate) {
-    const duplicate = db
+    const sameDay = db
       .prepare(
         `SELECT id FROM paychecks
          WHERE user_id = ? AND deleted_at IS NULL
-           AND deposit_account_id = ? AND amount_cents = ? AND received_on = ?`
+           AND deposit_account_id = ? AND received_on = ?`
       )
-      .get(userId, depositAccountId, incomeCents, receivedOn)
-    if (duplicate) {
+      .get(userId, depositAccountId, receivedOn)
+    if (sameDay) {
       throw new RepositoryError(
         'CONFLICT',
-        'A paycheck of this amount already exists on this date in this account. Confirm the second deposit if it really is separate.'
+        'A paycheck is already recorded on this date in this account. Confirm the second deposit if both landed.'
+      )
+    }
+    const near = db
+      .prepare(
+        `SELECT id FROM paychecks
+         WHERE user_id = ? AND deleted_at IS NULL
+           AND deposit_account_id = ? AND amount_cents = ?
+           AND received_on BETWEEN date(?, '-3 days') AND date(?, '+3 days')`
+      )
+      .get(userId, depositAccountId, incomeCents, receivedOn, receivedOn)
+    if (near) {
+      throw new RepositoryError(
+        'CONFLICT',
+        'The same amount was recorded in this account within three days. Check the pay date, or confirm the second deposit if it really is separate.'
       )
     }
   }
@@ -244,7 +288,8 @@ export function commitPaycheck(
       leisureCents: plan.leisureCents,
       health: plan.health,
       allocations: lines,
-      recordIncome: true
+      recordIncome: true,
+      id: draftId ?? undefined
     })
     // A shortfall means the wall was not fully funded, so no per-bill claim is
     // recorded; the next cheque gets another chance instead of a false receipt.
@@ -255,6 +300,155 @@ export function commitPaycheck(
   })
 
   return { paycheckId: run(), plan }
+}
+
+interface MoveCandidate {
+  allocationId: string
+  label: string
+  amountCents: number
+  accountId: string
+}
+
+const MOVE_KIND: Partial<Record<Allocation['bucket'], string>> = {
+  debt: 'credit',
+  savings: 'savings',
+  investment: 'investment'
+}
+
+/**
+ * Turns the allocator's plan into real paired transfers. Routing itself is a
+ * plan (ADR 0013); this is the separate, explicit step that moves the money.
+ * Every line is validated before anything is written, one transfer group per
+ * line carries the paycheck id, and a line that already has one is skipped —
+ * so pressing the button twice cannot pay a card twice.
+ */
+export function applyPaycheckPlan(
+  db: Db,
+  userId: string,
+  paycheckId: string,
+  targets: readonly PlanMoveTarget[]
+): AppliedPlan {
+  const paycheck = db
+    .prepare(
+      `SELECT deposit_account_id AS depositAccountId
+       FROM paychecks WHERE id = ? AND user_id = ? AND deleted_at IS NULL`
+    )
+    .get(paycheckId, userId) as { depositAccountId: string | null } | undefined
+  if (!paycheck) throw new RepositoryError('NOT_FOUND', 'That paycheck no longer exists')
+  const depositAccountId = paycheck.depositAccountId
+  if (!depositAccountId) {
+    throw new RepositoryError('VALIDATION', 'This paycheck has no account to move money from')
+  }
+  requireAccount(db, userId, depositAccountId)
+
+  const allocations = db
+    .prepare(
+      `SELECT id, bucket, goal_id AS goalId, label, amount_cents AS amountCents
+       FROM allocations
+       WHERE paycheck_id = ? AND user_id = ? AND deleted_at IS NULL`
+    )
+    .all(paycheckId, userId) as {
+    id: string
+    bucket: Allocation['bucket']
+    goalId: string | null
+    label: string
+    amountCents: number
+  }[]
+  const byId = new Map(allocations.map((allocation) => [allocation.id, allocation]))
+
+  const candidates: MoveCandidate[] = []
+  const seen = new Set<string>()
+  for (const target of targets) {
+    if (seen.has(target.allocationId)) continue
+    seen.add(target.allocationId)
+    const allocation = byId.get(target.allocationId)
+    if (!allocation) {
+      throw new RepositoryError('VALIDATION', 'That plan line no longer exists')
+    }
+    if (allocation.amountCents <= 0) continue
+
+    const account = db
+      .prepare(
+        `SELECT kind, is_archived AS isArchived, dedicated_goal_id AS dedicatedGoalId
+         FROM accounts WHERE id = ? AND user_id = ? AND deleted_at IS NULL`
+      )
+      .get(target.accountId, userId) as
+      | { kind: string; isArchived: number; dedicatedGoalId: string | null }
+      | undefined
+    if (!account) throw new RepositoryError('VALIDATION', 'That account no longer exists')
+    if (account.isArchived) {
+      throw new RepositoryError('VALIDATION', 'Choose an account that is not archived')
+    }
+
+    if (allocation.bucket === 'goal') {
+      if (!allocation.goalId || account.dedicatedGoalId !== allocation.goalId) {
+        throw new RepositoryError(
+          'VALIDATION',
+          'A goal share can only move into that goal’s own account'
+        )
+      }
+    } else {
+      const expected = MOVE_KIND[allocation.bucket]
+      if (!expected) {
+        throw new RepositoryError('VALIDATION', 'This line has no account to move into')
+      }
+      if (account.kind !== expected) {
+        throw new RepositoryError(
+          'VALIDATION',
+          `The ${allocation.label} share needs a ${expected} account`
+        )
+      }
+    }
+
+    candidates.push({
+      allocationId: allocation.id,
+      label: allocation.label,
+      amountCents: allocation.amountCents,
+      accountId: target.accountId
+    })
+  }
+
+  // An out-leg is negative and points at the destination, so the pair is
+  // recognised by the paycheck it settles, not by a memo or a date.
+  const alreadyApplied = db.prepare(
+    `SELECT 1 FROM transactions
+     WHERE user_id = ? AND deleted_at IS NULL AND paycheck_id = ?
+       AND kind = 'transfer' AND account_id = ? AND counter_account_id = ? AND amount_cents = ?`
+  )
+
+  const alreadyMoved: string[] = []
+  const toMove: MoveCandidate[] = []
+  for (const candidate of candidates) {
+    const exists = alreadyApplied.get(
+      userId,
+      paycheckId,
+      depositAccountId,
+      candidate.accountId,
+      -candidate.amountCents
+    )
+    if (exists) alreadyMoved.push(candidate.label)
+    else toMove.push(candidate)
+  }
+
+  const movedCents = db.transaction(() => {
+    let total = 0
+    for (const candidate of toMove) {
+      createTransaction(db, userId, {
+        accountId: depositAccountId,
+        kind: 'transfer',
+        amountCents: candidate.amountCents,
+        occurredOn: todayISO(),
+        memo: `Route: ${candidate.label}`,
+        category: 'Transfer',
+        counterAccountId: candidate.accountId,
+        paycheckId
+      })
+      total += candidate.amountCents
+    }
+    return total
+  })()
+
+  return { movedCents, transfers: toMove.length, alreadyMoved }
 }
 
 /** How many routed checks exist, so the dashboard can admit a capped history. */

@@ -177,7 +177,7 @@ Example: a $600 annual premium is $50/month. A $1,200 monthly bill reserves $553
 
 Columns: bill name and category (plus “autopay”), amount, cadence, due day as an ordinal, per-paycheck reserve, monthly equivalent and actions.
 
-A bill funded by a single paycheck shows its monthly amount in the per-paycheck column with a **“Nth check only”** sub-label, so the row cannot be read as a recurring deduction. Paused bills sort below the active ones and are marked **Bill inactive** — that label belongs to bills; a paused emergency fund says **Saving paused**.
+A bill funded by a single paycheck shows its monthly amount in the per-paycheck column with a **“Reserved on the 2nd check of the month”** sub-label (“each month” when no payday is set), so the row cannot be read as a recurring deduction. Paused bills sort below the active ones and are marked **Bill inactive** — that label belongs to bills; a paused emergency fund says **Saving paused**.
 
 The name cell carries the month's receipt when there is one: **Reserved this month** while a fully funded route has claimed the bill, **Paid this month** once a linked payment has landed. The claim is a record, not a movement: the money is still in the account until the bill is actually paid ([ADR 0012](decisions/0012-the-wall-remembers-its-claims.md)).
 
@@ -429,6 +429,14 @@ Available on credit accounts only.
 - The default amount is the current amount owed.
 - The action posts a paired `transfer`: negative leg on the source, positive leg on the card, memo `Payment · <card name>`, category `Credit payment`.
 - Paying more than owed is allowed; the card balance becomes positive and displays as zero owed.
+
+### Which accounts a picker offers
+
+Not every picker lists every account, and the difference is deliberate:
+
+- **Deposit and routing destinations** (paycheck deposit, plan moves, the account a goal's money is spent from) offer live checking, savings and cash accounts. Money has to land somewhere spendable; a credit card or brokerage account is a different instrument, not a place a paycheck is deposited, so `fundableAccounts` excludes both.
+- **“Paid from” on a bill, and the account select in the entry dialog, stay wider.** A bill can legitimately be charged to a credit card, and an entry can be a transfer onto that card (paying it) or into an investment account. Restricting those lists would make real ledgers impossible to record, so every live account remains selectable there.
+- **Money hints use the one currency from Settings.** Every money field formats its example with that currency (`Enter 12.34 for $12.34`) instead of a hard-coded symbol, so a EUR ledger is never explained in dollars.
 
 ### Remove an account
 

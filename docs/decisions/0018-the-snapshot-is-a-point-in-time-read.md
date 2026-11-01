@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-31
+- **Amended:** 2026-11-01 — the reads are now wrapped in one transaction (see *One read transaction*).
 - **Deciders:** Project owner
 - **Related:** [ADR 0002](0002-integer-cents.md), [ARCHITECTURE.md](../ARCHITECTURE.md), [DATA-MODEL.md](../DATA-MODEL.md)
 
@@ -9,14 +10,14 @@
 
 The renderer never queries SQLite. It asks for a `Snapshot`: accounts with balances, goals with progress, bills, settings, balances over time and a capped list of the newest transactions. Every screen derives its totals from that one object, and the selectors assume the pieces agree with each other. The grid and the transaction query are the exception — they page the ledger in SQL.
 
-The audit found two problems in the read model: the snapshot's eight statements are not wrapped in a read transaction, and the 500-row `transactions` list can be mistaken for the whole ledger. It also asked for the caps and the boot-time integrity policy to be stated rather than discovered.
+The audit found two problems in the read model: the snapshot's separate statements were not wrapped in a read transaction, and the 500-row `transactions` list can be mistaken for the whole ledger. It also asked for the caps and the boot-time integrity policy to be stated rather than discovered.
 
 ## Decision
 
-### One synchronous read
+### One read transaction
 
-- `snapshot:get` runs the read functions in the single main-process thread. There is one writer (the same thread), so no other write can interleave between statements; the snapshot is a consistent point-in-time view under that invariant.
-- If a worker, a second window, or any asynchronous boundary is added, the read must be wrapped in a `db.transaction(..., { readOnly: true })` before that lands. The invariant is a precondition, not an accident.
+- `snapshot:get` runs every read in one `db.transaction`. `getSnapshot` wraps the full set; `readSnapshotParts` (the patch a write returns) wraps the subset it re-reads. A save landing between statements can no longer hand the UI figures from two different states of the ledger, and that holds even if a second thread or a worker is introduced later.
+- With one writer on the main thread the wrapper is belt and braces; it is now the contract rather than an invariant the next author has to remember.
 - Every write is a SQLite transaction that ends before the IPC call returns. The renderer only sees a snapshot taken after the write committed.
 
 ### Caps are UI caps, not ledger limits
@@ -44,11 +45,11 @@ The audit found two problems in the read model: the snapshot's eight statements 
 
 - **The snapshot must be re-read after every write.** Screens do that through the store; a screen that caches a snapshot across writes shows stale totals.
 - The 500-row cap is a second number to keep honest. The UI says "newest 500" where it uses the cap and never presents it as the ledger.
-- The single-thread invariant is invisible in the code. A future worker must remember this ADR.
+- The transaction wrapper makes each read one statement from the ledger's point of view, so a long-running read now holds the write lock behind it for its duration. The reads are small and indexed; a query slow enough to matter would need the paging path instead.
 
 ### Neutral
 
-- No schema change; the read model and the caps are already what the code does.
+- No schema change. The caps were already what the code did; the transaction wrapper was added on 2026-11-01 in `getSnapshot` and `readSnapshotParts`.
 - `databaseBytes` and row counts are exposed in Settings → Diagnostics, so a bug report can say how large the ledger actually is.
 
 ## Alternatives considered

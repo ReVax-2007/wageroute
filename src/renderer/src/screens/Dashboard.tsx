@@ -1,4 +1,5 @@
 import { CalendarClock, CreditCard, Plus, ShieldCheck, Sparkles, Target, Wallet } from 'lucide-react'
+import { useState } from 'react'
 import { formatDateLabel, formatDateLong, formatMonthLong, todayISO } from '@shared/dates'
 import { wealthBuckets } from '@shared/accounts'
 import { spendingByCategory } from '@shared/categories'
@@ -7,6 +8,7 @@ import { formatMoney } from '@shared/money'
 import type { AllocationBucket } from '@shared/types'
 import { BillPrompts } from '../components/BillPrompts'
 import { DataTable } from '../components/DataTable'
+import { MovePlanDialog } from '../components/dialogs/MovePlanDialog'
 import { Donut, type DonutSlice } from '../components/Donut'
 import { Sparkline } from '../components/Sparkline'
 import { Button, Card, EmptyState, Money, Progress } from '../components/ui'
@@ -29,6 +31,7 @@ import {
   selectSafeToSpendCents,
   selectSafeToSpendPoolCents,
   selectTotalWealthCents,
+  selectUnpaidWallCents,
   selectUnsettledRoutingCents,
   useFinanceStore
 } from '../store/useFinanceStore'
@@ -61,7 +64,9 @@ export function Dashboard() {
   const pool = useFinanceStore(selectSafeToSpendPoolCents)
   const earmarked = useFinanceStore(selectPoolEarmarkedGoalsCents)
   const monthlyPriority = useFinanceStore(selectMonthlyWallCents)
+  const unpaidPriority = useFinanceStore(selectUnpaidWallCents)
   const unsettled = useFinanceStore(selectUnsettledRoutingCents)
+  const [moving, setMoving] = useState(false)
 
   if (!snapshot) return null
 
@@ -209,9 +214,17 @@ export function Dashboard() {
             </dd>
           </div>
           <div>
-            <dt>Priority Wall / month</dt>
+            <dt>
+              Priority Wall / still unpaid
+              {monthlyPriority > unpaidPriority && (
+                <span className="alloc-note">
+                  {' '}
+                  ({formatMoney(monthlyPriority - unpaidPriority, currency)} already paid)
+                </span>
+              )}
+            </dt>
             <dd className="deduct">
-              − <Money cents={monthlyPriority} currency={currency} />
+              − <Money cents={unpaidPriority} currency={currency} />
             </dd>
           </div>
           <div>
@@ -506,6 +519,13 @@ export function Dashboard() {
         <Card
           title="Last routing"
           subtitle={last ? formatDateLong(last.receivedOn) : 'Nothing routed yet'}
+          actions={
+            last ? (
+              <Button size="sm" onClick={() => setMoving(true)}>
+                Move this plan
+              </Button>
+            ) : undefined
+          }
         >
           {last ? (
             <div className="routing">
@@ -640,6 +660,10 @@ export function Dashboard() {
           </DataTable>
         )}
       </Card>
+
+      {moving && last && (
+        <MovePlanDialog paycheck={last} onClose={() => setMoving(false)} />
+      )}
     </>
   )
 }

@@ -1,8 +1,9 @@
 import type { StateCreator } from 'zustand'
-import type { ImportCounts, WriteResult } from '@shared/api'
+import { SNAPSHOT_TRANSACTION_LIMIT, type ImportCounts, type WriteResult } from '@shared/api'
 import { apiErrorMessage } from '@shared/errors'
+import { formatMoney } from '@shared/money'
 import { DEFAULT_SETTINGS, parseSettings } from '@shared/settings'
-import type { SnapshotPatch } from '@shared/types'
+import type { SnapshotPatch, TransactionRow, TransactionRowsPatch } from '@shared/types'
 import type { DataSlice, FinanceState } from './types'
 
 function messageOf(error: unknown): string {
@@ -15,6 +16,23 @@ function totalCounts(counts: ImportCounts): number {
 
 function fileNameOf(path: string): string {
   return path.split(/[\\/]/).pop() ?? path
+}
+
+/** Same order the snapshot query uses: newest date, then newest write. */
+function mergeTransactionRows(
+  current: readonly TransactionRow[],
+  rows: TransactionRowsPatch
+): TransactionRow[] {
+  const removed = new Set(rows.remove)
+  const changed = new Set(rows.upsert.map((row) => row.id))
+  return current
+    .filter((row) => !removed.has(row.id) && !changed.has(row.id))
+    .concat(rows.upsert)
+    .sort(
+      (a, b) =>
+        b.occurredOn.localeCompare(a.occurredOn) || b.createdAt.localeCompare(a.createdAt)
+    )
+    .slice(0, SNAPSHOT_TRANSACTION_LIMIT)
 }
 
 /** The ledger and every write that changes it. */
@@ -39,6 +57,30 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
       return {
         snapshot: { ...state.snapshot, ...patch },
         settings: patch.settings ? parseSettings(patch.settings) : state.settings
+      }
+    })
+  }
+
+  /**
+   * Applies a write's result. Ledger edits carry the changed rows instead of a
+   * fresh 500-row window, so the grid learns about one save without paying for
+   * the whole ledger.
+   */
+  const applyResult = (result: WriteResult<unknown>): void => {
+    const rows = result.rows?.transactions
+    applyPatch(result.patch)
+    if (!rows) return
+    set((state) => {
+      const snapshot = state.snapshot
+      if (!snapshot) return state
+      const transactions = mergeTransactionRows(snapshot.transactions, rows)
+      return {
+        snapshot: {
+          ...snapshot,
+          transactions,
+          transactionTotal: rows.total,
+          billPaymentsThisMonth: rows.billPayments
+        }
       }
     })
   }
@@ -82,7 +124,7 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
       get().notify(`Saved, but the screen could not refresh — ${result.refreshError}`, 'error')
       return true
     }
-    applyPatch(result.patch)
+    applyResult(result)
     if (success) get().notify(success, 'success')
     return true
   }
@@ -200,7 +242,7 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
           )
           return result.value
         }
-        applyPatch(result.patch)
+        applyResult(result)
         get().notify(
           result.value === 1 ? 'Entry removed' : `${result.value} entries removed`,
           'success'
@@ -220,6 +262,38 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
       const ok = await run(() => window.api.commitPaycheck(input), 'Paycheck routed')
       if (ok) set({ allocatorOpen: false, screen: 'dashboard' })
       return ok
+    },
+
+    applyPaycheckPlan: async (paycheckId, targets) => {
+      if (targets.length === 0) return null
+      set({ busy: true })
+      try {
+        const result = await enqueue(() => window.api.applyPaycheckPlan(paycheckId, targets))
+        if (result.refreshError) {
+          get().notify(
+            `Moved ${formatMoney(result.value.movedCents, get().settings.currency)}, but the screen could not refresh — ${result.refreshError}`,
+            'error'
+          )
+          return result.value
+        }
+        applyPatch(result.patch)
+        const { movedCents, transfers, alreadyMoved } = result.value
+        if (transfers === 0) {
+          get().notify(
+            alreadyMoved.length > 0 ? 'That plan was already moved' : 'Nothing to move'
+          )
+        } else {
+          get().notify(
+            `Moved ${formatMoney(movedCents, get().settings.currency)} in ${transfers} transfer${transfers === 1 ? '' : 's'}`
+          )
+        }
+        return result.value
+      } catch (error) {
+        get().notify(messageOf(error), 'error')
+        return null
+      } finally {
+        set({ busy: false })
+      }
     },
 
     saveSettings: async (next) => {
