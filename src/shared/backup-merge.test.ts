@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import Database from 'better-sqlite3'
 import test from 'node:test'
 import { parseEntriesCsv, type CsvEntry } from '@shared/csv'
-import { buildBackup, mergeBackup, type BackupPayload } from '../main/db/backup'
+import { buildBackup, mergeBackup, TABLE_COLUMNS, TABLE_DEFAULTS, type BackupPayload } from '../main/db/backup'
 import { mergeEntries } from '../main/db/entries'
 import { migrate, SCHEMA_VERSION } from '../main/db/migrations'
 import {
@@ -225,6 +225,70 @@ test('a settings row without a key is skipped, not fatal', () => {
   assert.equal(result.added.settings, 1)
   assert.equal(result.issues.length, 1)
   assert.match(result.issues[0].message, /no setting key/)
+})
+
+test('a setting this build no longer has is reported, not restored', () => {
+  const db = freshDb()
+  const result = mergeBackup(
+    db,
+    USER_ID,
+    payload({
+      settings: [
+        { user_id: USER_ID, key: 'theme', value: 'dark' },
+        { user_id: USER_ID, key: 'leisurePercent', value: '10' }
+      ]
+    })
+  )
+
+  assert.equal(result.added.settings, 1, 'the key this build reads still imports')
+  assert.equal(result.skipped.settings, 0, 'the stale key is refused, not counted as already present')
+  assert.equal(result.issues.length, 1)
+  assert.match(result.issues[0].message, /“leisurePercent” is not a setting this build knows/)
+  const stale = db
+    .prepare('SELECT COUNT(*) AS total FROM settings WHERE key = ?')
+    .get('leisurePercent') as { total: number }
+  assert.equal(stale.total, 0)
+})
+
+test('a restore leaves settings the file does not carry alone', () => {
+  const db = freshDb()
+  db.prepare(
+    `INSERT INTO settings (user_id, key, value, updated_at)
+     VALUES (?, 'theme', 'light', '2026-01-01T00:00:00.000Z')`
+  ).run(USER_ID)
+
+  const result = mergeBackup(
+    db,
+    USER_ID,
+    payload({ settings: [{ user_id: USER_ID, key: 'savingsPercent', value: '35' }] })
+  )
+
+  assert.equal(result.added.settings, 1)
+  const rows = db
+    .prepare('SELECT key, value FROM settings WHERE user_id = ? ORDER BY key')
+    .all(USER_ID) as { key: string; value: string }[]
+  assert.deepEqual(rows, [
+    { key: 'savingsPercent', value: '35' },
+    { key: 'theme', value: 'light' }
+  ])
+})
+
+test('the backup allowlist names every column the schema declares', () => {
+  const db = freshDb()
+  for (const table of Object.keys(TABLE_COLUMNS) as (keyof typeof TABLE_COLUMNS)[]) {
+    const columns = TABLE_COLUMNS[table]
+    const declared = (
+      db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]
+    ).map((column) => column.name)
+    assert.deepEqual(
+      [...columns].sort(),
+      [...declared].sort(),
+      `${table}: a column added to the schema must join the allowlist or backups lose it`
+    )
+    for (const key of Object.keys(TABLE_DEFAULTS[table])) {
+      assert.ok(columns.includes(key), `${table}.${key} is defaulted but not importable`)
+    }
+  }
 })
 
 test('rows that already carry values keep them; timestamps still fill in when missing', () => {

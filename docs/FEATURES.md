@@ -59,7 +59,7 @@ Safe to Spend = spendable pool − monthly Priority Wall − funded goals whose 
 - **Spendable pool** is the sum of the balances of the accounts the user treats as spendable (see [Accounts](#accounts)). It is *not* cash on hand: an investment account can be opted in and a savings account opted out. With no per-account choice recorded, the pool is the non-archived checking, savings and cash balances, so pre-v4 data behaves exactly as before.
 - **Monthly Priority Wall** is the smoothed monthly obligation of all **active** bills.
 - **Funded goals whose money is in the pool** is every goal's funded amount *except* goals fed by a dedicated account (`poolEarmarkedGoalsCents`).
-- **Routing not moved yet** is this month's `debt` and `investment` allocation lines, less money actually transferred to a credit or investment account since the earliest of those paycheques (`unsettledRoutingCents`). Routing records a plan and moves nothing ([ADR 0013](decisions/0013-a-route-is-a-plan-not-a-movement.md)), so the dollars are still in checking until the card is paid or the brokerage transfer lands; deducting them only while they are still there avoids charging the same dollar twice once it has moved. Savings is not deducted: a savings account in the pool is still spendable, and one outside it is already excluded from the pool.
+- **Routing not moved yet** is this month's `debt` and `investment` allocation lines, less the transfers a routing plan itself posted to a credit or investment account since the earliest of those paycheques (`unsettledRoutingCents`). Only entries carrying one of this month's `paycheck_id` values count — an unrelated deposit, card payment or market gain must not make a plan look settled when the money is still in checking. Routing records a plan and moves nothing ([ADR 0013](decisions/0013-a-route-is-a-plan-not-a-movement.md)), so the dollars are still in checking until the card is paid or the brokerage transfer lands; deducting them only while they are still there avoids charging the same dollar twice once it has moved. Savings is not deducted: a savings account in the pool is still spendable, and one outside it is already excluded from the pool.
 
 An account dedicated to a goal is left out of the pool by default, and its goal's progress is therefore not deducted either. The money has already been set aside — it is neither spendable nor inside the pool, so deducting it a second time would subtract the same amount twice and could push the hero number far below zero for no reason. Ordinary (allocation-funded) goals keep their deduction because that money really is still sitting in the pool.
 
@@ -153,10 +153,10 @@ See [Bill prompts](#bill-prompts) below. The prompt card appears above the stat 
 | Figure | Formula |
 | --- | --- |
 | Locked every month | `Σ round(bill.amount × billPeriodsPerYear / 12)` over active bills |
-| Reserved on the next check | `Σ billFundingReserveCents(bill, payCadence, nextCheckDate, anchor)` over active bills — the spread for `all_checks` bills plus the full month on the one funding check for the four single-check strategies; a bill already claimed this month reserves 0 |
+| Reserved on the next check | `Σ billFundingReserveCents(bill, payCadence, nextCheckDate, anchor, paidThisMonth)` over active bills — the spread for `all_checks` bills plus the full month on the one funding check for the four single-check strategies; a bill already claimed this month reserves 0, and a bill partly paid reserves only the remainder |
 | Active bills | Count of active bills; hint shows paused count and, when a paycheck exists, `perCheck / lastPaycheck.amount` as a percentage |
 
-The two figures answer different questions and are deliberately not the same arithmetic: *locked every month* is the obligation, *reserved on the next check* is what the next real cheque carries. Averaging is what makes a $600 yearly premium look like $50 a month instead of a shock. The reserve figure is labelled **Next check** with the date when Settings → Paycheck has a **Pay schedule anchor**; without one it falls back to the per-paycheck average and says so in the footnote. The hint names the cycle, the date and, when one is set, the free-text payday label ("Biweekly pay cycle · 15th and last day"); the label is display only.
+The two figures answer different questions and are deliberately not the same arithmetic: *locked every month* is the obligation, *reserved on the next check* is what the next real cheque carries. Averaging is what makes a $600 yearly premium look like $50 a month instead of a shock. The reserve figure is labelled **Next check** with the date when Settings → Paycheck has a **Pay schedule anchor**; without one the card reads **Average per check** and the table column is labelled **Per check**. The hint names the cycle, the date and, when one is set, the free-text payday label ("Biweekly pay cycle · 15th and last day"); the label is display only.
 
 Cadence constants:
 
@@ -175,9 +175,9 @@ Example: a $600 annual premium is $50/month. A $1,200 monthly bill reserves $553
 
 ### The wall table
 
-Columns: bill name and category (plus “autopay”), amount, cadence, due day as an ordinal, per-paycheck reserve, monthly equivalent and actions.
+Columns: bill name and category (plus “autopay”), amount, cadence, due day as an ordinal, the per-check figure — labelled **Next check** when an anchor is set and **Per check** otherwise, with a tooltip saying single-check bills carry the whole month there — monthly equivalent and actions.
 
-A bill funded by a single paycheck shows its monthly amount in the per-paycheck column with a **“Reserved on the 2nd check of the month”** sub-label (“each month” when no payday is set), so the row cannot be read as a recurring deduction. Paused bills sort below the active ones and are marked **Bill inactive** — that label belongs to bills; a paused emergency fund says **Saving paused**.
+A bill funded by a single paycheck shows its monthly amount in the per-check column with a **“Reserved on the 2nd check of the month”** sub-label (“each month” when no payday is set), so the row cannot be read as a recurring deduction. Paused bills sort below the active ones and are marked **Bill inactive** — that label belongs to bills; a paused emergency fund says **Saving paused**.
 
 The name cell carries the month's receipt when there is one: **Reserved this month** while a fully funded route has claimed the bill, **Paid this month** once a linked payment has landed. The claim is a record, not a movement: the money is still in the account until the bill is actually paid ([ADR 0012](decisions/0012-the-wall-remembers-its-claims.md)).
 
@@ -212,10 +212,10 @@ Validation:
 
 - name is required;
 - amount must parse to cents and be greater than zero;
-- due day is coerced to a number and clamped by the repository;
+- due day must be a whole number from 1 to 31 — `0`, `32`, a fraction or `NaN` is refused with *"Due day must be a whole number from 1 to 31"* rather than clamped, so a typo cannot silently move a bill to the month end;
 - category defaults to `Bills`;
 - account is optional;
-- funding schedule is one of the five enum values; `funding_paycheck_index` is only read for option 2 and is clamped to a guaranteed slot on write.
+- funding schedule is one of the five enum values; `funding_paycheck_index` is only read for option 2, the repository requires a whole number from 1 to 4, and the reserve math clamps it to the last slot the cadence guarantees (2 for biweekly and semimonthly, 4 for weekly, 1 for monthly).
 
 New bills get `nextDueOn = null`. Editing preserves the existing `nextDueOn` unless it is explicitly changed.
 
@@ -475,10 +475,11 @@ Shows:
 
 - the number of active bills;
 - the total reserve for the selected cadence **on the pay date entered in step 1** — a bill scheduled onto one paycheck appears at its full monthly figure there and at nothing on the other check of the month;
-- an expandable per-bill breakdown;
+- an expandable per-bill breakdown that lists every active bill, showing **$0.00** for one an earlier cheque already claimed this month or one already paid this month, so it is not charged twice;
 - true surplus = income − funded wall;
-- a shortfall warning when the wall exceeds income;
-- a note that a bill already claimed this month by an earlier cheque is not charged again.
+- a shortfall warning when the wall exceeds income.
+
+Payments count when they fall in the **same calendar month as the pay date**, not the day the screen is read: a cheque dated 13 November is not released by a payment made on 31 October, and one dated 31 October is.
 
 A shortfall does not block the wizard, but the plan has no surplus and every split is zero. Committing such a paycheck is allowed; it records the partial wall funding and a shortfall health value.
 
@@ -512,7 +513,7 @@ The step also states what the button does: WageRoute records the plan against th
 In order:
 
 1. Clamp income to ≥ 0 and round to cents.
-2. Compute the Priority Wall reserve from **active** bills, the selected cadence and the paycheck's own date (`billFundingReserveCents` per bill).
+2. Compute the Priority Wall reserve from **active** bills, the selected cadence and the paycheck's own date (`billFundingReserveCents` per bill), passing the payments dated in the pay date's month and already linked to the bill so a fully paid bill withholds nothing and a part payment withholds only the remainder.
 3. Fund the wall up to income. If income is short, stop: all other buckets are zero and health is `shortfall`.
 4. Compute the true surplus.
 5. Compute each split as `round(surplus × percent / 100)`.
@@ -624,7 +625,7 @@ Transfers create both legs, and an expense may trigger a round-up. The dialog cl
 
 ### Appearance
 
-Three choices in the sidebar, presented as a radio group — **System**, **Light**, **Dark** — with the resolved state printed beside the label (`System · light`). System follows `prefers-color-scheme` and switches live across a running app, because the preference is read through `useSyncExternalStore` rather than sampled once at startup. The resolved theme is written to `document.documentElement.dataset.theme` and cached in `localStorage['cfr-theme']` so the next launch paints the right palette immediately. Settings remain the source of truth; the cache is only a first-paint hint.
+Three choices in the sidebar, presented as a radio group — **System**, **Light**, **Dark** — with the resolved state printed beside the label (`System · light`). It is one tab stop: the arrows move the selection between options, Home and End jump to either end, and only the checked button is in the tab order. System follows `prefers-color-scheme` and switches live across a running app, because the preference is read through `useSyncExternalStore` rather than sampled once at startup. The resolved theme is written to `document.documentElement.dataset.theme` and cached in `localStorage['cfr-theme']` so the next launch paints the right palette immediately. Settings remain the source of truth; the cache is only a first-paint hint.
 
 ### Money
 
@@ -659,7 +660,7 @@ Rules enforced at write time:
 Three actions:
 
 - **Export full backup** — JSON save dialog, default `~/Documents/wageroute-backup-YYYY-MM-DD.json`.
-- **Export transactions CSV** — CSV save dialog, default `~/Documents/wageroute-transactions-YYYY-MM-DD.csv`. Memo, category, account name and institution are written as text cells with any leading `=`, `+`, `-`, `@`, tab or carriage return prefixed by an apostrophe, so opening the file in a spreadsheet evaluates nothing; amounts stay numeric.
+- **Export transactions CSV** — CSV save dialog, default `~/Documents/wageroute-transactions-YYYY-MM-DD.csv`. Memo, category, account name and institution are written as text cells with any leading `=`, `+`, `-`, `@`, tab or carriage return prefixed by an apostrophe, so opening the file in a spreadsheet evaluates nothing; amounts stay numeric. Importing the file back strips exactly one leading apostrophe from those cells, so a round trip returns the original text — and a memo that genuinely begins with an apostrophe keeps it.
 - **Import data** — open dialog accepting `.json`, `.csv`, `.ofx` and `.qfx`, then the import wizard. A CSV with no Account column and any OFX/QFX file are read as a bank statement.
 
 Both exports are written to a temporary file, flushed and renamed into place, so a failed or interrupted export leaves the previous file untouched instead of a half-written one. The file is created mode `0600` on macOS and Linux; on Windows it inherits the user profile's ACL.

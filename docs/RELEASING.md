@@ -167,7 +167,7 @@ npm run dist                # build + installers for the current platform
 | `dev` | electron-vite dev server with HMR |
 | `start` | preview the production build |
 | `lint` | repository-local gate: no `debugger`, console logging, `@ts-ignore` or `any` |
-| `test` | `node --import tsx --test` over the thirty test files listed in `package.json` |
+| `test` | `node --import tsx --test` over the thirty-one test files listed in `package.json` |
 | `notices` | regenerate `THIRD-PARTY-NOTICES.txt` from `package-lock.json` |
 | `prebuild` | runs `notices` automatically before every `npm run build` |
 | `typecheck:node` | main, preload, shared, config |

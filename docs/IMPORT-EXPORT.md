@@ -272,6 +272,8 @@ Settings use `INSERT OR IGNORE` against `PRIMARY KEY (user_id, key)`:
 
 - missing keys are added;
 - existing keys are skipped, so local preferences always win;
+- a key this build no longer defines is reported (`“leisurePercent” is not a setting this build knows`) and skipped, so an old backup cannot resurrect a retired setting and copy it forward again;
+- a key the file does not carry is left untouched at its local value;
 - a row with no usable `key` or `value` is asked about in the wizard, and left out with an explanation if it stays blank — it never fails the import;
 - a missing `updated_at` becomes import time.
 
@@ -359,6 +361,7 @@ Date,Account,Institution,Kind,Category,Description,Amount,Currency
 - A cell is quoted when it contains a comma, a double quote, CR or LF.
 - Double quotes inside a quoted cell are doubled (`""`).
 - There is no trailing newline after the last row.
+- A text cell that begins `=`, `+`, `-`, `@`, a tab or a carriage return is prefixed with an apostrophe so a spreadsheet evaluates nothing. Importing the file removes that single guard apostrophe, so a round trip returns the memo you wrote; a memo that genuinely begins with an apostrophe keeps it.
 
 ### Row scope
 
@@ -424,12 +427,17 @@ Accepted formats:
 | Format | Example |
 | --- | --- |
 | ISO with optional single-digit month/day | `2026-10-01`, `2026-1-5` |
-| US slash date | `10/02/2026`, `1/5/2026` |
+| Slash date, read month-first | `10/02/2026`, `1/5/2026` |
+| Slash date, read day-first | `02/10/2026` when the file proves the order |
 | Year-first slash date | `2026/10/02` |
 
 The date is validated against a real UTC calendar; `2026-02-31` is rejected. Unreadable dates produce an issue:
 
 > row N has an unreadable date
+
+Slash dates are read with **one order for the whole file**. A first component above 12 (say `31/12/2026`) proves the file is day-first, so every slash date in it — including `03/04/2026`, which is 3 April — is read that way; a second component above 12 proves month-first. When every slash date has both parts 12 or under the order cannot be proved, so the file is read month-first and the import lists one issue up front:
+
+> dates like 03/04/2026 are ambiguous; read as month/day — re-export as YYYY-MM-DD if this file is day-first
 
 ### Amounts
 

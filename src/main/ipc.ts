@@ -76,6 +76,14 @@ function requireId(value: unknown): string {
   return value
 }
 
+/** A `YYYY-MM` key; a looser value would silently read the wrong month's totals. */
+function requireMonth(value: unknown): string {
+  if (typeof value !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) {
+    throw new RepositoryError('VALIDATION', 'Month must be in YYYY-MM form')
+  }
+  return value
+}
+
 /**
  * Only the app's own page may drive the ledger. Without this, any local HTML
  * file that reached the window would inherit `window.api` and could import,
@@ -499,6 +507,9 @@ export function registerIpcHandlers(db: Database.Database): void {
     write(db, userId, ['bills', 'billReserves'], () =>
       repo.deleteBill(db, userId(), requireId(id))
     )
+  )
+  handle('bill:payments', (_event, month: unknown) =>
+    repo.listBillPaymentsThisMonth(db, userId(), requireMonth(month))
   )
 
   handle('category:create', (_event, input: CategoryInput) =>

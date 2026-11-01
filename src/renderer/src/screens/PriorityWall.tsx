@@ -122,7 +122,7 @@ export function PriorityWall() {
         </div>
         <div className="summary-item">
           <span className="stat-label">
-            {nextCheck ? 'Reserved on the next check' : 'Reserved per paycheck'}
+            {nextCheck ? 'Reserved on the next check' : 'Average per check'}
           </span>
           <p className="summary-value">
             <Money cents={nextCheckTotal ?? perCheck} currency={currency} />
@@ -169,7 +169,16 @@ export function PriorityWall() {
               { key: 'amount', label: 'Amount' },
               { key: 'cadence', label: 'Cadence' },
               { key: 'due', label: 'Due' },
-              { key: 'check', label: nextCheck ? 'Next check' : 'Per paycheck', className: 'right' },
+              {
+                key: 'check',
+                label: nextCheck ? 'Next check' : 'Per check',
+                className: 'right',
+                // Without a payday the column holds each bill's own funding
+                // check, not an average; say so instead of implying a flat figure.
+                title: nextCheck
+                  ? undefined
+                  : 'What this bill reserves on its funding check; single-check bills carry the month there'
+              },
               { key: 'monthly', label: 'Monthly', className: 'right' },
               { key: 'actions', label: '', ariaLabel: 'Actions' }
             ]}

@@ -227,11 +227,24 @@ export function billFundingReserveCents(input: {
   fundingPaycheckIndex?: number | null
   paycheckDate?: string | null
   payAnchorDate?: string | null
+  /** This month's payments already linked to the bill; its obligation is smaller. */
+  paidThisMonthCents?: number
 }): number {
   const strategy = input.fundingStrategy ?? 'all_checks'
+  const billedCents = monthlyEquivalentCents(input.amountCents, input.frequency)
+  const paidCents = Math.min(billedCents, Math.max(0, Math.round(input.paidThisMonthCents ?? 0)))
+  const remainingCents = billedCents - paidCents
   const spread = reservePerPaycheckCents(input.amountCents, input.frequency, input.cadence)
-  if (strategy === 'all_checks') return spread
-  if (!input.paycheckDate) return spread
+  // A plan may only withhold what the month still owes. With nothing paid the
+  // figure is untouched, so every existing number stays identical.
+  const openSpread =
+    paidCents === 0 || billedCents === 0
+      ? spread
+      : Math.round((spread * remainingCents) / billedCents)
+  const openMonthly = paidCents === 0 ? billedCents : remainingCents
+
+  if (strategy === 'all_checks') return openSpread
+  if (!input.paycheckDate) return openSpread
 
   const fundingIndex = fundingCheckIndex({
     cadence: input.cadence,
@@ -239,22 +252,20 @@ export function billFundingReserveCents(input: {
     fundingStrategy: strategy,
     fundingPaycheckIndex: input.fundingPaycheckIndex
   })
-  if (fundingIndex === null) return spread
+  if (fundingIndex === null) return openSpread
 
   const guaranteed = GUARANTEED_CHECKS_PER_MONTH[input.cadence]
   if (input.payAnchorDate) {
     return paydayIndexInMonth(input.paycheckDate, input.cadence, input.payAnchorDate) ===
       fundingIndex
-      ? monthlyEquivalentCents(input.amountCents, input.frequency)
+      ? openMonthly
       : 0
   }
 
   const index = paycheckIndexInMonth(input.paycheckDate, input.cadence)
-  if (index > guaranteed) return spread
+  if (index > guaranteed) return openSpread
 
-  return index === fundingIndex
-    ? monthlyEquivalentCents(input.amountCents, input.frequency)
-    : 0
+  return index === fundingIndex ? openMonthly : 0
 }
 
 function dayOfMonth(dateISO: string): number {

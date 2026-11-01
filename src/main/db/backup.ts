@@ -2,7 +2,12 @@ import { randomUUID } from 'node:crypto'
 import type Database from 'better-sqlite3'
 import type { ImportCounts, ImportIssue } from '@shared/api'
 import { IMPORT_TABLES, type ImportTable, type ImportTables } from '@shared/importRepair'
-import { isCurrencyCode, parseSettings, settingsToRecord } from '@shared/settings'
+import {
+  DEFAULT_SETTINGS,
+  isCurrencyCode,
+  parseSettings,
+  settingsToRecord
+} from '@shared/settings'
 import { SCHEMA_VERSION } from './migrations'
 
 type Db = Database.Database
@@ -31,7 +36,7 @@ const TABLE_LABEL: Record<BackupTable, string> = {
 }
 
 /** Column allowlists keep imports parameterised; keys from the file are never interpolated. */
-const TABLE_COLUMNS: Record<BackupTable, readonly string[]> = {
+export const TABLE_COLUMNS: Record<BackupTable, readonly string[]> = {
   accounts: [
     'id', 'user_id', 'name', 'kind', 'institution', 'starting_balance_cents',
     'credit_limit_cents', 'apr_bps', 'minimum_payment_cents', 'statement_day',
@@ -89,7 +94,7 @@ const TABLE_ORDER: readonly BackupTable[] = IMPORT_TABLES
  * would insert NULL and trip the NOT NULL constraint — an explicit value is
  * needed to get the default behaviour. Mirrors the defaults in migrations.ts.
  */
-const TABLE_DEFAULTS: Record<BackupTable, Record<string, SqlValue>> = {
+export const TABLE_DEFAULTS: Record<BackupTable, Record<string, SqlValue>> = {
   accounts: {
     starting_balance_cents: 0,
     is_archived: 0,
@@ -277,6 +282,16 @@ export function mergeBackup(db: Db, userId: string, payload: BackupPayload): Mer
         payload.tables.settings.forEach((row, index) => {
           if (typeof row.key !== 'string' || row.key.trim().length === 0) {
             issues.push({ table, message: `${describeRow(table, row, index)}: no setting key` })
+            return
+          }
+          // An old backup carries keys this build deleted. Restoring them would
+          // resurrect dead settings that no screen reads and every future
+          // export would copy forward again.
+          if (!Object.hasOwn(DEFAULT_SETTINGS, row.key)) {
+            issues.push({
+              table,
+              message: `${describeRow(table, row, index)}: “${row.key}” is not a setting this build knows`
+            })
             return
           }
           if (row.key === 'currency' && !isCurrencyCode(String(row.value ?? ''))) {

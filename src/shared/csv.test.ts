@@ -65,7 +65,7 @@ test('the writer escapes what the reader expects to unescape', () => {
   ])
 })
 
-test('a slashed date that cannot be month-first is read day-first', () => {
+test('one day above 12 settles the date order for the whole file', () => {
   const { entries, issues } = parseEntriesCsv(
     [
       'Date,Account,Amount',
@@ -77,9 +77,59 @@ test('a slashed date that cannot be month-first is read day-first', () => {
   assert.deepEqual(issues, [])
   assert.deepEqual(
     entries.map((entry) => entry.occurredOn),
-    ['2026-12-31', '2026-03-04', '2026-12-07'],
-    'a day above 12 settles the order; otherwise the US default stands'
+    ['2026-12-31', '2026-04-03', '2026-12-07'],
+    'a day above 12 proves the file is day-first, so 03/04 is 3 April'
   )
+})
+
+test('dates that cannot prove their order are read month-first and say so', () => {
+  const { entries, issues } = parseEntriesCsv(
+    ['Date,Account,Amount', '03/04/2026,Chequing,-10', '05/06/2026,Chequing,-11'].join('\n')
+  )
+  assert.deepEqual(
+    entries.map((entry) => entry.occurredOn),
+    ['2026-03-04', '2026-05-06']
+  )
+  assert.equal(issues.length, 1)
+  assert.match(issues[0]?.message ?? '', /ambiguous; read as month\/day/)
+  assert.equal(issues[0]?.line, 2)
+})
+
+test('an export-import round trip drops the apostrophe the writer added', () => {
+  const csv = transactionsToCsv(
+    [
+      {
+        occurredOn: '2026-04-01',
+        accountName: '=Chequing',
+        accountId: 'a1',
+        kind: 'expense',
+        category: 'Misc',
+        memo: '=HYPERLINK("http://evil.example","click")',
+        amountCents: -1250
+      } as never
+    ],
+    [],
+    'USD'
+  )
+  const { entries, issues } = parseEntriesCsv(csv)
+  assert.deepEqual(issues, [])
+  assert.equal(entries[0]?.accountName, '=Chequing')
+  assert.equal(entries[0]?.memo, '=HYPERLINK("http://evil.example","click")')
+})
+
+test('a memo that genuinely starts with an apostrophe keeps it', () => {
+  const { entries } = parseEntriesCsv(
+    'Date,Account,Amount,Description\n2026-04-01,Chequing,-10,\'not a formula\n'
+  )
+  assert.equal(entries[0]?.memo, "'not a formula")
+})
+
+test('a kind a spreadsheet would mistake for an object member is not a kind', () => {
+  const { entries } = parseEntriesCsv(
+    'Date,Account,Kind,Amount\n2026-04-01,Chequing,constructor,-10\n'
+  )
+  assert.equal(entries[0]?.kind, 'expense', 'an unknown kind falls back to the amount sign')
+  assert.equal(entries[0]?.amountCents, -1000)
 })
 
 test('an entry row reports the line it came from, not its position after parsing', () => {
