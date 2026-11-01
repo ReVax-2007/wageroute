@@ -147,7 +147,7 @@ The app does not defend against malware running as the same user, an administrat
 | Secure delete | `PRAGMA secure_delete = ON` | Deleted rows do not linger in free pages |
 | Erase compacts the file | `VACUUM` + `wal_checkpoint(TRUNCATE)` in `compact()` | "Erase all data" leaves no recoverable rows in the database or the WAL |
 | Crash log | `logCrash()` in [src/main/log.ts](../src/main/log.ts) | A boot or renderer failure is recorded instead of vanishing |
-| User-scoped queries | `src/main/db/repositories.ts` | Every read and write includes `user_id`; one local user cannot address another's rows |
+| User-scoped queries | `src/main/db/repo/` | Every read and write includes `user_id`; one local user cannot address another's rows |
 | Prepared statements | repositories and backup merge | No user-supplied string is interpolated into SQL |
 | Column allowlists | `TABLE_COLUMNS` in `src/main/db/backup.ts` | Imported object keys never become SQL identifiers |
 | Import size cap | `MAX_IMPORT_BYTES = 64 MiB` | Trivial memory/disk exhaustion via a huge file |

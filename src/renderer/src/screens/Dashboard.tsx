@@ -4,6 +4,7 @@ import { wealthBuckets } from '@shared/accounts'
 import { formatMoney } from '@shared/money'
 import type { AllocationBucket } from '@shared/types'
 import { BillPrompts } from '../components/BillPrompts'
+import { DataTable } from '../components/DataTable'
 import { Donut, type DonutSlice } from '../components/Donut'
 import { Button, Card, EmptyState, Money, Progress } from '../components/ui'
 import {
@@ -482,39 +483,36 @@ export function Dashboard() {
             body="Add rows in the spreadsheet tab. Balances update from these entries."
           />
         ) : (
-          <table className="table">
-            <caption className="sr-only">The newest entries in the ledger</caption>
-            <thead>
-              <tr>
-                <th scope="col">Date</th>
-                <th scope="col">Description</th>
-                <th scope="col">Account</th>
-                <th scope="col">Category</th>
-                <th scope="col" className="right">
-                  Amount
-                </th>
+          <DataTable
+            caption="The newest entries in the ledger"
+            columns={[
+              { key: 'date', label: 'Date' },
+              { key: 'description', label: 'Description' },
+              { key: 'account', label: 'Account' },
+              { key: 'category', label: 'Category' },
+              { key: 'amount', label: 'Amount', className: 'right' }
+            ]}
+          >
+          <tbody>
+            {recent.map((transaction) => (
+              <tr key={transaction.id}>
+                <td className="num muted">{formatDateLong(transaction.occurredOn)}</td>
+                <td className="cell-strong">{transaction.memo || 'Untitled entry'}</td>
+                <td>{transaction.accountName}</td>
+                <td>
+                  <span className="chip">{transaction.category}</span>
+                </td>
+                <td className="right">
+                  <Money
+                    cents={transaction.amountCents}
+                    currency={currency}
+                    className={transaction.amountCents < 0 ? 'negative' : 'positive'}
+                  />
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {recent.map((transaction) => (
-                <tr key={transaction.id}>
-                  <td className="num muted">{formatDateLong(transaction.occurredOn)}</td>
-                  <td className="cell-strong">{transaction.memo || 'Untitled entry'}</td>
-                  <td>{transaction.accountName}</td>
-                  <td>
-                    <span className="chip">{transaction.category}</span>
-                  </td>
-                  <td className="right">
-                    <Money
-                      cents={transaction.amountCents}
-                      currency={currency}
-                      className={transaction.amountCents < 0 ? 'negative' : 'positive'}
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+            ))}
+          </tbody>
+          </DataTable>
         )}
       </Card>
     </>

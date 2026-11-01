@@ -210,6 +210,13 @@ export interface Snapshot {
   billReserves: BillReserve[]
 }
 
+/**
+ * The snapshot tables one write touched. The screen applies these instead of
+ * re-reading the whole ledger, which is what made every grid keystroke refetch
+ * every account, goal and payment in the file.
+ */
+export type SnapshotPatch = Partial<Snapshot>
+
 export interface AccountInput {
   name: string
   kind: AccountKind

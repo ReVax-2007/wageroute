@@ -1,5 +1,8 @@
 import { useMemo, useRef, useState } from 'react'
 import 'react-data-grid/lib/styles.css'
+// The grid's own theme and editor rules travel with the grid, so the rest of
+// the app never loads them.
+import '../styles/grid.css'
 import { Trash2 } from 'lucide-react'
 import {
   DataGrid,

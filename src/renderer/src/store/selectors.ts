@@ -1,0 +1,53 @@
+import {
+  poolEarmarkedGoalsCents,
+  safeToSpendPoolCents,
+  totalWealthCents
+} from '@shared/accounts'
+import { activeBills, cashOnHand, fundedGoalsCents, monthlyWall } from '../lib/finance'
+import type { FinanceState } from './types'
+
+/**
+ * Derived selectors return numbers only, so Zustand's default Object.is check
+ * keeps consumers from re-rendering on unrelated snapshot refreshes.
+ */
+type SnapshotState = Pick<FinanceState, 'snapshot'>
+
+export function selectCashOnHandCents(state: SnapshotState): number {
+  return state.snapshot ? cashOnHand(state.snapshot.accounts) : 0
+}
+
+/** Every live account summed, so credit balances subtract and investments count. */
+export function selectTotalWealthCents(state: SnapshotState): number {
+  return state.snapshot ? totalWealthCents(state.snapshot.accounts) : 0
+}
+
+export function selectSafeToSpendPoolCents(state: SnapshotState): number {
+  return state.snapshot ? safeToSpendPoolCents(state.snapshot.accounts) : 0
+}
+
+export function selectMonthlyWallCents(state: SnapshotState): number {
+  return state.snapshot ? monthlyWall(activeBills(state.snapshot.bills)) : 0
+}
+
+export function selectFundedGoalsCents(state: SnapshotState): number {
+  return state.snapshot ? fundedGoalsCents(state.snapshot.goals) : 0
+}
+
+export function selectPoolEarmarkedGoalsCents(state: SnapshotState): number {
+  return state.snapshot ? poolEarmarkedGoalsCents(state.snapshot.goals) : 0
+}
+
+/**
+ * Safe to Spend = the accounts the user treats as spendable − Priority Wall −
+ * the funded goals whose money sits in that pool. The pool is not "cash on
+ * hand": an account can be tracked as cash and still be excluded. A goal funded
+ * from a dedicated account is already outside the pool, so it is not deducted
+ * again — only the committed-spending meter below is measured against all cash.
+ */
+export function selectSafeToSpendCents(state: SnapshotState): number {
+  return (
+    selectSafeToSpendPoolCents(state) -
+    selectMonthlyWallCents(state) -
+    selectPoolEarmarkedGoalsCents(state)
+  )
+}

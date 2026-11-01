@@ -1,0 +1,43 @@
+import type { FinanceApi } from '@shared/api'
+import type { IpcCaller } from '@shared/channels'
+
+/**
+ * The bridge's whole surface, built from the shared channel contract. Kept free
+ * of Electron imports so a test can call every method and prove each one reaches
+ * a declared channel.
+ */
+export function createFinanceApi(call: IpcCaller): FinanceApi {
+  return {
+    getSnapshot: () => call('snapshot:get'),
+    getDatabasePath: () => call('db:path'),
+    getAppInfo: () => call('app:info'),
+
+    createAccount: (input) => call('account:create', input),
+    updateAccount: (id, input) => call('account:update', id, input),
+    deleteAccount: (id, options) => call('account:delete', id, options),
+    archiveAccount: (id, archived) => call('account:archive', id, archived),
+    accountEntryCount: (id) => call('account:entry-count', id),
+
+    createBill: (input) => call('bill:create', input),
+    updateBill: (id, input) => call('bill:update', id, input),
+    deleteBill: (id) => call('bill:delete', id),
+
+    createGoal: (input) => call('goal:create', input),
+    updateGoal: (id, input) => call('goal:update', id, input),
+    deleteGoal: (id) => call('goal:delete', id),
+    archiveGoal: (id, archived) => call('goal:archive', id, archived),
+
+    createTransaction: (input) => call('transaction:create', input),
+    updateTransaction: (id, input) => call('transaction:update', id, input),
+    deleteTransaction: (id) => call('transaction:delete', id),
+
+    commitPaycheck: (input) => call('paycheck:commit', input),
+    saveSettings: (settings) => call('settings:save', settings),
+
+    exportBackup: () => call('backup:export'),
+    exportTransactionsCsv: () => call('csv:export'),
+    previewImport: () => call('data:preview'),
+    confirmImport: (token, answers) => call('data:confirm', token, answers),
+    resetData: () => call('data:reset')
+  }
+}
