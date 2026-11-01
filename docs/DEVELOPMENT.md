@@ -55,7 +55,7 @@ npm run postinstall
 | `npm run dev` | `electron-vite dev` | Dev server, main/preload rebuild, hot renderer reload |
 | `npm start` | `electron-vite preview` | Run the production bundles in `out/` |
 | `npm run lint` | `node scripts/lint.mjs` | Repository-local checks: no `debugger`, no `console.log`/`console.debug`, no `@ts-ignore`/`@ts-expect-error`, no `any` cast and no `: any` annotation |
-| `npm test` | `node --import tsx --test` (twenty-six files listed explicitly) | Domain, cadence, categories, credit, payoff, history, accounts, importer, statements, backup-example, merge, migration, maintenance, entries, files, product model, preload bridge and repository tests |
+| `npm test` | `node --import tsx --test` (thirty files listed explicitly) | Domain, cadence, categories, credit, payoff, history, accounts, importer, statements, backup-example, export round-trip, merge, migration, maintenance, entries, files, product model, paycheck plan, allocator property, dialog focus, preload bridge and repository tests |
 | `npm run notices` | `node scripts/third-party-notices.mjs` | Regenerate `THIRD-PARTY-NOTICES.txt` from the production tree in `package-lock.json`; also runs as `prebuild` |
 | `npm run typecheck` | node + web type checks | Both TypeScript projects |
 | `npm run typecheck:node` | `tsc --noEmit -p tsconfig.node.json` | Main, preload, shared, config |
@@ -218,11 +218,12 @@ When a test requires moving a database aside, move it to a dated quarantine fold
 
 ## Testing
 
-Twenty-six files run by `npm test` through `node --test` with `tsx` as the loader — 205 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**; the `pretest` guard ([`scripts/check-test-list.mjs`](../scripts/check-test-list.mjs)) fails the run when a `*.test.ts` on disk is missing from that list, or when the list names a file that no longer exists.
+Thirty files run by `npm test` through `node --test` with `tsx` as the loader — 226 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**; the `pretest` guard ([`scripts/check-test-list.mjs`](../scripts/check-test-list.mjs)) fails the run when a `*.test.ts` on disk is missing from that list, or when the list names a file that no longer exists.
 
 | File | Style | Covers |
 | --- | --- | --- |
 | `domain.test.ts` | pure functions | money parsing and formatting boundaries; month-end date clamping and due-date derivation; allocator priority, shortfall, scaling, goal ordering, whole-dollar sweeping and the balance identity; debt as a surplus bucket; bill prompt chronology and early-payment window; round-up remainders and transfer legs; emergency variable averaging, essentials, target and coverage; settings defaults, corrupt input and round-trip serialization; CSV quoting, parsing, bank-style dates, duplicate headers and transfer rejection |
+| `allocator.property.test.ts` | pure functions, seeded randomness | 500 generated plans assert the allocation invariant every time: income clamped, every cent allocated, priority never above the required amount, goal fundings never above their need, integer non-negative buckets, a shortfall zeroing the surplus, and whole-dollar buckets landing on multiples of $1 |
 | `dates.test.ts` | pure functions | `isISODate` round-trips through `Date.UTC`: leap days, month ends, `2026-02-31`, `2026-13-01`, `0000-00-00` and the wrong shape |
 | `errors.test.ts` | pure functions | `RepositoryError` codes survive `encodeError`/`decodeError`; `apiErrorMessage`/`apiErrorCode` strip the marker; non-repository errors pass through unchanged |
 | `occurrences.test.ts` | pure functions | bill occurrence generation across cadences and month boundaries; the "third check" surplus case |
@@ -239,11 +240,14 @@ Twenty-six files run by `npm test` through `node --test` with `tsx` as the loade
 | `product-model.test.ts` | **real in-memory SQLite** | the v8 seed and text backfill; category dedupe, rename and delete; the ledger query filter/sort/page; bulk delete dedupe; daily snapshots once per day; autopay posts once, posts only the remainder of a part payment, and never guesses an account |
 | `backup-example.test.ts` | real file | `examples/backup.example.json` parses at the current `SCHEMA_VERSION` and every cross-table link — including an account dedicated to a goal — resolves, so the shipped example cannot silently drift |
 | `backup-merge.test.ts` | **real in-memory SQLite** | schema-defaulted columns import with the default instead of failing NOT NULL; one unusable row is reported rather than aborting the file; a settings row without a key is skipped; existing values survive while missing timestamps fill in; a dedicated account and its goal survive an export/import round trip; CSV names mapped in the wizard land on the chosen account; an unmapped name is left out once and the rest still imports; a mapping whose account disappeared reports the row instead of throwing |
-| `migrations.test.ts` | **real in-memory SQLite** | forward-only `user_version`; `SchemaTooNewError` carries the found and supported numbers and leaves `user_version` unchanged; each migration preserves existing rows |
+| `migrations.test.ts` | **real in-memory SQLite** | forward-only `user_version`; `SchemaTooNewError` carries the found and supported numbers and leaves `user_version` unchanged; each migration preserves existing rows; a v1 fixture migrates to the current schema with its EUR currency, opening balance and entry intact; a v2 debt allocation survives every later rebuild |
 | `reserves.test.ts` | **real in-memory SQLite** | `bill_reserves` rows are written and cleared with the bill lifecycle; a partial payment moves the reserve; the v7 migration backfills nothing it should not |
 | `legacy.test.ts` | temp directories | pre-rename adoption moves the database and its sidecars or leaves everything in place and reports why |
 | `entries.test.ts` | **real in-memory SQLite** | a statement lands on the account the wizard chose and re-imports as duplicates; an unanswered statement is reported once, not once per line |
+| `paycheck-plan.test.ts` | **real in-memory SQLite** | a retried draft id returns the first paycheck; a same-day second deposit or the same amount within ±3 days needs the duplicate flag; applying a plan posts one paired transfer per line, a second press moves nothing, and a later press moves only the unsettled lines; a savings share cannot land in checking, a goal share only in that goal’s own account, and a line with no matching account kind is refused before anything is written |
+| `export-roundtrip.test.ts` | **real in-memory SQLite** | 505 entries survive an export and re-import whole (505 added, 0 skipped; a second import adds 0 and skips 505); the 500-row default is a grid cap, not an export cap, and an explicit limit is honoured |
 | `api.test.ts` | pure | every bridge method reaches one declared channel and the contract has no extras; the bridge exposes exactly the channels the contract declares |
+| `ui.dialog.test.ts` | **jsdom + React 19 `act`** | `useDialog` moves focus into the panel, wraps Tab last → first and Shift+Tab first → last, closes on Escape, returns focus to the trigger and restores the body’s overflow |
 | `maintenance.test.ts` | real SQLite file | `quick_check` passes on a healthy file; a non-SQLite file raises `DatabaseCorruptError`; a pre-upgrade copy carries every row and prunes to the newest three; `VACUUM` + `secure_delete` leave a sentinel memo absent from the database file |
 | `ledger-guards.test.ts` | **real in-memory SQLite** | archived accounts are refused where they would be spent; a counter account on a non-transfer entry is refused; a round-up memo is clamped to 240 characters |
 | `files.test.ts` | temp directories | an atomic write replaces the file, leaves mode `0600` on POSIX and no temporary behind; a failed write leaves the previous file intact |
@@ -258,7 +262,7 @@ import assert from 'node:assert/strict'
 
 - Flat top-level `test('description', () => …)` calls — the suite does not use `describe`/`it`.
 - A database-backed test creates its own: `new Database(':memory:')` → `migrate(db)` → insert a `users` row with the fixed `USER_ID`, because every tenant query filters `user_id`. The `freshDb()` helper in `backup-merge.test.ts` is the pattern to copy; it is re-created per test.
-- Assertions are on plain values and integer cents, never on rendered output or snapshots. There is no Testing Library, no jsdom and no coverage tool.
+- Assertions are on plain values and integer cents, never on rendered output or snapshots. The one DOM test (`ui.dialog.test.ts`) drives the dialog hook through jsdom with React 19's `act`, and is the only place a component is mounted; there is no Testing Library and no coverage tool.
 
 Run:
 
@@ -271,10 +275,10 @@ npm test
 There are no automated:
 
 - IPC integration tests (the `data:preview`/`data:confirm` token lifecycle included);
-- React component tests — including the import wizard and the allocator;
+- React component tests beyond the dialog focus model — the import wizard, the allocator and every screen are still checked by hand;
 - end-to-end tests;
 - visual regression tests;
-- migration tests against fixture databases (the v2/v3 table rebuilds are verified by hand);
+- migration tests against every historical fixture — a v1 fixture now migrates to the current schema and a v2 debt allocation is proven to survive the rebuilds, but the v2/v3 migrations themselves are still only covered indirectly;
 - repository tests for the CRUD validators outside the two importer paths above.
 
 Those paths are verified manually. When changing them, use the disposable home and a copy of a real database, and document the manual check in the change description.
@@ -555,13 +559,16 @@ Architecture matters too: an arm64 Electron build needs an arm64 native module. 
 Before treating a change as complete, manually verify the paths that automated tests do not cover:
 
 - account creation, editing, adjustment and deletion;
-- paycheck commit and the resulting dashboard/donut state;
+- paycheck commit and the resulting dashboard/donut state, including a retried draft and the duplicate confirmation;
+- moving a routing plan from **Last routing**, and reopening it to find the lines already moved;
 - transfer creation, paired edit and paired delete;
 - round-up with each increment and destination type;
-- bill prompt detection, snooze and mark-paid;
+- bill prompt detection, snooze and mark-paid, and a payment settling the Priority Wall's **still unpaid** figure;
+- autopay on a bill whose due day has passed, including a part payment;
 - theme switching, including system mode;
 - JSON export → fresh-profile import;
-- CSV export → fresh-profile import;
+- CSV export → fresh-profile import, and CSV import through the wizard (its native file picker cannot be automated);
+- a bank statement (OFX/QFX or bank CSV) through the wizard;
 - partial JSON imports (settings only, transactions only);
 - migration from the previous schema version on a database copy.
 
