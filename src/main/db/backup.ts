@@ -92,6 +92,33 @@ export const TABLE_COLUMNS: Record<BackupTable, readonly string[]> = {
 const TABLE_ORDER: readonly BackupTable[] = IMPORT_TABLES
 
 /**
+ * Tables that only gain rows once a person has used the ledger. The seeded
+ * settings and starter categories are configuration, not history, so they do
+ * not make a profile "used" — otherwise the documented erase-then-restore path
+ * could never adopt the file's preferences.
+ */
+const HISTORY_TABLES: readonly BackupTable[] = [
+  'accounts',
+  'balance_snapshots',
+  'bills',
+  'goals',
+  'paychecks',
+  'allocations',
+  'bill_reserves',
+  'transactions'
+]
+
+function hasLedgerHistory(db: Db, userId: string): boolean {
+  for (const table of HISTORY_TABLES) {
+    const row = db
+      .prepare(`SELECT 1 FROM ${table} WHERE user_id = ? LIMIT 1`)
+      .get(userId)
+    if (row) return true
+  }
+  return false
+}
+
+/**
  * Columns the schema declares with a DEFAULT, keyed per table. The importer
  * lists every allowlisted column explicitly in its INSERT, so an omitted key
  * would insert NULL and trip the NOT NULL constraint — an explicit value is
@@ -311,6 +338,17 @@ export function mergeBackup(db: Db, userId: string, payload: BackupPayload): Mer
       billStrategies.set(row.id, row.strategy)
       billDueDays.set(row.id, row.dueDay)
     }
+    const liveBillIds = new Set<string>(
+      (
+        db
+          .prepare('SELECT id FROM bills WHERE user_id = ? AND deleted_at IS NULL')
+          .all(userId) as { id: string }[]
+      ).map((row) => row.id)
+    )
+    // A restore into a profile with no history (the erase-then-import path, or
+    // a fresh install) adopts the file's settings; any other import keeps the
+    // local value. Seeded defaults are not a choice the person made.
+    const ledgerIsEmpty = !hasLedgerHistory(db, userId)
 
     for (const table of TABLE_ORDER) {
       if (table === 'settings') {
@@ -318,6 +356,13 @@ export function mergeBackup(db: Db, userId: string, payload: BackupPayload): Mer
           `INSERT OR IGNORE INTO settings (user_id, key, value, updated_at)
            VALUES (?, ?, ?, ?)`
         )
+        const upsert = db.prepare(
+          `INSERT INTO settings (user_id, key, value, updated_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(user_id, key) DO UPDATE SET
+             value = excluded.value, updated_at = excluded.updated_at`
+        )
+        const localValue = db.prepare('SELECT value FROM settings WHERE user_id = ? AND key = ?')
         payload.tables.settings.forEach((row, index) => {
           if (typeof row.key !== 'string' || row.key.trim().length === 0) {
             issues.push({ table, message: `${describeRow(table, row, index)}: no setting key` })
@@ -344,9 +389,17 @@ export function mergeBackup(db: Db, userId: string, payload: BackupPayload): Mer
             typeof row.updated_at === 'string' ? row.updated_at : now
           try {
             const value = toSqlValue(row.value, 'value')
-            const result = insert.run(userId, row.key, String(value ?? ''), updatedAt)
-            if (result.changes > 0) added.settings += 1
-            else skipped.settings += 1
+            const text = String(value ?? '')
+            if (ledgerIsEmpty) {
+              const current = localValue.get(userId, row.key) as { value: string } | undefined
+              upsert.run(userId, row.key, text, updatedAt)
+              if (current?.value === text) skipped.settings += 1
+              else added.settings += 1
+            } else {
+              const result = insert.run(userId, row.key, text, updatedAt)
+              if (result.changes > 0) added.settings += 1
+              else skipped.settings += 1
+            }
           } catch (error) {
             issues.push({ table, message: `${describeRow(table, row, index)}: ${issueOf(error)}` })
           }
@@ -405,6 +458,21 @@ export function mergeBackup(db: Db, userId: string, payload: BackupPayload): Mer
                 ? localCategories.get(categoryKey(row.category))
                 : undefined)
             : undefined
+        // A live claim needs a live bill. If the file's bill was skipped
+        // because the local row is a tombstone (or the bill failed to import),
+        // inserting the claim would leave reserved money under a bill no screen
+        // can show and every later export would carry forward.
+        if (
+          table === 'bill_reserves' &&
+          (row.deleted_at === undefined || row.deleted_at === null) &&
+          !liveBillIds.has(String(row.bill_id ?? ''))
+        ) {
+          issues.push({
+            table,
+            message: `${describeRow(table, row, index)}: its bill was deleted or is not in this file`
+          })
+          return
+        }
         const defaults = TABLE_DEFAULTS[table]
         try {
           const values = columns.map((column) => {
@@ -425,6 +493,12 @@ export function mergeBackup(db: Db, userId: string, payload: BackupPayload): Mer
             }
             if (table === 'bill_reserves' && column === 'settled_by') {
               return row.settled_by === undefined ? null : toSqlValue(row.settled_by, column)
+            }
+            if (table === 'bill_reserves' && column === 'state') {
+              const stated = row.state
+              return stated === undefined || stated === null || stated === ''
+                ? 'reserved'
+                : toSqlValue(stated, column)
             }
             if (remappedCategory) {
               if (column === 'category_id') return remappedCategory.id
@@ -449,17 +523,20 @@ export function mergeBackup(db: Db, userId: string, payload: BackupPayload): Mer
           if (table === 'bills') {
             billStrategies.set(id, row.funding_strategy ?? 'all_checks')
             billDueDays.set(id, row.due_day ?? 1)
+            if (row.deleted_at === undefined || row.deleted_at === null) liveBillIds.add(id)
           }
         } catch (error) {
           issues.push({ table, message: `${describeRow(table, row, index)}: ${issueOf(error)}` })
         }
       })
     }
+    // A partial restore may have brought payments for a bill whose claims were
+    // already in the ledger (or the other way round), so derive the claim states
+    // from what the merged ledger now holds. Inside the same transaction: if a
+    // derivation fails, the whole import rolls back instead of committing rows
+    // whose claims were only half replayed.
+    reconcileAllBillReserves(db, userId)
   })()
-  // A partial restore may have brought payments for a bill whose claims were
-  // already in the ledger (or the other way round), so derive the claim states
-  // from what the merged ledger now holds.
-  reconcileAllBillReserves(db, userId)
 
   return { added, skipped, issues, generatedIds }
 }

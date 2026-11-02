@@ -48,6 +48,11 @@ export interface FieldSpec {
   refTable?: ImportChoiceTable
   /** Nullable references can be cleared instead of pointed at something. */
   nullable?: boolean
+  /**
+   * The schema fills this when the file leaves it empty. A present value is
+   * still validated, but a blank one is not a question the wizard must ask.
+   */
+  hasDefault?: boolean
 }
 
 const KIND_ACCOUNT = ['checking', 'savings', 'cash', 'investment', 'credit']
@@ -107,7 +112,13 @@ const REQUIRED_FIELDS: Record<ImportTable, readonly FieldSpec[]> = {
   bill_reserves: [
     { column: 'cycle', label: 'Reserve month', input: 'text' },
     { column: 'amount_cents', label: 'Reserved amount', input: 'money', min: 0 },
-    { column: 'state', label: 'Reserve state', input: 'enum', options: KIND_RESERVE }
+    {
+      column: 'state',
+      label: 'Reserve state',
+      input: 'enum',
+      options: KIND_RESERVE,
+      hasDefault: true
+    }
   ],
   transactions: [
     { column: 'kind', label: 'Transaction type', input: 'enum', options: KIND_TRANSACTION },
@@ -310,7 +321,9 @@ export function findImportProblems(
       for (const spec of REQUIRED_FIELDS[table]) {
         const value = row[spec.column]
         if (isEmpty(value)) {
-          push(table, row, index, spec, true, value)
+          // A blank value the schema can default is not a question. Dropping
+          // the row over it would throw away the money the row represents.
+          if (!spec.hasDefault) push(table, row, index, spec, true, value)
           continue
         }
         const verdict = validateFieldValue(spec, value, context)

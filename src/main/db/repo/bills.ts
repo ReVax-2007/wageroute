@@ -327,8 +327,10 @@ export function reconcileBillReserve(db: Db, userId: string, billId: string): vo
        FROM bill_reserves r
        JOIN bills b ON b.id = r.bill_id AND b.user_id = r.user_id
                    AND b.deleted_at IS NULL
+       -- A tombstoned cheque is still the cheque that wrote the claim: a merge
+       -- can bring the claim and its payment without resurrecting the row, and
+       -- the claim must not stay reserved because the money already left.
        JOIN paychecks p ON p.id = r.paycheck_id AND p.user_id = r.user_id
-                       AND p.deleted_at IS NULL
        WHERE r.user_id = ? AND r.bill_id = ? AND r.deleted_at IS NULL
          AND r.amount_cents > 0
        ORDER BY r.cycle ASC, r.created_at ASC, r.id ASC`

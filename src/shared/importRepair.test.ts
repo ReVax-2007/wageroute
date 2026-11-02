@@ -329,3 +329,39 @@ test('a dedicated account pointing at a goal that is not there is asked for', ()
   assert.equal(result.tables.accounts.length, 1)
   assert.equal(result.tables.accounts[0].dedicated_goal_id, null)
 })
+
+test('a reserve without a state is not a question, because the importer defaults it', () => {
+  const tables = emptyTables()
+  tables.bill_reserves.push({
+    id: 'res-1',
+    bill_id: 'bill-1',
+    paycheck_id: 'pay-1',
+    cycle: '2026-02',
+    amount_cents: 120000
+  })
+  const ctx = context()
+  ctx.knownIds.bills.add('bill-1')
+  ctx.knownIds.paychecks.add('pay-1')
+
+  assert.deepEqual(findImportProblems(tables, ctx), [], 'dropping the claim would drop its money')
+})
+
+test('a reserve with a value the ledger cannot store is still asked about', () => {
+  const tables = emptyTables()
+  tables.bill_reserves.push({
+    id: 'res-1',
+    bill_id: 'bill-1',
+    paycheck_id: 'pay-1',
+    cycle: '2026-02',
+    amount_cents: 120000,
+    state: 'lost'
+  })
+  const ctx = context()
+  ctx.knownIds.bills.add('bill-1')
+  ctx.knownIds.paychecks.add('pay-1')
+
+  const problems = findImportProblems(tables, ctx)
+  assert.equal(problems.length, 1)
+  assert.equal(problems[0].field.column, 'state')
+  assert.match(problems[0].reason, /not valid/)
+})

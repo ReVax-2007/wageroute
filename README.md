@@ -64,7 +64,7 @@ These are product and engineering constraints, not aspirations.
 3. **The ledger is the source of truth.** Account balances are `starting_balance + SUM(entries)`. A correction is an adjustment row, never a silent overwrite.
 4. **Routing is an envelope plan, not a bank transfer.** Committing a paycheck records income and allocation lines; it does not move money between accounts. Transfers and round-ups are separate, explicit ledger entries.
 5. **Deletes are soft.** Rows get `deleted_at` tombstones so history and future sync stay coherent.
-6. **Imports only add.** Existing rows and existing settings win. Nothing local is removed by an import.
+6. **Imports only add.** Existing rows and existing settings win. The one exception is a restore into a profile with no history, which adopts the file's settings. Nothing local is removed by an import.
 7. **Local by default.** No server, no network calls in application code, no analytics, no auto-update.
 8. **Deterministic domain logic.** The allocator, account and wealth rules, cadence maths, emergency calculator, projections and bill prompts are pure functions in `src/shared`, covered by Node tests.
 9. **A dedicated account is the exception to rule 4.** Marking an account "only for" a goal makes its balance the goal's progress, and takes it out of the spendable pool so the same money is never counted twice. [ADR 0007](docs/decisions/0007-dedicated-accounts-balance-is-progress.md) records why, and what it costs.
@@ -184,7 +184,7 @@ The app was previously named **Cash Flow Routing**. On first launch, if the new 
 - **Export transactions CSV** writes the **whole** ledger — not the 500-row screen snapshot — with Date, Account, Institution, Kind, Category, Description, Amount and Currency. Both exports are written owner-only (`0600`).
 - **Import data** accepts a backup, an entries CSV, a bank statement (OFX/QFX or QIF) or a CSV with no account column, and walks you through a three-step wizard. JSON may contain only some tables. CSV is treated as entries and matched to local accounts by name (optionally narrowed by institution); a statement is imported into the one account you pick, and a transaction the bank identifies with a FITID (or a CSV reference) is never added twice. When the statement carries a closing balance it is compared with your ledger, and one adjustment is offered if the two disagree.
 - **The wizard asks instead of failing.** Anything a row is missing, mis-typed, out of range or pointing at — plus CSV account names that match nothing — is put to you as a question with a fix-or-leave-out choice. Rows you cannot fix are left out with an explanation of what was wrong and how to repair the file; the rest of the import still lands.
-- Imports are additive: existing IDs are skipped, existing settings keys win, and re-importing the same file changes nothing.
+- Imports are additive: existing IDs are skipped, existing settings keys win once the ledger has history, and re-importing the same file changes nothing. A backup restored into an empty profile also supplies its own settings.
 
 Full format rules, examples and failure modes are in [docs/IMPORT-EXPORT.md](docs/IMPORT-EXPORT.md).
 

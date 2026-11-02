@@ -200,7 +200,7 @@ JSON import is additive:
 - rows with IDs that already exist are skipped;
 - new rows are added;
 - duplicate account names with different IDs are **not** merged;
-- settings already present locally win.
+- settings already present on a ledger with history win; a backup imported into an empty profile supplies the settings too.
 
 This is safe for appending history, but it is not a merge tool. If the two databases contain separate accounts with the same names, expect duplicates.
 

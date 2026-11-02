@@ -29,6 +29,12 @@ No code has shipped since 1.2.0. Everything below this line landed on `main` aft
 
 ### Fixed
 
+- **Restoring a backup after an erase brings your settings back.** Importing into a profile with no accounts, bills, goals, cheques or entries now replaces the seeded defaults with the file's values, so currency, pay cadence, splits, round-up and emergency choices survive the documented erase-then-import recovery. A ledger that already has history still keeps its local settings, and a value identical to the seed is counted as skipped.
+- **A merge cannot leave a live claim under a dead parent.** A reserve whose bill was deleted locally is reported (`its bill was deleted or is not in this file`) and left out instead of holding money no screen can show; a reserve whose funding cheque is a tombstone still imports, and the claim replay reads that cheque so its payment marks the claim paid rather than reserved.
+- **An import never commits a half-replayed ledger.** Claim derivation now runs inside the merge transaction, so a failure during the replay rolls the whole import back instead of leaving some bills re-derived and others stale.
+- **A reserve without a `state` is filled, not asked about.** `bill_reserves.state` has a schema default, so the wizard no longer asks for it and an unanswered claim is no longer dropped along with the money it represents; a value the ledger cannot store is still questioned.
+- **The shipped example backup agrees with its own payment.** Its October rent claim is `paid` and names the payment that closed it, and a test now merges the example into a fresh ledger so the fixture cannot drift from the replay again.
+
 - **A sinking fund no longer has to take paycheck money it does not need.** The allocator used to fund every eligible goal with as much of the goal slice as it could. Each goal now carries its own pace: **As fast as possible** (the old behaviour), **Spread until the target date** (only this cheque's share), or **Paused** (nothing at all). A paused or fully funded goal cannot lower the money routed to savings, investments or debt.
 
 - **A quarterly or annual bill no longer stays reserved after it is paid.** Its single payment had to pass the monthly carry rule, which required the funding cheque to fall after the bill's due day, so a 1,200,000 annual payment closed one 100,000 slice and left eleven reading `reserved`. A smoothed bill now clears every earlier claim whose cheque had arrived.
