@@ -1,8 +1,10 @@
-/* WageRoute Pocket keeps its own shell on the phone so the ledger opens with
-   no signal. Nothing here touches the ledger itself: that lives in IndexedDB.
-   Bump SHELL_VERSION whenever the app is released so old files are dropped. */
+/* WageRoute Pocket keeps its own shell and the release's hashed scripts on the
+   phone so the ledger opens with no signal. Nothing here touches the ledger
+   itself: that lives in IndexedDB. The build fills in the version and the asset
+   list below; in development the list is empty and assets cache as they load. */
 
-const SHELL_VERSION = 'pocket-1'
+const SHELL_VERSION = '__SHELL_VERSION__'
+const ASSETS = /* __PRECACHE__ */ []
 const SHELL = [
   './',
   './index.html',
@@ -16,10 +18,15 @@ const SHELL = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches
-      .open(SHELL_VERSION)
-      .then((cache) => cache.addAll(SHELL))
-      .then(() => self.skipWaiting())
+    (async () => {
+      const cache = await caches.open(SHELL_VERSION)
+      // The core files must all arrive or a reopen without signal shows a
+      // blank page. Hashed assets are added one by one, so one bad file cannot
+      // block an otherwise working offline shell.
+      await cache.addAll(SHELL)
+      await Promise.all(ASSETS.map((url) => cache.add(url).catch(() => undefined)))
+      await self.skipWaiting()
+    })()
   )
 })
 
@@ -49,9 +56,15 @@ async function assetResponse(request) {
   const cache = await caches.open(SHELL_VERSION)
   const hit = await cache.match(request)
   if (hit) return hit
-  const response = await fetch(request)
-  if (response.ok && response.type === 'basic') cache.put(request, response.clone())
-  return response
+  try {
+    const response = await fetch(request)
+    if (response.ok && response.type === 'basic') cache.put(request, response.clone())
+    return response
+  } catch {
+    // No cached copy and no signal. Answer with a failed response instead of
+    // rejecting the fetch handler, which would leave an unhandled error.
+    return Response.error()
+  }
 }
 
 self.addEventListener('fetch', (event) => {

@@ -470,6 +470,42 @@ test('a part payment is surfaced with what is already matched, not hidden', () =
   assert.deepEqual(settled, [], 'two parts that add up to the bill close the prompt')
 })
 
+test('a refund gives back what it returned instead of counting as a payment', () => {
+  const bill = {
+    id: 'water',
+    name: 'Water',
+    amountCents: 10_000,
+    frequency: 'monthly' as const,
+    dueDay: 1,
+    nextDueOn: null,
+    category: 'Utilities',
+    accountId: null,
+    isActive: true,
+    autopay: false
+  }
+
+  const [refundedOnly] = dueBillPrompts({
+    bills: [bill],
+    payments: [
+      { billId: 'water', occurredOn: '2026-10-02', amountCents: -10_000 },
+      { billId: 'water', occurredOn: '2026-10-03', amountCents: 10_000 }
+    ],
+    todayISO: '2026-10-05'
+  })
+  assert.equal(refundedOnly.billId, 'water', 'a full refund leaves the bill unpaid')
+  assert.equal(refundedOnly.paidCents, 0)
+
+  const [partial] = dueBillPrompts({
+    bills: [bill],
+    payments: [
+      { billId: 'water', occurredOn: '2026-10-02', amountCents: -10_000 },
+      { billId: 'water', occurredOn: '2026-10-03', amountCents: 3_000 }
+    ],
+    todayISO: '2026-10-05'
+  })
+  assert.equal(partial.paidCents, 7_000, 'only the net payment counts')
+})
+
 test('round-up sweeps the remainder to the next increment, never the exact amount', () => {
   assert.equal(roundUpRemainderCents(1240, 100), 60)
   assert.equal(roundUpRemainderCents(1200, 100), 0)

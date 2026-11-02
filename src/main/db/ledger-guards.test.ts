@@ -15,7 +15,9 @@ import {
   createGoal,
   createTransaction,
   deleteAccount,
+  deleteBill,
   deleteTransaction,
+  deleteTransactions,
   getSnapshot,
   listAccounts,
   listBills,
@@ -23,6 +25,7 @@ import {
   listImportChoices,
   listTransactions,
   readSettings,
+  roundUpSweepIds,
   setAccountArchived,
   transactionRowsFor,
   updateBill,
@@ -654,4 +657,75 @@ test('a round-up sweep comes back with the purchase that made it', () => {
     ])
   )
   assert.equal(rows.length, 3, 'the purchase and both sweep legs')
+})
+
+test('an edit that retires a round-up names the sweep so the screen can drop it', () => {
+  const db = freshDb()
+  const checking = account(db, 'Chequing')
+  const savings = account(db, 'Savings', 'savings')
+  writeSettings(db, USER_ID, {
+    roundUpEnabled: '1',
+    roundUpAccountId: savings,
+    roundUpToCents: '100'
+  })
+  const purchaseId = entry(db, checking, { amountCents: -1_040 })
+  const before = roundUpSweepIds(db, USER_ID, purchaseId)
+  assert.equal(before.length, 2, 'a sweep is a pair of transfer legs')
+
+  updateTransaction(db, USER_ID, purchaseId, { amountCents: -1_000 })
+
+  assert.deepEqual(roundUpSweepIds(db, USER_ID, purchaseId), [], 'a round amount needs no sweep')
+  const rows = transactionRowsFor(db, USER_ID, purchaseId)
+  assert.deepEqual(
+    rows.map((row) => row.id),
+    [purchaseId],
+    'the retired legs are no longer part of the purchase’s rows'
+  )
+  assert.ok(before.every((id) => !rows.some((row) => row.id === id)))
+})
+
+test('a bulk delete counts both legs of a transfer', () => {
+  const db = freshDb()
+  const checking = account(db, 'Chequing')
+  const savings = account(db, 'Savings', 'savings')
+  const outId = entry(db, checking, {
+    kind: 'transfer',
+    amountCents: 5_000,
+    counterAccountId: savings
+  })
+
+  assert.equal(deleteTransactions(db, USER_ID, [outId]), 2, 'a paired transfer is two entries')
+  assert.equal(listTransactions(db, USER_ID).length, 0)
+})
+
+test('deleting a bill turns its live payments into ordinary expenses', () => {
+  const db = freshDb()
+  const checking = account(db, 'Chequing')
+  const billId = createBill(db, USER_ID, {
+    name: 'Water',
+    amountCents: 5_000,
+    frequency: 'monthly',
+    dueDay: 15,
+    category: 'Utilities',
+    accountId: checking,
+    autopay: false,
+    isActive: true,
+    nextDueOn: null
+  })
+  const paymentId = createTransaction(db, USER_ID, {
+    accountId: checking,
+    kind: 'bill_payment',
+    amountCents: -5_000,
+    occurredOn: '2026-03-10',
+    memo: 'Water',
+    category: 'Utilities',
+    billId
+  })
+
+  deleteBill(db, USER_ID, billId)
+
+  const payment = listTransactions(db, USER_ID).find((row) => row.id === paymentId)
+  assert.ok(payment)
+  assert.equal(payment.billId, null, 'the live entry no longer points at a tombstone')
+  assert.equal(payment.amountCents, -5_000, 'the money itself is untouched')
 })

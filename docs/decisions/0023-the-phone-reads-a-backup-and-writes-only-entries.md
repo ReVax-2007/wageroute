@@ -12,7 +12,7 @@ The phone also cannot see the desktop's history of edits and deletions. Desktop 
 
 ## Decision
 
-**Pocket is a static, installable web app that opens a backup, rebuilds the desktop's snapshot in the browser, and exports an additive backup that contains only the entries it added.**
+**Pocket is a static, installable web app that opens a backup, rebuilds the desktop's snapshot in the browser, and exports an additive backup that carries the original tables with the phone's entries appended.**
 
 1. **There is no server and no account.** The built app is static files (HTML, CSS, JS, icons, a manifest and a service worker). It can be hosted on any static origin, including GitHub Pages, and it works with no signal. The only file it asks for is one the user chooses; nothing is uploaded.
 2. **The ledger lives in IndexedDB.** The imported tables, the schema version, the source file name and the ids the phone created are stored under one key in the browser's own database. Closing the tab, going offline or restarting the phone does not lose them. Clearing site data, or using a different browser, does.

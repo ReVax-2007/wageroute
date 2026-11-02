@@ -180,8 +180,13 @@ export function Settings() {
       setCopied(true)
       window.setTimeout(() => setCopied(false), 2000)
     } catch {
-      setDiagnosticsError('The clipboard refused the copy. The details below stay selectable.')
-      await loadDiagnostics()
+      // loadDiagnostics clears the error slot when it succeeds, so say what
+      // happened only after the details are on screen; if loading them failed,
+      // its message is the one worth keeping.
+      const loaded = await loadDiagnostics()
+      if (loaded) {
+        setDiagnosticsError('The clipboard refused the copy. The details below stay selectable.')
+      }
     }
   }
 

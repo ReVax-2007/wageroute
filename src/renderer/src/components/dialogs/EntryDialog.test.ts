@@ -170,7 +170,17 @@ test('a bill payment asks for the bill and posts the link', async () => {
     assert.match(window.document.body.textContent ?? '', /Choose the bill this payment covers/)
     assert.equal(sent.length, 0)
 
-    await act(async () => choose(bill, 'b1'))
+    // Changing the kind while the dialog is still open drops the link, so a
+    // stale bill cannot ride along. This runs before submit, while the dialog
+    // the user actually sees is still mounted.
+    await act(async () => choose(kind, 'expense'))
+    assert.equal(field('Bill'), null, 'the picker disappears with the kind')
+    await act(async () => choose(kind, 'bill_payment'))
+    const cleared = field('Bill')?.querySelector('select') as HTMLSelectElement | null
+    assert.ok(cleared, 'the picker returns for the bill-payment kind')
+    assert.equal(cleared.value, '', 'the cleared link does not come back with the picker')
+
+    await act(async () => choose(cleared, 'b1'))
     await act(async () => addButton().click())
 
     assert.equal(sent.length, 1)
@@ -179,10 +189,6 @@ test('a bill payment asks for the bill and posts the link', async () => {
     assert.equal(sent[0].goalId, null)
     assert.equal(sent[0].amountCents, -5_000, 'a bill payment is money out')
     assert.equal(closed.count, 1, 'the dialog closes after a successful write')
-
-    // Changing the kind drops the link, so a stale bill cannot ride along.
-    await act(async () => choose(kind, 'expense'))
-    assert.equal(field('Bill'), null, 'the picker disappears with the kind')
   } finally {
     mounted.unmount()
   }

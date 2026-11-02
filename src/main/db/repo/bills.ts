@@ -153,8 +153,16 @@ export function updateBill(
 }
 
 export function deleteBill(db: Db, userId: string, id: string): void {
+  const ts = nowISO()
   db.transaction(() => {
     softDeleteBillReserves(db, userId, { billId: id })
+    // The bill is gone, so a live payment must not keep pointing at its
+    // tombstone: the entry stays as an ordinary expense, with its own memo.
+    db.prepare(
+      `UPDATE transactions
+       SET bill_id = NULL, updated_at = ?, revision = revision + 1
+       WHERE bill_id = ? AND user_id = ? AND deleted_at IS NULL`
+    ).run(ts, id, userId)
     softDelete(db, 'bills', id, userId)
   })()
 }

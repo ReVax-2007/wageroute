@@ -40,6 +40,12 @@ function summarise(message: string): string {
   return message.endsWith('.') ? message : `${message}.`
 }
 
+function storageMessage(error: unknown, prefix = 'Saved on this screen only'): string {
+  return error instanceof Error
+    ? summarise(`${prefix}: ${error.message}`)
+    : `${prefix}: phone storage refused the write.`
+}
+
 async function persist(state: PocketState): Promise<void> {
   if (!state.tables || !state.importedAt) return
   const ledger: StoredLedger = {
@@ -58,16 +64,13 @@ export const usePocket = create<PocketState>((set, get) => {
     localIds: string[],
     notice: string | null = null
   ): Promise<void> => {
-    set({ tables, localIds, notice, error: null })
+    set({ tables, localIds, notice: null, error: null })
     try {
       await persist(get())
+      // Only claim it was saved once storage has actually accepted it.
+      if (notice) set({ notice })
     } catch (error) {
-      set({
-        error:
-          error instanceof Error
-            ? summarise(`Saved on this screen only: ${error.message}`)
-            : 'Saved on this screen only: phone storage refused the write.'
-      })
+      set({ error: storageMessage(error) })
     }
   }
 
@@ -86,7 +89,7 @@ export const usePocket = create<PocketState>((set, get) => {
       try {
         const stored = await readLedger()
         if (!stored) {
-          set({ status: 'empty' })
+          set({ status: 'empty', error: null })
           return
         }
         set({
@@ -96,34 +99,50 @@ export const usePocket = create<PocketState>((set, get) => {
           importedAt: stored.importedAt,
           sourceName: stored.sourceName,
           localIds: stored.localIds ?? [],
-          newerSchema: stored.version > KNOWN_BACKUP_VERSION
+          newerSchema: stored.version > KNOWN_BACKUP_VERSION,
+          error: null
         })
-      } catch {
-        set({ status: 'empty' })
+      } catch (error) {
+        // Storage refused to open, which is not the same as having no ledger.
+        // The welcome screen shows this reason instead of a silent empty app.
+        set({
+          status: 'empty',
+          error: storageMessage(error, "This phone's storage could not be opened")
+        })
       }
     },
 
     importFile: async (text, name) => {
+      let backup: PocketBackup
       try {
-        const backup = parseBackup(text)
-        set({
-          status: 'ready',
-          tables: backup.tables,
-          version: backup.version,
-          importedAt: backup.exportedAt || new Date().toISOString(),
-          sourceName: name,
-          localIds: [],
-          newerSchema: backup.version > KNOWN_BACKUP_VERSION,
-          error: null,
-          notice: 'Your ledger is on this phone now. It stays here.'
-        })
-        await persist(get())
+        backup = parseBackup(text)
       } catch (error) {
         if (error instanceof BackupFileError) {
           set({ error: summarise(error.message) })
           return
         }
         throw error
+      }
+      set({
+        status: 'ready',
+        tables: backup.tables,
+        version: backup.version,
+        importedAt: backup.exportedAt || new Date().toISOString(),
+        sourceName: name,
+        localIds: [],
+        newerSchema: backup.version > KNOWN_BACKUP_VERSION,
+        error: null,
+        notice: null
+      })
+      try {
+        await persist(get())
+        set({ notice: 'Your ledger is on this phone now. It stays here.' })
+      } catch (error) {
+        // The file opened and its numbers are on screen, but it will not
+        // survive a reload. Say that rather than claiming it was stored.
+        set({
+          error: storageMessage(error, 'Opened, but this phone could not store it')
+        })
       }
     },
 
@@ -142,6 +161,15 @@ export const usePocket = create<PocketState>((set, get) => {
     deleteEntry: async (id) => {
       const current = get()
       if (!current.tables) return
+      // Only entries this phone added may be removed. Desktop rows cannot be
+      // expressed as a deletion in the additive export, so deleting one here
+      // would only hide it until the next backup replaces the copy.
+      if (!current.localIds.includes(id)) {
+        set({
+          error: 'That entry came from your computer. Remove it there, then open a new backup here.'
+        })
+        return
+      }
       const tables: ImportTables = {
         ...current.tables,
         transactions: current.tables.transactions.filter((row) => row.id !== id)
@@ -154,20 +182,25 @@ export const usePocket = create<PocketState>((set, get) => {
     },
 
     forget: async () => {
+      let failure: string | null = null
       try {
         await deleteLedger()
-      } finally {
-        set({
-          status: 'empty',
-          tables: null,
-          importedAt: null,
-          sourceName: null,
-          localIds: [],
-          notice: 'This phone no longer holds your ledger.',
-          error: null,
-          newerSchema: false
-        })
+      } catch (error) {
+        failure = storageMessage(
+          error,
+          'The screen is clear, but phone storage would not erase the copy'
+        )
       }
+      set({
+        status: 'empty',
+        tables: null,
+        importedAt: null,
+        sourceName: null,
+        localIds: [],
+        notice: failure ? null : 'This phone no longer holds your ledger.',
+        error: failure,
+        newerSchema: false
+      })
     },
 
     exportJson: () => {

@@ -45,6 +45,7 @@ export {
   insertTransactionRow,
   createTransaction,
   updateTransaction,
+  roundUpSweepIds,
   deleteTransaction,
   deleteTransactions,
   reconcileAccountOn,

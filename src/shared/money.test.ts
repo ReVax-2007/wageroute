@@ -37,6 +37,16 @@ test('sanitized money still parses to the same cents', () => {
   }
 })
 
+test('a decimal comma survives the input sanitiser instead of scaling the amount', () => {
+  assert.equal(sanitizeMoneyInput('12,50'), '12.50')
+  assert.equal(sanitizeMoneyInput('1.850,00'), '1850.00')
+  assert.equal(sanitizeMoneyInput('1,234.56'), '1234.56')
+  assert.equal(sanitizeMoneyInput('12,'), '12.')
+  assert.equal(sanitizeMoneyInput(',50'), '.50')
+  assert.equal(parseMoneyToCents(sanitizeMoneyInput('12,50')), 1250)
+  assert.equal(parseMoneyToCents(sanitizeMoneyInput('1.850,00')), 185000)
+})
+
 test('a comma reads as a decimal when that is the only sensible reading', () => {
   assert.equal(parseMoneyToCents('12,50'), 1250)
   assert.equal(parseMoneyToCents('0,99'), 99)

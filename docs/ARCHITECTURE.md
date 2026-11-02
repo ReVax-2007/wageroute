@@ -288,16 +288,19 @@ indexedDB ◄── writeLedger ◄── store (zustand) ◄────┘
 
 | Module | Responsibility |
 | --- | --- |
-| `lib/backup.ts` | Validates the file, fills missing tables, keeps the schema version and serializes the export |
-| `lib/snapshot.ts` | The parity layer: derives balances, transaction caps, goal funding, bill payments, reserves, paychecks and settings from the same table rows the desktop exports. It reimplements reads, not arithmetic |
-| `lib/compute.ts` | Calls `safeToSpendPoolCents`, `unpaidMonthlyWallCents`, `poolEarmarkedGoalsCents`, `unsettledRoutingCents`, `monthlyWall` and `goalsSummary`; derives bill states and the due-soon horizon |
+| `lib/backup.ts` | Validates the file and every row (known enums for known versions, whole-number money), fills missing tables, keeps the schema version and serializes the export |
+| `lib/enums.ts` | The one set of allowed values for account kinds, transaction kinds, frequencies, funding strategies, allocation buckets, category kinds, plan health, reserve states and goal paces, shared by validation and the snapshot |
+| `lib/snapshot.ts` | The parity layer: derives balances, transaction caps, goal funding, bill payments, reserves, paychecks and settings from the same table rows the desktop exports. It reimplements reads, not arithmetic, and sorts rows by code unit so the order matches SQLite's binary collation |
+| `lib/compute.ts` | Calls `safeToSpendPoolCents`, `unpaidMonthlyWallCents`, `poolEarmarkedGoalsCents`, `unsettledRoutingCents`, `monthlyWall` and `goalsSummary`; derives bill states from `nextBillOccurrence` and the due-soon horizon |
 | `lib/entry.ts` | Builds one expense/income transaction row with a new UUID, the right sign, a real date and an allowed account; returns a plain reason when it cannot |
 | `lib/store.ts` | Loads IndexedDB, imports/replaces, adds and removes local entries, exports, forgets, and surfaces storage failures |
-| `lib/idb.ts` | One IndexedDB database, one `ledger` store, one `current` key |
+| `lib/idb.ts` | One IndexedDB database, one `ledger` store, one `current` key; a failed open is not cached and a version change closes the connection |
 | `lib/install.ts` | Captures `beforeinstallprompt` at module load, reports standalone mode and exposes the deferred prompt |
-| `public/sw.js` | Versioned shell cache, network-first navigation and cache-first hashed assets |
+| `public/sw.js` | Versioned shell cache, network-first navigation and cache-first hashed assets; the build injects the release stamp and the precache list |
 
 The boundary is deliberate: the phone can add only rows the desktop's additive import can express. It does not edit or delete desktop rows, and it does not record bill payments, because the export has no way to carry an edit, a deletion or a claim settlement. A phone entry is a new UUID, so the desktop can always tell it apart and add it once.
+
+The offline shell is generated, not hand-listed: a Vite `closeBundle` plugin fills `SHELL_VERSION` and `__PRECACHE__` in `public/sw.js` with the package version, a build hash and the sorted hashed assets, so a cold offline open does not request a bundle the cache never held. A row that does not match the schema it claims — an unknown enum for a version the build knows, or money that is not a whole number — is refused at parse time rather than coerced into a value the user never wrote.
 
 `src/pocket/lib/snapshot.test.ts` builds a migrated demo database, exports it through the desktop backup builder, opens it on the phone and asserts every displayed total against the desktop's own selectors. `backup.test.ts` proves the export merges into a desktop database exactly once. The pocket TypeScript project includes `src/shared` and `src/renderer/src/lib/finance.ts`, so a change to either must still satisfy all three type checks.
 

@@ -63,11 +63,14 @@ export function dueBillPrompts(input: {
 
     const nextOn = nextBillOccurrence(bill, addDaysISO(dueOn, 1))
     const windowStart = addDaysISO(dueOn, -EARLY_WINDOW_DAYS)
-    const paidCents = (byBill.get(bill.id) ?? [])
+    // Money out is negative on the ledger, so net the signed amounts: an
+    // imported refund must give back what it returned, not count as a payment.
+    const netPaid = (byBill.get(bill.id) ?? [])
       .filter(
         (payment) => payment.occurredOn >= windowStart && payment.occurredOn < nextOn
       )
-      .reduce((total, payment) => total + Math.abs(payment.amountCents), 0)
+      .reduce((total, payment) => total - payment.amountCents, 0)
+    const paidCents = Math.max(0, netPaid)
     if (paidCents >= bill.amountCents) continue
 
     prompts.push({

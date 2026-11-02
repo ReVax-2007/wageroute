@@ -17,16 +17,22 @@ export function sanitizePercentInput(raw: string): string {
 
 function sanitizeDecimalInput(raw: string, allowNegative: boolean): string {
   const text = typeof raw === 'string' ? raw : ''
-  let negative = false
+  // A leading minus may sit after a currency symbol, but not after a digit: the
+  // same rule the field always had, now decided before separators are touched.
+  const firstValueChar = text.search(/[0-9.]/)
+  const minusAt = text.indexOf('-')
+  const negative =
+    allowNegative && minusAt !== -1 && (firstValueChar === -1 || minusAt < firstValueChar)
+
+  // Clean first, then decide whether a comma is a decimal point or grouping.
+  // Dropping commas before parsing turned a typed `12,50` into $1,250.
+  const cleaned = text.replace(/[\s$]/g, '').replace(/[^0-9.,]/g, '')
+  const normalised = normaliseForInput(cleaned)
+
   let body = ''
   let seenPoint = false
   let decimals = 0
-
-  for (const char of text) {
-    if (char === '-' && allowNegative && !negative && body === '') {
-      negative = true
-      continue
-    }
+  for (const char of normalised) {
     if (char === '.' && !seenPoint) {
       seenPoint = true
       body += char
@@ -42,6 +48,31 @@ function sanitizeDecimalInput(raw: string, allowNegative: boolean): string {
   }
 
   return `${negative ? '-' : ''}${body}`
+}
+
+/** Canonical digits with one decimal point, for a field being typed into. */
+function normaliseForInput(text: string): string {
+  const lastComma = text.lastIndexOf(',')
+  if (lastComma === -1) return text
+
+  const lastDot = text.lastIndexOf('.')
+  if (lastDot !== -1) {
+    // The rightmost separator is the decimal; the other one only groups.
+    if (lastComma > lastDot) {
+      const parts = text.split(',')
+      const fraction = parts.pop() ?? ''
+      return `${parts.join('').replace(/\./g, '')}.${fraction}`
+    }
+    return text.replace(/,/g, '')
+  }
+
+  const groups = text.split(',')
+  if (groups.slice(1).every((group) => /^\d{3}$/.test(group))) return groups.join('')
+
+  // One or two digits after the last comma (or nothing yet) reads as a decimal
+  // comma; anything else keeps the last comma as the point so typing stays sane.
+  const fraction = groups.pop() ?? ''
+  return `${groups.join('')}.${fraction}`
 }
 
 export function parseMoneyToCents(raw: string): number | null {

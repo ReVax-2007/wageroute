@@ -560,7 +560,8 @@ export function updateTransaction(
   const existing = db
     .prepare(
       `SELECT transfer_group_id AS groupId, round_up_source_id AS roundUpSourceId,
-              bill_id AS billId, amount_cents AS amountCents, kind, account_id AS accountId,
+              bill_id AS billId, goal_id AS goalId,
+              amount_cents AS amountCents, kind, account_id AS accountId,
               occurred_on AS occurredOn, memo, category, category_id AS categoryId
        FROM transactions
        WHERE id = ? AND user_id = ? AND deleted_at IS NULL`
@@ -570,6 +571,7 @@ export function updateTransaction(
         groupId: string | null
         roundUpSourceId: string | null
         billId: string | null
+        goalId: string | null
         amountCents: number
         kind: TransactionKind
         accountId: string
@@ -641,6 +643,14 @@ export function updateTransaction(
     throw new RepositoryError('CONFLICT', 'Paired transfers keep their kind — delete and re-enter to change it')
   }
 
+  // The grid can retype an entry, and a link only means something for the kinds
+  // that can carry it. Drop a link the new kind could not have been created
+  // with, rather than leaving a row no write path would accept.
+  const carriesBill =
+    nextKind === 'bill_payment' || nextKind === 'expense' || nextKind === 'adjustment'
+  const dropBill = existing.billId !== null && !carriesBill
+  const dropGoal = existing.goalId !== null && nextKind !== 'goal_funding'
+
   const patchTouchesAmount = patch.amountCents !== undefined || patch.kind !== undefined
   let nextAmount = existing.amountCents
   if (patch.amountCents !== undefined) {
@@ -672,7 +682,9 @@ export function updateTransaction(
       occurred_on: patch.occurredOn === undefined ? undefined : nextOccurredOn,
       memo: patch.memo === undefined ? undefined : nextMemo,
       category: categoryChange?.name,
-      category_id: categoryChange?.id
+      category_id: categoryChange?.id,
+      bill_id: dropBill ? null : undefined,
+      goal_id: dropGoal ? null : undefined
     })
 
     // A purchase's sweep is derived from it: remove the old pair, then let the
@@ -714,6 +726,18 @@ function removeRoundUpFor(db: Db, userId: string, sourceId: string): void {
      SET deleted_at = ?, updated_at = ?, revision = revision + 1
      WHERE round_up_source_id = ? AND user_id = ? AND deleted_at IS NULL`
   ).run(ts, ts, sourceId, userId)
+}
+
+/** The live sweep rows a purchase spawned, so a screen can drop the retired ones. */
+export function roundUpSweepIds(db: Db, userId: string, sourceId: string): string[] {
+  return (
+    db
+      .prepare(
+        `SELECT id FROM transactions
+         WHERE round_up_source_id = ? AND user_id = ? AND deleted_at IS NULL`
+      )
+      .all(sourceId, userId) as { id: string }[]
+  ).map((row) => row.id)
 }
 
 export function deleteTransaction(db: Db, userId: string, id: string): void {
@@ -777,8 +801,14 @@ export function deleteTransactions(db: Db, userId: string, ids: readonly string[
       if (!live.has(id)) continue
       // A paired leg may already have been removed by its twin earlier in the loop.
       if (!statement.get(id, userId)) continue
+      // A transfer is two entries in the grid, so deleting one leg reports two.
+      const group = db
+        .prepare(
+          'SELECT transfer_group_id AS groupId FROM transactions WHERE id = ? AND user_id = ? AND deleted_at IS NULL'
+        )
+        .get(id, userId) as { groupId: string | null } | undefined
+      removed += group?.groupId ? transferGroupRows(db, userId, group.groupId).length : 1
       deleteTransaction(db, userId, id)
-      removed += 1
     }
     return removed
   })()

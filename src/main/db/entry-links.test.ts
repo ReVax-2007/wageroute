@@ -8,7 +8,8 @@ import {
   createGoal,
   createTransaction,
   listTransactions,
-  queryTransactions
+  queryTransactions,
+  updateTransaction
 } from './repositories'
 
 const USER_ID = '11111111-2222-3333-4444-555555555555'
@@ -120,6 +121,67 @@ test('a goal funding stores its goal and no bill', () => {
   assert.equal(row.goalId, vacation)
   assert.equal(row.goalName, 'Vacation')
   assert.equal(row.billName, null)
+  db.close()
+})
+
+test('retyping an entry drops a link its new kind cannot carry', () => {
+  const db = freshDb()
+  const chequing = account(db)
+  const water = bill(db)
+  const vacation = goal(db)
+
+  const payment = createTransaction(db, USER_ID, {
+    accountId: chequing,
+    kind: 'bill_payment',
+    amountCents: -5_000,
+    occurredOn: '2026-03-16',
+    memo: 'Water',
+    category: 'Utilities',
+    billId: water
+  })
+  const funding = createTransaction(db, USER_ID, {
+    accountId: chequing,
+    kind: 'goal_funding',
+    amountCents: -2_000,
+    occurredOn: '2026-03-16',
+    memo: 'Vacation',
+    category: 'Savings',
+    goalId: vacation
+  })
+
+  updateTransaction(db, USER_ID, payment, { kind: 'income' })
+  updateTransaction(db, USER_ID, funding, { kind: 'expense' })
+
+  const rows = new Map(listTransactions(db, USER_ID).map((row) => [row.id, row]))
+  assert.equal(rows.get(payment)?.kind, 'income')
+  assert.equal(rows.get(payment)?.billId, null, 'income cannot name a bill')
+  assert.equal(rows.get(payment)?.billName, null)
+  assert.equal(rows.get(payment)?.amountCents, 5_000, 'income flips the stored sign')
+  assert.equal(rows.get(funding)?.goalId, null, 'an expense cannot name a goal')
+  assert.equal(rows.get(funding)?.goalName, null)
+  db.close()
+})
+
+test('retyping a bill payment to an expense keeps the link it may still carry', () => {
+  const db = freshDb()
+  const chequing = account(db)
+  const water = bill(db)
+  const payment = createTransaction(db, USER_ID, {
+    accountId: chequing,
+    kind: 'bill_payment',
+    amountCents: -5_000,
+    occurredOn: '2026-03-16',
+    memo: 'Water',
+    category: 'Utilities',
+    billId: water
+  })
+
+  updateTransaction(db, USER_ID, payment, { kind: 'expense' })
+
+  const [row] = listTransactions(db, USER_ID)
+  assert.equal(row.kind, 'expense')
+  assert.equal(row.billId, water)
+  assert.equal(row.billName, 'Water')
   db.close()
 })
 

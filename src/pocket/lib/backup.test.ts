@@ -57,6 +57,39 @@ test('a newer backup still opens, and says which schema it came from', () => {
   assert.equal(backup.version, 99)
 })
 
+test('a same-version file with an unknown kind is refused instead of coerced', () => {
+  const raw = JSON.parse(example) as { tables: { accounts: Record<string, unknown>[] } }
+  raw.tables.accounts[0].kind = 'brokerage'
+  assert.throws(() => parseBackup(JSON.stringify(raw)), /unknown account kind \(brokerage\)/)
+})
+
+test('dollars pasted into a cents column are refused, not rounded', () => {
+  const raw = JSON.parse(example) as { tables: { transactions: Record<string, unknown>[] } }
+  raw.tables.transactions[0].amount_cents = -12.5
+  assert.throws(() => parseBackup(JSON.stringify(raw)), /amount that is not a whole number/)
+})
+
+test('whole numbers spelled as strings still open', () => {
+  const raw = JSON.parse(example) as {
+    tables: { accounts: Record<string, unknown>[]; transactions: Record<string, unknown>[] }
+  }
+  raw.tables.accounts[0].kind = 'cash'
+  raw.tables.transactions[0].amount_cents = String(raw.tables.transactions[0].amount_cents)
+  const backup = parseBackup(JSON.stringify(raw))
+  assert.equal(backup.tables.accounts[0].kind, 'cash')
+  assert.equal(typeof backup.tables.transactions[0].amount_cents, 'string')
+})
+
+test('a newer schema may carry a kind this build cannot name yet', () => {
+  const raw = JSON.parse(example) as {
+    version: number
+    tables: { accounts: Record<string, unknown>[] }
+  }
+  raw.version = 99
+  raw.tables.accounts[0].kind = 'brokerage'
+  assert.equal(parseBackup(JSON.stringify(raw)).version, 99)
+})
+
 test('a partial backup fills the missing tables instead of refusing to open', () => {
   const backup = parseBackup(
     JSON.stringify({

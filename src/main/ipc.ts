@@ -217,11 +217,12 @@ function write<T>(
 function transactionRowsPatch(
   db: Database.Database,
   userId: string,
-  id: string
+  id: string,
+  remove: readonly string[] = []
 ): TransactionRowsPatch {
   return {
     upsert: repo.transactionRowsFor(db, userId, id),
-    remove: [],
+    remove: [...remove],
     total: repo.transactionCount(db, userId),
     billPayments: repo.listBillPaymentsThisMonth(db, userId, todayISO().slice(0, 7)),
     billPaymentsHistory: repo.listBillPaymentsSince(
@@ -685,12 +686,24 @@ export function registerIpcHandlers(db: Database.Database): void {
   )
   handle('transaction:update', (_event, id: unknown, patch: TransactionPatch) => {
     const entryId = requireId(id)
+    let sweepsBefore: string[] = []
     return write(
       db,
       userId,
       ['accounts', 'goals', 'billReserves', 'categories'],
-      () => repo.updateTransaction(db, userId(), entryId, patch),
-      () => transactionRowsPatch(db, userId(), entryId)
+      () => {
+        sweepsBefore = repo.roundUpSweepIds(db, userId(), entryId)
+        repo.updateTransaction(db, userId(), entryId, patch)
+      },
+      () => {
+        const stillLive = new Set(repo.roundUpSweepIds(db, userId(), entryId))
+        return transactionRowsPatch(
+          db,
+          userId(),
+          entryId,
+          sweepsBefore.filter((sweepId) => !stillLive.has(sweepId))
+        )
+      }
     )
   })
   handle('transaction:delete', (_event, id: unknown) =>
