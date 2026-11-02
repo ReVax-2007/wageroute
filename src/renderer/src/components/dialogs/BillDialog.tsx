@@ -9,7 +9,7 @@ import {
 } from '@shared/cadence'
 import { centsToEditable, parseMoneyToCents } from '@shared/money'
 import type { Bill, BillFundingStrategy, BillInput, Frequency } from '@shared/types'
-import { Button, Field, Modal } from '../ui'
+import { Button, Field, Modal, MoneyInput } from '../ui'
 import { ordinal } from '../../lib/finance'
 import { useFinanceStore } from '../../store/useFinanceStore'
 import { useDialogSave } from '../useDialogSave'
@@ -135,14 +135,12 @@ export function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () =
             />
           </Field>
           <Field label="Amount" error={fieldErrors.amount}>
-            <input
-              className="input"
-              inputMode="decimal"
+            <MoneyInput
               value={form.amount}
               placeholder="1,850.00"
-              onChange={(event) => {
+              onValueChange={(amount) => {
                 clearField('amount')
-                setForm({ ...form, amount: event.target.value })
+                setForm({ ...form, amount })
               }}
             />
           </Field>

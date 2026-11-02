@@ -3,9 +3,17 @@ import { cardOwedCents } from '@shared/accounts'
 import { todayISO } from '@shared/dates'
 import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
 import type { AccountWithBalance } from '@shared/types'
-import { Button, Field, Modal } from '../ui'
+import { Button, Field, Modal, MoneyInput, PercentInput, Segmented } from '../ui'
 import { useFinanceStore } from '../../store/useFinanceStore'
 import { useDialogSave } from '../useDialogSave'
+
+type CreditMode = 'owed' | 'available' | 'percent'
+
+const CREDIT_MODES: { value: CreditMode; label: string }[] = [
+  { value: 'owed', label: 'Amount owed' },
+  { value: 'available', label: 'Available credit' },
+  { value: 'percent', label: 'Utilization' }
+]
 
 export function AdjustBalanceDialog({
   account,
@@ -19,20 +27,48 @@ export function AdjustBalanceDialog({
   const isCredit = account.kind === 'credit'
   // Signed, so an overpaid card starts at its credit instead of a misleading 0.
   const owedCents = cardOwedCents(account)
+  const limitCents = account.creditLimitCents
+  const availableCents = limitCents === null ? null : limitCents - owedCents
+  const usedPercent =
+    limitCents !== null && limitCents > 0
+      ? Math.round((owedCents / limitCents) * 1000) / 10
+      : null
+  const canUseCreditModes = isCredit && limitCents !== null && limitCents > 0
+  const [mode, setMode] = useState<CreditMode>('owed')
   const [value, setValue] = useState(centsToEditable(owedCents))
   const [occurredOn, setOccurredOn] = useState(todayISO())
   const { saving, error, setError, run } = useDialogSave(onClose)
 
+  const seedFor = (next: CreditMode): string => {
+    if (next === 'available') return centsToEditable(availableCents ?? 0)
+    if (next === 'percent') return usedPercent === null ? '' : String(usedPercent)
+    return centsToEditable(owedCents)
+  }
+
+  const changeMode = (next: CreditMode) => {
+    setMode(next)
+    setValue(seedFor(next))
+    setError(null)
+  }
+
+  // All three credit fields boil down to a target amount owed.
+  const typed = parseMoneyToCents(value)
+  const targetOwedCents =
+    typed !== null && canUseCreditModes && mode === 'available'
+      ? limitCents! - typed
+      : typed !== null && canUseCreditModes && mode === 'percent'
+        ? Math.round((limitCents! * typed) / 100)
+        : typed
+
   const submit = async () => {
-    const typed = parseMoneyToCents(value)
-    if (typed === null) {
-      setError('Enter a balance')
+    if (targetOwedCents === null) {
+      setError(mode === 'percent' ? 'Enter a utilization percentage' : 'Enter a balance')
       return
     }
     // A card normally holds a negative balance, so a positive "owed" entry
     // becomes money out. Typing a negative amount says the card is overpaid,
     // which is the only way to record a credit balance in its favour.
-    const target = isCredit ? -typed : typed
+    const target = isCredit ? -targetOwedCents : targetOwedCents
     await run(() => adjustAccountBalance(account, target, occurredOn))
   }
 
@@ -53,17 +89,45 @@ export function AdjustBalanceDialog({
       }
     >
       <div className="form-grid">
+        {canUseCreditModes && (
+          <div className="field span-2">
+            <span className="field-label">Adjust by</span>
+            <Segmented<CreditMode>
+              label="What to enter"
+              value={mode}
+              onChange={changeMode}
+              options={CREDIT_MODES}
+            />
+          </div>
+        )}
         <Field
-          label={isCredit ? 'Amount owed now' : 'Balance now'}
-          hint={isCredit ? 'Enter a negative amount if the card is overpaid' : undefined}
+          label={
+            mode === 'available'
+              ? 'Available credit now'
+              : mode === 'percent'
+                ? 'Utilization now'
+                : isCredit
+                  ? 'Amount owed now'
+                  : 'Balance now'
+          }
+          hint={
+            mode === 'percent'
+              ? 'Share of the limit in use, for example 42.5'
+              : isCredit && mode === 'owed'
+                ? 'Enter a negative amount if the card is overpaid'
+                : undefined
+          }
         >
-          <input
-            className="input"
-            autoFocus
-            inputMode="decimal"
-            value={value}
-            onChange={(event) => setValue(event.target.value)}
-          />
+          {mode === 'percent' ? (
+            <PercentInput autoFocus value={value} onValueChange={setValue} />
+          ) : (
+            <MoneyInput
+              autoFocus
+              allowNegative={mode === 'owed'}
+              value={value}
+              onValueChange={setValue}
+            />
+          )}
         </Field>
         <Field label="Date">
           <input
@@ -74,12 +138,25 @@ export function AdjustBalanceDialog({
           />
         </Field>
       </div>
+
+      {canUseCreditModes && targetOwedCents !== null && (
+        <p className="field-hint">
+          After saving: {formatMoney(targetOwedCents, settings.currency)} owed ·{' '}
+          {formatMoney(Math.max(0, limitCents! - targetOwedCents), settings.currency)} available ·{' '}
+          {Math.max(0, Math.round((targetOwedCents / limitCents!) * 1000) / 10)}% used
+        </p>
+      )}
       <p className="field-hint">
         {isCredit
           ? owedCents < 0
             ? `Credit on the card: ${formatMoney(-owedCents, settings.currency)}`
-            : `Current owed: ${formatMoney(owedCents, settings.currency)}`
+            : `Current owed: ${formatMoney(owedCents, settings.currency)}${
+                limitCents !== null
+                  ? ` · limit ${formatMoney(limitCents, settings.currency)}`
+                  : ''
+              }`
           : `Current balance: ${formatMoney(owedCents, settings.currency)}`}
+        {isCredit && limitCents === null && ' · add a credit limit to adjust by available credit or utilization'}
       </p>
       {error && (
         <p className="form-error" role="alert">

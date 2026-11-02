@@ -1,6 +1,14 @@
-import { billFundingReserveCents, monthlyEquivalentCents } from './cadence'
+import { billFundingReserveCents, monthlyEquivalentCents, PAY_PERIODS_PER_YEAR } from './cadence'
+import { daysBetweenISO } from './dates'
 import { clampPercent, floorToDollarCents, percentOf } from './money'
-import type { BillFundingStrategy, Frequency, GoalFundingSource, PayCadence, PlanHealth } from './types'
+import type {
+  BillFundingStrategy,
+  Frequency,
+  GoalFundingPace,
+  GoalFundingSource,
+  PayCadence,
+  PlanHealth
+} from './types'
 
 export interface AllocatorBill {
   id: string
@@ -31,6 +39,8 @@ export interface AllocatorGoal {
    * skipped and their share of the budget falls through to savings.
    */
   fundedFrom?: GoalFundingSource
+  /** Defaults to `asap`; `paused` asks for nothing, `by_date` is paced. */
+  fundingPace?: GoalFundingPace
 }
 
 export interface AllocatorSplits {
@@ -199,7 +209,9 @@ export function buildAllocationPlan(input: AllocatorInput): AllocationPlan {
   let goalBudget = scaled[2]
   let debtCents = scaled[3]
 
-  const allocatableGoals = input.goals.filter((goal) => goal.fundedFrom !== 'account')
+  const allocatableGoals = input.goals.filter(
+    (goal) => goal.fundedFrom !== 'account' && goal.fundingPace !== 'paused'
+  )
 
   const goalsByNeed = [...allocatableGoals]
     .filter((goal) => goal.targetCents > goal.fundedCents)
@@ -214,7 +226,11 @@ export function buildAllocationPlan(input: AllocatorInput): AllocationPlan {
   for (const goal of goalsByNeed) {
     if (goalBudget <= 0) break
     const needCents = goal.targetCents - goal.fundedCents
-    const amountCents = Math.min(needCents, goalBudget)
+    const allowanceCents = paceAllowanceCents(goal, needCents, {
+      payCadence: input.payCadence,
+      paycheckDate: input.paycheckDate
+    })
+    const amountCents = Math.min(needCents, allowanceCents, goalBudget)
     goalFundings.push({ goalId: goal.id, name: goal.name, amountCents, needCents })
     goalBudget -= amountCents
   }
@@ -273,6 +289,26 @@ export function buildAllocationPlan(input: AllocatorInput): AllocationPlan {
     health,
     warnings
   }
+}
+
+/**
+ * The most one paycheck should put into a goal. `by_date` spreads the
+ * remaining need evenly over the paychecks left before the target date, so a
+ * fund that is ahead of pace stops taking money it does not need yet. A goal
+ * without a date, or with a date already past, falls back to taking what it
+ * needs as fast as the budget allows.
+ */
+function paceAllowanceCents(
+  goal: AllocatorGoal,
+  needCents: number,
+  input: { payCadence: PayCadence; paycheckDate?: string | null }
+): number {
+  if (goal.fundingPace !== 'by_date' || !goal.targetDate || !input.paycheckDate) return needCents
+  const daysLeft = daysBetweenISO(input.paycheckDate, goal.targetDate)
+  if (daysLeft <= 0) return needCents
+  const periodDays = 365 / PAY_PERIODS_PER_YEAR[input.payCadence]
+  const checksLeft = Math.max(1, Math.ceil(daysLeft / periodDays))
+  return Math.ceil(needCents / checksLeft)
 }
 
 /**

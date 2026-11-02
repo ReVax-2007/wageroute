@@ -3,7 +3,7 @@ import { categoryKey } from '@shared/categories'
 import { todayISO } from '@shared/dates'
 import { parseMoneyToCents } from '@shared/money'
 import type { TransactionInput, TransactionKind } from '@shared/types'
-import { Button, Field, Modal } from '../ui'
+import { Button, Field, Modal, MoneyInput } from '../ui'
 import { TRANSACTION_KIND_LABEL } from '../../lib/finance'
 import { useFinanceStore } from '../../store/useFinanceStore'
 import { useDialogSave } from '../useDialogSave'
@@ -163,13 +163,12 @@ export function EntryDialog({ onClose }: { onClose: () => void }) {
           </Field>
         )}
         <Field label="Amount" hint={signHint}>
-          <input
-            className="input"
+          <MoneyInput
             autoFocus
-            inputMode="decimal"
+            allowNegative={form.kind === 'adjustment'}
             value={form.amount}
             placeholder="42.50"
-            onChange={(event) => setForm({ ...form, amount: event.target.value })}
+            onValueChange={(amount) => setForm({ ...form, amount })}
           />
         </Field>
         <Field

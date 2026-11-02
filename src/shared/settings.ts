@@ -27,6 +27,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   emergencyMonths: 3,
   emergencyIncludeVariable: true,
   emergencyManualTargetCents: 0,
+  emergencyBufferCents: 0,
   emergencyActive: true
 }
 
@@ -88,6 +89,7 @@ export function parseSettings(record: Record<string, string>): AppSettings {
   const currency = record.currency
   const months = Number(record.emergencyMonths)
   const manualTarget = Number(record.emergencyManualTargetCents)
+  const buffer = Number(record.emergencyBufferCents)
   const roundUpRaw = Number(record.roundUpToCents)
 
   return {
@@ -129,6 +131,10 @@ export function parseSettings(record: Record<string, string>): AppSettings {
       Number.isFinite(manualTarget) && manualTarget > 0
         ? Math.round(manualTarget)
         : DEFAULT_SETTINGS.emergencyManualTargetCents,
+    emergencyBufferCents:
+      Number.isFinite(buffer) && buffer > 0
+        ? Math.round(buffer)
+        : DEFAULT_SETTINGS.emergencyBufferCents,
     emergencyActive: bool('emergencyActive', DEFAULT_SETTINGS.emergencyActive)
   }
 }
@@ -153,6 +159,7 @@ export function settingsToRecord(settings: AppSettings): Record<string, string> 
     emergencyMonths: String(settings.emergencyMonths),
     emergencyIncludeVariable: String(settings.emergencyIncludeVariable),
     emergencyManualTargetCents: String(settings.emergencyManualTargetCents),
+    emergencyBufferCents: String(settings.emergencyBufferCents),
     emergencyActive: String(settings.emergencyActive)
   }
 }

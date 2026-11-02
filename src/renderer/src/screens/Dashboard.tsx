@@ -1,4 +1,4 @@
-import { CalendarClock, CreditCard, Plus, ShieldCheck, Sparkles, Target, Wallet } from 'lucide-react'
+import { CalendarClock, CreditCard, HandCoins, Plus, ShieldCheck, Sparkles, Target, Wallet } from 'lucide-react'
 import { useState } from 'react'
 import { formatDateLabel, formatDateLong, formatMonthLong, todayISO } from '@shared/dates'
 import { wealthBuckets } from '@shared/accounts'
@@ -8,6 +8,7 @@ import { formatMoney } from '@shared/money'
 import type { AllocationBucket } from '@shared/types'
 import { BillPrompts } from '../components/BillPrompts'
 import { DataTable } from '../components/DataTable'
+import { IncomeDialog } from '../components/dialogs/IncomeDialog'
 import { MovePlanDialog } from '../components/dialogs/MovePlanDialog'
 import { Donut, type DonutSlice } from '../components/Donut'
 import { Sparkline } from '../components/Sparkline'
@@ -67,6 +68,7 @@ export function Dashboard() {
   const unpaidPriority = useFinanceStore(selectUnpaidWallCents)
   const unsettled = useFinanceStore(selectUnsettledRoutingCents)
   const [moving, setMoving] = useState(false)
+  const [addingIncome, setAddingIncome] = useState(false)
 
   if (!snapshot) return null
 
@@ -97,6 +99,16 @@ export function Dashboard() {
 
   const monthKey = todayISO().slice(0, 7)
   const today = todayISO()
+  const oneTimeIncome = snapshot.transactions.filter(
+    (transaction) => transaction.kind === 'income' && transaction.paycheckId === null
+  )
+  const oneTimeThisMonth = oneTimeIncome.filter(
+    (transaction) => transaction.occurredOn.slice(0, 7) === monthKey
+  )
+  const oneTimeTotal = oneTimeThisMonth.reduce(
+    (total, transaction) => total + transaction.amountCents,
+    0
+  )
   const liveAccounts = snapshot.accounts.filter((account) => !account.isArchived)
   const history = netWorthSeries({
     snapshots: snapshot.balanceSnapshots,
@@ -288,6 +300,37 @@ export function Dashboard() {
       </section>
 
       <BillPrompts />
+
+      <Card
+        title="One-time income"
+        subtitle={`${formatMonthLong(monthKey)} · ${formatMoney(oneTimeTotal, currency)} logged, kept out of routing`}
+        actions={
+          <Button size="sm" icon={<HandCoins size={14} />} onClick={() => setAddingIncome(true)}>
+            Add income
+          </Button>
+        }
+      >
+        {oneTimeThisMonth.length === 0 ? (
+          <EmptyState
+            icon={<HandCoins size={20} />}
+            title="No extra income this month"
+            body="A gift, a tax refund, something you sold — log it here and the balance updates without touching your paycheck plan."
+          />
+        ) : (
+          <ul className="due-list">
+            {oneTimeThisMonth.slice(0, 5).map((transaction) => (
+              <li key={transaction.id} className="due-row">
+                <span className="account-dot kind-income" />
+                <span className="due-name">{transaction.memo || 'One-time income'}</span>
+                <span className="due-when">
+                  {formatDateLabel(transaction.occurredOn)} · {transaction.accountName}
+                </span>
+                <Money cents={transaction.amountCents} currency={currency} className="positive" />
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
 
       <div className="dashboard-grid">
         <Card
@@ -662,6 +705,8 @@ export function Dashboard() {
       {moving && last && (
         <MovePlanDialog paycheck={last} onClose={() => setMoving(false)} />
       )}
+
+      {addingIncome && <IncomeDialog onClose={() => setAddingIncome(false)} />}
     </>
   )
 }

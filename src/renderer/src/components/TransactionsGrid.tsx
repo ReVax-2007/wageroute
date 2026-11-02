@@ -13,7 +13,7 @@ import {
 } from 'react-data-grid'
 import { categoryKey } from '@shared/categories'
 import { formatDateLabel } from '@shared/dates'
-import { formatMoney, centsToEditable, parseMoneyToCents } from '@shared/money'
+import { formatMoney, centsToEditable, parseMoneyToCents, sanitizeMoneyInput } from '@shared/money'
 import type {
   AccountWithBalance,
   Category,
@@ -317,9 +317,10 @@ function MoneyEditor({ row, onRowChange, onClose }: RenderEditCellContentProps<T
     <input
       className="grid-editor num"
       autoFocus
+      inputMode="decimal"
       value={value}
       aria-label="Amount"
-      onChange={(event) => setValue(event.target.value)}
+      onChange={(event) => setValue(sanitizeMoneyInput(event.target.value, { allowNegative: true }))}
       onBlur={() => commit(true)}
       onKeyDown={(event) => {
         if (event.key === 'Enter') commit(true)

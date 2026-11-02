@@ -1,6 +1,6 @@
 {
   "format": "cash-flow-routing-backup",
-  "version": 9,
+  "version": 10,
   "exportedAt": "2026-10-28T12:00:00.000Z",
   "tables": {
     "accounts": [
@@ -165,6 +165,7 @@
         "account_id": "7c2d9f04-1a8e-4b3c-8f2d-5e6a9c1b3d02",
         "is_emergency": true,
         "is_archived": false,
+        "funding_pace": "by_date",
         "created_at": "2026-10-01T09:00:00.000Z",
         "updated_at": "2026-10-01T09:00:00.000Z",
         "deleted_at": null,

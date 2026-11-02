@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
-import { centsToEditable, parseMoneyToCents } from '@shared/money'
+import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
 import type { AccountKind, AccountInput, AccountWithBalance } from '@shared/types'
-import { Button, Field, Modal } from '../ui'
-import { ACCOUNT_KIND_LABEL } from '../../lib/finance'
+import { Button, Field, Modal, MoneyInput, PercentInput } from '../ui'
+import { ACCOUNT_KIND_LABEL, accountDisplayBalanceCents } from '../../lib/finance'
 import { useFinanceStore } from '../../store/useFinanceStore'
 import { useDialogSave } from '../useDialogSave'
 
@@ -46,6 +46,7 @@ export function AccountDialog({
   const goals = useFinanceStore((state) => state.snapshot?.goals ?? [])
   const createAccount = useFinanceStore((state) => state.createAccount)
   const updateAccount = useFinanceStore((state) => state.updateAccount)
+  const currency = useFinanceStore((state) => state.settings.currency)
 
   const institutions = useMemo(
     () =>
@@ -101,6 +102,14 @@ export function AccountDialog({
 
   const isCredit = form.kind === 'credit'
   const dedicatedGoals = useMemo(() => goals.filter((goal) => !goal.isArchived), [goals])
+  const owedNowCents = account ? accountDisplayBalanceCents(account) : 0
+  const limitNowCents = account?.creditLimitCents ?? null
+  const availableNowCents =
+    limitNowCents === null ? null : Math.max(0, limitNowCents - owedNowCents)
+  const usedPercentNow =
+    limitNowCents !== null && limitNowCents > 0
+      ? Math.round((owedNowCents / limitNowCents) * 100)
+      : null
 
   const submit = async () => {
     const limitTyped = form.creditLimit.trim() ? parseMoneyToCents(form.creditLimit) : null
@@ -277,14 +286,12 @@ export function AccountDialog({
             }
             error={fieldErrors.startingBalance}
           >
-            <input
-              className="input"
-              inputMode="decimal"
+            <MoneyInput
               value={form.startingBalance}
               placeholder={isCredit ? '420.00' : '2,450.00'}
-              onChange={(event) => {
+              onValueChange={(startingBalance) => {
                 clearField('startingBalance')
-                setForm({ ...form, startingBalance: event.target.value })
+                setForm({ ...form, startingBalance })
               }}
             />
           </Field>
@@ -294,30 +301,26 @@ export function AccountDialog({
           <>
             <Field
               label="Credit limit"
-              hint="Used for the utilization meter"
+              hint="Total credit the bank gives you; the meter uses it"
               error={fieldErrors.creditLimit}
             >
-              <input
-                className="input"
-                inputMode="decimal"
+              <MoneyInput
                 value={form.creditLimit}
                 placeholder="5,000.00"
-                onChange={(event) => {
+                onValueChange={(creditLimit) => {
                   clearField('creditLimit')
-                  setForm({ ...form, creditLimit: event.target.value })
+                  setForm({ ...form, creditLimit })
                 }}
               />
             </Field>
 
             <Field label="APR" hint="Annual rate, as printed on the statement" error={fieldErrors.apr}>
-              <input
-                className="input"
-                inputMode="decimal"
+              <PercentInput
                 value={form.apr}
                 placeholder="20.99"
-                onChange={(event) => {
+                onValueChange={(apr) => {
                   clearField('apr')
-                  setForm({ ...form, apr: event.target.value })
+                  setForm({ ...form, apr })
                 }}
               />
             </Field>
@@ -327,14 +330,12 @@ export function AccountDialog({
               hint="What the bank asks for each month"
               error={fieldErrors.minimumPayment}
             >
-              <input
-                className="input"
-                inputMode="decimal"
+              <MoneyInput
                 value={form.minimumPayment}
                 placeholder="25.00"
-                onChange={(event) => {
+                onValueChange={(minimumPayment) => {
                   clearField('minimumPayment')
-                  setForm({ ...form, minimumPayment: event.target.value })
+                  setForm({ ...form, minimumPayment })
                 }}
               />
             </Field>
@@ -344,14 +345,12 @@ export function AccountDialog({
               hint="What the last statement says you owe"
               error={fieldErrors.lastStatementBalance}
             >
-              <input
-                className="input"
-                inputMode="decimal"
+              <MoneyInput
                 value={form.lastStatementBalance}
                 placeholder="420.00"
-                onChange={(event) => {
+                onValueChange={(lastStatementBalance) => {
                   clearField('lastStatementBalance')
-                  setForm({ ...form, lastStatementBalance: event.target.value })
+                  setForm({ ...form, lastStatementBalance })
                 }}
               />
             </Field>
@@ -393,6 +392,30 @@ export function AccountDialog({
             <p className="field-hint span-2">
               The cycle and APR drive the due-today queue and the payoff estimate. Days near the end
               of the month clamp to the last day of shorter months.
+            </p>
+
+            {account && (
+              <div className="credit-summary span-2">
+                <span>
+                  <span className="field-label">Owed now</span>
+                  {formatMoney(owedNowCents, currency)}
+                </span>
+                <span>
+                  <span className="field-label">Available</span>
+                  {availableNowCents === null
+                    ? 'Set a limit'
+                    : formatMoney(availableNowCents, currency)}
+                </span>
+                <span>
+                  <span className="field-label">Used</span>
+                  {usedPercentNow === null ? '—' : `${usedPercentNow}%`}
+                </span>
+              </div>
+            )}
+            <p className="field-hint span-2">
+              These figures update as you correct the limit. To change what you owe, use{' '}
+              <strong>Adjust balance</strong> on the account: you can enter the amount owed, the
+              available credit or the utilization, and the app posts one visible entry.
             </p>
           </>
         )}

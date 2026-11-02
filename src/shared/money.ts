@@ -1,5 +1,50 @@
 const MONEY_INPUT = /^\d*(\.\d{0,2})?$/
 
+/**
+ * What a money field may hold while it is being typed or pasted: digits, one
+ * decimal point and at most two decimals. Currency symbols, spaces and thousand
+ * separators are dropped rather than rejected, so pasting `$1,850.00` works.
+ * A minus sign survives only when the field accepts negative amounts.
+ */
+export function sanitizeMoneyInput(raw: string, options: { allowNegative?: boolean } = {}): string {
+  return sanitizeDecimalInput(raw, options.allowNegative ?? false)
+}
+
+/** The same restraint for a percentage: no sign, one decimal point, two decimals. */
+export function sanitizePercentInput(raw: string): string {
+  return sanitizeDecimalInput(raw, false)
+}
+
+function sanitizeDecimalInput(raw: string, allowNegative: boolean): string {
+  const text = typeof raw === 'string' ? raw : ''
+  let negative = false
+  let body = ''
+  let seenPoint = false
+  let decimals = 0
+
+  for (const char of text) {
+    if (char === '-' && allowNegative && !negative && body === '') {
+      negative = true
+      continue
+    }
+    if (char === '.' && !seenPoint) {
+      seenPoint = true
+      body += char
+      continue
+    }
+    if (char >= '0' && char <= '9') {
+      if (seenPoint) {
+        if (decimals >= 2) continue
+        decimals += 1
+      }
+      body += char
+    }
+  }
+
+  return `${negative ? '-' : ''}${body}`
+}
+
+
 export function parseMoneyToCents(raw: string): number | null {
   if (typeof raw !== 'string') return null
   let text = raw.trim()

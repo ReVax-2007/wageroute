@@ -795,6 +795,21 @@ input[type='date'] {
   grid-column: span 2;
 }
 
+.credit-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-faint);
+  border-radius: 9px;
+  font-size: 13px;
+}
+
+.credit-summary .field-label {
+  display: block;
+  margin-bottom: 1px;
+}
+
 .form-error {
   margin-top: 14px;
   padding: 9px 12px;

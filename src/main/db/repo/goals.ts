@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { RepositoryError } from '@shared/errors'
-import type { GoalFundingSource, GoalInput, GoalWithProgress } from '@shared/types'
+import type { GoalFundingPace, GoalFundingSource, GoalInput, GoalWithProgress } from '@shared/types'
 import {
   assertCents,
   assertDate,
@@ -31,12 +31,17 @@ interface DedicatedAccountRow {
   balanceCents: number
 }
 
+function assertPace(value: GoalFundingPace | undefined): GoalFundingPace {
+  return value === 'by_date' || value === 'paused' ? value : 'asap'
+}
+
 export function listGoals(db: Db, userId: string): GoalWithProgress[] {
   const rows = db
     .prepare(
       `SELECT g.id, g.user_id AS userId, g.name, g.target_cents AS targetCents,
               g.target_date AS targetDate, g.priority, g.color, g.account_id AS accountId,
-              g.is_emergency AS isEmergency, g.is_archived AS isArchived, g.created_at AS createdAt,
+              g.is_emergency AS isEmergency, g.is_archived AS isArchived,
+              g.funding_pace AS fundingPace, g.created_at AS createdAt,
               g.updated_at AS updatedAt, g.deleted_at AS deletedAt, g.revision,
               COALESCE((
                 SELECT SUM(a.amount_cents) FROM allocations a
@@ -144,8 +149,8 @@ export function createGoal(db: Db, userId: string, input: GoalInput): string {
     db.prepare(
       `INSERT INTO goals
          (id, user_id, name, target_cents, target_date, priority, color, account_id,
-          is_emergency, is_archived, created_at, updated_at, deleted_at, revision)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, NULL, 1)`
+          is_emergency, is_archived, funding_pace, created_at, updated_at, deleted_at, revision)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, NULL, 1)`
     ).run(
       id,
       userId,
@@ -156,6 +161,7 @@ export function createGoal(db: Db, userId: string, input: GoalInput): string {
       input.color ? assertText(input.color, 'Color', 20) : '#34D399',
       accountId,
       input.isEmergency ? 1 : 0,
+      assertPace(input.fundingPace),
       ts,
       ts
     )
@@ -189,7 +195,8 @@ export function updateGoal(
       priority: patch.priority === undefined ? undefined : assertPriority(patch.priority),
       color: patch.color === undefined ? undefined : assertText(patch.color, 'Color', 20),
       account_id: patch.accountId === undefined ? undefined : patch.accountId || null,
-      is_emergency: patch.isEmergency === undefined ? undefined : patch.isEmergency ? 1 : 0
+      is_emergency: patch.isEmergency === undefined ? undefined : patch.isEmergency ? 1 : 0,
+      funding_pace: patch.fundingPace === undefined ? undefined : assertPace(patch.fundingPace)
     })
     if (patch.fundingAccountIds) {
       applyFundingAccounts(db, userId, id, patch.fundingAccountIds)

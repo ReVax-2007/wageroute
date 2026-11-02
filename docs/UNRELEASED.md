@@ -29,8 +29,8 @@ The `[1.2.0]` block in [CHANGELOG.md](../CHANGELOG.md) is the inventory; it is r
 | Field | Value |
 | --- | --- |
 | App version | `1.2.0` — no next version chosen; `package.json` stays `1.2.0` until the next bump |
-| Database schema | `9`, forward-only; the new migration makes the next release at least a minor bump |
-| Backup format | writes `9`, accepts `2`–`9` |
+| Database schema | `10`, forward-only; the new migrations make the next release at least a minor bump |
+| Backup format | writes `10`, accepts `2`–`10` |
 | CI gates | `npm run lint`, `npm test`, `npm run build` and both type checks on every pull request; a tag builds all four platforms and creates a **draft** release with `SHA256SUMS` |
 | macOS signing | ad-hoc only; no notarization, so Gatekeeper still needs **Open Anyway** or a locally copied DMG |
 
@@ -139,6 +139,15 @@ Work merged to `main` after `v1.2.0`. None of it is in an installer yet; the `[U
 - **Deleted parents stop counting.** `claimsThisMonthFor` and `recordBillReserves` join live bills and cheques, the wall filters claims to live bills, and deleting an account now replays the claims its payments used to hold open.
 - New cases: an annual payment clearing every slice, a bill-linked adjustment ignored, the as-of ceiling, and deleting the account re-opening the bill, plus three jsdom cases for the zero, covered and paused rows. `npm test` is **345 tests across thirty-nine files**; lint 127 files.
 
+### Batch 28 — inputs, cards, buffers and goal pace
+
+- **Every money field is a money field.** Bill, entry, goal, account, paycheck-card and adjustment amounts now use `MoneyInput`, which keeps digits, the first decimal point and at most two decimals, and shows an on-screen keypad on phones. Percent fields use `PercentInput`; the allocator's income field and the spreadsheet's inline amount editor share the same sanitiser. An entry can still be negative, but the minus sign is only accepted at the start.
+- **A card can be adjusted by what is owed, what is available, or how full it is.** The adjust dialog on a credit account offers three modes: balance owed, available credit, and utilisation percent. Each resolves to a target owed amount and previews the balance, available credit and utilisation that will be saved; available credit and percent are clamped at zero.
+- **The emergency fund can carry a manual buffer.** Auto mode adds an optional extra cushion (`emergencyBufferCents`) on top of months × essentials, for one-offs the monthly average misses. Blank, negative and non-finite values add nothing, and zero essentials still honours the buffer.
+- **One-time income has its own section.** The dashboard lists this month's income entries that are not paychecks (`transactions.paycheck_id IS NULL`), with a total and an **Add income** dialog. The money is written to the ledger and deliberately stays out of paycheck routing.
+- **A goal can be paced or paused.** Schema 10 adds `goals.funding_pace`: `asap` funds the remaining need on the next cheque, `by_date` caps each cheque at `ceil(need / checksLeft)` so the goal still arrives by its target date, and `paused` removes it from the allocator entirely. The goal dialog sets the pace next to priority; the goal card has a pause/resume button and chips for **Funding paused** and **Paced to <date>**. Existing goals default to `asap`, so an upgrade writes the same allocations it did before.
+- New cases: five sanitiser cases in `money.test.ts`, four buffer cases in `emergency.test.ts`, three allocator cases in `domain.test.ts` (paused goal, paced goal, paced goal with no target date), and the v10 migration case (existing goal defaults to `asap`, the CHECK refuses an unknown pace). `npm test` is **358 tests across forty-one files**; lint 130 files.
+
 ### Before the next build
 
 - [x] Run the four gates on the final tree: `npm run lint`, `npm test`, `npm run build` (includes both type checks), and `npx electron-builder --dir --publish never`. *(2026-11-02, Batch 27: lint 127 files clean, 345/345 tests, build clean; packaging re-run below.)*
@@ -152,4 +161,4 @@ Work merged to `main` after `v1.2.0`. None of it is in an installer yet; the `[U
 - [x] Remove `settled_by` from one reserve row in a scratch copy and confirm the delete/move path still re-opens the claim by cycle. *(Covered by the `deleting a pre-v9 payment re-opens the claim it carried` case in `reserves.test.ts`, which nulls the link and deletes the payment.)*
 - [ ] Launch a packaged build and copy an entry id from Settings/About to the clipboard: the permission handlers allow only `clipboard-sanitized-write`, so a denied copy would now show up as a silent no-op.
 - [x] Confirm the tag guard fires if `package.json` and the tag disagree (a scratch tag, deleted before push). *(2026-11-02: the workflow's two checks were run locally against the tree with `GITHUB_REF_NAME=v9.9.9` — exited 1 — and `v1.2.0` — matched and found on `main`; no tag was created or pushed.)*
-- [ ] Choose the next version. Schema 9 is a new migration, so the next release is at least a minor bump; the tag guard requires the tag to match `package.json`.
+- [ ] Choose the next version. Schemas 9 and 10 are new migrations, so the next release is at least a minor bump; the tag guard requires the tag to match `package.json`.
