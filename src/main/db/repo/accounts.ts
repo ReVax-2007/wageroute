@@ -17,6 +17,7 @@ import {
   type Db
 } from './common'
 import { readSettings, writeSettings } from './settings'
+import { reconcileBillReserve } from './bills'
 
 const ACCOUNT_KINDS: readonly AccountKind[] = ['checking', 'savings', 'cash', 'investment', 'credit']
 
@@ -281,6 +282,17 @@ export function deleteAccount(
 
   db.transaction(() => {
     if (entries > 0) {
+      // A bill payment on this account is about to disappear, so its claim has
+      // to be replayed afterwards or the bill stays marked paid by a row that
+      // no longer exists.
+      const touchedBills = db
+        .prepare(
+          `SELECT DISTINCT bill_id AS billId FROM transactions
+           WHERE account_id = ? AND user_id = ? AND deleted_at IS NULL
+             AND bill_id IS NOT NULL`
+        )
+        .all(id, userId) as { billId: string }[]
+
       // A transfer leg is meaningless without its twin, so every group that
       // touches this account goes as a pair.
       const groups = db
@@ -302,6 +314,7 @@ export function deleteAccount(
          SET deleted_at = ?, updated_at = ?, revision = revision + 1
          WHERE account_id = ? AND user_id = ? AND deleted_at IS NULL`
       ).run(ts, ts, id, userId)
+      for (const bill of touchedBills) reconcileBillReserve(db, userId, bill.billId)
     }
 
     db.prepare(

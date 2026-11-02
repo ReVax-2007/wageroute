@@ -106,7 +106,7 @@ Work merged to `main` after `v1.2.0`. None of it is in an installer yet; the `[U
 
 - A payment now closes only the claims its own amount fully covers, oldest first. Same-cycle settlement used to mark every open instalment `paid`, so a single 60,000 payment closed 120,000 of claims. A claim is never part-paid: a payment smaller than the next claim leaves it open.
 - `recordBillReserves` caps a month on its **open** claims. A claim closed by a card charge no longer blocks the cash reserve the plan asks for, so the allocator and the writer agree again.
-- After a payment lands mid-month, `billFundingReserveCents` divides the remaining need across the guaranteed cheques still to come. A 120,000 bill with 60,000 paid before the last semimonthly cheque now withholds 60,000, not 30,000.
+- After a payment lands mid-month, `billFundingReserveCents` divides the remaining need across the guaranteed cheques still to come. A 120,000 bill with 60,000 paid before the last semimonthly cheque now withholds 60,000, not 30,000. (Batch 26 counts the real anchored series instead of the guaranteed slots; see below.)
 - A pre-v9 payment with no `settled_by` link re-opens the earlier carried claim it closed, not only a row in the payment's own month.
 - New cases: four in `reserves.test.ts` (an instalment-sized payment, a short payment, a card-closed claim, a legacy carry re-open), two in `cadence.test.ts` (mid-month and monthly recovery), the v9 migration's due day is now 28 so the backfill is actually exercised, and the restored-reserve case inherits a due day of 30. `npm test` is **330 tests across thirty-eight files**.
 
@@ -128,9 +128,20 @@ Work merged to `main` after `v1.2.0`. None of it is in an installer yet; the `[U
 - The month's cap still counts **open** claims only. That is deliberate: a claim closed by a card charge released its earmark but did not take cash out of the pool, so the later cheques still have to cover the bill's cash obligation. The card case in `reserves.test.ts` pins it.
 - New cases: instalments closing one claim, the legacy unlinked claim surviving a linked delete, a refund re-opening its claim, a zero claim skipped, and anchored weekly/biweekly remaining-cheque counts. `npm test` is **339 tests across thirty-nine files**; lint 127 files.
 
+### Batch 27 — the wall shows only money still owed
+
+- **One annual or quarterly payment clears every slice it covers.** A 1,200,000 annual premium gathered twelve 100,000 claims from twelve cheques but the old carry rule required the cheque's day of month to fall after the bill's due day, so the single payment closed one slice and left eleven reading `reserved`. Smoothed bills now walk every earlier claim whose cheque had arrived, whatever the due day.
+- **The wall says what the next check still owes.** A bill already covered this month shows $0.00 and **Nothing more due** instead of naming a check that has nothing left to do; a paused bill shows $0.00 and **Paused** instead of a reserve it will never take.
+- **The table fits its card.** Seven columns of nowrap money plus a long funding hint forced a horizontal scroll and pushed the numbers out of the card. Amount, cadence and due day now sit under the bill name, leaving four columns, and only the numeric cells refuse to wrap.
+- **The allocator's breakdown hides settled lines.** Bills whose reserve is zero are left out, with one line saying how many are already covered this month, so a paid wall no longer looks like an open question.
+- **A bill-linked adjustment is not a payment.** `listBillPaymentsThisMonth` now reads only `bill_payment` and `expense` rows, and accepts an as-of day so a future-dated entry does not release a month before it happens. `commitPaycheck` passes the cheque's own date.
+- **A refund cannot grow the wall.** The renderer's paid-per-bill map clamps at zero, matching the repository, so a net-positive bill no longer increases what is withheld.
+- **Deleted parents stop counting.** `claimsThisMonthFor` and `recordBillReserves` join live bills and cheques, the wall filters claims to live bills, and deleting an account now replays the claims its payments used to hold open.
+- New cases: an annual payment clearing every slice, a bill-linked adjustment ignored, the as-of ceiling, and deleting the account re-opening the bill, plus three jsdom cases for the zero, covered and paused rows. `npm test` is **345 tests across thirty-nine files**; lint 127 files.
+
 ### Before the next build
 
-- [x] Run the four gates on the final tree: `npm run lint`, `npm test`, `npm run build` (includes both type checks), and `npx electron-builder --dir --publish never`. *(2026-11-02, Batch 26: lint 127 files clean, 339/339 tests, build clean, unpacked packaging signed on disk.)*
+- [x] Run the four gates on the final tree: `npm run lint`, `npm test`, `npm run build` (includes both type checks), and `npx electron-builder --dir --publish never`. *(2026-11-02, Batch 27: lint 127 files clean, 345/345 tests, build clean; packaging re-run below.)*
 - [ ] Launch a packaged build on a disposable profile and confirm the Buy Me a Coffee link still opens and no other external URL does (no child window, no navigation).
 - [ ] Re-check the Priority Wall after a cross-month bill payment: the old month's row reads `paid`, not `reserved`; then move the payment to the next month and confirm the source month reads `reserved` again even after the next cheque commits.
 - [x] Open a copy of a schema-8 database with the new build: it must migrate to 9, keep every reserve row and amount, and show the same wall on first launch. *(Verified 2026-11-02: a scratch schema-8 database migrated through the built app — two reserve rows kept their amounts, `strategy` and `due_day` backfilled from the bill, `settled_by` null, partial index present — and the booted app rendered the wall.)*
@@ -140,5 +151,5 @@ Work merged to `main` after `v1.2.0`. None of it is in an installer yet; the `[U
 - [ ] Open the allocator for a month with a card-paid bill and confirm its preview priority matches the recorded paycheck; then check the wall's next-check figure subtracts the same cash payment.
 - [x] Remove `settled_by` from one reserve row in a scratch copy and confirm the delete/move path still re-opens the claim by cycle. *(Covered by the `deleting a pre-v9 payment re-opens the claim it carried` case in `reserves.test.ts`, which nulls the link and deletes the payment.)*
 - [ ] Launch a packaged build and copy an entry id from Settings/About to the clipboard: the permission handlers allow only `clipboard-sanitized-write`, so a denied copy would now show up as a silent no-op.
-- [ ] Confirm the tag guard fires if `package.json` and the tag disagree (a scratch tag, deleted before push).
+- [x] Confirm the tag guard fires if `package.json` and the tag disagree (a scratch tag, deleted before push). *(2026-11-02: the workflow's two checks were run locally against the tree with `GITHUB_REF_NAME=v9.9.9` — exited 1 — and `v1.2.0` — matched and found on `main`; no tag was created or pushed.)*
 - [ ] Choose the next version. Schema 9 is a new migration, so the next release is at least a minor bump; the tag guard requires the tag to match `package.json`.

@@ -56,8 +56,11 @@ export function PriorityWall() {
     ? nextPaydayISO(todayISO(), settings.payCadence, anchor)
     : null
   const monthlyKey = todayISO().slice(0, 7)
+  // A claim whose bill was deleted stays in the ledger for history but is no
+  // longer money the wall holds.
+  const liveBillIds = new Set(bills.map((bill) => bill.id))
   const reservesThisMonth = snapshot.billReserves.filter(
-    (reserve) => reserve.cycle === monthlyKey
+    (reserve) => reserve.cycle === monthlyKey && liveBillIds.has(reserve.billId)
   )
   const reserveStateOf = (billId: string): 'paid' | 'reserved' | null => {
     const rows = reservesThisMonth.filter((reserve) => reserve.billId === billId)
@@ -69,7 +72,9 @@ export function PriorityWall() {
   const nextCheckMonth = nextCheck?.slice(0, 7) ?? null
   const nextCheckClaims = snapshot.billReserves.filter(
     (reserve) =>
-      reserve.cycle === nextCheckMonth && reserve.state === 'reserved'
+      reserve.cycle === nextCheckMonth &&
+      reserve.state === 'reserved' &&
+      liveBillIds.has(reserve.billId)
   )
   const nextCheckPayments =
     nextCheckMonth === monthlyKey
@@ -204,9 +209,6 @@ export function PriorityWall() {
             className="wall-table"
             columns={[
               { key: 'bill', label: 'Bill' },
-              { key: 'amount', label: 'Amount' },
-              { key: 'cadence', label: 'Cadence' },
-              { key: 'due', label: 'Due' },
               {
                 key: 'check',
                 label: nextCheck ? 'Next check' : 'Per check',
@@ -221,82 +223,91 @@ export function PriorityWall() {
               { key: 'actions', label: '', ariaLabel: 'Actions' }
             ]}
           >
-            {bills.map((bill) => (
-              <tr key={bill.id} className={bill.isActive ? undefined : 'inactive'}>
-                <td>
-                  <div className="cell-strong" title={bill.name}>
-                    {bill.name}
-                  </div>
-                <div className="cell-sub">
-                  {bill.category}
-                  {bill.autopay ? ' · autopay' : ''}
-                  {reserveStateOf(bill.id) === 'paid' && (
-                    <span className="chip chip-quiet">Paid this month</span>
-                  )}
-                  {reserveStateOf(bill.id) === 'reserved' && (
-                    <span className="chip chip-quiet">Reserved this month</span>
-                  )}
-                  {!bill.isActive && <span className="chip chip-quiet chip-inactive">Bill inactive</span>}
-                </div>
-              </td>
-              <td>
-                <Money cents={bill.amountCents} currency={currency} />
-              </td>
-              <td className="muted">{FREQUENCY_LABEL[bill.frequency]}</td>
-              <td className="muted">{ordinal(bill.dueDay)}</td>
-              <td className="right">
-                <Money
-                  cents={
-                    nextCheck
-                      ? nextCheckReserve(bill)
-                      : bill.fundingStrategy === 'all_checks'
-                        ? reservePerPaycheckCents(
-                            bill.amountCents,
-                            bill.frequency,
-                            settings.payCadence
-                          )
-                        : monthlyEquivalentCents(bill.amountCents, bill.frequency)
-                  }
-                  currency={currency}
-                />
-                {bill.fundingStrategy !== 'all_checks' && (
-                  <div className="cell-sub chip-funding">
-                    Reserved on the{' '}
-                    {ordinal(
-                      fundingCheckFor(bill, settings.payCadence, nextCheck, anchor) ?? 1
-                    )}{' '}
-                    check{nextCheck ? ' of the month' : ' each month'}
-                  </div>
-                )}
-              </td>
-              <td className="right muted">
-                <Money
-                  cents={monthlyEquivalentCents(bill.amountCents, bill.frequency)}
-                  currency={currency}
-                />
-              </td>
-              <td>
-                <div className="row-actions">
-                  <button
-                    type="button"
-                    className={bill.isActive ? 'switch on' : 'switch'}
-                    aria-pressed={bill.isActive}
-                    aria-label={bill.isActive ? 'Pause bill' : 'Resume bill'}
-                    title={bill.isActive ? 'Pause bill' : 'Resume bill'}
-                    onClick={() => void updateBill(bill.id, { isActive: !bill.isActive })}
-                  >
-                    <span className="switch-knob" />
-                  </button>
-                  <IconButton label="Edit bill" onClick={() => setEditing(bill)}>
-                    <Pencil size={15} />
-                  </IconButton>
-                  <IconButton label="Delete bill" danger onClick={() => remove(bill)}>
-                    <Trash2 size={15} />
-                  </IconButton>
-                </div>
-              </td>
-            </tr>
-          ))}
+            {bills.map((bill) => {
+              const state = reserveStateOf(bill.id)
+              const checkCents = !bill.isActive
+                ? 0
+                : nextCheck
+                  ? nextCheckReserve(bill)
+                  : bill.fundingStrategy === 'all_checks'
+                    ? reservePerPaycheckCents(
+                        bill.amountCents,
+                        bill.frequency,
+                        settings.payCadence
+                      )
+                    : monthlyEquivalentCents(bill.amountCents, bill.frequency)
+              // A zero on the next check means the month is already covered:
+              // say that instead of naming a check that has nothing left to do.
+              const covered = nextCheck !== null && bill.isActive && checkCents === 0
+              return (
+                <tr key={bill.id} className={bill.isActive ? undefined : 'inactive'}>
+                  <td>
+                    <div className="cell-strong" title={bill.name}>
+                      {bill.name}
+                    </div>
+                    <div className="cell-sub">
+                      <Money cents={bill.amountCents} currency={currency} />
+                      {' · '}
+                      {FREQUENCY_LABEL[bill.frequency]}
+                      {' · due the '}
+                      {ordinal(bill.dueDay)}
+                      {bill.autopay ? ' · autopay' : ''}
+                      {state === 'paid' && (
+                        <span className="chip chip-quiet">Paid this month</span>
+                      )}
+                      {state === 'reserved' && (
+                        <span className="chip chip-quiet">Reserved this month</span>
+                      )}
+                      {!bill.isActive && (
+                        <span className="chip chip-quiet chip-inactive">Bill inactive</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="right">
+                    <Money cents={checkCents} currency={currency} />
+                    {!bill.isActive ? (
+                      <div className="cell-sub">Paused</div>
+                    ) : covered ? (
+                      <div className="cell-sub">Nothing more due</div>
+                    ) : bill.fundingStrategy !== 'all_checks' ? (
+                      <div className="cell-sub chip-funding">
+                        On the{' '}
+                        {ordinal(
+                          fundingCheckFor(bill, settings.payCadence, nextCheck, anchor) ?? 1
+                        )}{' '}
+                        check{nextCheck ? ' of the month' : ' each month'}
+                      </div>
+                    ) : null}
+                  </td>
+                  <td className="right muted">
+                    <Money
+                      cents={monthlyEquivalentCents(bill.amountCents, bill.frequency)}
+                      currency={currency}
+                    />
+                  </td>
+                  <td>
+                    <div className="row-actions">
+                      <button
+                        type="button"
+                        className={bill.isActive ? 'switch on' : 'switch'}
+                        aria-pressed={bill.isActive}
+                        aria-label={bill.isActive ? 'Pause bill' : 'Resume bill'}
+                        title={bill.isActive ? 'Pause bill' : 'Resume bill'}
+                        onClick={() => void updateBill(bill.id, { isActive: !bill.isActive })}
+                      >
+                        <span className="switch-knob" />
+                      </button>
+                      <IconButton label="Edit bill" onClick={() => setEditing(bill)}>
+                        <Pencil size={15} />
+                      </IconButton>
+                      <IconButton label="Delete bill" danger onClick={() => remove(bill)}>
+                        <Trash2 size={15} />
+                      </IconButton>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
           </DataTable>
         )}
       </Card>

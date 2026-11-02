@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { RepositoryError } from '@shared/errors'
+import { todayISO } from '@shared/dates'
 import { normalizeSignedCents, signedAmountError } from '@shared/kinds'
 import { parseSettings } from '@shared/settings'
 import { ledgerStatementCents } from '@shared/statements'
@@ -117,7 +118,8 @@ export function transactionRowsFor(db: Db, userId: string, id: string): Transact
 export function listBillPaymentsThisMonth(
   db: Db,
   userId: string,
-  monthISO: string
+  monthISO: string,
+  asOfISO: string = todayISO()
 ): BillPaymentTotal[] {
   return db
     .prepare(
@@ -128,10 +130,12 @@ export function listBillPaymentsThisMonth(
        JOIN accounts a ON a.id = t.account_id
        WHERE t.user_id = ? AND t.deleted_at IS NULL
          AND t.bill_id IS NOT NULL
+         AND t.kind IN ('bill_payment','expense')
          AND substr(t.occurred_on, 1, 7) = ?
+         AND t.occurred_on <= ?
        GROUP BY t.bill_id`
     )
-    .all(userId, monthISO) as BillPaymentTotal[]
+    .all(userId, monthISO, asOfISO) as BillPaymentTotal[]
 }
 
 /**
