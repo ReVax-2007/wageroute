@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import Database from 'better-sqlite3'
 import test from 'node:test'
+import type { BillFundingStrategy } from '@shared/types'
 import { migrate } from './migrations'
 import {
   commitPaycheck,
@@ -36,18 +37,23 @@ function checking(db: Database.Database): string {
   })
 }
 
-function rent(db: Database.Database, accountId: string): string {
+function rent(
+  db: Database.Database,
+  accountId: string,
+  dueDay = 15,
+  fundingStrategy: BillFundingStrategy = 'first_check'
+): string {
   return createBill(db, USER_ID, {
     name: 'Rent',
     amountCents: 120_000,
     frequency: 'monthly',
-    dueDay: 15,
+    dueDay,
     category: 'Housing',
     accountId,
     autopay: false,
     isActive: true,
     nextDueOn: null,
-    fundingStrategy: 'first_check',
+    fundingStrategy,
     fundingPaycheckIndex: 1
   })
 }
@@ -127,6 +133,37 @@ test('moving a payment to another month re-opens the month it left', () => {
 
   updateTransaction(db, USER_ID, paymentId, { occurredOn: '2026-03-30' })
   assert.equal(listBillReserves(db, USER_ID)[0].state, 'paid')
+})
+
+test('a payment next month settles the earlier cheque’s claim instead of stranding it', () => {
+  const db = freshDb()
+  const accountId = checking(db)
+  const billId = rent(db, accountId, 1, 'last_check')
+  route(db, accountId, '2026-01-31')
+
+  const [january] = listBillReserves(db, USER_ID)
+  assert.equal(january.cycle, '2026-01', 'the January cheque carries a bill due 1 February')
+
+  createTransaction(db, USER_ID, {
+    accountId,
+    kind: 'bill_payment',
+    amountCents: -120_000,
+    occurredOn: '2026-02-01',
+    memo: 'Rent',
+    category: 'Housing',
+    billId
+  })
+
+  const february = route(db, accountId, '2026-02-05')
+  assert.ok(february.plan)
+  assert.equal(
+    february.plan.priorityReserves.find((line) => line.billId === billId)?.reserveCents,
+    0,
+    'February does not reserve a bill it already paid'
+  )
+  const rows = listBillReserves(db, USER_ID)
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].state, 'paid', 'the January carry is closed, not left reserved for ever')
 })
 
 test('a second cheque in the same month does not reserve a single-check bill twice', () => {

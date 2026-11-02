@@ -10,6 +10,7 @@ import type { Db } from './db/repo/common'
 import { seedDemoIfEmpty, seedIfEmpty } from './db/seed'
 import { registerIpcHandlers } from './ipc'
 import { installCrashLogging, logCrash } from './log'
+import { isAllowedExternalUrl, isTrustedPageUrl } from './window-security'
 
 app.setName('WageRoute')
 installCrashLogging()
@@ -84,15 +85,15 @@ function createWindow(): void {
 
   // A local finance tool has no business opening child windows or navigating away.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:\/\//.test(url)) void shell.openExternal(url)
+    if (isAllowedExternalUrl(url)) void shell.openExternal(url)
     return { action: 'deny' }
   })
   mainWindow.webContents.on('will-navigate', (event, url) => {
-    const devUrl = process.env.ELECTRON_RENDERER_URL
-    const page = url.split('#')[0]
-    const allowed = devUrl
-      ? page.startsWith(devUrl)
-      : page === pathToFileURL(join(__dirname, '../renderer/index.html')).href
+    const allowed = isTrustedPageUrl(
+      url,
+      process.env.ELECTRON_RENDERER_URL,
+      pathToFileURL(join(__dirname, '../renderer/index.html')).href
+    )
     if (!allowed) event.preventDefault()
   })
 
@@ -125,6 +126,9 @@ function boot(): void {
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => {
     callback(false)
   })
+  // Synchronous queries (navigator.permissions.query) bypass the request
+  // handler, so the check handler has to refuse them separately.
+  session.defaultSession.setPermissionCheckHandler(() => false)
 
   if (process.platform === 'darwin' && !app.isPackaged) {
     const iconPath = join(__dirname, '../../build/icon.png')

@@ -175,7 +175,7 @@ Added in v8. A user-owned list that groups entries for reports. The text on `tra
 Semantics:
 
 - `DEFAULT_CATEGORIES` seeds eighteen names, starting with `Uncategorized`, on first run and in the v8 backfill. A fresh or upgraded profile therefore has something to pick before the user creates anything.
-- `normalizeCategoryName` trims and caps at 60 characters; `categoryKey` lowercases and collapses whitespace, and is both the dedupe key and the match the grid and entry dialog use to turn what was typed into an id.
+- `normalizeCategoryName` trims and caps at 60 characters; `categoryKey` lowercases (locale-aware, so non-ASCII letters fold too) and collapses whitespace, and is both the dedupe key and the match the grid and entry dialog use to turn what was typed into an id. Lookups compare `categoryKey` in JS rather than with SQL `lower()`, whose folding is ASCII-only; otherwise `CAFÉ` and `Café` would split one category's total into two report rows.
 - Renaming a category rewrites `transactions.category` on its linked entries in the same transaction, so the displayed text never contradicts the group.
 - Deleting a category nulls `transactions.category_id` and keeps the text; the entry still reads, it is simply unlinked.
 - The write path (`resolveCategory`) accepts an explicit `categoryId` only when the row exists (`NOT_FOUND` otherwise). Free text goes through `ensureCategory`, so an entry never names a category that has no row — except where an import deliberately leaves it unlinked.
@@ -353,6 +353,7 @@ Semantics:
 - The cycle is the **calendar month** of the cheque, not a pay period, because `monthlyEquivalentCents` normalises every frequency to a month.
 - `state = 'paid'` is set by a `bill_payment` or `expense` transaction carrying that `bill_id` in that cycle. Deleting that transaction, or moving it to another month, sets the old row back to `reserved`.
 - `reservedBillIdsFor` reads the live single-check bills of a cycle, so a second cheque does not claim the same bill twice. `all_checks` bills are spread and are not deduplicated.
+- A payment dated after the claim's cycle settles every earlier `reserved` row for that bill (`settleEarlierBillReserves`), so a January cheque's claim does not stay "reserved" forever once the bill is paid in February. The row stays in its original cycle; only its state moves to `paid`.
 - Deleting a bill soft-deletes its reserves in the same transaction.
 - A claim is **not** an account movement: no balance changes and no transfer row is written ([ADR 0013](decisions/0013-a-route-is-a-plan-not-a-movement.md)).
 
@@ -420,7 +421,7 @@ Category and external-id rules:
 | `idx_transactions_round_up_source` | `transactions(round_up_source_id) WHERE round_up_source_id IS NOT NULL` | Find the sweep for a purchase |
 | `idx_transactions_category` | `transactions(category_id) WHERE category_id IS NOT NULL` | Category reports and filters |
 | `idx_transactions_external` | `UNIQUE transactions(user_id, account_id, external_id) WHERE external_id IS NOT NULL AND deleted_at IS NULL` | Statement re-import is a no-op |
-| `idx_categories_name` | `UNIQUE categories(user_id, lower(name)) WHERE deleted_at IS NULL` | One live category per name, case-insensitively |
+| `idx_categories_name` | `UNIQUE categories(user_id, lower(name)) WHERE deleted_at IS NULL` | At most one live category per name for ASCII cased spellings. SQLite's `lower()` does not fold non-ASCII letters, so the repository compares with the JS `categoryKey` too; the index is the backstop, not the whole rule |
 | `idx_balance_snapshots_day` | `UNIQUE balance_snapshots(account_id, on_date) WHERE deleted_at IS NULL` | One record per account per day |
 | `idx_balance_snapshots_user` | `balance_snapshots(user_id, on_date DESC) WHERE deleted_at IS NULL` | The net-worth series |
 
@@ -549,7 +550,7 @@ These should hold after every successful mutation.
 | Delete goal | Goal soft-deleted; allocations retained but no longer shown as progress; `accounts.dedicated_goal_id` nulled for every account dedicated to it |
 | Delete transaction | Row soft-deleted; if paired, both legs are soft-deleted |
 | Delete paycheck | No delete path in the UI |
-| Clear all data | No in-app path; remove the database file manually |
+| Clear all data | Settings → Data → **Erase all data…** (two-step confirmation) writes a safety backup first, then wipes every row and re-seeds a blank profile. The database file itself is not deleted |
 
 Soft-deleted rows are included in JSON backups, so a backup taken before a delete still contains the tombstone. Importing it into the same database skips the existing ID; it does not resurrect the row.
 

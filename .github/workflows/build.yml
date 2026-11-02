@@ -18,7 +18,35 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # A tag has to name the version in package.json and sit on main. Without this
+  # check a mistyped tag builds 1.2.0 artifacts, titles the draft 1.3.0, and no
+  # step notices: the checksums stay self-consistent because they cover what
+  # was actually built.
+  guard:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - name: Check the tag against the tree and main
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
+            echo "tag $GITHUB_REF_NAME does not match package.json $version"
+            exit 1
+          fi
+          git fetch origin main --depth=1
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "$GITHUB_REF_NAME is not on main"
+            exit 1
+          fi
+
   build:
+    needs: guard
+    # A manual run has no tag, so guard is skipped; only a failure blocks.
+    if: ${{ !cancelled() && needs.guard.result != 'failure' }}
     strategy:
       fail-fast: false
       matrix:
@@ -233,6 +261,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 ||
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            # Re-running a tag may refresh a draft, but replacing assets in a
+            # live release would invalidate the checksums people already kept.
+            if [ "$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft)" != "true" ]; then
+              echo "release $GITHUB_REF_NAME is already published; refusing to replace its assets"
+              exit 1
+            fi
+          else
             gh release create "$GITHUB_REF_NAME" --draft --title "WageRoute $GITHUB_REF_NAME"
+          fi
           gh release upload "$GITHUB_REF_NAME" release/* --clobber

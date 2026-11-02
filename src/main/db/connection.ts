@@ -3,7 +3,7 @@ import { app } from 'electron'
 import { chmodSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { DB_FILE, adoptLegacyDatabase as adoptLegacy, type AdoptionResult } from './legacy'
-import { assertHealthy, backupBeforeUpgrade } from './maintenance'
+import { assertHealthy, backupBeforeUpgrade, needsPreUpgradeBackup } from './maintenance'
 import { migrate, SCHEMA_VERSION } from './migrations'
 
 let instance: Database.Database | null = null
@@ -57,7 +57,7 @@ export function getDatabase(): Database.Database {
     // copy of the schema it is about to replace. A fresh file (version 0) has
     // nothing worth copying.
     const current = db.pragma('user_version', { simple: true }) as number
-    if (current > 0 && current < SCHEMA_VERSION) {
+    if (needsPreUpgradeBackup(current, SCHEMA_VERSION)) {
       backupBeforeUpgrade(db, backupsPath(), current, SCHEMA_VERSION)
     }
     migrate(db)

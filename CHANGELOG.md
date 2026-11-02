@@ -8,7 +8,28 @@ All notable changes to WageRoute are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
-Nothing has merged since 1.2.0.
+No code has shipped since 1.2.0. Everything below this line landed on `main` after the tag and is in no installer yet.
+
+### Added
+
+- **The window can open exactly one external page.** `setWindowOpenHandler` used to hand *any* `http(s)` URL to the system browser, which made it a general exfiltration path for a compromised renderer. It now consults `isAllowedExternalUrl()` in [`src/main/window-security.ts`](src/main/window-security.ts), which compares the exact origin and path and allows only `https://buymeacoffee.com/revax`; every other URL — including other `http(s)` hosts, `file:`, `javascript:` and lookalike hosts — is denied without opening. `will-navigate` and the IPC `isTrustedFrame()` gate now share one predicate, `isTrustedPageUrl()`: the packaged page by exact URL, or the dev server by origin during development. `setPermissionCheckHandler` joins `setPermissionRequestHandler`, both denying everything.
+- **A tag cannot build a tree that is not the release.** A tag-only `guard` job fails the workflow unless `${GITHUB_REF_NAME#v}` equals `package.json`'s version and the tagged commit is an ancestor of `origin/main`. The `release` job now refuses to replace assets on a release that is already published, so a re-run cannot invalidate a `SHA256SUMS` someone already kept.
+- **`src/main/window-security.test.ts`, `src/renderer/src/lib/finance.test.ts` and 24 new cases across six existing files.** The new suites pin the exact-URL trust check against lookalike prefixes and wrong ports, the external-link allowlist, and the money maths the dashboard relies on (cash on hand, credit clamps, fundable accounts, the monthly and per-cheque wall, goal totals, the four-slice routing breakdown, the upcoming-payment horizon, day ordinals). The rest cover non-ASCII category identity, a bank id landing once per account, a deleted-row id being importable again, the pre-upgrade predicate table, the reserve carry between months, and selector behaviour with no snapshot, with wealth versus pool, and with a bill paid from cash versus credit. `npm test` is now **299 tests across thirty-seven files**.
+
+### Fixed
+
+- **A category is one row however its non-ASCII letters are cased.** SQLite's `lower()` folds ASCII only, while reports group by the locale-aware `categoryKey`; looking a category up with SQL `lower()` therefore created a second row for `CAFÉ` and split one category's total into two report lines. Category lookup and the text backfill now compare `categoryKey` in JS, so the lookup and the report agree.
+- **A bill paid next month stops calling last month's claim "reserved".** A claim belonged to the cheque's month and was only closed by a payment in that same month; a bill funded on 31 January and paid on 1 February left January's row `reserved` forever. `settleEarlierBillReserves` now flips every earlier `reserved` row for that bill to `paid` when a later payment lands, keeping each row in its own cycle. The existing rule that moving a payment to another month re-opens the month it left is unchanged.
+- **The goal funding-account picker no longer shows a stale selection.** After applying a change, the checklist could keep rendering the previous choice. The picker now follows the saved goal until the user touches it (`draftIds`), and **Select all** is derived from the live list instead of a one-time flag.
+- **Deleting an account is no longer blocked by a failed count.** If counting the account's entries failed, the dialog kept **Delete** disabled with no explanation; the count now falls back to zero so archive-or-delete stays reachable.
+- **The account dialog explains a refused credit limit or statement balance.** Negative values were already rejected by the repository; the form now marks the offending field with its own message instead of failing silently on save.
+- **Focus lands somewhere real when the dialog's trigger is gone.** A dialog that removed its own opener now returns focus to `#main-content` rather than calling `.focus()` on a detached node.
+- **A pre-upgrade copy is written only for a real upgrade.** `needsPreUpgradeBackup()` requires an existing database (`current > 0`) and a strictly older version, so a fresh file or an already-current one no longer produces a pointless `pre-upgrade-*-to-*-*.db`.
+
+### Changed
+
+- **The documented gates match the ones CI runs.** `CONTRIBUTING.md`, `README.md` and the pull-request template now include `npm run lint`; `docs/DEPLOYMENT.md` describes the `verify` job's packaging dry run and the build job's lint step. The `dist:linux` documentation no longer claims both architectures: the script builds the host architecture, and CI runs one job per architecture. `docs/RELEASING.md` now says a tag creates a **draft** release, records that DMG blockmaps are written locally but excluded from the uploaded artifact patterns, and no longer says there is no publish automation.
+- **Stale claims across the reference docs.** Error notices now document the real behaviour (successes fade after 4.2 s, errors persist) and the existing crash log rather than "no logging subsystem"; clearing all data is documented as the in-app two-step erase with its safety copy; the migration history names which schema versions shipped in 1.0.x, 1.1.0 and 1.2.0; and the import ADR counts the ten tables a backup now covers.
 
 ---
 

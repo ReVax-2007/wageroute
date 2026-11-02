@@ -27,7 +27,7 @@ An import **merges** data into the existing ledger. It never deletes, truncates 
 
 ### JSON backups
 
-- The file may contain any subset of the seven tables. An absent table is treated as empty and leaves the local table untouched.
+- The file may contain any subset of the ten tables (`accounts`, `balance_snapshots`, `categories`, `bills`, `goals`, `paychecks`, `allocations`, `bill_reserves`, `transactions`, `settings`). An absent table is treated as empty and leaves the local table untouched.
 - Rows are inserted only if their UUID does not already exist for the local user. Existing IDs are skipped, not updated.
 - Account and paycheck UUIDs are preserved so cross-table links remain valid. Links to rows that are absent locally fail the foreign-key check and abort the transaction.
 - Insert order is `accounts → bills → goals → paychecks → allocations → transactions → settings`, so references exist before they are used.

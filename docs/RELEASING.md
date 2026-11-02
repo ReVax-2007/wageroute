@@ -1,6 +1,6 @@
 # Releasing WageRoute
 
-A WageRoute release is a **verified build of the desktop app plus a deliberate distribution step**. There is no server to deploy, no migration to run remotely and no publish automation. The hard parts are data compatibility, native modules and the fact that the installers are currently unsigned.
+A WageRoute release is a **verified build of the desktop app plus a deliberate distribution step**. There is no server to deploy and no migration to run remotely. A tag build packages every platform and attaches the installers to a **draft** GitHub Release, but publishing that release — and updating the Homebrew tap — stays manual. The hard parts are data compatibility, native modules and the fact that the installers are currently unsigned.
 
 This document is the operational manual: what the version numbers mean, how to build, what CI does, what is missing before public distribution, and how to roll back without losing a ledger.
 
@@ -239,7 +239,7 @@ release/
 └── mac/WageRoute.app            # when an x64 build runs
 ```
 
-The names are pinned by `dmg.artifactName` in `electron-builder.yml` (`WageRoute-${version}-${arch}.dmg`), so both architectures carry their suffix and a release note can name an asset exactly. `publish: null` means no `latest-mac.yml` or `.blockmap` is written: there is no updater, so there is no update metadata to describe.
+The names are pinned by `dmg.artifactName` in `electron-builder.yml` (`WageRoute-${version}-${arch}.dmg`), so both architectures carry their suffix and a release note can name an asset exactly. `publish: null` means no `latest-mac.yml` is written: there is no updater, so there is no update feed. electron-builder still emits a `.dmg.blockmap` beside each DMG locally; the CI artifact patterns do not include it, so it never reaches the release.
 
 **Windows** — `win.target` requests `nsis`, `msi`, `portable` and `zip` for `x64` and `arm64`:
 
@@ -353,7 +353,7 @@ The rpm is built but not launched, because `rpm2cpio` is not installed on the ru
 - It does not create a tag or write release notes. On a tag push it creates or updates a **draft** release and attaches the files plus `SHA256SUMS`; publishing stays manual.
 - It does not sign with a real identity or notarize. macOS artifacts get an ad-hoc signature from the afterSign and afterAllArtifactBuild hooks; Windows and Linux artifacts are unsigned.
 - It does not run `npm audit`, generate an SBOM or attest build provenance.
-- It does not publish anywhere. `npm run dist:*` and the workflow pass `--publish never` (and `publish: null` is set in the config), because electron-builder treats a tag build as an implicit publish request and fails when `GH_TOKEN` is absent. Artifacts expire according to the repository's retention setting (GitHub's default is 90 days).
+- It does not push packages to a registry or an auto-update feed. `npm run dist:*` and every packaging step pass `--publish never` (and `publish: null` is set in the config), because electron-builder treats a tag build as an implicit publish request and fails when `GH_TOKEN` is absent. The only upload is `gh release upload` into a draft release, described above. Workflow artifacts expire according to the repository's retention setting (GitHub's default is 90 days).
 
 Every action is pinned by commit SHA with its release version in a comment; a bump means replacing the SHA, not the tag. See [SECURITY.md](SECURITY.md#supply-chain).
 
@@ -515,13 +515,12 @@ If a future migration is questioned, this archive is how you reproduce the old b
 
 ## Publishing a GitHub Release
 
-CI uploads workflow artifacts only. Creating a release is a manual, deliberate step.
+A tag build runs the `release` job, which creates or refreshes a **draft** release carrying every installer and `SHA256SUMS`. Publishing it — and updating the Homebrew tap — is a manual, deliberate step.
 
-1. Open **Releases → Draft a new release**.
-2. Choose the existing tag (`v1.2.0`). Do not create the tag in the web UI unless you intentionally skipped the CLI step.
-3. Title: `WageRoute 1.2.0`.
-4. Paste the release notes from the template below.
-5. Attach:
+1. Open **Releases → Drafts** and select the draft the tag pushed. Do not create a second release for the same tag in the web UI.
+2. Title: `WageRoute 1.2.0`.
+3. Paste the release notes from the template below.
+4. Confirm the draft carries:
    - `WageRoute-<version>-arm64.dmg` and `WageRoute-<version>-x64.dmg` (Intel)
    - `WageRoute.Setup.<version>.exe` (one installer for x64 and arm64)
    - `WageRoute-<version>-x64.msi` and `WageRoute-<version>-arm64.msi`
@@ -529,9 +528,9 @@ CI uploads workflow artifacts only. Creating a release is a manual, deliberate s
    - the AppImage, deb and rpm for x64 (`-x86_64.AppImage`, `-amd64.deb`, `-x86_64.rpm`) and arm64 (`-arm64.AppImage`, `-arm64.deb`, `-aarch64.rpm`)
    - `SHA256SUMS` covering all of the above
 
-   The draft release created by the tag build already carries these files, including `SHA256SUMS`; the `release` job in [`.github/workflows/build.yml`](../.github/workflows/build.yml) attaches them. Check the draft rather than re-uploading by hand.
-6. Mark as **pre-release** only if you do not intend this build as the default download.
-7. Publish.
+   The `release` job in [`.github/workflows/build.yml`](../.github/workflows/build.yml) attaches these files and refuses to replace assets on a release that is already published. Check the draft rather than re-uploading by hand.
+5. Mark as **pre-release** only if you do not intend this build as the default download.
+6. Publish.
 
 Do not attach the workflow artifact zip in place of the raw installers. Do not attach a `.db` file, a personal backup, a CSV export or any file containing real financial data.
 

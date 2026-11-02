@@ -76,7 +76,7 @@ The same `src/shared` modules are imported by both the main process and the rend
 1. `app.setName('WageRoute')` runs before Electron resolves the `userData` path, so the data directory uses the new product name.
 2. A single-instance lock is requested. A second launch quits immediately; the existing window is restored and focused.
 3. After `whenReady()`:
-   - every permission request is denied (`session.defaultSession.setPermissionRequestHandler`);
+   - every permission request and permission check is denied (`setPermissionRequestHandler` plus `setPermissionCheckHandler`);
    - on macOS in development only, the dock icon is set from `build/icon.png`;
    - `adoptLegacyDatabase()` copies a pre-rename database if the new one is absent;
    - `getDatabase()` opens `wageroute.db`, sets WAL/NORMAL/foreign keys/busy timeout, runs `PRAGMA quick_check`, writes a pre-upgrade copy when the file is older than the build, and runs migrations;
@@ -97,7 +97,7 @@ webPreferences: {
 }
 ```
 
-Navigation is constrained: `setWindowOpenHandler` denies all child windows and sends `http(s)` URLs to the OS browser; `will-navigate` allows only the dev server URL in development or `file://` in production.
+Navigation is constrained by [`src/main/window-security.ts`](../src/main/window-security.ts). `setWindowOpenHandler` denies every child window and opens only an allowlisted external URL (the Buy Me a Coffee page) in the OS browser. `will-navigate` allows the packaged `index.html` by exact URL, or — in development only — any page on the dev server's origin; everything else is cancelled. The same trust predicate backs `isTrustedFrame()` in the IPC layer, so navigation and IPC agree on what counts as the app.
 
 ## Renderer lifecycle and state
 
@@ -418,8 +418,8 @@ The boundary is examined in detail in [SECURITY.md](SECURITY.md). In summary:
 - renderer: sandboxed, no Node, no direct filesystem or SQL;
 - preload: one frozen-by-usage API object on `window.api`;
 - main: validates IDs, delegates payload rules to repositories, parameterises SQL;
-- navigation: child windows denied, external `http(s)` links opened by the OS, other navigation blocked;
-- permissions: all denied;
+- navigation: child windows denied, one allowlisted external link opened by the OS, all other navigation blocked by an exact URL/origin check;
+- permissions: every request and permission check denied;
 - CSP: self-only scripts/styles, self/data images and fonts, localhost connect-src for development;
 - data: unencrypted SQLite on disk, protected only by the OS account and full-disk encryption.
 
@@ -431,11 +431,11 @@ The renderer is trusted to call its own API methods. A compromised renderer can 
 | --- | --- |
 | Main / repositories | Throws `Error` with a user-readable message; no partial writes because of transaction boundaries |
 | Preload | Rejections propagate unchanged |
-| Store | Strips Electron's `Error invoking remote method '...':` prefix, shows a 4.2 s error toast |
+| Store | Strips Electron's `Error invoking remote method '...':` prefix and shows a notice: successes fade after 4.2 s, errors stay until dismissed or replaced |
 | Boot | A failed `getSnapshot` or `db:path` sets `status = 'error'` and renders a full-screen message |
 | React | Error boundary renders the message and a reload button |
 
-There is no logging subsystem, crash reporter, telemetry or error persistence. Errors are visible only while the toast is on screen.
+Uncaught exceptions, unhandled rejections, renderer and child-process crashes, boot failures and database errors are appended to `logs/main.log` under the user-data directory by [`src/main/log.ts`](../src/main/log.ts). One previous generation is kept (512 KiB cap), and Settings → About shows the path and the last lines so a bug report can include them. There is no crash reporter backend, no telemetry and no other error persistence: a handled error the user dismisses from the notice is gone.
 
 ## Build system
 

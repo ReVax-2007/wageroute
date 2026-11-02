@@ -23,7 +23,12 @@ import {
   requireAccount,
   type Db
 } from './common'
-import { listBills, recordBillReserves, reservedBillIdsFor } from './bills'
+import {
+  listBills,
+  recordBillReserves,
+  reservedBillIdsFor,
+  settleEarlierBillReserves
+} from './bills'
 import { listGoals } from './goals'
 import { readSettings } from './settings'
 import {
@@ -305,6 +310,10 @@ export function commitPaycheck(
     if (plan.shortfallCents === 0) {
       recordBillReserves(db, userId, paycheckId, cycle, plan.priorityReserves)
     }
+    // Bills already paid this month were carried by an earlier cheque's claim,
+    // which belongs to the previous cycle. Close it so the history stops
+    // calling a settled bill "reserved".
+    settleEarlierBillReserves(db, userId, cycle, [...paidByBill.keys()])
     return paycheckId
   })
 

@@ -25,10 +25,14 @@ export function listCategories(db: Db, userId: string): Category[] {
     .all(userId) as Category[]
 }
 
+/**
+ * SQLite's `lower()` only folds ASCII, while reports group by the locale-aware
+ * `categoryKey`. Comparing in JS keeps the lookup and the report on one key:
+ * otherwise "CAFÉ" and "Café" become two rows and split one category's total.
+ */
 function findByName(db: Db, userId: string, name: string): Category | undefined {
-  return db
-    .prepare(`${CATEGORY_SELECT} AND lower(name) = lower(?)`)
-    .get(userId, normalizeCategoryName(name)) as Category | undefined
+  const key = categoryKey(name)
+  return listCategories(db, userId).find((row) => categoryKey(row.name) === key)
 }
 
 function nextSortOrder(db: Db, userId: string): number {
@@ -175,18 +179,20 @@ export function backfillCategories(db: Db, userId: string): void {
 
   const rows = db
     .prepare(
-      `SELECT DISTINCT category FROM transactions
+      `SELECT id, category FROM transactions
        WHERE user_id = ? AND deleted_at IS NULL AND category_id IS NULL`
     )
-    .all(userId) as { category: string }[]
+    .all(userId) as { id: string; category: string }[]
+  const update = db.prepare(
+    `UPDATE transactions SET category_id = ? WHERE id = ? AND user_id = ?`
+  )
   for (const row of rows) {
     const name = normalizeCategoryName(row.category)
     const existing = findByName(db, userId, name || 'Uncategorized')
-    const id = existing?.id ?? insertCategory(db, userId, name || 'Uncategorized', 'other', null, nextSortOrder(db, userId))
-    db.prepare(
-      `UPDATE transactions SET category_id = ?
-       WHERE user_id = ? AND category_id IS NULL AND lower(category) = lower(?) AND deleted_at IS NULL`
-    ).run(id, userId, row.category)
+    const id =
+      existing?.id ??
+      insertCategory(db, userId, name || 'Uncategorized', 'other', null, nextSortOrder(db, userId))
+    update.run(id, row.id, userId)
   }
 }
 

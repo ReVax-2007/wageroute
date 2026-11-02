@@ -30,7 +30,12 @@ function account(db: Database.Database): string {
 }
 
 /** A statement's lines carry no account name; the wizard supplies one answer. */
-function statementLine(line: number, occurredOn: string, amountCents: number): CsvEntry {
+function statementLine(
+  line: number,
+  occurredOn: string,
+  amountCents: number,
+  externalId: string | null = null
+): CsvEntry {
   return {
     line,
     occurredOn,
@@ -40,7 +45,7 @@ function statementLine(line: number, occurredOn: string, amountCents: number): C
     category: 'Uncategorized',
     memo: `line ${line}`,
     amountCents,
-    externalId: null
+    externalId
   }
 }
 
@@ -55,6 +60,73 @@ test('a statement lands on the account the wizard picked, and re-imports as dupl
 
   const again = mergeEntries(db, USER_ID, entries, { accountMap: { '': chequing } })
   assert.deepEqual([again.added, again.skipped], [0, 2], 'the same statement is not a second month')
+})
+
+test('a bank’s own id stops the same line landing twice', () => {
+  const db = freshDb()
+  const chequing = account(db)
+  const line = statementLine(1, '2026-01-05', -425, 'FITID-0001')
+
+  const first = mergeEntries(db, USER_ID, [{ ...line }], { accountMap: { '': chequing } })
+  assert.deepEqual([first.added, first.skipped], [1, 0])
+
+  const again = mergeEntries(db, USER_ID, [{ ...line, line: 2 }], { accountMap: { '': chequing } })
+  assert.deepEqual([again.added, again.skipped], [0, 1], 'the id, not the text, decides')
+
+  const repeated = mergeEntries(db, USER_ID, [{ ...line, line: 3 }], { accountMap: { '': chequing } })
+  assert.deepEqual([repeated.added, repeated.skipped], [0, 1])
+})
+
+test('the same bank id in one file lands once', () => {
+  const db = freshDb()
+  const chequing = account(db)
+
+  const merged = mergeEntries(
+    db,
+    USER_ID,
+    [
+      statementLine(1, '2026-01-05', -425, 'FITID-0002'),
+      statementLine(2, '2026-01-05', -425, 'FITID-0002')
+    ],
+    { accountMap: { '': chequing } }
+  )
+  assert.deepEqual([merged.added, merged.skipped], [1, 1])
+  assert.equal(listTransactions(db, USER_ID).length, 1)
+})
+
+test('the same bank id on another account is a different line', () => {
+  const db = freshDb()
+  const chequing = account(db)
+  const savings = createAccount(db, USER_ID, {
+    name: 'Savings',
+    kind: 'savings',
+    institution: 'Chase',
+    startingBalanceCents: 0,
+    creditLimitCents: null
+  })
+  const accountMap = { a: chequing, b: savings }
+
+  const merged = mergeEntries(
+    db,
+    USER_ID,
+    [
+      { ...statementLine(1, '2026-01-05', -425, 'FITID-0003'), accountName: 'A' },
+      { ...statementLine(2, '2026-01-05', -425, 'FITID-0003'), accountName: 'B' }
+    ],
+    { accountMap }
+  )
+  assert.deepEqual([merged.added, merged.skipped], [2, 0])
+})
+
+test('an id on a deleted row can be imported again', () => {
+  const db = freshDb()
+  const chequing = account(db)
+  const line = statementLine(1, '2026-01-05', -425, 'FITID-0004')
+  mergeEntries(db, USER_ID, [line], { accountMap: { '': chequing } })
+  db.prepare(`UPDATE transactions SET deleted_at = '2026-01-06T00:00:00.000Z'`).run()
+
+  const again = mergeEntries(db, USER_ID, [{ ...line, line: 2 }], { accountMap: { '': chequing } })
+  assert.deepEqual([again.added, again.skipped], [1, 0])
 })
 
 test('an unanswered statement reports once, not once per line', () => {
