@@ -141,10 +141,12 @@ export function ImportWizard() {
   const statementNeedsAccount = preview.statement !== undefined && empty.length > 0
 
   // The review must promise only what will actually be written: rows the user
-  // left out are subtracted from the file's own totals.
+  // left out are subtracted from the file's own totals. An entry answer can
+  // cover many lines, so the count comes from the problem, not from the card.
   const survivingRows: ImportCounts = { ...preview.fileRows }
   for (const row of leftOut) {
-    if (survivingRows[row.table] > 0) survivingRows[row.table] -= 1
+    const lines = row.problems[0]?.lines ?? 1
+    survivingRows[row.table] = Math.max(0, (survivingRows[row.table] ?? 0) - lines)
   }
 
   const setAnswer = (problem: ImportProblem, value: string): void => {

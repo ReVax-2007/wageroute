@@ -79,7 +79,8 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
           ...snapshot,
           transactions,
           transactionTotal: rows.total,
-          billPaymentsThisMonth: rows.billPayments
+          billPaymentsThisMonth: rows.billPayments,
+          billPayments: rows.billPaymentsHistory
         }
       }
     })
@@ -374,8 +375,15 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
       try {
         const result = await window.api.confirmImport(preview.token, answers)
         set({ importPreview: null, importStep: 'fix' })
-        const snapshot = await window.api.getSnapshot()
-        set({ snapshot, settings: parseSettings(snapshot.settings) })
+        // The rows are committed at this point. A failed re-read is a stale
+        // screen, not a failed import, so it must not read like one.
+        let stale = false
+        try {
+          const snapshot = await window.api.getSnapshot()
+          set({ snapshot, settings: parseSettings(snapshot.settings) })
+        } catch {
+          stale = true
+        }
 
         const added = totalCounts(result.added)
         const skipped = totalCounts(result.skipped)
@@ -389,17 +397,24 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
           set({ reconciliation })
         }
 
+        const withStale = (text: string): string =>
+          stale ? `${text} — reopen WageRoute to refresh the screen` : text
+
         if (added === 0) {
           if (dropped > 0 || refused > 0) {
             get().notify(
-              `Nothing imported — ${dropped + refused} ${dropped + refused === 1 ? 'row' : 'rows'} left out`,
+              withStale(
+                `Nothing imported — ${dropped + refused} ${dropped + refused === 1 ? 'row' : 'rows'} left out`
+              ),
               'error'
             )
           } else {
             get().notify(
-              skipped > 0
-                ? 'Nothing new — those records are already in your data'
-                : 'That file had nothing to import'
+              withStale(
+                skipped > 0
+                  ? 'Nothing new — those records are already in your data'
+                  : 'That file had nothing to import'
+              )
             )
           }
           return null
@@ -413,7 +428,7 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
         if (reconciliation?.differenceCents === 0) {
           parts.push('the closing balance matches')
         }
-        get().notify(parts.join(' · '))
+        get().notify(withStale(parts.join(' · ')))
         return null
       } catch (error) {
         const message = messageOf(error)

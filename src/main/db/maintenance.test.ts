@@ -12,6 +12,7 @@ import {
   DatabaseCorruptError
 } from './maintenance'
 import { migrate } from './migrations'
+import { wipeAllData } from './repo/users'
 
 function workspace(): string {
   return mkdtempSync(join(tmpdir(), 'wageroute-maintenance-'))
@@ -86,6 +87,41 @@ test('an erase keeps a disclosed copy and prunes it separately from upgrades', (
   const kept = readdirSync(backups).sort()
   assert.equal(kept.filter((name) => name.startsWith('pre-erase-')).length, 3)
   assert.equal(kept.filter((name) => name.startsWith('pre-upgrade-')).length, 1)
+  db.close()
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('erasing the ledger leaves no tenant table behind', () => {
+  const dir = workspace()
+  const db = seeded(join(dir, 'ledger.db'))
+  db.prepare(
+    `INSERT INTO categories (id, user_id, name, kind, created_at, updated_at)
+     VALUES ('c1', 'u1', 'SENTINEL-CATEGORY', 'expense', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`
+  ).run()
+  db.prepare(
+    `INSERT INTO balance_snapshots
+       (id, user_id, account_id, on_date, balance_cents, created_at, updated_at)
+     VALUES ('s1', 'u1', 'a1', '2026-03-01', 12345, '2026-03-01T00:00:00.000Z', '2026-03-01T00:00:00.000Z')`
+  ).run()
+
+  wipeAllData(db)
+
+  for (const table of [
+    'allocations',
+    'bill_reserves',
+    'balance_snapshots',
+    'transactions',
+    'paychecks',
+    'goals',
+    'bills',
+    'categories',
+    'accounts',
+    'settings',
+    'users'
+  ]) {
+    const counted = db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }
+    assert.equal(counted.n, 0, `${table} still holds rows after an erase`)
+  }
   db.close()
   rmSync(dir, { recursive: true, force: true })
 })

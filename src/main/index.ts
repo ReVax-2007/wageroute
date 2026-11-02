@@ -136,8 +136,12 @@ function boot(): void {
     dialog.showErrorBox(
       'Could not move your old data',
       `${adoption.error}\n\nYour Cash Flow Routing data has been left exactly where it was. ` +
-        'Nothing in WageRoute was changed.'
+        'Nothing in WageRoute was changed. Fix the problem above and open WageRoute again.'
     )
+    // Opening a fresh database here would make the next launch skip adoption
+    // (the target exists) and strand the old ledger for good.
+    app.quit()
+    return
   }
   const db = (() => {
     try {

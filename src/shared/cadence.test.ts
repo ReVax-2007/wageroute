@@ -35,6 +35,45 @@ test('the check closest to a due day is the nearest slot, ties going earlier', (
   assert.equal(closestCheckIndexToDue(9, 'monthly'), 1, 'a monthly paycheck is always the one')
 })
 
+test('a known payday series decides "closest", not the day-of-month table', () => {
+  // Paid on the 2nd and 16th, the 16th is nearest a bill due on the 14th; the
+  // table's 7th/21st slots would have picked the first check instead.
+  assert.equal(
+    closestCheckIndexToDue(14, 'biweekly', {
+      dateISO: '2026-03-05',
+      anchorDateISO: '2026-03-02'
+    }),
+    2
+  )
+  assert.equal(closestCheckIndexToDue(14, 'biweekly'), 1, 'without an anchor the table tie stands')
+  assert.equal(
+    closestCheckIndexToDue(9, 'monthly', { dateISO: '2026-03-05', anchorDateISO: '2026-03-01' }),
+    1,
+    'a fixed monthly payday never drifts, so the table still answers'
+  )
+})
+
+test('closest-to-due reserves on the check the payday series actually makes closest', () => {
+  const bill = {
+    amountCents: 120_000,
+    frequency: 'monthly' as const,
+    cadence: 'biweekly' as const,
+    dueDay: 14,
+    fundingStrategy: 'closest_due_date' as const,
+    payAnchorDate: '2026-03-02'
+  }
+  assert.equal(
+    billFundingReserveCents({ ...bill, paycheckDate: '2026-03-02' }),
+    0,
+    'the 2nd is twelve days from the 14th and does not carry the bill'
+  )
+  assert.equal(
+    billFundingReserveCents({ ...bill, paycheckDate: '2026-03-16' }),
+    120_000,
+    'the 16th is two days away and carries it'
+  )
+})
+
 test('only slots that exist every month can be offered', () => {
   assert.deepEqual(reachableCheckIndexes('monthly'), [1])
   assert.deepEqual(reachableCheckIndexes('semimonthly'), [1, 2])
@@ -214,8 +253,8 @@ test('without a paycheck date the reserve falls back to the spread, never the cl
   assert.equal(billFundingReserveCents(input), reservePerPaycheckCents(120_000, 'monthly', 'biweekly'))
   assert.equal(
     billFundingReserveCents({ ...input, paycheckDate: null }),
-    billFundingReserveCents({ ...input, paycheckDate: null }),
-    'the same call twice gives the same number'
+    reservePerPaycheckCents(120_000, 'monthly', 'biweekly'),
+    'an explicit null falls back to the same per-paycheck spread'
   )
 })
 

@@ -198,3 +198,17 @@ test('an investment statement imports its cash and reports the securities it lea
     ]
   )
 })
+
+test('a combined file with two statement accounts is refused instead of merged', () => {
+  const combined = `<OFX>
+<BANKMSGSRSV1><STMTTRNRS><STMTRS><CURDEF>USD</CURDEF>
+<BANKACCTFROM><BANKID>1</BANKID><ACCTID>1111</ACCTID></BANKACCTFROM>
+<BANKTRANLIST><STMTTRN><TRNTYPE>DEBIT</TRNTYPE><DTPOSTED>20260105</DTPOSTED><TRNAMT>-1.00</TRNAMT><NAME>ONE</NAME></STMTTRN></BANKTRANLIST>
+</STMTRS></STMTTRNRS></BANKMSGSRSV1>
+<BANKMSGSRSV1><STMTTRNRS><STMTRS><CURDEF>USD</CURDEF>
+<BANKACCTFROM><BANKID>1</BANKID><ACCTID>2222</ACCTID></BANKACCTFROM>
+<BANKTRANLIST><STMTTRN><TRNTYPE>DEBIT</TRNTYPE><DTPOSTED>20260106</DTPOSTED><TRNAMT>-2.00</TRNAMT><NAME>TWO</NAME></STMTTRN></BANKTRANLIST>
+</STMTRS></STMTTRNRS></BANKMSGSRSV1>
+</OFX>`
+  assert.throws(() => parseOfxStatement(combined), /holds 2 statement accounts — export one account at a time/)
+})

@@ -1,4 +1,4 @@
-import { addDaysISO, addMonthsISO, daysBetweenISO, nextDueDateISO } from './dates'
+import { addDaysISO, daysBetweenISO, nextDueDateISO, previousDueDateISO } from './dates'
 
 export interface CreditCycle {
   /** The next statement close, on or after the reference day. */
@@ -43,6 +43,8 @@ export function creditAmountDue(input: {
 
 /** The single close date that opened the cycle a given date belongs to. */
 export function previousCloseDate(statementDay: number, fromISO: string): string {
-  const close = nextDueDateISO(statementDay, fromISO)
-  return close > fromISO ? addMonthsISO(close, -1) : close
+  // Clamping per month matters here: stepping back from 28 February would name
+  // 28 January as the close, and the last three days of January would then be
+  // counted against the wrong statement.
+  return previousDueDateISO(statementDay, fromISO)
 }

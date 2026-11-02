@@ -239,7 +239,7 @@ test('a payment made in another month does not release this month', () => {
   // the two months apart instead of releasing a wall February already paid.
   assert.deepEqual(listBillPaymentsThisMonth(db, USER_ID, '2026-03'), [])
   assert.deepEqual(listBillPaymentsThisMonth(db, USER_ID, '2026-02'), [
-    { billId: rent, paidCents: 120_000 }
+    { billId: rent, paidCents: 120_000, creditCents: 0 }
   ])
 
   const committed = route(db, checking, '2026-03-05')

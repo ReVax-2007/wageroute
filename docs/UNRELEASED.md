@@ -368,6 +368,54 @@ The last item of the agreed product work. No schema change.
 
 Verification: `npm run lint` (121 files clean), `npm test` (**260 passing across thirty-four files**), `npm run typecheck`, `npm run build` and `npx electron-builder --dir --publish never` clean. The packaged `release/mac-arm64` bundle booted on a disposable `CFFIXED_USER_HOME=/private/tmp/wageroute-b15` profile with `--remote-debugging-port=9365`, loaded the Overview with a blank profile and exposed **35** bridge methods including `previewImport`, `confirmImport` and `reconcileStatement`; the built `out/main/index.js` carries the QIF branch and its refusal messages. **Not verified:** the native open panel cannot be driven from this environment, so no `.qif`, loan or investment file has been walked through the rendered wizard; the readers are covered by the tests above, and the rendered cards and notes have only been reviewed as code. No screen reader was run.
 
+### A second cold review: lifecycle, imports and money truth — batch 16
+
+A fresh context-free review of the post-15 tree, with every finding checked against the code before it was fixed. No schema change. `npm test` is **277 tests across thirty-five files**.
+
+**Data lifecycle**
+
+- **Erasing the ledger leaves no tenant table behind** (new). `wipeAllData` deleted from nine tables and had never been given the two schema-8 tables, so **Erase all data** left `categories` and `balance_snapshots` in the file — the latter holding every account's daily balance. Both are now in `WIPE_TABLES`, and a test asserts every tenant table counts zero after an erase.
+- **A failed legacy adoption no longer opens a fresh ledger** (new). The dialog promised nothing in WageRoute had changed, and then boot carried on and created a new database at the target path; on the next launch adoption is skipped because the target exists, stranding the old ledger for good. Boot now quits after the dialog and tells the user to fix the problem and open the app again.
+- **A failed import confirm can be retried** (new). `data:confirm` retired the held preview before doing any work, so a throw — a database error, a dropped connection — consumed the token as well and the wizard's *"safe to try again"* copy was false. The token is now peeked, and only a produced result retires it; the wizard's single held preview is still single-use once the import lands.
+- **A committed import whose refresh fails is not reported as a failed import** (new). Confirm commits, then re-reads the snapshot; that read sat inside the same `try`, so a read error produced an error toast even though every row had been written. The toast now reports the import and appends *"reopen WageRoute to refresh the screen"*.
+
+**Imports**
+
+- **A combined OFX file is refused, not poured into one account** (new). A QFX export can hold several `STMTRS`/`CCSTMTRS`/`LOANSTMTRS`/`INVSTMTRS` blocks; every block's lines would have landed in the account picked for the first. The parser now refuses the file with *"That file holds N statement accounts — export one account at a time"*.
+- **Old Quicken two-digit years import** (new). `10/05'26` expands to 2026 and `12/31'99` to 1999, using the usual 70–99 → 19xx window, instead of failing the date and reporting the row.
+- **A transfer-only QIF says what it held** (new). The refusal now carries the first issue — *"no importable cash transactions — statement line 2 is a transfer"* — instead of claiming the file has no transactions at all.
+- **A CSV alias that contradicts its amount is reported** (new). A canonical kind decides the sign silently (`expense,42.50` → −42.50), which is intended; an alias is a weaker claim, so a row like `Payment,500` now lands with the kind's sign *and* is listed: *"row N says “Payment” but its amount is positive; imported as expense — check the sign"*.
+- **The review counts a CSV name group by its lines** (new). A group of twelve rows sharing an unmapped account name was subtracted as one, so the review promised eleven rows more than it would write. `ImportProblem` gained `lines`, and leaving the group out now subtracts all of them.
+- **An unmapped account group starts blank** (new). The problem used to pre-select the first account in the ledger, so an unattended answer could post a whole group into an account the user never chose. Nothing is pre-selected; an unanswered group is left out and listed.
+
+**Money truth**
+
+- **A bill paid on a card is still withheld from Safe to Spend** (new). The wall treated every bill payment as money that left the pool, but a card payment left the pool untouched and raised the debt instead. `BillPaymentTotal` gained `creditCents`, the month query joins the account kind, and `selectUnpaidWallCents` subtracts only the spendable part: cash-paid releases the bill, card-paid keeps it withheld.
+- **Bill prompts read a year of payments, not the capped grid** (new). The 500-row ledger window can be newer than the last annual occurrence, so an annual bill whose payment had fallen out of the window was reported as unpaid — and acting on that prompt posts the bill a second time. `Snapshot.billPayments` now carries every bill-linked entry from the last 370 days, ledger writes return the same history in `TransactionRowsPatch.billPaymentsHistory`, and the prompt card matches against it.
+- **"Closest to the due date" follows the payday series that exists** (new). The option used a fixed day-of-month table, so a biweekly earner paid on the 2nd and 16th was told a bill due on the 14th belongs to the check on the 7th. `closestCheckIndexToDue` accepts the real series when the pay anchor and a check date are known; the wall, the bill dialog and the reserve maths pass them.
+- **A card close day past month end steps back inside the month** (new). `previousCloseDate` stepped back with plain month arithmetic, so a close day of the 31st read 28 January when asked from February. It now uses the clamping `previousDueDateISO`, giving 31 January.
+
+**Forms and grid**
+
+- **A dialog saves once, however fast Enter repeats** (new). `useDialogSave` relied on the re-rendered `disabled` attribute, which a held Enter key can outrun; a write guard now ignores every submission while one is in flight.
+- **A bill on an archived account can still be edited** (new). The bill form sends the saved account id back, and validation ran on it, so archiving an account trapped every other field of a bill pointing at it. Only a *different* destination is validated now.
+- **An overpaid card keeps its credit** (new). The Adjust Balance dialog started from `Math.max(0, owed)`, so a card carrying a credit silently began at zero and the first save wiped the credit. A shared `cardOwedCents` keeps the sign; the hint reads *"Credit on the card: $X"*. Pay Card says *"The card is overpaid by $X"* and, when no spendable account exists, disables the button and explains what to add instead of offering a dead end.
+- **A rejected grid edit snaps back** (new). A save the repository refused left the edited cell showing a value that was never stored; the grid now re-reads on failure, as the confirmed-edit path already did.
+- **Sorting the ledger clears the selection** (new). The ticks survived a sort, so a bulk delete after reordering could remove rows the user had never chosen. A sort change and a page clamp both clear the selection.
+
+**Docs**
+
+- **The health rule is described as it now behaves.** `FEATURES.md` still said `tight` meant leisure under 10% of income, which batch 8 replaced with *the paycheck is fully spoken for*; a deliberate 100%-savings route is `covered`, not tight.
+- **`IMPORT-EXPORT.md` states the lifecycle it now has:** one held preview spent only when the import lands, no pre-filled account answer (a date still starts at today), a name group counted by its lines, the alias-sign warning, the multi-account OFX refusal, the two-digit QIF year, and the uncapped CSV export beside the still-capped snapshot.
+
+**Tests**
+
+- New file `src/renderer/src/store/selectors.test.ts` (4 cases): an unpaid bill stays on the wall, a cash payment releases it, a card payment stays withheld, and a split payment releases only its cash half.
+- `ledger-guards.test.ts` gains two: the bill-payment history survives 501 newer rows while the capped window alone would prompt twice, and a bill keeps its archived account while another field changes (moving to a different archived account is still refused).
+- `cadence.test.ts` gains two: the payday series decides closest (and a fixed monthly series still uses the table), and the reserve lands on the check the series makes closest. `credit.test.ts` gains the month-end close step-back. `accounts.test.ts` gains the signed card figure. `csv.test.ts` gains the alias warning and proves a canonical kind stays silent. `qif.test.ts` gains the two-digit year and the transfer-only message. `statements.test.ts` gains the combined-file refusal. `maintenance.test.ts` gains the erase completeness case. `ui.dialog.test.ts` gains the double-press case (two clicks in one batch, so `disabled` cannot be the thing that stops the second). `paycheck-plan.test.ts` pins `creditCents: 0` on the existing month totals.
+
+Verification: `npm run lint` (122 files clean), `npm test` (**277 passing across thirty-five files**), `npm run typecheck`, `npm run build` and `npx electron-builder --dir --publish never` clean. The `npm run build` output ran on a disposable `CFFIXED_USER_HOME=/private/tmp/wageroute-b16` profile and was driven over CDP: selecting every row printed **18 entries selected** and changing the sort cleared it; a grid edit to a zero amount reverted to **$3,200.00** with the *Amount cannot be zero* alert; posting **−$100.00** on a card then reopening **Adjust balance** showed **-100.00** and *Credit on the card: $100.00*, and **Pay card** showed *The card is overpaid by $100.00.* **Not verified:** no screen reader was run; the native open panel still cannot be driven here, so no combined OFX, two-digit QIF or alias CSV was walked through the rendered wizard (the readers are covered by the tests above); and the erase and adoption paths are proven by tests rather than by wiping or half-adopting a real profile.
+
 ---
 
 ## Deferred, not merged
@@ -387,7 +435,7 @@ Nothing is deferred as a branch. The Linux and extra Windows formats that were h
 
 ## Product work agreed, not started
 
-Nothing. The last agreed item — balance reconciliation, then the remaining statement dialects — shipped in batches 14 and 15. The next piece of work is a fresh context-free review of the post-15 tree (batch 16), which is a verification pass rather than a product feature.
+Nothing. The last agreed item was balance reconciliation and the remaining statement dialects, which shipped in batches 14 and 15; the fresh context-free review of the post-15 tree is batch 16 above, and it is a verification pass rather than a product feature. The tree is now waiting on a release decision, not on work.
 
 ---
 

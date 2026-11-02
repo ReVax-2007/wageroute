@@ -41,6 +41,7 @@ export {
   transactionCount,
   transactionRowsFor,
   listBillPaymentsThisMonth,
+  listBillPaymentsSince,
   insertTransactionRow,
   createTransaction,
   updateTransaction,

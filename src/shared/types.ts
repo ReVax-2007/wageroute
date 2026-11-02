@@ -169,6 +169,22 @@ export interface TransactionRow extends Transaction {
 export interface BillPaymentTotal {
   billId: string
   paidCents: number
+  /**
+   * The part paid from a credit account. That money never left the spendable
+   * pool — it became card debt — so Safe to Spend keeps withholding it.
+   */
+  creditCents: number
+}
+
+/**
+ * One bill-linked entry, kept for the last year so the "did this clear?" card
+ * can match a payment even when the capped ledger window no longer holds it.
+ * A false prompt there is not cosmetic: acting on it posts the bill twice.
+ */
+export interface BillPaymentEntry {
+  billId: string
+  occurredOn: string
+  amountCents: number
 }
 
 export interface Paycheck extends SyncMeta {
@@ -260,6 +276,8 @@ export interface Snapshot {
   transactionTotal: number
   /** This month's bill payments, so Safe to Spend stops withholding them. */
   billPaymentsThisMonth: BillPaymentTotal[]
+  /** The last year of bill-linked entries, for cycle matching beyond the ledger cap. */
+  billPayments: BillPaymentEntry[]
   /** The newest routed checks only; `paycheckTotal` says how many exist. */
   paychecks: PaycheckWithAllocations[]
   paycheckTotal: number
@@ -286,6 +304,8 @@ export interface TransactionRowsPatch {
   total: number
   /** This month's per-bill payments after the write. */
   billPayments: BillPaymentTotal[]
+  /** The last year of bill-linked entries after the write. */
+  billPaymentsHistory: BillPaymentEntry[]
 }
 
 export interface AccountInput {

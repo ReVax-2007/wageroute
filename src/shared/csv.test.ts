@@ -240,3 +240,19 @@ test('a CSV with an Account column still resolves names as entries', () => {
     ]
   )
 })
+
+test('an alias kind that contradicts the amount keeps the row and says so', () => {
+  const { entries, issues } = parseEntriesCsv(
+    'Date,Account,Kind,Amount\n2026-03-01,Chequing,Payment,500\n'
+  )
+  assert.equal(entries[0]?.kind, 'expense')
+  assert.equal(entries[0]?.amountCents, -50000)
+  assert.match(issues[0]?.message ?? '', /says “Payment” but its amount is positive; imported as expense/)
+})
+
+test('a canonical kind with an unsigned amount stays silent, as documented', () => {
+  const { issues } = parseEntriesCsv(
+    'Date,Account,Kind,Amount\n2026-03-01,Chequing,expense,42.50\n'
+  )
+  assert.deepEqual(issues, [])
+})

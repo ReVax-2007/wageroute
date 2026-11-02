@@ -112,3 +112,55 @@ test('a dialog traps Tab, closes on Escape and gives focus back to its trigger',
     window.HTMLElement.prototype.getClientRects = originalRects
   }
 })
+
+test('a dialog saves once even when Enter is pressed twice', async () => {
+  const { createRoot } = await import('react-dom/client')
+  const { useDialogSave } = await import('./useDialogSave')
+
+  let writes = 0
+  let release: () => void = () => {}
+  const pending = new Promise<void>((resolve) => {
+    release = resolve
+  })
+
+  function Harness() {
+    const { saving, run } = useDialogSave(() => {})
+    const submit = (): void => {
+      void run(async () => {
+        writes += 1
+        await pending
+        return true
+      })
+    }
+    return createElement('button', { id: 'save', onClick: submit, disabled: saving }, 'Save')
+  }
+
+  const container = window.document.createElement('div')
+  window.document.body.append(container)
+  const root = createRoot(container)
+
+  try {
+    await act(async () => {
+      root.render(createElement(Harness))
+    })
+
+    const save = window.document.getElementById('save') as HTMLButtonElement
+    // Both clicks land in one batch, the way a held Enter key repeats: the
+    // disabled attribute is still false on the second click.
+    act(() => {
+      save.click()
+      save.click()
+    })
+    assert.equal(writes, 1, 'the second press is ignored while the first write runs')
+
+    await act(async () => {
+      release()
+      await pending
+    })
+  } finally {
+    await act(async () => {
+      root.unmount()
+    })
+    container.remove()
+  }
+})

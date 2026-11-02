@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 /**
  * The save state every dialog shares: one `saving` flag for its disabled
@@ -8,8 +8,13 @@ import { useState } from 'react'
 export function useDialogSave(onSaved: () => void) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // A second Enter arrives before React re-renders the disabled button, so the
+  // state flag alone cannot stop a double submit; the ref is set synchronously.
+  const inFlight = useRef(false)
 
   const run = async (submit: () => Promise<boolean>): Promise<boolean> => {
+    if (inFlight.current) return false
+    inFlight.current = true
     setSaving(true)
     setError(null)
     try {
@@ -17,6 +22,7 @@ export function useDialogSave(onSaved: () => void) {
       if (ok) onSaved()
       return ok
     } finally {
+      inFlight.current = false
       setSaving(false)
     }
   }

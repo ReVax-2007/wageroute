@@ -29,10 +29,12 @@ export function getLocalUserId(db: Db): string {
 const WIPE_TABLES = [
   'allocations',
   'bill_reserves',
+  'balance_snapshots',
   'transactions',
   'paychecks',
   'goals',
   'bills',
+  'categories',
   'accounts',
   'settings',
   'users'

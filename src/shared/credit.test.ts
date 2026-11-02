@@ -41,3 +41,10 @@ test('the previous close is the one that opened the current cycle', () => {
   assert.equal(previousCloseDate(18, '2026-10-18'), '2026-10-18', 'the close day itself counts')
   assert.equal(previousCloseDate(18, '2026-10-17'), '2026-09-18')
 })
+
+test('a close day past the end of a short month steps back inside the month', () => {
+  // 2026-02-28 is the clamped February close; the January close is the 31st.
+  assert.equal(previousCloseDate(31, '2026-02-10'), '2026-01-31')
+  assert.equal(previousCloseDate(31, '2026-02-28'), '2026-02-28', 'the close day itself counts')
+  assert.equal(previousCloseDate(31, '2026-03-05'), '2026-02-28', 'February clamps to its last day')
+})

@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import Database from 'better-sqlite3'
 import test from 'node:test'
+import { SNAPSHOT_TRANSACTION_LIMIT } from '@shared/api'
+import { dueBillPrompts } from '@shared/billPrompts'
 import { addDaysISO, todayISO } from '@shared/dates'
+import { previousBillOccurrence } from '@shared/occurrences'
 import { mergeEntries } from './entries'
 import { migrate } from './migrations'
 import {
@@ -16,11 +19,13 @@ import {
   getSnapshot,
   listAccounts,
   listBills,
+  insertTransactionRow,
   listImportChoices,
   listTransactions,
   readSettings,
   setAccountArchived,
   transactionRowsFor,
+  updateBill,
   updateTransaction,
   updateGoal,
   writeSettings
@@ -255,6 +260,110 @@ test('an archived account cannot receive a new entry', () => {
 
   assert.throws(() => entry(db, chequing, { amountCents: -500 }), /archived/)
   assert.equal(listTransactions(db, USER_ID).length, 0)
+})
+
+test('the bill-payment history outlives the capped ledger window', () => {
+  const db = freshDb()
+  const chequing = account(db, 'Chequing')
+  const bill = createBill(db, USER_ID, {
+    name: 'Home insurance',
+    amountCents: 60_000,
+    frequency: 'annual',
+    dueDay: 15,
+    category: 'Insurance',
+    accountId: chequing,
+    autopay: false,
+    isActive: true,
+    nextDueOn: null
+  })
+  const today = todayISO()
+  const dueOn = previousBillOccurrence(
+    {
+      id: bill,
+      amountCents: 60_000,
+      frequency: 'annual',
+      dueDay: 15,
+      nextDueOn: null
+    },
+    today
+  )
+  insertTransactionRow(db, USER_ID, {
+    accountId: chequing,
+    kind: 'bill_payment',
+    amountCents: -60_000,
+    occurredOn: dueOn,
+    memo: 'Home insurance',
+    category: 'Insurance',
+    billId: bill
+  })
+  db.transaction(() => {
+    for (let i = 0; i <= SNAPSHOT_TRANSACTION_LIMIT; i += 1) {
+      insertTransactionRow(db, USER_ID, {
+        accountId: chequing,
+        kind: 'expense',
+        amountCents: -100,
+        occurredOn: today,
+        memo: `filler ${i}`,
+        category: 'Misc'
+      })
+    }
+  })()
+
+  const snapshot = getSnapshot(db, USER_ID)
+  assert.equal(snapshot.transactions.length, SNAPSHOT_TRANSACTION_LIMIT)
+  assert.ok(
+    !snapshot.transactions.some((row) => row.billId === bill),
+    'the payment fell out of the capped ledger window'
+  )
+  assert.ok(
+    snapshot.billPayments.some((row) => row.billId === bill),
+    'the year of bill payments still holds it'
+  )
+  const prompts = dueBillPrompts({
+    bills: snapshot.bills,
+    payments: snapshot.transactions,
+    todayISO: today
+  })
+  assert.equal(prompts.length, 1, 'the capped window alone would ask about a paid bill')
+  assert.equal(
+    dueBillPrompts({ bills: snapshot.bills, payments: snapshot.billPayments, todayISO: today })
+      .length,
+    0,
+    'the uncapped history knows the bill was paid'
+  )
+})
+
+test('a bill keeps its archived account while another field is edited', () => {
+  const db = freshDb()
+  const chequing = account(db, 'Chequing')
+  const bill = createBill(db, USER_ID, {
+    name: 'Rent',
+    amountCents: 120_000,
+    frequency: 'monthly',
+    dueDay: 15,
+    category: 'Housing',
+    accountId: chequing,
+    autopay: false,
+    isActive: true,
+    nextDueOn: null
+  })
+  setAccountArchived(db, USER_ID, chequing, true)
+
+  // The edit form sends the disabled option's id back unchanged; only the name
+  // is new, so the archived pointer must not block the save.
+  updateBill(db, USER_ID, bill, { name: 'Rent (new lease)', accountId: chequing })
+  const saved = listBills(db, USER_ID).find((row) => row.id === bill)
+  assert.equal(saved?.name, 'Rent (new lease)')
+  assert.equal(saved?.accountId, chequing, 'the bill still points at the archived account')
+
+  // Moving it to a different archived account is still refused.
+  const other = account(db, 'Old chequing')
+  setAccountArchived(db, USER_ID, other, true)
+  assert.throws(
+    () => updateBill(db, USER_ID, bill, { accountId: other }),
+    /archived/,
+    'a new destination must be a live account'
+  )
 })
 
 test('a row that is not a transfer cannot carry a destination account', () => {

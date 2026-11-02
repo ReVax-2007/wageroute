@@ -150,8 +150,43 @@ export function nextPaydayISO(
   return isoFromEpochDay(next)
 }
 
-/** The slot whose representative day is nearest the bill's due day. Ties go earlier. */
-export function closestCheckIndexToDue(dueDay: number, cadence: PayCadence): number {
+/**
+ * The slot whose representative day is nearest the bill's due day. Ties go
+ * earlier.
+ *
+ * A known payday series beats the day-of-month table: a biweekly earner paid on
+ * the 2nd and 16th has its second check on the 16th, not the 21st, so a bill due
+ * on the 14th must fund from the 16th even though the table would pick the 7th.
+ */
+export function closestCheckIndexToDue(
+  dueDay: number,
+  cadence: PayCadence,
+  series: { dateISO: string; anchorDateISO: string } | null = null
+): number {
+  if (series && (cadence === 'weekly' || cadence === 'biweekly')) {
+    const step = cadence === 'weekly' ? 7 : 14
+    const anchor = epochDay(series.anchorDateISO)
+    const day = epochDay(series.dateISO)
+    const dayOfMonthNumber = Number.parseInt(series.dateISO.slice(8, 10), 10)
+    const monthStart = day - (dayOfMonthNumber - 1)
+    const offsetAtStart = ((monthStart - anchor) % step + step) % step
+    const firstPayday = monthStart + (offsetAtStart === 0 ? 0 : step - offsetAtStart)
+    const year = Number(series.dateISO.slice(0, 4))
+    const month = Number(series.dateISO.slice(5, 7))
+    const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate()
+    const dueEpoch = monthStart + Math.min(dueDay, lastDay) - 1
+    let bestIndex = 1
+    let bestDistance = Number.POSITIVE_INFINITY
+    for (let slot = 1; slot <= GUARANTEED_CHECKS_PER_MONTH[cadence]; slot += 1) {
+      const distance = Math.abs(firstPayday + (slot - 1) * step - dueEpoch)
+      if (distance < bestDistance) {
+        bestDistance = distance
+        bestIndex = slot
+      }
+    }
+    return bestIndex
+  }
+
   const anchors = CHECK_SLOT_ANCHORS[cadence]
   let bestIndex = 1
   let bestDistance = Number.POSITIVE_INFINITY
@@ -189,6 +224,9 @@ export function fundingCheckIndex(input: {
   dueDay: number
   fundingStrategy: BillFundingStrategy
   fundingPaycheckIndex?: number | null
+  /** The month whose real paydays decide "closest"; optional. */
+  paycheckDate?: string | null
+  payAnchorDate?: string | null
 }): number | null {
   if (input.fundingStrategy === 'all_checks') return null
   if (input.fundingStrategy === 'first_check') return 1
@@ -196,7 +234,13 @@ export function fundingCheckIndex(input: {
 
   const requested =
     input.fundingStrategy === 'closest_due_date'
-      ? closestCheckIndexToDue(input.dueDay, input.cadence)
+      ? closestCheckIndexToDue(
+          input.dueDay,
+          input.cadence,
+          input.paycheckDate && input.payAnchorDate
+            ? { dateISO: input.paycheckDate, anchorDateISO: input.payAnchorDate }
+            : null
+        )
       : (input.fundingPaycheckIndex ?? 1)
 
   return Math.min(Math.max(1, Math.round(requested)), GUARANTEED_CHECKS_PER_MONTH[input.cadence])
@@ -250,7 +294,9 @@ export function billFundingReserveCents(input: {
     cadence: input.cadence,
     dueDay: input.dueDay,
     fundingStrategy: strategy,
-    fundingPaycheckIndex: input.fundingPaycheckIndex
+    fundingPaycheckIndex: input.fundingPaycheckIndex,
+    paycheckDate: input.paycheckDate,
+    payAnchorDate: input.payAnchorDate
   })
   if (fundingIndex === null) return openSpread
 

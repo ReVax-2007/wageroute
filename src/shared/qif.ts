@@ -42,6 +42,19 @@ function joinDescription(payee: string, memo: string): string {
   return payee || memo
 }
 
+/**
+ * Quicken wrote dates as `10/05'2026`, and older files kept the two-digit year
+ * (`10/05'26`). The apostrophe is a separator here, not part of the value, and a
+ * two-digit year is expanded before the shared parser sees it.
+ */
+function qifDate(raw: string): string {
+  const text = raw.trim().replace(/'/g, '/')
+  const short = /^(\d{1,2}\/\d{1,2})\/(\d{2})$/.exec(text)
+  if (!short) return text
+  const year = Number(short[2])
+  return `${short[1]}/${year >= 70 ? 1900 + year : 2000 + year}`
+}
+
 /** Splits are a Quicken budgeting nicety; one purchase stays one ledger row. */
 function splitCategory(splits: readonly string[]): string | null {
   const named = [
@@ -70,7 +83,7 @@ export function parseQif(text: string): StatementParse {
   // The file's date order has to be known before the first record is read, so
   // the same rule as a CSV applies: scan every slashed date once, up front.
   const dateOrder = detectDateOrder(
-    lines.filter((line) => line.startsWith('D')).map((line) => line.slice(1).replace(/'/g, '/'))
+    lines.filter((line) => line.startsWith('D')).map((line) => qifDate(line.slice(1)))
   )
 
   const flush = (record: Record): void => {
@@ -89,7 +102,7 @@ export function parseQif(text: string): StatementParse {
     if (section !== 'bank') return
 
     const ordinal = record.line
-    const date = normalizeDate((record.fields.get('D')?.[0] ?? '').replace(/'/g, '/'), dateOrder)
+    const date = normalizeDate(qifDate(record.fields.get('D')?.[0] ?? ''), dateOrder)
     if (!date) {
       issues.push({ line: ordinal, message: `statement line ${ordinal} has an unreadable date` })
       return
@@ -177,7 +190,12 @@ export function parseQif(text: string): StatementParse {
     )
   }
   if (entries.length === 0) {
-    throw new Error('That QIF has no transactions — is it a Quicken export?')
+    const first = issues[0]
+    throw new Error(
+      first
+        ? `That QIF has no importable cash transactions — ${first.message}`
+        : 'That QIF has no transactions — is it a Quicken export?'
+    )
   }
   if (investmentRows > 0) {
     issues.push({

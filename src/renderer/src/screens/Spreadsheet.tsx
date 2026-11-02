@@ -135,7 +135,10 @@ export function Spreadsheet() {
   useEffect(() => {
     if (!pageData || page === 0) return
     const lastPage = Math.max(0, Math.ceil(pageData.total / PAGE_SIZE) - 1)
-    if (page > lastPage) setPage(lastPage)
+    if (page > lastPage) {
+      setPage(lastPage)
+      setSelected([])
+    }
   }, [pageData, page])
 
   if (!snapshot) return null
@@ -292,6 +295,9 @@ export function Spreadsheet() {
               onChange={(event) => {
                 setSort(event.target.value as LedgerSort)
                 setPage(0)
+                // The ticks belong to rows; a different order is a different set
+                // of rows, so deleting them after a sort would hide the target.
+                setSelected([])
               }}
             >
               {SORT_OPTIONS.map((option) => (

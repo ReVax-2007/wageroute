@@ -55,7 +55,7 @@ npm run postinstall
 | `npm run dev` | `electron-vite dev` | Dev server, main/preload rebuild, hot renderer reload |
 | `npm start` | `electron-vite preview` | Run the production bundles in `out/` |
 | `npm run lint` | `node scripts/lint.mjs` | Repository-local checks: no `debugger`, no `console.log`/`console.debug`, no `@ts-ignore`/`@ts-expect-error`, no `any` cast and no `: any` annotation |
-| `npm test` | `node --import tsx --test` (thirty-four files listed explicitly) | Domain, cadence, categories, credit, payoff, history, accounts, importer, statements, QIF, backup-example, export round-trip, merge, migration, maintenance, entries, files, seed, product model, reconciliation, paycheck plan, allocator property, dialog focus, reconciliation dialog, preload bridge and repository tests |
+| `npm test` | `node --import tsx --test` (thirty-five files listed explicitly) | Domain, cadence, categories, credit, payoff, history, accounts, importer, statements, QIF, backup-example, export round-trip, merge, migration, maintenance, entries, files, seed, product model, reconciliation, paycheck plan, allocator property, dashboard selectors, dialog focus and save guard, reconciliation dialog, preload bridge and repository tests |
 | `npm run notices` | `node scripts/third-party-notices.mjs` | Regenerate `THIRD-PARTY-NOTICES.txt` from the production tree in `package-lock.json`; also runs as `prebuild` |
 | `npm run typecheck` | node + web type checks | Both TypeScript projects |
 | `npm run typecheck:node` | `tsc --noEmit -p tsconfig.node.json` | Main, preload, shared, config |
@@ -221,7 +221,7 @@ When a test requires moving a database aside, move it to a dated quarantine fold
 
 ## Testing
 
-Thirty-four files run by `npm test` through `node --test` with `tsx` as the loader — 260 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**; the `pretest` guard ([`scripts/check-test-list.mjs`](../scripts/check-test-list.mjs)) fails the run when a `*.test.ts` on disk is missing from that list, or when the list names a file that no longer exists.
+Thirty-five files run by `npm test` through `node --test` with `tsx` as the loader — 277 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**; the `pretest` guard ([`scripts/check-test-list.mjs`](../scripts/check-test-list.mjs)) fails the run when a `*.test.ts` on disk is missing from that list, or when the list names a file that no longer exists.
 
 | File | Style | Covers |
 | --- | --- | --- |
@@ -280,7 +280,7 @@ npm test
 There are no automated:
 
 - IPC integration tests (the `data:preview`/`data:confirm` token lifecycle included);
-- React component tests beyond the dialog focus model — the import wizard, the allocator and every screen are still checked by hand;
+- React component tests beyond the dialog focus model and the save guard — the dashboard's selectors are pure-tested, but the import wizard, the allocator and every screen are still checked by hand;
 - end-to-end tests;
 - visual regression tests;
 - migration tests against every historical fixture — a v1 fixture now migrates to the current schema and a v2 debt allocation is proven to survive the rebuilds, but the v2/v3 migrations themselves are still only covered indirectly;

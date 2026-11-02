@@ -37,11 +37,17 @@ export function selectMonthlyWallCents(state: SnapshotState): number {
  * The wall as money still owed: each bill's monthly share less what has already
  * been paid against it this calendar month. The pool already fell by the
  * payment, so deducting the full wall as well would charge it twice.
+ *
+ * A payment made on a credit card is the exception: the bill is settled but the
+ * pool never fell — the debt rose instead — so that part stays withheld.
  */
 export function selectUnpaidWallCents(state: SnapshotState): number {
   if (!state.snapshot) return 0
   const paid = new Map(
-    state.snapshot.billPaymentsThisMonth.map((row) => [row.billId, row.paidCents])
+    state.snapshot.billPaymentsThisMonth.map((row) => [
+      row.billId,
+      row.paidCents - row.creditCents
+    ])
   )
   return unpaidMonthlyWallCents(activeBills(state.snapshot.bills), paid)
 }

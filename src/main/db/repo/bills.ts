@@ -106,7 +106,18 @@ export function updateBill(
   id: string,
   patch: Partial<BillInput>
 ): void {
-  if (patch.accountId) requireAccount(db, userId, patch.accountId)
+  if (patch.accountId) {
+    // A bill whose account was archived after the fact still points at it, and
+    // the edit form sends that same id back. Refusing it would trap every other
+    // field: the user could not rename the bill without first restoring an
+    // account they archived on purpose. Only a new destination is validated.
+    const current = db
+      .prepare(
+        'SELECT account_id AS accountId FROM bills WHERE id = ? AND user_id = ? AND deleted_at IS NULL'
+      )
+      .get(id, userId) as { accountId: string | null } | undefined
+    if (current?.accountId !== patch.accountId) requireAccount(db, userId, patch.accountId)
+  }
 
   updateRow(db, 'bills', id, userId, {
     name: patch.name === undefined ? undefined : assertText(patch.name, 'Bill name'),

@@ -6,6 +6,7 @@ import { ledgerStatementCents } from '@shared/statements'
 import { roundUpRemainderCents, transferLegs } from '@shared/transfers'
 import type {
   AccountKind,
+  BillPaymentEntry,
   BillPaymentTotal,
   LedgerQuery,
   LedgerSort,
@@ -108,6 +109,10 @@ export function transactionRowsFor(db: Db, userId: string, id: string): Transact
  * smoothed monthly figure; a payment releases the part of the month it covered,
  * so money is never withheld after it has left the account. Stored payments are
  * negative, so the sum is negated; a linked refund therefore reduces the total.
+ *
+ * A payment made from a credit account is reported in `creditCents` as well:
+ * it settled the bill without taking anything out of the spendable pool, so the
+ * caller that measures that pool must not treat it as released.
  */
 export function listBillPaymentsThisMonth(
   db: Db,
@@ -116,14 +121,38 @@ export function listBillPaymentsThisMonth(
 ): BillPaymentTotal[] {
   return db
     .prepare(
-      `SELECT bill_id AS billId, SUM(-amount_cents) AS paidCents
-       FROM transactions
-       WHERE user_id = ? AND deleted_at IS NULL
-         AND bill_id IS NOT NULL
-         AND substr(occurred_on, 1, 7) = ?
-       GROUP BY bill_id`
+      `SELECT t.bill_id AS billId,
+              SUM(-t.amount_cents) AS paidCents,
+              SUM(CASE WHEN a.kind = 'credit' THEN -t.amount_cents ELSE 0 END) AS creditCents
+       FROM transactions t
+       JOIN accounts a ON a.id = t.account_id
+       WHERE t.user_id = ? AND t.deleted_at IS NULL
+         AND t.bill_id IS NOT NULL
+         AND substr(t.occurred_on, 1, 7) = ?
+       GROUP BY t.bill_id`
     )
     .all(userId, monthISO) as BillPaymentTotal[]
+}
+
+/**
+ * Bill-linked entries on or after `fromISO`. The prompt card matches a cycle by
+ * bill and date, and the capped ledger window can be much newer than the last
+ * annual occurrence — so those rows are read on their own, without a cap.
+ */
+export function listBillPaymentsSince(
+  db: Db,
+  userId: string,
+  fromISO: string
+): BillPaymentEntry[] {
+  return db
+    .prepare(
+      `SELECT bill_id AS billId, occurred_on AS occurredOn, amount_cents AS amountCents
+       FROM transactions
+       WHERE user_id = ? AND deleted_at IS NULL AND bill_id IS NOT NULL
+         AND occurred_on >= ?
+       ORDER BY occurred_on DESC`
+    )
+    .all(userId, fromISO) as BillPaymentEntry[]
 }
 
 /** How many live entries exist, so a capped grid can say what it is not showing. */
