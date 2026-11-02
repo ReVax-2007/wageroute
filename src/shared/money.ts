@@ -208,7 +208,13 @@ export function formatMoney(cents: number, currency = 'USD'): string {
   return formatterFor(currency, false).format(cents / 100)
 }
 
+/**
+ * Compact notation is for a headline that would otherwise overflow; below
+ * $10,000 it only drops the cents, so those amounts print exactly instead of
+ * showing `$12.5` beside a `$12.50` row.
+ */
 export function formatMoneyCompact(cents: number, currency = 'USD'): string {
+  if (Math.abs(cents) < 1_000_000) return formatMoney(cents, currency)
   return formatterFor(currency, true).format(cents / 100)
 }
 

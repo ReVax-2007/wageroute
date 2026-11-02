@@ -66,6 +66,12 @@ test('the compact formatter is compact, not a full two-decimal amount', () => {
   )
 })
 
+test('a small headline keeps its cents instead of printing $12.5', () => {
+  assert.equal(formatMoneyCompact(1_250, 'USD'), formatMoney(1_250, 'USD'))
+  assert.equal(formatMoneyCompact(999_999, 'USD'), formatMoney(999_999, 'USD'))
+  assert.notEqual(formatMoneyCompact(1_000_000, 'USD'), formatMoney(1_000_000, 'USD'))
+})
+
 test('a currency prefix comes from the currency, never a hard-coded dollar sign', () => {
   assert.notEqual(currencySymbol('EUR'), '$')
   assert.notEqual(currencySymbol('GBP'), '$')

@@ -96,6 +96,8 @@ No code has shipped since 1.2.0. Everything below this line landed on `main` aft
 - **Retyping an entry drops a link its new kind cannot carry.** Changing a bill payment or goal funding to a kind that cannot hold that link now clears it, matching what the create path accepts; a bill payment retyped to an expense keeps its bill.
 - **A full refresh cannot overwrite a newer edit.** `refresh()` now joins the renderer's write queue, so a snapshot read that started before a save can no longer land after it and replace the newer rows.
 - **The clipboard error survives its own reload.** Settings showed "The clipboard refused the copy" and then cleared it while loading the diagnostics that make the details selectable. It now loads first and shows the message only when the details are on screen.
+- **A small summary figure keeps its cents.** The compact formatter used one decimal at most, so the Accounts strip printed `$12.5` above a `$12.50` account. Amounts below $10,000 now print exactly; only larger headlines use compact notation.
+- **Pocket opens offline with its scripts.** The service worker precached its assets from a request without an `Origin` header, while the browser requests the hashed script and stylesheet with `Vary: Origin`, so the cache lookup missed and the offline page loaded without them. Asset reads now ignore that variation, and a server-stopped reload renders the whole shell.
 
 ### Changed
 
