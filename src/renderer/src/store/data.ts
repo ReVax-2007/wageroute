@@ -1,4 +1,5 @@
 import type { StateCreator } from 'zustand'
+import { adjustmentFor, type AdjustmentReason } from '@shared/adjustments'
 import { SNAPSHOT_TRANSACTION_LIMIT, type ImportCounts, type WriteResult } from '@shared/api'
 import { apiErrorMessage } from '@shared/errors'
 import { formatMoney } from '@shared/money'
@@ -188,12 +189,18 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
         archived ? 'Account archived' : 'Account restored'
       ),
     accountEntryCount: (id) => window.api.accountEntryCount(id),
-    adjustAccountBalance: async (account, targetBalanceCents, occurredOn) => {
+    adjustAccountBalance: async (
+      account,
+      targetBalanceCents,
+      occurredOn,
+      reason: AdjustmentReason = 'correction'
+    ) => {
       const delta = Math.round(targetBalanceCents) - account.balanceCents
       if (delta === 0) {
         get().notify('That balance is already correct')
         return true
       }
+      const { memo, category } = adjustmentFor(reason)
       return run(
         () =>
           window.api.createTransaction({
@@ -201,10 +208,10 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
             kind: 'adjustment',
             amountCents: delta,
             occurredOn,
-            memo: 'Balance adjustment',
-            category: 'Adjustment'
+            memo,
+            category
           }),
-        'Balance adjusted'
+        reason === 'correction' ? 'Balance adjusted' : `${memo} recorded`
       )
     },
     createBill: (input) => run(() => window.api.createBill(input), 'Bill locked into the wall'),

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { cardOwedCents } from '@shared/accounts'
+import { adjustmentPresetsFor, type AdjustmentReason } from '@shared/adjustments'
 import { todayISO } from '@shared/dates'
 import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
 import type { AccountWithBalance } from '@shared/types'
@@ -34,10 +35,13 @@ export function AdjustBalanceDialog({
       ? Math.round((owedCents / limitCents) * 1000) / 10
       : null
   const canUseCreditModes = isCredit && limitCents !== null && limitCents > 0
+  const presets = adjustmentPresetsFor(account.kind)
   const [mode, setMode] = useState<CreditMode>('owed')
+  const [reason, setReason] = useState<AdjustmentReason>('correction')
   const [value, setValue] = useState(centsToEditable(owedCents))
   const [occurredOn, setOccurredOn] = useState(todayISO())
   const { saving, error, setError, run } = useDialogSave(onClose)
+  const preset = presets.find((candidate) => candidate.value === reason) ?? presets[0]
 
   const seedFor = (next: CreditMode): string => {
     if (next === 'available') return centsToEditable(availableCents ?? 0)
@@ -69,7 +73,16 @@ export function AdjustBalanceDialog({
     // becomes money out. Typing a negative amount says the card is overpaid,
     // which is the only way to record a credit balance in its favour.
     const target = isCredit ? -targetOwedCents : targetOwedCents
-    await run(() => adjustAccountBalance(account, target, occurredOn))
+    const delta = target - account.balanceCents
+    if ((reason === 'investment_gain' || reason === 'interest_earned') && delta < 0) {
+      setError(`${preset.label} should raise the balance. Pick a loss or interest charged instead.`)
+      return
+    }
+    if ((reason === 'investment_loss' || reason === 'interest_charged') && delta > 0) {
+      setError(`${preset.label} should lower the balance. Pick a gain or interest earned instead.`)
+      return
+    }
+    await run(() => adjustAccountBalance(account, target, occurredOn, reason))
   }
 
   return (
@@ -100,6 +113,22 @@ export function AdjustBalanceDialog({
             />
           </div>
         )}
+        <Field label="What changed?" hint={preset.hint}>
+          <select
+            className="input"
+            value={reason}
+            onChange={(event) => {
+              setReason(event.target.value as AdjustmentReason)
+              setError(null)
+            }}
+          >
+            {presets.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </Field>
         <Field
           label={
             mode === 'available'
@@ -146,6 +175,9 @@ export function AdjustBalanceDialog({
           {Math.max(0, Math.round((targetOwedCents / limitCents!) * 1000) / 10)}% used
         </p>
       )}
+      <p className="field-hint">
+        Recorded as “{preset.memo}” · {preset.category}
+      </p>
       <p className="field-hint">
         {isCredit
           ? owedCents < 0

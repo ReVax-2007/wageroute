@@ -1,3 +1,4 @@
+import type { AdjustmentReason } from '@shared/adjustments'
 import type { AppInfo, ImportPreview } from '@shared/api'
 import type { ImportAnswer } from '@shared/importRepair'
 import type { StatementReconciliation } from '@shared/statements'
@@ -82,7 +83,8 @@ export interface DataSlice {
   adjustAccountBalance: (
     account: AccountWithBalance,
     targetBalanceCents: number,
-    occurredOn: string
+    occurredOn: string,
+    reason?: AdjustmentReason
   ) => Promise<boolean>
   createBill: (input: BillInput) => Promise<boolean>
   updateBill: (id: string, input: Partial<BillInput>) => Promise<boolean>
