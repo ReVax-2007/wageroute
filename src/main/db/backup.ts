@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type Database from 'better-sqlite3'
 import type { ImportCounts, ImportIssue } from '@shared/api'
+import { categoryKey, normalizeCategoryName } from '@shared/categories'
 import { IMPORT_TABLES, type ImportTable, type ImportTables } from '@shared/importRepair'
 import {
   DEFAULT_SETTINGS,
@@ -75,7 +76,7 @@ export const TABLE_COLUMNS: Record<BackupTable, readonly string[]> = {
   ],
   bill_reserves: [
     'id', 'user_id', 'bill_id', 'paycheck_id', 'cycle', 'amount_cents', 'state',
-    'created_at', 'updated_at', 'deleted_at', 'revision'
+    'strategy', 'settled_by', 'created_at', 'updated_at', 'deleted_at', 'revision'
   ],
   transactions: [
     'id', 'user_id', 'account_id', 'kind', 'amount_cents', 'occurred_on', 'memo',
@@ -126,7 +127,10 @@ export const TABLE_DEFAULTS: Record<BackupTable, Record<string, SqlValue>> = {
   },
   allocations: {},
   bill_reserves: {
-    state: 'reserved'
+    state: 'reserved',
+    // Only a file written before v9 lacks this; the merge fills it from the
+    // bill's own strategy instead of pretending every claim was a spread.
+    strategy: 'all_checks'
   },
   transactions: {
     memo: '',
@@ -272,7 +276,34 @@ export function mergeBackup(db: Db, userId: string, payload: BackupPayload): Mer
   let generatedIds = 0
   const now = new Date().toISOString()
 
+  /**
+   * A category is identified by its name, not by the UUID the other file
+   * happened to mint. Inserting a same-name category as-is trips the unique
+   * index (ASCII-cased names) or silently keeps a locale-cased twin, and the
+   * restored transactions keep pointing at an id that was never written. The
+   * live rows are indexed by {@link categoryKey} so a restore can reuse them.
+   */
+  const localCategories = new Map<string, { id: string; name: string }>()
+  const remapCategory = new Map<string, { id: string; name: string }>()
+
+  /**
+   * A file written before v9 has no claim strategy. The bill's own strategy is
+   * the best record of how that claim was written, and bills import first.
+   */
+  const billStrategies = new Map<string, unknown>()
+
   db.transaction(() => {
+    const localRows = db
+      .prepare('SELECT id, name FROM categories WHERE user_id = ? AND deleted_at IS NULL')
+      .all(userId) as { id: string; name: string }[]
+    for (const row of localRows) {
+      localCategories.set(categoryKey(row.name), { id: row.id, name: row.name })
+    }
+    const localBills = db
+      .prepare('SELECT id, funding_strategy AS strategy FROM bills WHERE user_id = ?')
+      .all(userId) as { id: string; strategy: unknown }[]
+    for (const row of localBills) billStrategies.set(row.id, row.strategy)
+
     for (const table of TABLE_ORDER) {
       if (table === 'settings') {
         const insert = db.prepare(
@@ -329,11 +360,40 @@ export function mergeBackup(db: Db, userId: string, payload: BackupPayload): Mer
           skipped[table] += 1
           return
         }
+        let categoryName: string | null = null
+        if (table === 'categories') {
+          categoryName = typeof row.name === 'string' ? normalizeCategoryName(row.name) : ''
+          const match = localCategories.get(categoryKey(categoryName))
+          if (match) {
+            if (existingId) remapCategory.set(existingId, match)
+            skipped.categories += 1
+            return
+          }
+        }
+        const remappedCategory =
+          table === 'transactions' && typeof row.category_id === 'string'
+            ? remapCategory.get(row.category_id)
+            : undefined
         const defaults = TABLE_DEFAULTS[table]
         try {
           const values = columns.map((column) => {
             if (column === 'user_id') return userId
             if (column === 'id') return id
+            if (table === 'categories' && column === 'name' && categoryName !== null) {
+              return categoryName
+            }
+            if (table === 'bill_reserves' && column === 'strategy') {
+              const stated = row.strategy
+              if (typeof stated === 'string' && stated.length > 0) return stated
+              return billStrategies.get(String(row.bill_id ?? '')) ?? 'all_checks'
+            }
+            if (table === 'bill_reserves' && column === 'settled_by') {
+              return row.settled_by === undefined ? null : toSqlValue(row.settled_by, column)
+            }
+            if (remappedCategory) {
+              if (column === 'category_id') return remappedCategory.id
+              if (column === 'category') return remappedCategory.name
+            }
             const value = row[column]
             // Hand-written entry files often omit sync metadata and position
             // columns; give every omitted key a sane value instead of NULL.
@@ -347,6 +407,12 @@ export function mergeBackup(db: Db, userId: string, payload: BackupPayload): Mer
           })
           insert.run(...values)
           added[table] += 1
+          if (table === 'categories' && categoryName !== null) {
+            localCategories.set(categoryKey(categoryName), { id, name: categoryName })
+          }
+          if (table === 'bills') {
+            billStrategies.set(id, row.funding_strategy ?? 'all_checks')
+          }
         } catch (error) {
           issues.push({ table, message: `${describeRow(table, row, index)}: ${issueOf(error)}` })
         }

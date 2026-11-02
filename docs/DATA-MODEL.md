@@ -1,6 +1,6 @@
 # Data model
 
-WageRoute stores everything in one SQLite database, `wageroute.db`, using `STRICT` tables, integer cents, UUID text keys and ISO-8601 timestamps. This document describes the schema at version 8, the semantics of each column, the derived values the app computes at read time, and the invariants that keep the ledger coherent.
+WageRoute stores everything in one SQLite database, `wageroute.db`, using `STRICT` tables, integer cents, UUID text keys and ISO-8601 timestamps. This document describes the schema at version 9, the semantics of each column, the derived values the app computes at read time, and the invariants that keep the ledger coherent.
 
 Source of truth: [`src/main/db/migrations.ts`](../src/main/db/migrations.ts). Read model assembly: [`src/main/db/repo/read-models.ts`](../src/main/db/repo/read-models.ts).
 
@@ -342,6 +342,8 @@ The Priority Wall's receipt for one bill in one month. Added in v7; see [ADR 001
 | `cycle` | TEXT | NOT NULL, CHECK `length(cycle) = 7` | `YYYY-MM`, the month the money is for |
 | `amount_cents` | INTEGER | NOT NULL, CHECK ≥ 0 | The claim, as the wall printed it for that cheque |
 | `state` | TEXT | NOT NULL, default `'reserved'`, CHECK in `reserved,paid` | Flipped by the payment lifecycle |
+| `strategy` | TEXT | NOT NULL, default `'all_checks'`, CHECK in the five strategies | Added in v9. The funding strategy in force when the cheque wrote the claim |
+| `settled_by` | TEXT | nullable, partial index | Added in v9. The transaction that closed this claim, so a delete or move re-opens exactly what it paid |
 | `created_at` | TEXT | NOT NULL | |
 | `updated_at` | TEXT | NOT NULL | |
 | `deleted_at` | TEXT | nullable | |
@@ -351,9 +353,10 @@ Semantics:
 
 - A row is written only by `commitPaycheck`, and only when `plan.shortfallCents === 0`; a shortfalling cheque claims nothing so the wall can retry.
 - The cycle is the **calendar month** of the cheque, not a pay period, because `monthlyEquivalentCents` normalises every frequency to a month.
-- `state = 'paid'` is set by a `bill_payment` or `expense` transaction carrying that `bill_id` in that cycle. Deleting that transaction, or moving it to another month, sets the old row back to `reserved`.
-- `reservedBillIdsFor` reads the live single-check bills of a cycle, so a second cheque does not claim the same bill twice. `all_checks` bills are spread and are not deduplicated.
-- A payment dated after the claim's cycle settles the earliest open earlier claim for that bill (`settleEarlierBillReserves`), so a January cheque's claim does not stay "reserved" forever once the bill is paid in February. Only `last_check` claims qualify — the one strategy that funds a due date in the next month — so moving a March payment to April leaves March `reserved`. The row stays in its original cycle; only its state moves to `paid`.
+- `state = 'paid'` is set by a `bill_payment` or `expense` transaction carrying that `bill_id`, and `settled_by` names that transaction. Deleting it, or moving it to another month, sets the row back to `reserved` and clears the link.
+- `claimsThisMonthFor` returns the month's open (`reserved`) claims with the strategy that wrote them, and the allocator subtracts them from the month's remaining need. A single-check bill subtracts every claim; an `all_checks` bill subtracts only a claim that reserved a whole month, because its own instalments are the spread being computed. This is why switching a bill's strategy mid-month neither double-reserves nor loses the remainder.
+- A payment dated in a later cycle first tries that cycle's claim, but only when the cheque that wrote it was already received (`paychecks.received_on <= occurred_on`). Otherwise it settles the earliest open earlier claim whose funding cheque fell **after** the bill's due day in its own cycle (`settleEarlierBillReserve`). That day test is the carry: a 31 January cheque funds a bill due 1 February, whatever the strategy. A mid-month cheque funds its own month, so a later payment is paying that month late — moving a March payment to April leaves March `reserved`. One payment closes at most one claim; the older row keeps its cycle and only its state moves to `paid`.
+- The next cheque repeats that carry pass over the cycle's payments (`settleEarlierBillReserves`), which is the backstop for an imported ledger whose payments never ran the entry-time settlement.
 - Deleting a bill soft-deletes its reserves in the same transaction.
 - A claim is **not** an account movement: no balance changes and no transfer row is written ([ADR 0013](decisions/0013-a-route-is-a-plan-not-a-movement.md)).
 
@@ -413,11 +416,12 @@ Category and external-id rules:
 | `idx_allocations_goal` | `allocations(goal_id) WHERE deleted_at IS NULL` | Goal progress |
 | `idx_transactions_sync` | `transactions(user_id, updated_at)` | Future pull cursor |
 | `idx_transactions_account` | `transactions(account_id, occurred_on DESC) WHERE deleted_at IS NULL` | Account-ledger reads |
-| `idx_transactions_user_date` | `transactions(user_id, occurred_on DESC) WHERE deleted_at IS NULL` | Snapshot ordering and the wall's month query; rebuilt in v7 to cover the live rows |
+| `idx_transactions_user_date` | `transactions(user_id, deleted_at, occurred_on DESC, created_at DESC)` | Snapshot ordering; rebuilt in v7 to lead with `deleted_at` and cover the created-at tiebreak |
 | `idx_transactions_transfer_group` | `transactions(transfer_group_id) WHERE transfer_group_id IS NOT NULL` | Find both transfer legs |
 | `idx_accounts_dedicated_goal` | `accounts(dedicated_goal_id) WHERE dedicated_goal_id IS NOT NULL` | Goal progress from a dedicated account |
 | `idx_bill_reserves_cycle` | `bill_reserves(user_id, bill_id, cycle) WHERE deleted_at IS NULL` | "What has this month already claimed?" |
 | `idx_bill_reserves_paycheck` | `bill_reserves(paycheck_id)` | Reserves written by one route |
+| `idx_bill_reserves_settled_by` | `bill_reserves(settled_by) WHERE settled_by IS NOT NULL` | Re-open exactly what a deleted or moved payment closed |
 | `idx_transactions_round_up_source` | `transactions(round_up_source_id) WHERE round_up_source_id IS NOT NULL` | Find the sweep for a purchase |
 | `idx_transactions_category` | `transactions(category_id) WHERE category_id IS NOT NULL` | Category reports and filters |
 | `idx_transactions_external` | `UNIQUE transactions(user_id, account_id, external_id) WHERE external_id IS NOT NULL AND deleted_at IS NULL` | Statement re-import is a no-op |
@@ -483,7 +487,7 @@ Stored in `settings.value` as text. Defaults and validation live in `src/shared/
 | `investmentPercent` | number | `15` | Clamped to 0–100, rounded |
 | `goalsPercent` | number | `15` | Clamped to 0–100, rounded |
 | `debtPercent` | number | `0` | Clamped to 0–100, rounded |
-| `wholeDollarBuckets` | boolean | `true` | Only the string `"true"` is true |
+| `wholeDollarBuckets` | boolean | `true` | `"true"` and `"1"` are true; `"false"` and `"0"` are false; anything else falls back |
 | `theme` | enum | `dark` | `dark`, `light`, `system` |
 | `roundUpEnabled` | boolean | `false` | |
 | `roundUpAccountId` | string | `null` / empty | Any non-empty string is accepted; destination is re-validated at write time |
@@ -512,8 +516,9 @@ Migrations run inside a transaction per version and are tracked by `PRAGMA user_
 | **6** | Rebuilds `bills` to widen the `funding_strategy` CHECK to include `last_check`; no new columns, no data moves | "Last check of every month" needs an enum value; SQLite cannot alter a CHECK in place, so the table is copied by id, dropped and renamed with `PRAGMA legacy_alter_table = ON` so `transactions.bill_id` keeps pointing at `bills` |
 | **7** | Adds `bill_reserves` and its two indexes, adds `transactions.round_up_source_id` and its index, rebuilds `idx_transactions_user_date` to cover live rows, and deletes the draft settings keys `emergencyAccountIds`, `insurance_floor_cents` and `round_up_enabled` | The wall needs a stored claim per bill per month ([ADR 0012](decisions/0012-the-wall-remembers-its-claims.md)); the round-up legs need a link back to the purchase that produced them; the ledger's month query must stay indexed; and the three settings rows are read by no released build ([ADR 0009](decisions/0009-the-goal-chooses-its-funding-accounts.md)) |
 | **8** | Adds `transactions.category_id` and `transactions.external_id` with their indexes, the five card columns on `accounts`, and the `categories` and `balance_snapshots` tables; then, in JS, seeds `DEFAULT_CATEGORIES`, links every distinct category text to a row by its normalised key, and writes today's balance for every live account | Categories need an identity to group by; a statement re-import needs the bank's own line id; the card rows need their terms; and net worth needs a history. The backfill only adds rows and sets `category_id` — no existing text, amount or date is rewritten, so every number on an upgraded database is unchanged |
+| **9** | Adds `bill_reserves.strategy` (NOT NULL, default `'all_checks'`, CHECKed enum) and `bill_reserves.settled_by` with a partial index, then backfills each live row's strategy from its bill | A claim must remember how it was written: the month's remaining need depends on whether an earlier cheque reserved the whole month or one instalment of a spread, and a strategy change must not double-reserve. The payment link lets a delete or move re-open exactly the row it closed instead of guessing by cycle. Pre-v9 rows take their bill's current strategy, which is the best available reading and moves no money |
 
-`SCHEMA_VERSION` is derived from the last migration and is reported in JSON backups. Backups with a higher version are rejected. Backups older than version 2 are rejected; versions 2, 3, 4, 5, 6, 7 and 8 are accepted.
+`SCHEMA_VERSION` is derived from the last migration and is reported in JSON backups. Backups with a higher version are rejected. Backups older than version 2 are rejected; every version from 2 through 9 is accepted.
 
 Migration procedure for future work is in [DEVELOPMENT.md](DEVELOPMENT.md#adding-a-schema-migration).
 
@@ -568,7 +573,7 @@ Soft-deleted rows are included in JSON backups, so a backup taken before a delet
 | Projection horizon | 90 days | `Spreadsheet.tsx` |
 | Projection guard per bill | 400 occurrences | `projections.ts` |
 | Text fields | 160 chars default; memo 240; category/color 60/20 | `repo/` |
-| Bill due day | 1–31, clamped | schema + repository |
+| Bill due day | Whole number 1–31; out of range is refused | repository |
 
 Not in the backup: the `users` row (display name, email, legacy currency), the database file itself, the theme cache in `localStorage`, and the `snoozedPrompts` session state.
 

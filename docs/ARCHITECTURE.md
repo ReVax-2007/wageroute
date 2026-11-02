@@ -117,7 +117,7 @@ Navigation is constrained by [`src/main/window-security.ts`](../src/main/window-
 - renders a boot screen while loading or an error screen if the database cannot open;
 - switches screens with a plain conditional, not a router.
 
-The Zustand store is a thin `create()` joining two slices in `src/renderer/src/store/`: `session.ts` (what the window is showing) and `data.ts` (the snapshot, the write queue and every action). `useFinanceStore.ts` re-exports `useFinanceStore` and the seven selectors, so screens import the same names they always have. It holds:
+The Zustand store is a thin `create()` joining two slices in `src/renderer/src/store/`: `session.ts` (what the window is showing) and `data.ts` (the snapshot, the write queue and every action). `useFinanceStore.ts` re-exports `useFinanceStore` and the nine selectors, so screens import the same names they always have. It holds:
 
 | Field | Slice | Meaning |
 | --- | --- | --- |
@@ -386,7 +386,7 @@ ImportWizard (renderer)
   └─ step 3: review, then confirmImport(token, answers)
 
 data:confirm
-  ├─ takeImport(token)          ← single use, oldest of 8 evicted
+  ├─ takeImport(token)          ← single use; a newer preview replaces the older one
   ├─ entries ──► buildAccountMap ──► mergeEntries ──► result
   └─ .json ──► findImportProblems (same pure rules, re-derived)
              ──► applyImportAnswers ──► mergeBackup ──► result
@@ -420,7 +420,7 @@ The boundary is examined in detail in [SECURITY.md](SECURITY.md). In summary:
 - main: validates IDs, delegates payload rules to repositories, parameterises SQL;
 - navigation: child windows denied, one allowlisted external link opened by the OS, all other navigation blocked by an exact URL/origin check;
 - permissions: every request and check denied except a sanitised clipboard write for the copy buttons;
-- CSP: self-only scripts/styles, self/data images and fonts, localhost connect-src for development;
+- CSP: self-only scripts, inline styles allowed, self/data images and fonts, localhost connect-src for development;
 - data: unencrypted SQLite on disk, protected only by the OS account and full-disk encryption.
 
 The renderer is trusted to call its own API methods. A compromised renderer can invoke any mutation, so XSS prevention is part of the security model rather than an optional hardening step.
@@ -491,7 +491,7 @@ Both use `strict: true`, `verbatimModuleSyntax`, `isolatedModules` and no emit. 
 | `src/renderer/src/lib/finance.ts` | UI-facing derived totals and labels |
 | `src/renderer/src/screens/*` | Screen-level behaviour |
 | `src/renderer/src/components/*` | Reusable UI, grids, prompts, data table, the net-worth sparkline |
-| `src/renderer/src/components/dialogs/*` | The seven screen dialogs |
+| `src/renderer/src/components/dialogs/*` | The nine screen dialogs |
 | `src/renderer/src/styles/tokens.css` | Dark/light design tokens |
 | `src/renderer/src/styles/app.css` | Import list for the layered sheets |
 | `src/renderer/src/styles/{base,components,screens,utilities}.css` | The app's cascade layers |

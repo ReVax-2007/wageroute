@@ -113,6 +113,50 @@ test('a dialog traps Tab, closes on Escape and gives focus back to its trigger',
   }
 })
 
+test('a field with a datalist still links its hint to the control', async () => {
+  const { createRoot } = await import('react-dom/client')
+  const { Field } = await import('./ui')
+
+  const container = window.document.createElement('div')
+  window.document.body.append(container)
+  const root = createRoot(container)
+
+  try {
+    await act(async () => {
+      root.render(
+        createElement(Field, {
+          label: 'Category',
+          hint: 'Type a name or pick one',
+          children: [
+            createElement('input', { id: 'category-input' }),
+            createElement(
+              'datalist',
+              { id: 'category-options' },
+              createElement('option', { value: 'Food' })
+            )
+          ]
+        })
+      )
+    })
+
+    const input = container.querySelector('#category-input') as HTMLInputElement
+    const hint = container.querySelector('.field-hint') as HTMLElement
+    assert.ok(hint.id)
+    assert.equal(
+      input.getAttribute('aria-describedby'),
+      hint.id,
+      'the control names its hint even when it is not the only child'
+    )
+    assert.equal(input.getAttribute('aria-invalid'), null)
+    assert.ok(container.querySelector('#category-options'), 'the suggestion list still renders')
+  } finally {
+    await act(async () => {
+      root.unmount()
+    })
+    container.remove()
+  }
+})
+
 test('a dialog saves once even when Enter is pressed twice', async () => {
   const { createRoot } = await import('react-dom/client')
   const { useDialogSave } = await import('./useDialogSave')

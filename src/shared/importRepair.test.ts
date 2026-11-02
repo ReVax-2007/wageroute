@@ -103,6 +103,24 @@ test('missing, invalid and dangling values each become one question', () => {
   )
 })
 
+test('a day that never existed is asked about instead of sorting into the next month', () => {
+  const tables = emptyTables()
+  tables.transactions.push({
+    id: 'txn-1',
+    account_id: 'acc-checking',
+    kind: 'expense',
+    amount_cents: 100,
+    occurred_on: '2026-02-31'
+  })
+
+  const problems = findImportProblems(tables, context())
+  assert.deepEqual(
+    problems.map((problem) => problem.key),
+    ['b:transactions:0:occurred_on'],
+    'Date.parse rolls February 31 into March; the wizard must not'
+  )
+})
+
 test('nullable references may stay absent, required ones cannot', () => {
   const tables = emptyTables()
   tables.goals.push({ id: 'goal-1', name: 'Emergency fund', target_cents: 60000 })

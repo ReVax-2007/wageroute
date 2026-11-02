@@ -273,19 +273,29 @@ export function billFundingReserveCents(input: {
   payAnchorDate?: string | null
   /** This month's payments already linked to the bill; its obligation is smaller. */
   paidThisMonthCents?: number
+  /**
+   * What earlier cheques already put aside for this bill this month. A
+   * single-check bill subtracts every claim; a spread bill subtracts only the
+   * claims that reserved a whole month, because its own instalments are the
+   * spread being computed.
+   */
+  claimedThisMonthCents?: number
 }): number {
   const strategy = input.fundingStrategy ?? 'all_checks'
   const billedCents = monthlyEquivalentCents(input.amountCents, input.frequency)
   const paidCents = Math.min(billedCents, Math.max(0, Math.round(input.paidThisMonthCents ?? 0)))
-  const remainingCents = billedCents - paidCents
+  const claimedCents = Math.min(
+    billedCents,
+    Math.max(0, Math.round(input.claimedThisMonthCents ?? 0))
+  )
+  // A plan may only withhold what the month still owes. With nothing paid or
+  // claimed the figure is untouched, so every existing number stays identical.
+  const openCents = Math.max(0, billedCents - paidCents - claimedCents)
   const spread = reservePerPaycheckCents(input.amountCents, input.frequency, input.cadence)
-  // A plan may only withhold what the month still owes. With nothing paid the
-  // figure is untouched, so every existing number stays identical.
   const openSpread =
-    paidCents === 0 || billedCents === 0
+    billedCents === 0 || (paidCents === 0 && claimedCents === 0)
       ? spread
-      : Math.round((spread * remainingCents) / billedCents)
-  const openMonthly = paidCents === 0 ? billedCents : remainingCents
+      : Math.round((spread * openCents) / billedCents)
 
   if (strategy === 'all_checks') return openSpread
   if (!input.paycheckDate) return openSpread
@@ -304,14 +314,14 @@ export function billFundingReserveCents(input: {
   if (input.payAnchorDate) {
     return paydayIndexInMonth(input.paycheckDate, input.cadence, input.payAnchorDate) ===
       fundingIndex
-      ? openMonthly
+      ? openCents
       : 0
   }
 
   const index = paycheckIndexInMonth(input.paycheckDate, input.cadence)
   if (index > guaranteed) return openSpread
 
-  return index === fundingIndex ? openMonthly : 0
+  return index === fundingIndex ? openCents : 0
 }
 
 function dayOfMonth(dateISO: string): number {

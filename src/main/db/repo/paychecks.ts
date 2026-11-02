@@ -24,9 +24,9 @@ import {
   type Db
 } from './common'
 import {
+  claimsThisMonthFor,
   listBills,
   recordBillReserves,
-  reservedBillIdsFor,
   settleEarlierBillReserves
 } from './bills'
 import { listGoals } from './goals'
@@ -241,7 +241,12 @@ export function commitPaycheck(
   const settings = parseSettings(readSettings(db, userId))
   const cycle = receivedOn.slice(0, 7)
   const paidByBill = new Map(
-    listBillPaymentsThisMonth(db, userId, cycle).map((total) => [total.billId, total.paidCents])
+    // A charge on a credit card settles the bill without lowering the pool —
+    // the debt rose instead — so only the cash part releases the wall here.
+    listBillPaymentsThisMonth(db, userId, cycle).map((total) => [
+      total.billId,
+      Math.max(0, total.paidCents - total.creditCents)
+    ])
   )
   const bills = listBills(db, userId)
     .filter((bill) => bill.isActive)
@@ -255,7 +260,7 @@ export function commitPaycheck(
     payCadence,
     paycheckDate: receivedOn,
     payAnchorDate: settings.payAnchorDate,
-    reservedBillIds: reservedBillIdsFor(db, userId, cycle),
+    monthClaims: claimsThisMonthFor(db, userId, cycle),
     bills,
     goals,
     splits: input.splits,
@@ -312,12 +317,31 @@ export function commitPaycheck(
     }
     // Bills already paid this month were carried by an earlier cheque's claim,
     // which belongs to the previous cycle. Close it so the history stops
-    // calling a settled bill "reserved".
-    settleEarlierBillReserves(db, userId, cycle, [...paidByBill.keys()])
+    // calling a settled bill "reserved". A payment written by this build has
+    // already done this at entry; the pass here is the backstop for imported
+    // ledgers, and names the latest payment so a later delete can undo it.
+    settleEarlierBillReserves(db, userId, cycle, thisCyclePayments(db, userId, cycle))
     return paycheckId
   })
 
   return { paycheckId: run(), plan }
+}
+
+/** One row per payment, so a carry can name the payment that closed it. */
+function thisCyclePayments(
+  db: Db,
+  userId: string,
+  cycle: string
+): { billId: string; transactionId: string }[] {
+  return db
+    .prepare(
+      `SELECT id AS transactionId, bill_id AS billId
+       FROM transactions
+       WHERE user_id = ? AND deleted_at IS NULL AND bill_id IS NOT NULL
+         AND kind IN ('bill_payment','expense') AND occurred_on LIKE ?
+       ORDER BY occurred_on ASC, created_at ASC`
+    )
+    .all(userId, `${cycle}-%`) as { billId: string; transactionId: string }[]
 }
 
 interface MoveCandidate {

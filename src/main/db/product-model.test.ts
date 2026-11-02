@@ -175,6 +175,45 @@ test('categories dedupe by name, rename the ledger text and survive deletion', (
   db.close()
 })
 
+test('renaming a category renames the bills that bill against it', () => {
+  const db = freshDb()
+  const chequing = account(db)
+  const dining = createCategory(db, USER_ID, { name: 'Dining', kind: 'expense' })
+  createBill(db, USER_ID, {
+    name: 'Lunch club',
+    amountCents: 5_000,
+    frequency: 'monthly',
+    dueDay: 4,
+    category: 'DINING',
+    accountId: chequing,
+    autopay: true,
+    isActive: true,
+    nextDueOn: null
+  })
+  createBill(db, USER_ID, {
+    name: 'Rent',
+    amountCents: 120_000,
+    frequency: 'monthly',
+    dueDay: 1,
+    category: 'Housing',
+    accountId: chequing,
+    autopay: false,
+    isActive: true,
+    nextDueOn: null
+  })
+
+  updateCategory(db, USER_ID, dining, { name: 'Eating out' })
+
+  const rows = db
+    .prepare('SELECT name, category FROM bills ORDER BY name')
+    .all() as { name: string; category: string }[]
+  assert.deepEqual(rows, [
+    { name: 'Lunch club', category: 'Eating out' },
+    { name: 'Rent', category: 'Housing' }
+  ], 'autopay posts the bill text, so it must not resurrect the old spelling')
+  db.close()
+})
+
 test('a category is one row however its non-ASCII letters are cased', () => {
   const db = freshDb()
   const accountId = account(db)

@@ -55,7 +55,7 @@ npm run postinstall
 | `npm run dev` | `electron-vite dev` | Dev server, main/preload rebuild, hot renderer reload |
 | `npm start` | `electron-vite preview` | Run the production bundles in `out/` |
 | `npm run lint` | `node scripts/lint.mjs` | Repository-local checks: no `debugger`, no `console.log`/`console.debug`, no `@ts-ignore`/`@ts-expect-error`, no `any` cast and no `: any` annotation |
-| `npm test` | `node --import tsx --test` (thirty-seven files listed explicitly) | Domain, cadence, categories, credit, payoff, history, accounts, importer, statements, QIF, backup-example, export round-trip, merge, migration, maintenance, entries, files, seed, product model, reconciliation, paycheck plan, allocator property, dashboard selectors, finance maths, dialog focus and save guard, reconciliation dialog, preload bridge, window security and repository tests |
+| `npm test` | `node --import tsx --test` (thirty-eight files listed explicitly) | Domain, cadence, categories, credit, payoff, history, accounts, importer, statements, QIF, backup-example, export round-trip, merge, migration, maintenance, entries, files, seed, product model, reconciliation, paycheck plan, allocator property, dashboard selectors, finance maths, dialog focus and save guard, reconciliation dialog, preload bridge, window security and repository tests |
 | `npm run notices` | `node scripts/third-party-notices.mjs` | Regenerate `THIRD-PARTY-NOTICES.txt` from the production tree in `package-lock.json`; also runs as `prebuild` |
 | `npm run typecheck` | node + web type checks | Both TypeScript projects |
 | `npm run typecheck:node` | `tsc --noEmit -p tsconfig.node.json` | Main, preload, shared, config |
@@ -221,7 +221,7 @@ When a test requires moving a database aside, move it to a dated quarantine fold
 
 ## Testing
 
-Thirty-seven files run by `npm test` through `node --test` with `tsx` as the loader — 302 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**; the `pretest` guard ([`scripts/check-test-list.mjs`](../scripts/check-test-list.mjs)) fails the run when a `*.test.ts` on disk is missing from that list, or when the list names a file that no longer exists.
+Thirty-eight files run by `npm test` through `node --test` with `tsx` as the loader — 316 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**; the `pretest` guard ([`scripts/check-test-list.mjs`](../scripts/check-test-list.mjs)) fails the run when a `*.test.ts` on disk is missing from that list, or when the list names a file that no longer exists.
 
 | File | Style | Covers |
 | --- | --- | --- |
@@ -245,7 +245,7 @@ Thirty-seven files run by `npm test` through `node --test` with `tsx` as the loa
 | `backup-example.test.ts` | real file | `examples/backup.example.json` parses at the current `SCHEMA_VERSION` and every cross-table link — including an account dedicated to a goal — resolves, so the shipped example cannot silently drift |
 | `backup-merge.test.ts` | **real in-memory SQLite** | schema-defaulted columns import with the default instead of failing NOT NULL; one unusable row is reported rather than aborting the file; a settings row without a key is skipped and a key this build no longer reads is refused rather than restored; existing values survive while missing timestamps fill in; a restore leaves settings the file does not carry alone; the import allowlist names every column the schema declares; a dedicated account and its goal survive an export/import round trip; CSV names mapped in the wizard land on the chosen account; an unmapped name is left out once and the rest still imports; a mapping whose account disappeared reports the row instead of throwing |
 | `migrations.test.ts` | **real in-memory SQLite** | forward-only `user_version`; `SchemaTooNewError` carries the found and supported numbers and leaves `user_version` unchanged; each migration preserves existing rows; a v1 fixture migrates to the current schema with its EUR currency, opening balance and entry intact; a v2 debt allocation survives every later rebuild |
-| `reserves.test.ts` | **real in-memory SQLite** | `bill_reserves` rows are written and cleared with the bill lifecycle; a partial payment moves the reserve; a payment next month settles the earlier cheque's claim instead of stranding it; the v7 migration backfills nothing it should not |
+| `reserves.test.ts` | **real in-memory SQLite** | `bill_reserves` rows are written and cleared with the bill lifecycle; a partial payment moves the reserve; a cheque after the due day carries into the next month under any strategy; a payment dated before the new cheque settles the carry, not the new claim; deleting it re-opens exactly that carry; a strategy switch in either direction preserves the month's remainder; the v9 migration backfills strategy without moving an amount |
 | `legacy.test.ts` | temp directories | pre-rename adoption moves the database and its sidecars or leaves everything in place and reports why |
 | `seed.test.ts` | **real in-memory SQLite** | a fresh install gets one unnamed user, all default settings and the starter categories but no demo rows; seeding twice keeps the first user; the demo profile is one linked set of rows where every transfer group carries both legs and sums to zero |
 | `entries.test.ts` | **real in-memory SQLite** | a statement lands on the account the wizard chose and re-imports as duplicates; a bank's own id stops the same line landing twice, including twice in one file and across accounts, while an id on a soft-deleted row can be imported again; an unanswered statement is reported once, not once per line |
@@ -354,7 +354,7 @@ Do not expose `ipcRenderer`, `require`, `fs` or raw SQL to the renderer. `src/pr
 
 ## Adding a schema migration
 
-Migrations are append-only. Never modify a `SCHEMA_V*` string once its version has shipped (`SCHEMA_V1`–`SCHEMA_V3` shipped in the 1.0.x line, `SCHEMA_V4`–`SCHEMA_V6` in 1.1.0, and `SCHEMA_V7`–`SCHEMA_V8` in 1.2.0; all are immutable); databases in the field have already run them.
+Migrations are append-only. Never modify a `SCHEMA_V*` string once its version has shipped (`SCHEMA_V1`–`SCHEMA_V3` shipped in the 1.0.x line, `SCHEMA_V4`–`SCHEMA_V6` in 1.1.0, and `SCHEMA_V7`–`SCHEMA_V8` in 1.2.0, and `SCHEMA_V9` is on `main` in no build yet; all are immutable once shipped, and a migration that has only lived on `main` is already effectively frozen for anyone who ran it). Databases in the field have already run them.
 
 ### Procedure
 

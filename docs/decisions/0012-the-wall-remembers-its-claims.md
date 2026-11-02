@@ -28,6 +28,8 @@ Schema 7 adds `bill_reserves`:
 | `cycle` | `YYYY-MM`, the month the money is for |
 | `amount_cents` | the claim, in the same per-check arithmetic the wall prints |
 | `state` | `reserved` or `paid` |
+| `strategy` | added in schema 9: the funding strategy in force when the cheque wrote the claim |
+| `settled_by` | added in schema 9: the transaction that closed the claim, or `NULL` |
 
 The cycle is the **calendar month**, not the pay period. `monthlyEquivalentCents` already normalises every frequency to a month, and a pay period that straddles two months would make "this month's bills" ambiguous on the wall. A bill claimed in March is a March claim even if the cheque landed on 31 March.
 
@@ -40,14 +42,16 @@ Reserves are rows, not derived state, so they travel in exports and through the 
 - `createTransaction` with a `bill_id` and kind `bill_payment` or `expense` sets the month's claim to `paid`.
 - `deleteTransaction` sets it back to `reserved`.
 - `updateTransaction` re-opens the old month and closes the new one when the date, amount or kind changed, so moving a payment from March to April never leaves March looking settled.
-- A payment dated in a later cycle settles the earliest open earlier claim for that bill (`settleEarlierBillReserves`), so a January cheque's claim does not sit "reserved" for the rest of the ledger's life once the bill is paid in February. Only a `last_check` claim is eligible: it is the one strategy that funds a due date in the next month. A payment moved from March to April therefore leaves March owed, and one payment closes at most one claim. The older row keeps its own cycle; only its state flips.
+- A payment dated in a later cycle first tries that cycle's claim, but only if the cheque that wrote it was received on or before the payment. Otherwise it settles the earliest open earlier claim whose funding cheque fell **after** the bill's due day in its own cycle (`settleEarlierBillReserve`), so a January cheque's claim does not sit "reserved" for the rest of the ledger's life once the bill is paid in February. The day test is the carry rule, and it is not limited to `last_check`: a monthly `first_check` cheque on 31 January funds a bill due 1 February exactly the same way. A mid-month cheque funds its own month, so a payment moved from March to April leaves March owed; one payment closes at most one claim. The older row keeps its own cycle; only its state flips, and `settled_by` names the payment so the flip can be undone exactly.
 - `deleteBill` soft-deletes the bill's claims in the same transaction.
 
 Every transition is a state flip on an existing row. No path creates a second claim for the same bill and month, which is what makes "a second cheque does not re-reserve" true by construction rather than by a special case in the allocator.
 
 ### The allocator is told which bills are already claimed
 
-`reservedBillIdsFor(db, userId, cycle)` returns the live single-check bills of the month, and `buildAllocationPlan` receives it as `reservedBillIds`. A single-check bill in that set reserves **0** on this cheque; `all_checks` bills are spread deliberately and are never deduplicated. This mirrors the mechanics exactly: a `first_check` bill's whole month already left the pool on the first cheque, and taking it again would double-charge the user in arithmetic even though no money moved.
+`claimsThisMonthFor(db, userId, cycle)` returns the month's open claims as `{ billId, amountCents, strategy }`, and `buildAllocationPlan` receives them as `monthClaims`. A single-check bill subtracts every claim made this month, so a second cheque reserves only what the first did not. An `all_checks` bill subtracts only claims that reserved a whole month, because its own instalments are the spread being computed. This mirrors the mechanics exactly: a `first_check` bill's whole month already left the pool on the first cheque, and taking it again would double-charge the user in arithmetic even though no money moved.
+
+Schema 9 records each claim's strategy for this subtraction. Filtering by the bill's *current* strategy was wrong in both directions: switching a carried bill to `all_checks` after the first cheque left it unclaimed and reserved the month twice, while switching a spread bill to a single-check strategy lost the instalment already reserved. The claim now answers for itself, and the month's remainder follows from the rows actually written.
 
 ### The anchor is a date, not a parsed label
 
@@ -74,6 +78,7 @@ Without an anchor the wall falls back to day-of-month slots, and a bill whose du
 ### Neutral
 
 - Backup format version rises to 7 because `SCHEMA_VERSION` does, and `bill_reserves` is added to the table list. Old files import with an empty table.
+- Schema 9 adds `strategy` and `settled_by` to the table and raises the backup version to 9. A restored row without a stated strategy takes its bill's strategy, falling back to `all_checks`; that is the only reading available for files written before the column existed. The v9 migration backfills live rows the same way, so no amount or state changes.
 - The migration deletes three settings rows no released build read; schema 7 therefore has one visible side effect outside the new table, documented in the changelog.
 - `idx_transactions_user_date` is rebuilt in the same migration so the month query used to compute the cycle stays indexed.
 
@@ -97,9 +102,9 @@ Rejected: the app has no per-bill account, transfers are paired ledger rows, and
 
 ## References
 
-- [src/main/db/migrations.ts](../../src/main/db/migrations.ts) — `SCHEMA_V7`, `bill_reserves`, the rebuilt ledger index, the settings cleanup
-- [src/main/db/repositories.ts](../../src/main/db/repositories.ts) — `recordBillReserves`, `settleEarlierBillReserves`, `setBillReserveState`, `reservedBillIdsFor`, the lifecycle paths, `commitPaycheck`
-- [src/main/db/reserves.test.ts](../../src/main/db/reserves.test.ts) — reserved → paid → re-opened, no double claim, no receipt on shortfall, duplicate guard, bill deletion, a next-month payment settling the earlier cheque's claim, and a payment moved into the next month leaving its source claim open
+- [src/main/db/migrations.ts](../../src/main/db/migrations.ts) — `SCHEMA_V7`, `bill_reserves`, the rebuilt ledger index, the settings cleanup; `SCHEMA_V9`, the claim strategy and settlement link
+- [src/main/db/repositories.ts](../../src/main/db/repositories.ts) — `recordBillReserves`, `claimsThisMonthFor`, `settleBillReserveForPayment`, `settleEarlierBillReserves`, `reopenBillReservesSettledBy`, the lifecycle paths, `commitPaycheck`
+- [src/main/db/reserves.test.ts](../../src/main/db/reserves.test.ts) — reserved → paid → re-opened, no double claim, no receipt on shortfall, duplicate guard, bill deletion, a cheque after the due day carrying into the next month under any strategy, a payment dated before the new cheque settling the carry, the delete re-opening exactly that carry, and a strategy switch in either direction preserving the month's remainder
 - [src/shared/occurrences.ts](../../src/shared/occurrences.ts) — the recurrence engine the wall and prompts share
 - [src/shared/cadence.ts](../../src/shared/cadence.ts) — `payAnchorDate`, `nextPaydayISO`, `billFundingReserveCents`
 - [src/renderer/src/screens/PriorityWall.tsx](../../src/renderer/src/screens/PriorityWall.tsx) — reserve chips, next-check column, anchor footnote

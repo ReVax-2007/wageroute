@@ -17,7 +17,7 @@ export {
   type DeleteAccountOptions
 } from './repo/accounts'
 export { listBills, createBill, updateBill, deleteBill } from './repo/bills'
-export { listBillReserves, reservedBillIdsFor } from './repo/bills'
+export { listBillReserves, claimsThisMonthFor } from './repo/bills'
 export {
   listCategories,
   createCategory,

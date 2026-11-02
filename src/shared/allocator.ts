@@ -47,14 +47,21 @@ export interface AllocatorInput {
   /** A known payday; without it weekly/biweekly slots use day-of-month ranges. */
   payAnchorDate?: string | null
   /**
-   * Bills already carried by an earlier cheque in this calendar month. A second
-   * cheque in the same cycle must not reserve the same single-check bills again.
+   * The month's live claims. A second cheque must withhold only what an
+   * earlier cheque did not already carry; a claim's own strategy decides
+   * whether it covered the whole month or was one instalment of a spread.
    */
-  reservedBillIds?: readonly string[]
+  monthClaims?: readonly MonthClaim[]
   bills: readonly AllocatorBill[]
   goals: readonly AllocatorGoal[]
   splits: AllocatorSplits
   wholeDollarBuckets?: boolean
+}
+
+export interface MonthClaim {
+  billId: string
+  amountCents: number
+  strategy: BillFundingStrategy
 }
 
 export type PlanWarning =
@@ -116,26 +123,41 @@ export function buildAllocationPlan(input: AllocatorInput): AllocationPlan {
     debtPercent: clampPercent(input.splits.debtPercent)
   }
 
-  const reservedBillIds = new Set(input.reservedBillIds ?? [])
-  const priorityReserves = input.bills.map<PriorityReserve>((bill) => ({
-    billId: bill.id,
-    name: bill.name,
-    reserveCents:
-      (bill.fundingStrategy ?? 'all_checks') !== 'all_checks' && reservedBillIds.has(bill.id)
-        ? 0
-        : billFundingReserveCents({
-            amountCents: bill.amountCents,
-            frequency: bill.frequency,
-            cadence: input.payCadence,
-            dueDay: bill.dueDay ?? 1,
-            fundingStrategy: bill.fundingStrategy,
-            fundingPaycheckIndex: bill.fundingPaycheckIndex,
-            paycheckDate: input.paycheckDate,
-            payAnchorDate: input.payAnchorDate,
-            paidThisMonthCents: bill.paidThisMonthCents
-          }),
-    monthlyCents: monthlyEquivalentCents(bill.amountCents, bill.frequency)
-  }))
+  const allClaimed = new Map<string, number>()
+  const wholeMonthClaimed = new Map<string, number>()
+  for (const claim of input.monthClaims ?? []) {
+    const amount = Math.max(0, Math.round(claim.amountCents))
+    allClaimed.set(claim.billId, (allClaimed.get(claim.billId) ?? 0) + amount)
+    if (claim.strategy !== 'all_checks') {
+      wholeMonthClaimed.set(claim.billId, (wholeMonthClaimed.get(claim.billId) ?? 0) + amount)
+    }
+  }
+  const priorityReserves = input.bills.map<PriorityReserve>((bill) => {
+    // A spread bill's earlier instalments are already represented by the
+    // spread formula, so only a whole-month claim reduces it. A single-check
+    // bill owes whatever the month has neither paid nor claimed.
+    const claimed =
+      (bill.fundingStrategy ?? 'all_checks') !== 'all_checks'
+        ? allClaimed.get(bill.id)
+        : wholeMonthClaimed.get(bill.id)
+    return {
+      billId: bill.id,
+      name: bill.name,
+      reserveCents: billFundingReserveCents({
+        amountCents: bill.amountCents,
+        frequency: bill.frequency,
+        cadence: input.payCadence,
+        dueDay: bill.dueDay ?? 1,
+        fundingStrategy: bill.fundingStrategy,
+        fundingPaycheckIndex: bill.fundingPaycheckIndex,
+        paycheckDate: input.paycheckDate,
+        payAnchorDate: input.payAnchorDate,
+        paidThisMonthCents: bill.paidThisMonthCents,
+        claimedThisMonthCents: claimed ?? 0
+      }),
+      monthlyCents: monthlyEquivalentCents(bill.amountCents, bill.frequency)
+    }
+  })
 
   const priorityRequiredCents = priorityReserves.reduce((total, line) => total + line.reserveCents, 0)
   const priorityFundedCents = Math.min(priorityRequiredCents, incomeCents)

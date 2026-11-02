@@ -178,6 +178,43 @@ test('a bill already paid this month is not withheld again', () => {
   assert.equal(committed.plan?.leisureCents, 500_000)
 })
 
+test('a bill charged to a credit card is still withheld from the cheque', () => {
+  const db = freshDb()
+  const checking = account(db, 'Chequing', 'checking')
+  const card = account(db, 'Card', 'credit')
+  const rent = createBill(db, USER_ID, {
+    name: 'Rent',
+    amountCents: 120_000,
+    frequency: 'monthly',
+    dueDay: 15,
+    category: 'Housing',
+    accountId: checking,
+    autopay: false,
+    isActive: true,
+    nextDueOn: null
+  })
+  createTransaction(db, USER_ID, {
+    accountId: card,
+    kind: 'bill_payment',
+    amountCents: -120_000,
+    occurredOn: '2026-03-02',
+    memo: 'Rent on card',
+    category: 'Housing',
+    billId: rent
+  })
+
+  const committed = route(db, checking, '2026-03-05')
+
+  assert.deepEqual(listBillPaymentsThisMonth(db, USER_ID, '2026-03'), [
+    { billId: rent, paidCents: 120_000, creditCents: 120_000 }
+  ])
+  assert.equal(
+    committed.plan?.priorityFundedCents,
+    60_000,
+    'the card balance rose instead of the pool falling, so the cash is still owed'
+  )
+})
+
 test('a partly paid bill is only withheld for what is still owed', () => {
   const db = freshDb()
   const checking = account(db, 'Chequing', 'checking')

@@ -243,6 +243,10 @@ export interface BillReserve extends SyncMeta {
   cycle: string
   amountCents: number
   state: BillReserveState
+  /** The strategy in force when the cheque wrote the claim. */
+  strategy: BillFundingStrategy
+  /** The transaction that closed this claim, if any. */
+  settledBy: string | null
 }
 
 export interface Category extends SyncMeta {

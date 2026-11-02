@@ -436,6 +436,74 @@ test('a mapping whose account disappeared reports the row instead of aborting', 
   assert.match(merged.issues[0].message, /no longer exists/)
 })
 
+test('a restored category that matches a local name reuses that row, not a twin', () => {
+  const db = freshDb()
+  const insert = db.prepare(
+    `INSERT INTO categories (id, user_id, name, kind, sort_order, created_at, updated_at)
+     VALUES (?, ?, ?, 'expense', ?, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`
+  )
+  insert.run('local-groceries', USER_ID, 'Groceries', 0)
+  insert.run('local-cafe', USER_ID, 'Café', 1)
+
+  const result = mergeBackup(
+    db,
+    USER_ID,
+    payload({
+      accounts: [{ id: 'acc-1', user_id: USER_ID, name: 'Chequing', kind: 'checking' }],
+      categories: [
+        { id: 'file-groceries', user_id: USER_ID, name: 'GROCERIES', kind: 'expense' },
+        { id: 'file-cafe', user_id: USER_ID, name: 'CAFÉ', kind: 'expense' }
+      ],
+      transactions: [
+        {
+          id: 'txn-groceries',
+          user_id: USER_ID,
+          account_id: 'acc-1',
+          kind: 'expense',
+          amount_cents: -500,
+          occurred_on: '2026-02-03',
+          category: 'GROCERIES',
+          category_id: 'file-groceries'
+        },
+        {
+          id: 'txn-cafe',
+          user_id: USER_ID,
+          account_id: 'acc-1',
+          kind: 'expense',
+          amount_cents: -700,
+          occurred_on: '2026-02-04',
+          category: 'CAFÉ',
+          category_id: 'file-cafe'
+        }
+      ]
+    })
+  )
+
+  assert.equal(result.added.categories, 0, 'both names already exist locally')
+  assert.equal(result.skipped.categories, 2)
+  assert.deepEqual(result.issues, [], 'a name already present is not a failed row')
+
+  const categories = db
+    .prepare('SELECT id, name FROM categories WHERE user_id = ? ORDER BY name')
+    .all(USER_ID) as { id: string; name: string }[]
+  assert.deepEqual(
+    categories.map((row) => row.id),
+    ['local-cafe', 'local-groceries'],
+    'the local rows are kept and no duplicate is inserted'
+  )
+  const links = db
+    .prepare(
+      `SELECT t.id, c.id AS categoryId FROM transactions t
+       JOIN categories c ON c.id = t.category_id
+       ORDER BY t.id`
+    )
+    .all() as { id: string; categoryId: string }[]
+  assert.deepEqual(links, [
+    { id: 'txn-cafe', categoryId: 'local-cafe' },
+    { id: 'txn-groceries', categoryId: 'local-groceries' }
+  ])
+})
+
 test('a dedicated account and its goal survive an export/import round trip', () => {
   const db = freshDb()
   const result = mergeBackup(
@@ -477,4 +545,69 @@ test('a dedicated account and its goal survive an export/import round trip', () 
   const reExported = buildBackup(db, USER_ID)
   assert.equal(reExported.tables.accounts[0].dedicated_goal_id, 'goal-1')
   assert.equal(reExported.tables.accounts[0].in_safe_to_spend, 0)
+})
+
+test('a restored reserve takes its bill’s strategy unless the file states one', () => {
+  const db = freshDb()
+  const result = mergeBackup(
+    db,
+    USER_ID,
+    payload({
+      accounts: [
+        { id: 'acc-1', user_id: USER_ID, name: 'Chequing', kind: 'checking' }
+      ],
+      bills: [
+        {
+          id: 'bill-1',
+          user_id: USER_ID,
+          name: 'Rent',
+          amount_cents: 120000,
+          frequency: 'monthly',
+          due_day: 1,
+          account_id: 'acc-1',
+          funding_strategy: 'last_check'
+        }
+      ],
+      paychecks: [
+        {
+          id: 'pay-1',
+          user_id: USER_ID,
+          amount_cents: 500000,
+          received_on: '2026-01-31',
+          source: 'Paycheck',
+          health: 'covered'
+        }
+      ],
+      bill_reserves: [
+        {
+          id: 'res-1',
+          user_id: USER_ID,
+          bill_id: 'bill-1',
+          paycheck_id: 'pay-1',
+          cycle: '2026-01',
+          amount_cents: 120000,
+          state: 'reserved'
+        },
+        {
+          id: 'res-2',
+          user_id: USER_ID,
+          bill_id: 'bill-1',
+          paycheck_id: 'pay-1',
+          cycle: '2026-02',
+          amount_cents: 120000,
+          state: 'reserved',
+          strategy: 'first_check'
+        }
+      ]
+    })
+  )
+
+  assert.deepEqual(result.issues, [])
+  const rows = db
+    .prepare('SELECT id, strategy, settled_by FROM bill_reserves ORDER BY id')
+    .all()
+  assert.deepEqual(rows, [
+    { id: 'res-1', strategy: 'last_check', settled_by: null },
+    { id: 'res-2', strategy: 'first_check', settled_by: null }
+  ])
 })

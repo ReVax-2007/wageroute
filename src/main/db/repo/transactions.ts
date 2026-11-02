@@ -28,7 +28,11 @@ import {
   type Db
 } from './common'
 import { ensureCategory } from './categories'
-import { setBillReserveState } from './bills'
+import {
+  reopenBillReservesSettledBy,
+  reopenCycleClaim,
+  settleBillReserveForPayment
+} from './bills'
 import { accountBalanceOn } from './accounts'
 import { readSettings } from './settings'
 
@@ -467,9 +471,10 @@ export function createTransaction(db: Db, userId: string, input: TransactionInpu
         memo
       })
     }
-    // A bill payment closes the wall's reservation for that cycle.
+    // A bill payment closes the wall's reservation for that cycle — or, when
+    // its month has no claim yet, the earlier claim whose cheque carried it.
     if (input.billId && (kind === 'bill_payment' || kind === 'expense')) {
-      setBillReserveState(db, userId, input.billId, occurredOn, 'paid')
+      settleBillReserveForPayment(db, userId, input.billId, id, occurredOn)
     }
     return id
   })()
@@ -632,15 +637,19 @@ export function updateTransaction(
       }
     }
 
-    // Editing a bill payment re-opens its old cycle and closes the new one, so
-    // the wall never shows a bill as paid on a date it no longer covers.
+    // Editing a bill payment re-opens what it closed and closes what the new
+    // date pays, so the wall never shows a bill as paid on a date it no longer
+    // covers.
     if (
       existing.billId &&
       (patchTouchesAmount || patch.kind !== undefined || patch.occurredOn !== undefined)
     ) {
-      setBillReserveState(db, userId, existing.billId, existing.occurredOn, 'reserved')
+      reopenBillReservesSettledBy(db, userId, id)
+      if (patch.occurredOn !== undefined) {
+        reopenCycleClaim(db, userId, existing.billId, existing.occurredOn)
+      }
       if (nextKind === 'bill_payment' || nextKind === 'expense') {
-        setBillReserveState(db, userId, existing.billId, nextOccurredOn, 'paid')
+        settleBillReserveForPayment(db, userId, existing.billId, id, nextOccurredOn)
       }
     }
   })()
@@ -694,7 +703,8 @@ export function deleteTransaction(db: Db, userId: string, id: string): void {
     removeRoundUpFor(db, userId, id)
     softDelete(db, 'transactions', id, userId)
     if (row.billId) {
-      setBillReserveState(db, userId, row.billId, row.occurredOn, 'reserved')
+      reopenBillReservesSettledBy(db, userId, id)
+      reopenCycleClaim(db, userId, row.billId, row.occurredOn)
     }
   })()
 }

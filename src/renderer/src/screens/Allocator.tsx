@@ -168,13 +168,17 @@ export function Allocator() {
       ),
     [snapshot?.goals, settings.emergencyActive]
   )
-  // A second cheque in the same month must not reserve single-check bills that
-  // an earlier cheque already carried.
-  const reservedBillIds = useMemo(
+  // The month's live claims tell the plan what an earlier cheque already
+  // carried. Paid claims are left out: their payment is in `monthPayments`.
+  const monthClaims = useMemo(
     () =>
       (snapshot?.billReserves ?? [])
-        .filter((reserve) => reserve.cycle === payMonth)
-        .map((reserve) => reserve.billId),
+        .filter((reserve) => reserve.cycle === payMonth && reserve.state === 'reserved')
+        .map((reserve) => ({
+          billId: reserve.billId,
+          amountCents: reserve.amountCents,
+          strategy: reserve.strategy
+        })),
     [snapshot?.billReserves, payMonth]
   )
 
@@ -206,7 +210,7 @@ export function Allocator() {
         payCadence: cadence,
         paycheckDate: receivedOn,
         payAnchorDate: settings.payAnchorDate,
-        reservedBillIds,
+        monthClaims,
         bills,
         goals: activeGoals,
         splits: {
@@ -222,7 +226,7 @@ export function Allocator() {
       cadence,
       receivedOn,
       settings.payAnchorDate,
-      reservedBillIds,
+      monthClaims,
       bills,
       activeGoals,
       savings,
@@ -280,12 +284,20 @@ export function Allocator() {
       debtPercent: debtSplit
     }
 
-    await saveSettings({
+    const settingsSaved = await saveSettings({
       ...settings,
       payCadence: cadence,
       ...splits,
       wholeDollarBuckets: wholeDollars
     })
+    // The store rolled the split back when the write failed. Routing anyway
+    // would record a paycheck the screen no longer agrees with.
+    if (!settingsSaved) {
+      setError(
+        'The paycheck was not routed — this split could not be saved, so nothing was written.'
+      )
+      return
+    }
 
     const ok = await commitPaycheck({
       incomeCents,
