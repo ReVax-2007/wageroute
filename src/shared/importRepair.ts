@@ -1,4 +1,4 @@
-import { isISODate } from './dates'
+import { isISODate, todayISO } from './dates'
 import { parseMoneyToCents } from './money'
 
 export type ImportTable =
@@ -226,6 +226,23 @@ export function withFileIds(base: ImportContext, tables: ImportTables): ImportCo
     }
   }
   return { knownIds, choices: base.choices, today: base.today }
+}
+
+/**
+ * The context a wizard can rebuild from what its preview carries, so an answer
+ * is judged before it is sent. Every live row a reference may point at is in
+ * `choices`, which is exactly the set a typed answer is chosen from.
+ */
+export function answerContext(
+  choices: Record<ImportChoiceTable, ImportChoice[]>,
+  today = todayISO()
+): ImportContext {
+  const knownIds = {} as Record<ImportTable, Set<string>>
+  for (const table of IMPORT_TABLES) knownIds[table] = new Set<string>()
+  for (const table of Object.keys(choices) as ImportChoiceTable[]) {
+    for (const choice of choices[table]) knownIds[table].add(choice.id)
+  }
+  return { knownIds, choices, today }
 }
 
 function isEmpty(value: unknown): boolean {
