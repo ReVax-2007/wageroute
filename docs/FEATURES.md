@@ -182,11 +182,11 @@ Example: a $600 annual premium is $50/month. A $1,200 monthly bill reserves $553
 
 ### The wall table
 
-Columns: bill name and category (plus “autopay”), amount, cadence, due day as an ordinal, the per-check figure — labelled **Next check** when an anchor is set and **Per check** otherwise, with a tooltip saying single-check bills carry the whole month there — monthly equivalent and actions.
+Columns: bill name and category (plus “autopay”), amount, cadence, due day as an ordinal, the per-check figure — labelled **Next paycheck** when an anchor is set and **Per paycheck** otherwise, with a tooltip saying single-check bills carry the whole month there — monthly equivalent and actions.
 
 A bill funded by a single paycheck shows its monthly amount in the per-check column with a **“Reserved on the 2nd check of the month”** sub-label (“each month” when no payday is set), so the row cannot be read as a recurring deduction. Paused bills sort below the active ones and are marked **Bill inactive** — that label belongs to bills; a paused emergency fund says **Saving paused**.
 
-The name cell carries the month's receipt when there is one: **Reserved this month** while a fully funded route has claimed the bill, **Paid this month** once every claim for the month is closed. A payment can close one instalment while another stays open, so a partly paid month still reads **Reserved**; the summary above the table reports the reserved and paid sums separately. The claim is a record, not a movement: the money is still in the account until the bill is actually paid ([ADR 0012](decisions/0012-the-wall-remembers-its-claims.md)).
+The name cell carries the month's receipt when there is one: **Reserved this month** while a fully funded route has claimed the bill, **Paid this month** once every claim for the month is closed — or once autopay settled the bill before any cheque claimed it. A payment can close one instalment while another stays open, so a partly paid month still reads **Reserved**; the summary above the table reports the reserved and paid sums separately, and **paid** counts every payment, including one that never had a claim. Without a payday the per-cheque figure is an average, but it still subtracts what the month already paid: a fully settled bill shows $0.00 and **Nothing more due** instead of repeating its share. The claim is a record, not a movement: the money is still in the account until the bill is actually paid ([ADR 0012](decisions/0012-the-wall-remembers-its-claims.md)).
 
 Actions:
 
@@ -447,7 +447,7 @@ It also takes a target balance and a date. On a credit card there are three ways
 | --- | --- | --- |
 | Balance owed | The amount owed | The typed amount |
 | Available credit | The unused part of the limit | `limit − typed` |
-| Utilisation percent | How full the card is (0–100) | `round(limit × typed / 100)` |
+| Utilisation percent | How full the card is (0–100); typing `5` means five per cent | `round(limit × typed / 100)` |
 
 Available credit and percent need a credit limit; without one the dialog stays in balance mode. Every mode previews the resulting balance, available credit and utilisation before saving, and clamps available credit and percent at zero.
 

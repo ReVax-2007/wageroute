@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { creditAmountDue, creditCycle, previousCloseDate } from './credit'
+import { creditAmountDue, creditCycle, owedCentsAtUtilization, parseUtilizationPercent, previousCloseDate } from './credit'
 
 test('a cycle walks the close first and the due day after it', () => {
   const cycle = creditCycle({ statementDay: 18, paymentDueDay: 8, fromISO: '2026-10-05' })
@@ -47,4 +47,24 @@ test('a close day past the end of a short month steps back inside the month', ()
   assert.equal(previousCloseDate(31, '2026-02-10'), '2026-01-31')
   assert.equal(previousCloseDate(31, '2026-02-28'), '2026-02-28', 'the close day itself counts')
   assert.equal(previousCloseDate(31, '2026-03-05'), '2026-02-28', 'February clamps to its last day')
+})
+
+test('a utilisation is percentage points, not cents', () => {
+  assert.equal(parseUtilizationPercent('5'), 5)
+  assert.equal(parseUtilizationPercent('42.5'), 42.5)
+  assert.equal(parseUtilizationPercent('0.25'), 0.25)
+  assert.equal(parseUtilizationPercent(''), null)
+  assert.equal(parseUtilizationPercent('.'), null)
+  assert.equal(parseUtilizationPercent('5%'), null)
+  assert.equal(parseUtilizationPercent('1.234'), null, 'the field keeps at most two decimals')
+  assert.equal(parseUtilizationPercent('-5'), null, 'a negative share is not a utilisation')
+})
+
+test('utilisation resolves to the amount owed it implies', () => {
+  assert.equal(owedCentsAtUtilization(500_000, 5), 25_000, '5% of a $5,000 limit is $250')
+  assert.equal(owedCentsAtUtilization(500_000, 42.5), 212_500)
+  assert.equal(owedCentsAtUtilization(500_000, 0), 0)
+  assert.equal(owedCentsAtUtilization(500_000, 120), 600_000, 'over the limit is allowed')
+  assert.equal(owedCentsAtUtilization(500_000, Number.NaN), null)
+  assert.equal(owedCentsAtUtilization(500_000, -1), null)
 })

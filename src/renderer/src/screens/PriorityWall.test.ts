@@ -98,7 +98,8 @@ function snapshot(reserves: ReturnType<typeof reserve>[], paidCents = 0) {
 async function mount(
   reserves: ReturnType<typeof reserve>[],
   paidCents = 0,
-  billPatch: Partial<ReturnType<typeof bill>> = {}
+  billPatch: Partial<ReturnType<typeof bill>> = {},
+  withAnchor = true
 ) {
   const { useFinanceStore } = await import('../store/useFinanceStore')
   const { parseSettings } = await import('@shared/settings')
@@ -111,10 +112,11 @@ async function mount(
       bills: [{ ...bill(), ...billPatch }]
     } as never,
     // The anchor makes the next check land today, so the month under test is
-    // the month the wall reads its claims from.
+    // the month the wall reads its claims from. Without it the wall has only
+    // an average, but still has to know what the month has already paid.
     settings: parseSettings({
       payCadence: 'biweekly',
-      payAnchorDate: todayISO()
+      payAnchorDate: withAnchor ? todayISO() : ''
     }),
     busy: false
   })
@@ -184,6 +186,32 @@ test('a bill already covered this month asks for nothing', async () => {
   assert.match(cells[1]?.textContent ?? '', /^\$0\.00/, 'the next check has nothing left to do')
   assert.match(cells[1]?.textContent ?? '', /Nothing more due/)
   assert.doesNotMatch(cells[1]?.textContent ?? '', /check of the month/)
+  await act(async () => root.unmount())
+})
+
+test('a bill autopay settled before any claim still reads paid', async () => {
+  const { host, root } = await mount([], 120_000, {}, false)
+  const text = wallText(host)
+  assert.match(text, /Paid this month/, 'no claim is not the same as no payment')
+  const cells = [...(host.querySelector('tbody tr')?.querySelectorAll('td') ?? [])]
+  assert.match(cells[1]?.textContent ?? '', /^\$0\.00/)
+  assert.match(cells[1]?.textContent ?? '', /Nothing more due/)
+  assert.match(
+    host.textContent ?? '',
+    /\$0\.00 set aside this month · \$1,200\.00 paid/,
+    'the summary counts money paid without a claim'
+  )
+  await act(async () => root.unmount())
+})
+
+test('without a payday a part-paid bill asks only for its remainder', async () => {
+  const { host, root } = await mount([], 60_000, {}, false)
+  const cells = [...(host.querySelector('tbody tr')?.querySelectorAll('td') ?? [])]
+  assert.match(
+    cells[1]?.textContent ?? '',
+    /^\$276\.93/,
+    'half of a $600 month is paid, so the per-cheque average is halved too'
+  )
   await act(async () => root.unmount())
 })
 
