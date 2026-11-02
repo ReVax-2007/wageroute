@@ -64,6 +64,18 @@ const AMOUNT_PROBLEM: ImportProblem = {
   suggested: ''
 }
 
+const MEMO_PROBLEM: ImportProblem = {
+  key: 'b:transactions:1:memo',
+  scope: 'backup',
+  table: 'transactions',
+  rowIndex: 1,
+  field: { column: 'memo', label: 'Memo', input: 'text' },
+  rowLabel: 'Entry row 2',
+  reason: 'the memo is missing',
+  fixHint: 'Write the memo in the source file.',
+  suggested: ''
+}
+
 function typeInto(input: HTMLInputElement, value: string): void {
   const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
   assert.ok(setter, 'jsdom exposes the native value setter')
@@ -78,13 +90,16 @@ function importButton(): HTMLButtonElement {
   return button
 }
 
-async function mount(preview: ImportPreview): Promise<{ unmount: () => void }> {
+async function mount(
+  preview: ImportPreview,
+  step: 'fix' | 'review' = preview.problems.length > 0 ? 'fix' : 'review'
+): Promise<{ unmount: () => void }> {
   const { createRoot } = await import('react-dom/client')
   const { useFinanceStore } = await import('../store/useFinanceStore')
   const { ImportWizard } = await import('./ImportWizard')
   useFinanceStore.setState({
     importPreview: preview,
-    importStep: preview.problems.length > 0 ? 'fix' : 'review',
+    importStep: step,
     busy: false
   })
 
@@ -119,6 +134,36 @@ test('an answer that fails validation is named and keeps Import disabled', async
     await act(async () => typeInto(input, '12.50'))
     assert.equal(window.document.querySelector('.field-error'), null, 'a good answer clears the error')
     assert.equal(importButton().disabled, false)
+  } finally {
+    mounted.unmount()
+  }
+})
+
+test('the review explains an empty row once, and a skipped row as a choice', async () => {
+  const mounted = await mount(previewOf({ problems: [AMOUNT_PROBLEM, MEMO_PROBLEM] }))
+  try {
+    const leaveOut = [...window.document.querySelectorAll('button')].filter(
+      (button) => button.textContent?.trim() === 'Leave this row out'
+    ) as HTMLButtonElement[]
+    assert.equal(leaveOut.length, 2, 'each row offers its own leave-out button')
+    await act(async () => leaveOut[1].click())
+
+    const review = [...window.document.querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === 'Review import'
+    ) as HTMLButtonElement
+    await act(async () => review.click())
+
+    const text = window.document.body.textContent ?? ''
+    const occurrences = (needle: string): number => text.split(needle).length - 1
+
+    assert.equal(occurrences('Entry row 1'), 1, 'the empty row is explained once')
+    assert.ok(text.includes('1 row is still incomplete: “Entry row 1”'), 'the alert names it')
+    assert.ok(text.includes('Use Back to missing info to fill it in'))
+    assert.doesNotMatch(text, /nothing was filled in/)
+
+    assert.ok(text.includes('Not imported'), 'a deliberate skip keeps its own list')
+    assert.equal(occurrences('Entry row 2'), 1)
+    assert.ok(text.includes('you chose to leave it out'))
   } finally {
     mounted.unmount()
   }

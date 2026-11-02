@@ -4,8 +4,9 @@ import { chmodSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { StorageLocationInfo } from '@shared/api'
 import { DB_FILE, adoptLegacyDatabase as adoptLegacy, type AdoptionResult } from './legacy'
-import { assertHealthy, backupBeforeUpgrade, needsPreUpgradeBackup } from './maintenance'
+import { assertHealthy, backupBeforeUpgrade, backupDaily, needsPreUpgradeBackup } from './maintenance'
 import { migrate, SCHEMA_VERSION } from './migrations'
+import { logCrash } from '../log'
 import {
   acquireDataLock,
   backupsDirectory,
@@ -116,6 +117,16 @@ export function getDatabase(): Database.Database {
         backupBeforeUpgrade(db, backupsPath(), current, SCHEMA_VERSION)
       }
       migrate(db)
+      // A copy from today, taken once the schema is settled. A fresh file has
+      // nothing to protect, and a backup failure must not stop the app opening:
+      // the user may be opening it precisely because yesterday's data is needed.
+      if (current > 0) {
+        try {
+          backupDaily(db, backupsPath())
+        } catch (error) {
+          logCrash('daily-backup', error)
+        }
+      }
     } catch (error) {
       db.close()
       throw error
