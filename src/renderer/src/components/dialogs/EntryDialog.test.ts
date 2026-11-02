@@ -171,8 +171,9 @@ test('a bill payment asks for the bill and posts the link', async () => {
     assert.equal(sent.length, 0)
 
     // Changing the kind while the dialog is still open drops the link, so a
-    // stale bill cannot ride along. This runs before submit, while the dialog
-    // the user actually sees is still mounted.
+    // stale bill cannot ride along. Choose the bill first, or the empty value
+    // below would prove nothing.
+    await act(async () => choose(bill, 'b1'))
     await act(async () => choose(kind, 'expense'))
     assert.equal(field('Bill'), null, 'the picker disappears with the kind')
     await act(async () => choose(kind, 'bill_payment'))

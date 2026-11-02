@@ -1,32 +1,63 @@
 const MONEY_INPUT = /^\d*(\.\d{0,2})?$/
 
 /**
- * What a money field may hold while it is being typed or pasted: digits, one
- * decimal point and at most two decimals. Currency symbols, spaces and thousand
- * separators are dropped rather than rejected, so pasting `$1,850.00` works.
- * A minus sign survives only when the field accepts negative amounts.
+ * What a money field may hold while it is being typed or pasted: digits,
+ * separators and an optional leading minus. Currency symbols and spaces are
+ * dropped. Commas and extra decimals stay put until the field is left, because
+ * `1,850` and `12,50` are the same keystrokes for two very different amounts
+ * and only the finished text can tell them apart. Resolving each keystroke
+ * turned a typed `1,850` into `1.85`. A minus sign survives only when the
+ * field accepts negative amounts.
  */
 export function sanitizeMoneyInput(raw: string, options: { allowNegative?: boolean } = {}): string {
-  return sanitizeDecimalInput(raw, options.allowNegative ?? false)
-}
-
-/** The same restraint for a percentage: no sign, one decimal point, two decimals. */
-export function sanitizePercentInput(raw: string): string {
-  return sanitizeDecimalInput(raw, false)
-}
-
-function sanitizeDecimalInput(raw: string, allowNegative: boolean): string {
   const text = typeof raw === 'string' ? raw : ''
   // A leading minus may sit after a currency symbol, but not after a digit: the
-  // same rule the field always had, now decided before separators are touched.
+  // same rule the field always had.
   const firstValueChar = text.search(/[0-9.]/)
   const minusAt = text.indexOf('-')
   const negative =
-    allowNegative && minusAt !== -1 && (firstValueChar === -1 || minusAt < firstValueChar)
+    (options.allowNegative ?? false) &&
+    minusAt !== -1 &&
+    (firstValueChar === -1 || minusAt < firstValueChar)
 
-  // Clean first, then decide whether a comma is a decimal point or grouping.
-  // Dropping commas before parsing turned a typed `12,50` into $1,250.
-  const cleaned = text.replace(/[\s$]/g, '').replace(/[^0-9.,]/g, '')
+  let body = ''
+  let seenPoint = false
+  for (const char of text.replace(/[\s$]/g, '')) {
+    if (char === '.') {
+      if (!seenPoint) {
+        seenPoint = true
+        body += char
+      }
+      continue
+    }
+    if ((char >= '0' && char <= '9') || char === ',') body += char
+  }
+
+  return `${negative ? '-' : ''}${body}`
+}
+
+/**
+ * The value a money field settles on when it is left: the typed text read one
+ * last time and written in the one form the field then holds — digits, one
+ * point, two decimals. Text that cannot be read is returned unchanged, so the
+ * form can point at it instead of quietly storing a different number.
+ */
+export function canonicalMoneyInput(
+  raw: string,
+  options: { allowNegative?: boolean } = {}
+): string {
+  const typed = sanitizeMoneyInput(raw, options)
+  const cents = parseMoneyToCents(typed)
+  return cents === null ? typed : centsToEditable(cents)
+}
+
+/**
+ * A percentage has no thousands separator to confuse, so the field resolves a
+ * decimal comma immediately and caps the fraction at two digits.
+ */
+export function sanitizePercentInput(raw: string): string {
+  const text = typeof raw === 'string' ? raw : ''
+  const cleaned = text.replace(/[\s$%]/g, '').replace(/[^0-9.,]/g, '')
   const normalised = normaliseForInput(cleaned)
 
   let body = ''
@@ -47,7 +78,7 @@ function sanitizeDecimalInput(raw: string, allowNegative: boolean): string {
     }
   }
 
-  return `${negative ? '-' : ''}${body}`
+  return body
 }
 
 /** Canonical digits with one decimal point, for a field being typed into. */
@@ -209,9 +240,9 @@ export function formatMoney(cents: number, currency = 'USD'): string {
 }
 
 /**
- * Compact notation is for a headline that would otherwise overflow; below
- * $10,000 it only drops the cents, so those amounts print exactly instead of
- * showing `$12.5` beside a `$12.50` row.
+ * Compact notation is for a headline that would otherwise overflow. Below
+ * $10,000 the amount prints exactly with its cents, so it matches the rows it
+ * summarises instead of showing `$12.5` beside a `$12.50` row.
  */
 export function formatMoneyCompact(cents: number, currency = 'USD'): string {
   if (Math.abs(cents) < 1_000_000) return formatMoney(cents, currency)

@@ -20,6 +20,7 @@ import {
   deleteTransactions,
   getSnapshot,
   listAccounts,
+  listBillPaymentsSince,
   listBills,
   insertTransactionRow,
   listImportChoices,
@@ -698,6 +699,28 @@ test('a bulk delete counts both legs of a transfer', () => {
   assert.equal(listTransactions(db, USER_ID).length, 0)
 })
 
+test('a bulk delete counts the round-up sweep a purchase owns', () => {
+  const db = freshDb()
+  const checking = account(db, 'Chequing')
+  const savings = account(db, 'Savings', 'savings')
+  writeSettings(db, USER_ID, {
+    roundUpEnabled: '1',
+    roundUpAccountId: savings,
+    roundUpToCents: '100'
+  })
+  const purchaseId = entry(db, checking, { amountCents: -1_040 })
+  const sweepIds = roundUpSweepIds(db, USER_ID, purchaseId)
+  assert.equal(sweepIds.length, 2, 'the purchase owns a pair of sweep legs')
+
+  // Selecting the purchase and its sweeps must still report each row once.
+  assert.equal(
+    deleteTransactions(db, USER_ID, [purchaseId, ...sweepIds]),
+    3,
+    'the purchase and both sweep legs are gone'
+  )
+  assert.equal(listTransactions(db, USER_ID).length, 0)
+})
+
 test('deleting a bill turns its live payments into ordinary expenses', () => {
   const db = freshDb()
   const checking = account(db, 'Chequing')
@@ -727,5 +750,44 @@ test('deleting a bill turns its live payments into ordinary expenses', () => {
   const payment = listTransactions(db, USER_ID).find((row) => row.id === paymentId)
   assert.ok(payment)
   assert.equal(payment.billId, null, 'the live entry no longer points at a tombstone')
+  assert.equal(payment.kind, 'expense', 'the entry reads as the ordinary expense it now is')
   assert.equal(payment.amountCents, -5_000, 'the money itself is untouched')
+})
+
+test('a bill-linked adjustment is a note, not a payment', () => {
+  const db = freshDb()
+  const checking = account(db, 'Chequing')
+  const billId = createBill(db, USER_ID, {
+    name: 'Water',
+    amountCents: 5_000,
+    frequency: 'monthly',
+    dueDay: 15,
+    category: 'Utilities',
+    accountId: checking,
+    autopay: false,
+    isActive: true,
+    nextDueOn: null
+  })
+  createTransaction(db, USER_ID, {
+    accountId: checking,
+    kind: 'bill_payment',
+    amountCents: -5_000,
+    occurredOn: '2026-03-10',
+    memo: 'Water',
+    category: 'Utilities',
+    billId
+  })
+  createTransaction(db, USER_ID, {
+    accountId: checking,
+    kind: 'adjustment',
+    amountCents: -1_000,
+    occurredOn: '2026-03-11',
+    memo: 'Corrected the water bill',
+    category: 'Utilities',
+    billId
+  })
+
+  const payments = listBillPaymentsSince(db, USER_ID, '2000-01-01')
+  assert.equal(payments.length, 1, 'the adjustment does not read back as another payment')
+  assert.equal(payments[0].amountCents, -5_000, 'the real payment is the one counted')
 })

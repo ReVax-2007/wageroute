@@ -21,7 +21,7 @@ function deduction(cents: number, currency: string): string {
 
 export function Home({ go }: { go: (tab: Tab) => void }) {
   const snapshot = useSnapshot()
-  const importedAt = usePocket((state) => state.importedAt)
+  const exportedAt = usePocket((state) => state.exportedAt)
   if (!snapshot) return null
   const view = pocketView(snapshot)
   const currency = view.settings.currency
@@ -169,7 +169,7 @@ export function Home({ go }: { go: (tab: Tab) => void }) {
 
       <p className="fine">
         {snapshot.transactionTotal.toLocaleString()} entries
-        {importedAt ? ` · imported ${formatDateLabel(importedAt.slice(0, 10))}` : ''}
+        {exportedAt ? ` · backup from ${formatDateLabel(exportedAt.slice(0, 10))}` : ''}
       </p>
     </div>
   )

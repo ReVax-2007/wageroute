@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { ImportTables } from '@shared/importRepair'
-import { todayISO } from '@shared/dates'
+import { todayISO, isISODate } from '@shared/dates'
 import type { Snapshot } from '@shared/types'
 import {
   BackupFileError,
@@ -20,6 +20,8 @@ interface PocketState {
   tables: ImportTables | null
   version: number
   importedAt: string | null
+  /** The desktop's export date, which is how old the copy on the phone is. */
+  exportedAt: string | null
   sourceName: string | null
   localIds: string[]
   notice: string | null
@@ -47,11 +49,16 @@ function storageMessage(error: unknown, prefix = 'Saved on this screen only'): s
 }
 
 async function persist(state: PocketState): Promise<void> {
-  if (!state.tables || !state.importedAt) return
+  // Nothing to store is a programming error, not a quiet success: a commit
+  // that showed "saved" over an empty record would lie about the ledger.
+  if (!state.tables || !state.importedAt) {
+    throw new Error('This phone has no ledger to store')
+  }
   const ledger: StoredLedger = {
     tables: state.tables,
     version: state.version,
     importedAt: state.importedAt,
+    exportedAt: state.exportedAt ?? undefined,
     sourceName: state.sourceName ?? '',
     localIds: state.localIds
   }
@@ -79,6 +86,7 @@ export const usePocket = create<PocketState>((set, get) => {
     tables: null,
     version: KNOWN_BACKUP_VERSION,
     importedAt: null,
+    exportedAt: null,
     sourceName: null,
     localIds: [],
     notice: null,
@@ -97,6 +105,9 @@ export const usePocket = create<PocketState>((set, get) => {
           tables: stored.tables,
           version: stored.version,
           importedAt: stored.importedAt,
+          // Records written before this field existed used the export date as
+          // the import date; keep showing that rather than "Unknown".
+          exportedAt: stored.exportedAt ?? stored.importedAt,
           sourceName: stored.sourceName,
           localIds: stored.localIds ?? [],
           newerSchema: stored.version > KNOWN_BACKUP_VERSION,
@@ -123,11 +134,15 @@ export const usePocket = create<PocketState>((set, get) => {
         }
         throw error
       }
+      const importedAt = new Date().toISOString()
+      const exportedAt =
+        isISODate(backup.exportedAt.slice(0, 10)) ? backup.exportedAt : importedAt
       set({
         status: 'ready',
         tables: backup.tables,
         version: backup.version,
-        importedAt: backup.exportedAt || new Date().toISOString(),
+        importedAt,
+        exportedAt,
         sourceName: name,
         localIds: [],
         newerSchema: backup.version > KNOWN_BACKUP_VERSION,
@@ -195,6 +210,7 @@ export const usePocket = create<PocketState>((set, get) => {
         status: 'empty',
         tables: null,
         importedAt: null,
+        exportedAt: null,
         sourceName: null,
         localIds: [],
         notice: failure ? null : 'This phone no longer holds your ledger.',

@@ -6,6 +6,11 @@
 
 export type Row = Record<string, unknown>
 
+/** SQLite's default BINARY collation, so both screens list names in one order. */
+export function byName(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0
+}
+
 export function isLive(row: Row): boolean {
   return row.deleted_at === null || row.deleted_at === undefined
 }

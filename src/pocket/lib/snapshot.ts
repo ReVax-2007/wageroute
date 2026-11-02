@@ -31,7 +31,7 @@ import {
   TRANSACTION_KINDS,
   pick
 } from './enums'
-import { cents, flag, integer, isLive, nullableInteger, nullableText, settingRecord, text, type Row } from './rows'
+import { byName, cents, flag, integer, isLive, nullableInteger, nullableText, settingRecord, text, type Row } from './rows'
 
 /** The ledger window the desktop reads, so both show the same latest entries. */
 export { SNAPSHOT_TRANSACTION_LIMIT }
@@ -39,11 +39,6 @@ export { SNAPSHOT_TRANSACTION_LIMIT }
 const BILL_PAYMENT_HISTORY_DAYS = 370
 const PAYCHECK_LIMIT = 24
 const BALANCE_HISTORY_DAYS = 400
-
-/** SQLite's default BINARY collation, so both screens list names in one order. */
-function byName(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0
-}
 
 function sync(row: Row): {
   createdAt: string

@@ -160,7 +160,9 @@ export function deleteBill(db: Db, userId: string, id: string): void {
     // tombstone: the entry stays as an ordinary expense, with its own memo.
     db.prepare(
       `UPDATE transactions
-       SET bill_id = NULL, updated_at = ?, revision = revision + 1
+       SET bill_id = NULL,
+           kind = CASE WHEN kind = 'bill_payment' THEN 'expense' ELSE kind END,
+           updated_at = ?, revision = revision + 1
        WHERE bill_id = ? AND user_id = ? AND deleted_at IS NULL`
     ).run(ts, id, userId)
     softDelete(db, 'bills', id, userId)

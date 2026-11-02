@@ -636,7 +636,9 @@ export function registerIpcHandlers(db: Database.Database): void {
     write(db, userId, ['bills'], () => repo.updateBill(db, userId(), requireId(id), patch))
   )
   handle('bill:delete', (_event, id: unknown) =>
-    write(db, userId, ['bills', 'billReserves'], () =>
+    // The bill's live payments lose their link, so the ledger has to be
+    // re-read: otherwise the grid keeps naming a bill that no longer exists.
+    write(db, userId, ['bills', 'billReserves', 'transactions'], () =>
       repo.deleteBill(db, userId(), requireId(id))
     )
   )

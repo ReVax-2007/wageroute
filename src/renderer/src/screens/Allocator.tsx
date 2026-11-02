@@ -3,7 +3,13 @@ import { AlertTriangle, ArrowLeft, ArrowRight, Sparkles, X } from 'lucide-react'
 import { buildAllocationPlan, type PlanWarning } from '@shared/allocator'
 import { PAY_CADENCE_LABEL } from '@shared/cadence'
 import { daysBetweenISO, formatMonthLong, isISODate, todayISO } from '@shared/dates'
-import { currencySymbol, formatMoney, parseMoneyToCents, sanitizeMoneyInput } from '@shared/money'
+import {
+  canonicalMoneyInput,
+  currencySymbol,
+  formatMoney,
+  parseMoneyToCents,
+  sanitizeMoneyInput
+} from '@shared/money'
 import type { BillPaymentTotal, PayCadence } from '@shared/types'
 import { backdropHandlers, Button, Money, useDialog } from '../components/ui'
 import { activeBills, fundableAccounts } from '../lib/finance'
@@ -404,6 +410,7 @@ export function Allocator() {
                     aria-label="Paycheck amount"
                     value={income}
                     onChange={(event) => setIncome(sanitizeMoneyInput(event.target.value))}
+                    onBlur={(event) => setIncome(canonicalMoneyInput(event.target.value))}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' && incomeCents > 0) goNext()
                     }}

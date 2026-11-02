@@ -127,6 +127,54 @@ test('the wall marks paid and open bills from the same claims the desktop wrote'
   )
 })
 
+test('a bill paid by card still needs cash on the phone too', () => {
+  const { json } = demo()
+  const snapshot = buildSnapshot(parseBackup(json).tables, todayISO())
+  const bill = { ...snapshot.bills[0]!, isActive: true }
+  const amount = bill.amountCents
+  const base = { ...snapshot, bills: [bill], billReserves: [] }
+
+  const byCard = {
+    ...base,
+    billPaymentsThisMonth: [{ billId: bill.id, paidCents: amount, creditCents: amount }]
+  }
+  assert.equal(
+    billLines(byCard)[0]?.state,
+    'open',
+    'the cash that pays the card is still held, matching Safe to spend'
+  )
+
+  const inCash = {
+    ...base,
+    billPaymentsThisMonth: [{ billId: bill.id, paidCents: amount, creditCents: 0 }]
+  }
+  assert.equal(billLines(inCash)[0]?.state, 'paid')
+})
+
+test('bills due on the same day keep the desktop’s byte order', () => {
+  const { json } = demo()
+  const snapshot = buildSnapshot(parseBackup(json).tables, todayISO())
+  const template = { ...snapshot.bills[0]!, isActive: true, dueDay: 10 }
+  const lines = billLines(
+    {
+      ...snapshot,
+      bills: [
+        { ...template, id: 'lower', name: 'apple' },
+        { ...template, id: 'upper', name: 'Zebra' }
+      ],
+      billReserves: [],
+      billPaymentsThisMonth: []
+    },
+    todayISO()
+  )
+
+  assert.deepEqual(
+    lines.map((line) => line.bill.name),
+    ['Zebra', 'apple'],
+    'SQLite BINARY puts an upper-case letter before a lower-case one'
+  )
+})
+
 test('an entry added on the phone moves the same balances and agrees on Safe to Spend', () => {
   const { db, userId, json } = demo()
   const tables = parseBackup(json).tables

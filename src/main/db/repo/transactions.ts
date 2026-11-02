@@ -191,6 +191,10 @@ export function listBillPaymentsThisMonth(
  * Bill-linked entries on or after `fromISO`. The prompt card matches a cycle by
  * bill and date, and the capped ledger window can be much newer than the last
  * annual occurrence — so those rows are read on their own, without a cap.
+ *
+ * A linked adjustment is a correction, not a payment: counting it here would
+ * hide a bill's prompt and its autopay while the month's totals (which read
+ * only `bill_payment` and `expense`) still call the bill unpaid.
  */
 export function listBillPaymentsSince(
   db: Db,
@@ -202,6 +206,7 @@ export function listBillPaymentsSince(
       `SELECT bill_id AS billId, occurred_on AS occurredOn, amount_cents AS amountCents
        FROM transactions
        WHERE user_id = ? AND deleted_at IS NULL AND bill_id IS NOT NULL
+         AND kind IN ('bill_payment','expense')
          AND occurred_on >= ?
        ORDER BY occurred_on DESC`
     )
@@ -789,28 +794,33 @@ export function deleteTransactions(db: Db, userId: string, ids: readonly string[
   if (unique.length === 0) return 0
 
   return db.transaction(() => {
-    const live = new Set<string>()
     const statement = db.prepare(
       'SELECT 1 AS present FROM transactions WHERE id = ? AND user_id = ? AND deleted_at IS NULL'
     )
-    for (const id of unique) {
-      if (statement.get(id, userId)) live.add(id)
+    const isLive = (id: string): boolean => statement.get(id, userId) !== undefined
+
+    // A transfer hides its twin, and a purchase hides its round-up sweep, so
+    // the rows that will disappear are more than the ones selected. Gather
+    // every row the batch can touch, then count how many actually left.
+    const candidates = new Set<string>(unique.filter(isLive))
+    const groupOf = db.prepare(
+      'SELECT transfer_group_id AS groupId FROM transactions WHERE id = ? AND user_id = ? AND deleted_at IS NULL'
+    )
+    for (const id of [...candidates]) {
+      const group = groupOf.get(id, userId) as { groupId: string | null } | undefined
+      if (group?.groupId) {
+        for (const leg of transferGroupRows(db, userId, group.groupId)) candidates.add(leg.id)
+      }
+      for (const sweepId of roundUpSweepIds(db, userId, id)) candidates.add(sweepId)
     }
-    let removed = 0
+
+    const countLive = (): number => [...candidates].filter(isLive).length
+    const before = countLive()
     for (const id of unique) {
-      if (!live.has(id)) continue
       // A paired leg may already have been removed by its twin earlier in the loop.
-      if (!statement.get(id, userId)) continue
-      // A transfer is two entries in the grid, so deleting one leg reports two.
-      const group = db
-        .prepare(
-          'SELECT transfer_group_id AS groupId FROM transactions WHERE id = ? AND user_id = ? AND deleted_at IS NULL'
-        )
-        .get(id, userId) as { groupId: string | null } | undefined
-      removed += group?.groupId ? transferGroupRows(db, userId, group.groupId).length : 1
-      deleteTransaction(db, userId, id)
+      if (isLive(id)) deleteTransaction(db, userId, id)
     }
-    return removed
+    return before - countLive()
   })()
 }
 
