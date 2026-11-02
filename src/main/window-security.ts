@@ -29,3 +29,15 @@ export function isTrustedPageUrl(
     return false
   }
 }
+
+/**
+ * Chromium asks before a page writes to the clipboard; the copy buttons depend
+ * on the sanitised text write. Reading the clipboard, media capture, geolocation
+ * and every other capability stay denied — the app is a local ledger and needs
+ * none of them. Only sanitised writes are in the allowlist.
+ */
+const ALLOWED_PERMISSIONS: ReadonlySet<string> = new Set(['clipboard-sanitized-write'])
+
+export function permissionAllowed(permission: string): boolean {
+  return ALLOWED_PERMISSIONS.has(permission)
+}

@@ -37,7 +37,10 @@ jobs:
             echo "tag $GITHUB_REF_NAME does not match package.json $version"
             exit 1
           fi
-          git fetch origin main --depth=1
+          # Full history: `--depth=1` would truncate origin/main to its tip, so
+          # `merge-base --is-ancestor` could no longer walk back to a tag that
+          # really is on main and would reject it.
+          git fetch origin main
           if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
             echo "$GITHUB_REF_NAME is not on main"
             exit 1

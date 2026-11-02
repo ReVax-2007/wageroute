@@ -76,7 +76,7 @@ The same `src/shared` modules are imported by both the main process and the rend
 1. `app.setName('WageRoute')` runs before Electron resolves the `userData` path, so the data directory uses the new product name.
 2. A single-instance lock is requested. A second launch quits immediately; the existing window is restored and focused.
 3. After `whenReady()`:
-   - every permission request and permission check is denied (`setPermissionRequestHandler` plus `setPermissionCheckHandler`);
+   - every permission request and permission check is denied except a sanitised clipboard write, which the copy buttons need (`setPermissionRequestHandler` plus `setPermissionCheckHandler`);
    - on macOS in development only, the dock icon is set from `build/icon.png`;
    - `adoptLegacyDatabase()` copies a pre-rename database if the new one is absent;
    - `getDatabase()` opens `wageroute.db`, sets WAL/NORMAL/foreign keys/busy timeout, runs `PRAGMA quick_check`, writes a pre-upgrade copy when the file is older than the build, and runs migrations;
@@ -419,7 +419,7 @@ The boundary is examined in detail in [SECURITY.md](SECURITY.md). In summary:
 - preload: one frozen-by-usage API object on `window.api`;
 - main: validates IDs, delegates payload rules to repositories, parameterises SQL;
 - navigation: child windows denied, one allowlisted external link opened by the OS, all other navigation blocked by an exact URL/origin check;
-- permissions: every request and permission check denied;
+- permissions: every request and check denied except a sanitised clipboard write for the copy buttons;
 - CSP: self-only scripts/styles, self/data images and fonts, localhost connect-src for development;
 - data: unencrypted SQLite on disk, protected only by the OS account and full-disk encryption.
 

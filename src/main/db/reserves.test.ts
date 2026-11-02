@@ -135,6 +135,35 @@ test('moving a payment to another month re-opens the month it left', () => {
   assert.equal(listBillReserves(db, USER_ID)[0].state, 'paid')
 })
 
+test('a later cheque does not close a month whose payment moved away', () => {
+  const db = freshDb()
+  const accountId = checking(db)
+  const billId = rent(db, accountId, 15, 'first_check')
+  route(db, accountId, '2026-03-05')
+  const paymentId = createTransaction(db, USER_ID, {
+    accountId,
+    kind: 'bill_payment',
+    amountCents: -120_000,
+    occurredOn: '2026-03-14',
+    memo: 'Rent',
+    category: 'Housing',
+    billId
+  })
+
+  updateTransaction(db, USER_ID, paymentId, { occurredOn: '2026-04-02' })
+  const april = route(db, accountId, '2026-04-05')
+  assert.ok(april.plan)
+
+  const rows = listBillReserves(db, USER_ID)
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].cycle, '2026-03')
+  assert.equal(
+    rows[0].state,
+    'reserved',
+    'the March claim was never spent, so April must not settle it'
+  )
+})
+
 test('a payment next month settles the earlier cheque’s claim instead of stranding it', () => {
   const db = freshDb()
   const accountId = checking(db)

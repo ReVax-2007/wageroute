@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import {
   CATEGORY_NAME_MAX,
-  DEFAULT_CATEGORIES,
   categoryKey,
   defaultCategoryKind,
   normalizeCategoryName
@@ -165,35 +164,6 @@ export function ensureCategory(
     null,
     nextSortOrder(db, userId)
   )
-}
-
-/**
- * One-time fill for schema 8: create the starter list, then point every existing
- * entry at the row matching its text. Runs inside the migration's transaction.
- */
-export function backfillCategories(db: Db, userId: string): void {
-  for (const seed of DEFAULT_CATEGORIES) {
-    if (findByName(db, userId, seed.name)) continue
-    insertCategory(db, userId, seed.name, seed.kind, seed.color, nextSortOrder(db, userId))
-  }
-
-  const rows = db
-    .prepare(
-      `SELECT id, category FROM transactions
-       WHERE user_id = ? AND deleted_at IS NULL AND category_id IS NULL`
-    )
-    .all(userId) as { id: string; category: string }[]
-  const update = db.prepare(
-    `UPDATE transactions SET category_id = ? WHERE id = ? AND user_id = ?`
-  )
-  for (const row of rows) {
-    const name = normalizeCategoryName(row.category)
-    const existing = findByName(db, userId, name || 'Uncategorized')
-    const id =
-      existing?.id ??
-      insertCategory(db, userId, name || 'Uncategorized', 'other', null, nextSortOrder(db, userId))
-    update.run(id, row.id, userId)
-  }
 }
 
 /** A map of category name keys to ids, for imports that only carry text. */

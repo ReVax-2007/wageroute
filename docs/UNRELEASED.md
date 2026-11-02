@@ -43,20 +43,20 @@ Work merged to `main` after `v1.2.0`. None of it is in an installer yet; the `[U
 ### Batch 17 — correctness
 
 - Category lookup and text backfill compare the JS `categoryKey` instead of SQL `lower()`, so `CAFÉ` and `Café` no longer create two rows or split a report total.
-- `settleEarlierBillReserves()` closes an earlier month's `reserved` claim when the bill is paid in a later month, while leaving each row in its own cycle.
-- The goal funding-account picker follows the saved goal until touched (`draftIds`), and its **Select all** state is derived from the live list.
-- A failed entry count no longer leaves the delete-account dialog disabled; negative credit limits and statement balances now show a field error; a dialog whose trigger is gone returns focus to `#main-content`.
+- `settleEarlierBillReserves()` closes the earliest open `last_check` claim when the bill is paid in the following month, while leaving each row in its own cycle and never settling a claim the later payment did not spend.
+- The goal funding-account picker follows the saved goal until touched (`draftIds`), its **Select all** state is derived from the live list, unticking 2 → 1 keeps the checklist open, and a rejected save keeps the draft.
+- A failed entry count no longer pretends the account is empty; negative credit limits and statement balances now show a field error; a dialog whose trigger is gone returns focus to `#main-content`.
 - `needsPreUpgradeBackup()` limits `pre-upgrade-*` copies to real version increases.
 
 ### Batch 18 — release integrity and security
 
 - New tag-only `guard` job: the tag must equal `package.json`'s version and sit on `origin/main`.
 - The `release` job refuses to replace assets on an already-published release.
-- `setWindowOpenHandler` opens only `https://buymeacoffee.com/revax`; `will-navigate` and `isTrustedFrame()` share `isTrustedPageUrl()`; `setPermissionCheckHandler` denies alongside the request handler.
+- `setWindowOpenHandler` opens only `https://buymeacoffee.com/revax`; `will-navigate` and `isTrustedFrame()` share `isTrustedPageUrl()`; both permission handlers answer from `permissionAllowed()`, which allows only `clipboard-sanitized-write`.
 
 ### Batch 19 — coverage
 
-- `src/main/window-security.test.ts` (3), `src/renderer/src/lib/finance.test.ts` (8), plus 24 cases across six existing files. `npm test` is **299 tests across thirty-seven files**.
+- `src/main/window-security.test.ts` (4), `src/renderer/src/lib/finance.test.ts` (8), plus 27 cases across seven existing files. `npm test` is **302 tests across thirty-seven files**.
 - `package.json`'s explicit test list includes both new files; the `pretest` guard would otherwise fail every run.
 
 ### Batch 20 — documentation
@@ -64,10 +64,19 @@ Work merged to `main` after `v1.2.0`. None of it is in an installer yet; the `[U
 - Corrected the error-notice/logging claims, the `dist:linux` architecture claim and the broken table in DEPLOYMENT, the missing `npm run lint` in CONTRIBUTING/README/PR template, the draft-release and blockmap claims in RELEASING, the in-app erase path, the migration history, and the ten-table backup count in ADR 0003.
 - Updated ARCHITECTURE, SECURITY and FEATURES to describe the new allowlist and permission check.
 
+### Batch 21 — audit follow-up
+
+- Schema 8's backfill grouped categories with SQL `lower()` for the transaction link while the plan used the JS key; a version-7 upgrade now links every entry by id and treats `CAFÉ` and `Café` as one category. Dead `backfillCategories` in the category repository removed.
+- Reserve settlement narrowed to `last_check` claims, one per payment, so a payment moved into April no longer marks an unspent March claim paid.
+- The tag guard fetches full history instead of `--depth=1`, which could hide a genuine ancestor of `main`.
+- Permission handlers allow `clipboard-sanitized-write` so the copy buttons work; every other permission stays denied.
+- Funding picker keeps the checklist open when unticking 2 → 1; goal save failure keeps the draft; account-delete dialog no longer claims zero entries when the count failed.
+
 ### Before the next build
 
 - [ ] Run the four gates on the final tree: `npm run lint`, `npm test`, `npm run build` (includes both type checks), and `npx electron-builder --dir --publish never`.
 - [ ] Launch a packaged build on a disposable profile and confirm the Buy Me a Coffee link still opens and no other external URL does (no child window, no navigation).
-- [ ] Re-check the Priority Wall after a cross-month bill payment: the old month's row reads `paid`, not `reserved`.
+- [ ] Re-check the Priority Wall after a cross-month bill payment: the old month's row reads `paid`, not `reserved`; then move the payment to the next month and confirm the source month reads `reserved` again even after the next cheque commits.
+- [ ] Launch a packaged build and copy an entry id from Settings/About to the clipboard: the permission handlers allow only `clipboard-sanitized-write`, so a denied copy would now show up as a silent no-op.
 - [ ] Confirm the tag guard fires if `package.json` and the tag disagree (a scratch tag, deleted before push).
 - [ ] Choose the next version. No migration was added in this batch, so a patch bump is still defensible; the tag guard requires the tag to match `package.json`.

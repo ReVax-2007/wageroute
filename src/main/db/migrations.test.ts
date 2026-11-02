@@ -10,12 +10,25 @@ const OTHER_BILL_ID = 'cccccccc-dddd-eeee-ffff-000000000000'
 const TS = '2026-01-01T00:00:00.000Z'
 
 function migrateThrough(db: Database.Database, version: number): void {
+  const hadForeignKeys = (db.pragma('foreign_keys', { simple: true }) as number) === 1
   for (const migration of MIGRATIONS) {
     if (migration.version > version) break
-    db.transaction(() => {
-      migration.up(db)
-      db.pragma(`user_version = ${migration.version}`)
-    })()
+    const suspend = migration.rebuildsReferencedTable === true
+    if (suspend) {
+      db.pragma('foreign_keys = OFF')
+      db.pragma('legacy_alter_table = ON')
+    }
+    try {
+      db.transaction(() => {
+        migration.up(db)
+        db.pragma(`user_version = ${migration.version}`)
+      })()
+    } finally {
+      if (suspend) {
+        db.pragma('legacy_alter_table = OFF')
+        if (hadForeignKeys) db.pragma('foreign_keys = ON')
+      }
+    }
   }
 }
 
@@ -259,6 +272,46 @@ test('a v1 database migrates to the current schema with its money and settings i
   for (const table of ['bill_reserves', 'categories', 'balance_snapshots', 'accounts']) {
     assert.ok(tables.includes(table), `${table} exists after the upgrade`)
   }
+  db.close()
+})
+
+test('v8 links category text that differs only by a non-ASCII case', () => {
+  const db = new Database(':memory:')
+  db.pragma('foreign_keys = ON')
+  migrateThrough(db, 7)
+  db.prepare(
+    `INSERT INTO users (id, display_name, created_at, updated_at)
+     VALUES (?, 'Tester', ?, ?)`
+  ).run(USER_ID, TS, TS)
+  db.prepare(
+    `INSERT INTO accounts (id, user_id, name, kind, created_at, updated_at)
+     VALUES (?, ?, 'Everyday Checking', 'checking', ?, ?)`
+  ).run(ACCOUNT_ID, USER_ID, TS, TS)
+  const insert = db.prepare(
+    `INSERT INTO transactions
+       (id, user_id, account_id, kind, amount_cents, occurred_on, category, created_at, updated_at)
+     VALUES (?, ?, ?, 'expense', -100, '2026-01-05', ?, ?, ?)`
+  )
+  insert.run('txn-upper', USER_ID, ACCOUNT_ID, 'CAFÉ', TS, TS)
+  insert.run('txn-title', USER_ID, ACCOUNT_ID, 'Café', TS, TS)
+
+  migrate(db)
+
+  const linked = db
+    .prepare(
+      `SELECT t.id, t.category_id AS categoryId, c.name
+       FROM transactions t JOIN categories c ON c.id = t.category_id
+       ORDER BY t.id`
+    )
+    .all() as { id: string; categoryId: string; name: string }[]
+  assert.equal(linked.length, 2)
+  assert.equal(linked[0].categoryId, linked[1].categoryId, 'one category, not one per casing')
+  assert.equal(linked[0].name, linked[1].name)
+  assert.deepEqual(
+    db.prepare('SELECT COUNT(*) AS n FROM transactions WHERE category_id IS NULL').get(),
+    { n: 0 },
+    'no entry is left without a category'
+  )
   db.close()
 })
 

@@ -324,7 +324,12 @@ function EmergencyCard() {
       return
     }
     if (goal) {
-      await updateGoal(goal.id, { targetCents, fundingAccountIds: selectedIds })
+      // A rejected save is already in the notification; clearing the draft
+      // here would silently throw away the ids the user just picked.
+      if (!(await updateGoal(goal.id, { targetCents, fundingAccountIds: selectedIds }))) {
+        setSaving(false)
+        return
+      }
       setDraftIds(null)
     } else {
       const input: GoalInput = {
