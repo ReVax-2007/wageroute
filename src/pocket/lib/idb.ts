@@ -18,16 +18,31 @@ let opening: Promise<IDBDatabase> | null = null
 
 function openDb(): Promise<IDBDatabase> {
   if (opening) return opening
-  opening = new Promise((resolve, reject) => {
+  const attempt = new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION)
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains(STORE)) {
         request.result.createObjectStore(STORE)
       }
     }
-    request.onsuccess = () => resolve(request.result)
+    request.onsuccess = () => {
+      const db = request.result
+      // Storage is shared by every tab. If another one ever upgrades the
+      // schema, step aside so it can, and open fresh next time.
+      db.onversionchange = () => {
+        db.close()
+        opening = null
+      }
+      resolve(db)
+    }
     request.onerror = () => reject(request.error ?? new Error('Could not open phone storage'))
     request.onblocked = () => reject(new Error('Phone storage is open in another tab'))
+  })
+  // A rejected promise must not stay cached: the next attempt (a reload, or the
+  // user choosing a backup again) deserves a real try at opening storage.
+  opening = attempt.catch((error) => {
+    opening = null
+    throw error
   })
   return opening
 }

@@ -1,9 +1,12 @@
-import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath, URL } from 'node:url'
 import react from '@vitejs/plugin-react'
 import { defineConfig, type Plugin } from 'vite'
 
 const root = fileURLToPath(new URL('.', import.meta.url))
+const outDir = fileURLToPath(new URL('../../dist-pocket', import.meta.url))
 const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as {
   version: string
 }
@@ -35,6 +38,34 @@ function strictCsp(): Plugin {
   }
 }
 
+/**
+ * The service worker lives in `public/`, so Vite copies it without seeing the
+ * hashed filenames it must cache. This fills in the release stamp and the exact
+ * asset list, which is what makes a reopen with no signal show the app instead
+ * of a blank page.
+ */
+function offlineShell(): Plugin {
+  return {
+    name: 'wageroute-pocket-sw',
+    apply: 'build',
+    closeBundle() {
+      const template = readFileSync(join(root, 'public', 'sw.js'), 'utf8')
+      const assetDir = join(outDir, 'assets')
+      const assets = existsSync(assetDir)
+        ? readdirSync(assetDir)
+            .filter((file) => /\.(js|css|woff2?|png|svg|webp)$/.test(file))
+            .sort()
+            .map((file) => `./assets/${file}`)
+        : []
+      const buildId = createHash('sha1').update(assets.join('\n')).digest('hex').slice(0, 8)
+      const output = template
+        .replace('__SHELL_VERSION__', `pocket-${pkg.version}-${buildId}`)
+        .replace('/* __PRECACHE__ */ []', JSON.stringify(assets))
+      writeFileSync(join(outDir, 'sw.js'), output)
+    }
+  }
+}
+
 export default defineConfig({
   root,
   base: './',
@@ -44,9 +75,9 @@ export default defineConfig({
       '@shared': fileURLToPath(new URL('../shared', import.meta.url))
     }
   },
-  plugins: [react(), strictCsp()],
+  plugins: [react(), strictCsp(), offlineShell()],
   build: {
-    outDir: fileURLToPath(new URL('../../dist-pocket', import.meta.url)),
+    outDir,
     emptyOutDir: true
   }
 })

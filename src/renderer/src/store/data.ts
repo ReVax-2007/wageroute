@@ -171,7 +171,9 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
     },
 
     refresh: async () => {
-      const snapshot = await window.api.getSnapshot()
+      // A full read joins the write queue so it cannot land after a later edit
+      // and replace the newer rows with the snapshot taken before it.
+      const snapshot = await enqueue(() => window.api.getSnapshot())
       set({ snapshot, settings: parseSettings(snapshot.settings) })
     },
 

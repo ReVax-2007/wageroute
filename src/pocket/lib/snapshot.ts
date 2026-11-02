@@ -4,27 +4,33 @@ import type {
   AccountKind,
   AccountWithBalance,
   Allocation,
-  AllocationBucket,
   BalanceSnapshot,
   Bill,
   BillPaymentEntry,
   BillPaymentTotal,
   BillReserve,
   BillReserveState,
-  BillFundingStrategy,
   Category,
-  CategoryKind,
-  Frequency,
   GoalFundingPace,
   GoalFundingSource,
   GoalWithProgress,
   PaycheckWithAllocations,
-  PlanHealth,
   Snapshot,
-  TransactionKind,
   TransactionRow
 } from '@shared/types'
 import { SNAPSHOT_TRANSACTION_LIMIT } from '@shared/api'
+import {
+  ACCOUNT_KINDS,
+  ALLOCATION_BUCKETS,
+  BILL_RESERVE_STATES,
+  CATEGORY_KINDS,
+  FREQUENCIES,
+  FUNDING_STRATEGIES,
+  GOAL_FUNDING_PACES,
+  PLAN_HEALTH,
+  TRANSACTION_KINDS,
+  pick
+} from './enums'
 import { cents, flag, integer, isLive, nullableInteger, nullableText, settingRecord, text, type Row } from './rows'
 
 /** The ledger window the desktop reads, so both show the same latest entries. */
@@ -34,55 +40,9 @@ const BILL_PAYMENT_HISTORY_DAYS = 370
 const PAYCHECK_LIMIT = 24
 const BALANCE_HISTORY_DAYS = 400
 
-const ACCOUNT_KINDS: ReadonlySet<string> = new Set<AccountKind>([
-  'checking',
-  'savings',
-  'cash',
-  'investment',
-  'credit'
-])
-const TRANSACTION_KINDS: ReadonlySet<string> = new Set<TransactionKind>([
-  'income',
-  'expense',
-  'bill_payment',
-  'transfer',
-  'goal_funding',
-  'investment',
-  'adjustment'
-])
-const FREQUENCIES: ReadonlySet<string> = new Set<Frequency>([
-  'weekly',
-  'biweekly',
-  'semimonthly',
-  'monthly',
-  'quarterly',
-  'annual'
-])
-const FUNDING_STRATEGIES: ReadonlySet<string> = new Set<BillFundingStrategy>([
-  'all_checks',
-  'closest_due_date',
-  'specific_check',
-  'first_check',
-  'last_check'
-])
-const ALLOCATION_BUCKETS: ReadonlySet<string> = new Set<AllocationBucket>([
-  'priority',
-  'savings',
-  'investment',
-  'goal',
-  'debt',
-  'leisure'
-])
-const CATEGORY_KINDS: ReadonlySet<string> = new Set<CategoryKind>([
-  'expense',
-  'income',
-  'transfer',
-  'other'
-])
-const PLAN_HEALTH: ReadonlySet<string> = new Set<PlanHealth>(['covered', 'tight', 'shortfall'])
-
-function pick<T extends string>(allowed: ReadonlySet<string>, value: string, fallback: T): T {
-  return (allowed.has(value) ? value : fallback) as T
+/** SQLite's default BINARY collation, so both screens list names in one order. */
+function byName(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0
 }
 
 function sync(row: Row): {
@@ -163,7 +123,7 @@ export function buildSnapshot(
       (a, b) =>
         Number(a.isArchived) - Number(b.isArchived) ||
         a.sortOrder - b.sortOrder ||
-        a.name.localeCompare(b.name)
+        byName(a.name, b.name)
     )
 
   const transactions: TransactionRow[] = entries
@@ -221,7 +181,7 @@ export function buildSnapshot(
       (a, b) =>
         Number(b.isActive) - Number(a.isActive) ||
         a.dueDay - b.dueDay ||
-        a.name.localeCompare(b.name)
+        byName(a.name, b.name)
     )
 
   const allocationTotals = new Map<string, number>()
@@ -284,7 +244,7 @@ export function buildSnapshot(
         isEmergency: flag(row, 'is_emergency'),
         isArchived: flag(row, 'is_archived'),
         fundingPace: pick<GoalFundingPace>(
-          new Set<GoalFundingPace>(['asap', 'by_date', 'paused']),
+          GOAL_FUNDING_PACES,
           text(row, 'funding_pace'),
           'asap'
         ),
@@ -299,7 +259,7 @@ export function buildSnapshot(
       (a, b) =>
         Number(a.isArchived) - Number(b.isArchived) ||
         a.priority - b.priority ||
-        a.name.localeCompare(b.name)
+        byName(a.name, b.name)
     )
 
   const accountKind = new Map<string, AccountKind>()
@@ -369,7 +329,7 @@ export function buildSnapshot(
       cycle: text(row, 'cycle'),
       amountCents: cents(row, 'amount_cents'),
       state: pick<BillReserveState>(
-        new Set<BillReserveState>(['reserved', 'paid']),
+        BILL_RESERVE_STATES,
         text(row, 'state'),
         'reserved'
       ),
@@ -413,7 +373,7 @@ export function buildSnapshot(
       sortOrder: integer(row, 'sort_order'),
       ...sync(row)
     }))
-    .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+    .sort((a, b) => a.sortOrder - b.sortOrder || byName(a.name, b.name))
 
   const settings = settingRecord(tables.settings)
   const userId =

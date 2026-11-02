@@ -778,14 +778,14 @@ Pocket is an optional, installable web app built from the same repository. It is
 
 ### First run and storage
 
-The welcome screen asks for a WageRoute backup file and explains where to get one (Settings → Export a backup on the computer). Nothing else is asked: there is no account, sign-in or server. A file must be JSON with `format: "cash-flow-routing-backup"`, a version of at least 2 and a `tables` object with at least one live account; larger than 24 MB is refused. A file from a newer schema opens with a warning and the Data screen says not to export it back until the desktop is updated. The imported tables, schema version, file name and the ids the phone created are stored in IndexedDB under one key. Closing the app, going offline or restarting the phone keeps them; clearing site data or using another browser does not.
+The welcome screen asks for a WageRoute backup file and explains where to get one (Settings → Export a backup on the computer). Nothing else is asked: there is no account, sign-in or server. A file must be JSON with `format: "cash-flow-routing-backup"`, a version of at least 2 and a `tables` object with at least one live account; larger than 24 MB is refused. Every row is checked against the schema the file claims: a value outside the kinds, frequencies, funding strategies, reserve states or other enums the build knows is refused for a known version instead of being silently replaced, and every money field must be a whole number of cents. A file from a newer schema opens with a warning and the Data screen says not to export it back until the desktop is updated. The imported tables, schema version, file name and the ids the phone created are stored in IndexedDB under one key. Closing the app, going offline or restarting the phone keeps them; clearing site data or using another browser does not. A save is announced only after IndexedDB accepted it, an import that opened but could not be stored says so, and a storage open that fails shows its reason on the welcome screen rather than an empty app.
 
 ### What it shows
 
 | Tab | Content |
 | --- | --- |
 | **Home** | Safe to Spend with spendable accounts, bills still due, goals money and unsettled routing; cash on hand and total wealth; next payday; bills due in the next 14 days; the first three goals; every live account; entry count and import date |
-| **Bills** | Monthly bill total and per-paycheck reserve; each open bill with its next due date, account, amount and a **Due**, **Set aside** or **Paid** state |
+| **Bills** | Monthly bill total and per-paycheck reserve; each open bill with its next due date (from the same recurrence engine the desktop uses), account, amount and a **Due**, **Set aside** or **Paid** state |
 | **Goals** | Funded total, progress, each goal's target, remaining and target date |
 | **Entries** | The ledger grouped by date, with paired transfers shown as two legs; **Add** opens the entry sheet |
 | **Data** | File facts, replace, export, install, privacy and forget |
@@ -794,7 +794,7 @@ Every figure is calculated with the desktop's shared functions: the snapshot der
 
 ### Adding an entry
 
-**Add** offers expense or income, an amount, a live non-credit account, an existing category, a date up to today and an optional note. The amount uses the same money sanitiser as the desktop (digits, one period, two decimals). Expense rows receive a negative cents value and income rows a positive one. A new UUID is written with revision 1 and recorded as a local id. The entry appears in the ledger and lowers or raises the balance and Safe to Spend immediately. A local entry can be removed on the phone with a confirmation; removing it only affects the browser copy.
+**Add** offers expense or income, an amount, a live non-credit account, an existing category, a date up to today and an optional note. The amount uses the same money sanitiser as the desktop (digits, one period, two decimals). Expense rows receive a negative cents value and income rows a positive one. A new UUID is written with revision 1 and recorded as a local id. The entry appears in the ledger and lowers or raises the balance and Safe to Spend immediately. A local entry can be removed on the phone with a confirmation; removing it only affects the browser copy. A row that came from the desktop cannot be removed here: the additive export has no way to carry a deletion, so the app says to remove it on the computer and open a new backup.
 
 The phone deliberately cannot record a bill payment, edit a desktop row or delete one. A bill payment has to settle the claim the desktop wrote, and an additive import cannot carry a settlement, an edit or a deletion. Offering those buttons would produce a file that either lies or loses the change.
 
@@ -804,7 +804,7 @@ The phone deliberately cannot record a bill payment, edit a desktop row or delet
 
 ### Installing and limits
 
-The built folder is static. On a browser that offers `beforeinstallprompt`, Data shows **Add WageRoute to this phone**; on iOS it explains Share → Add to Home Screen; otherwise it names the browser menu. The service worker caches the shell and hashed assets, so the app opens offline, and navigation is network-first so a release lands on the next open. Replacing the file and **Forget this phone** both confirm first and count the local entries that would be lost. Pocket has no analytics, remote font, third-party request or upload; the production page carries a same-origin CSP. The app cannot merge two phone copies, reconcile a conflict or read a file from the desktop automatically.
+The built folder is static. On a browser that offers `beforeinstallprompt`, Data shows **Add WageRoute to this phone**; on iOS it explains Share → Add to Home Screen; otherwise it names the browser menu. The service worker caches the shell and its hashed bundles, so the app opens offline, and navigation is network-first so a release lands on the next open. Replacing the file and **Forget this phone** both confirm first and count the local entries that would be lost; if storage refuses the erase, the screen clears but the app says the stored copy may remain. Pocket has no analytics, remote font, third-party request or upload; the production page carries a same-origin CSP. The app cannot merge two phone copies, reconcile a conflict or read a file from the desktop automatically.
 
 ---
 

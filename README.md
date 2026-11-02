@@ -136,9 +136,9 @@ Full details, including the Gatekeeper behaviour on each macOS version, are in [
 Pocket is an optional second front end for a phone, built from `src/pocket` to static files. It is not a second copy of the desktop app: it opens a backup, keeps that copy in the browser's IndexedDB, and lets you add expenses and income while you are away from the computer.
 
 - **Install it.** Serve `dist-pocket/` from any static HTTPS origin (the repository contains a GitHub Pages workflow), open it on the phone, and use the browser's **Install app** or **Add to Home Screen**. It then opens offline like an app.
-- **First run.** Export a backup on the computer (Settings → Export a backup), send the file to the phone, and choose it on the welcome screen.
+- **First run.** Export a backup on the computer (Settings → Export a backup), send the file to the phone, and choose it on the welcome screen. The file is checked before it opens: an unknown kind or frequency, or money that is not a whole number of cents, is refused rather than quietly replaced.
 - **What it shows.** Safe to Spend and its breakdown, cash, total wealth, bills still due, goal progress, recent entries and the full ledger, read with the desktop's own shared money functions.
-- **What it can change.** Plain expense and income entries only. Bills, goals, accounts, paychecks and settings are edited on the computer and arrive with the next backup. Bill payments are excluded because an additive import cannot carry the claim a payment settles.
+- **What it can change.** Plain expense and income entries only, and it can remove only the entries it added — a desktop row is removed on the computer. Bills, goals, accounts, paychecks and settings are edited on the computer and arrive with the next backup. Bill payments are excluded because an additive import cannot carry the claim a payment settles.
 - **Getting entries back.** Data → **Export a backup** writes the original tables with the phone's entries appended. Import that file on the computer; existing rows are skipped and each phone entry lands once.
 - **Trust.** No account, no server, no analytics, no upload. The file never leaves the phone. Clearing the browser's site data, or using another browser, removes the phone copy — export first if it holds entries you need.
 

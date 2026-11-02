@@ -10,7 +10,8 @@ import {
   reservePerPaycheckCents,
   unpaidMonthlyWallCents
 } from '@shared/cadence'
-import { daysBetweenISO, nextDueDateISO, todayISO } from '@shared/dates'
+import { daysBetweenISO, todayISO } from '@shared/dates'
+import { nextBillOccurrence } from '@shared/occurrences'
 import { parseSettings } from '@shared/settings'
 import type { AppSettings, Bill, Snapshot } from '@shared/types'
 import {
@@ -111,7 +112,9 @@ export function billLines(snapshot: Snapshot, today: string = todayISO()): BillL
           : claims.length > 0 || paidCents > 0
             ? 'paid'
             : 'open'
-      const dueOn = bill.nextDueOn ?? nextDueDateISO(bill.dueDay, today)
+      // The same recurrence engine the desktop uses: a weekly bill is due in a
+      // week even when its stored `next_due_on` is months stale.
+      const dueOn = nextBillOccurrence(bill, today)
       return {
         bill,
         monthlyCents: monthlyEquivalentCents(bill.amountCents, bill.frequency),

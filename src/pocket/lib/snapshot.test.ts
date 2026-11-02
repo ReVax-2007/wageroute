@@ -10,7 +10,7 @@ import {
   selectSafeToSpendCents,
   selectUnpaidWallCents
 } from '../../renderer/src/store/selectors'
-import { parseBackup } from './backup'
+import { emptyTables, parseBackup } from './backup'
 import { billLines, dueSoon, pocketView } from './compute'
 import { createEntryRow } from './entry'
 import { buildSnapshot } from './snapshot'
@@ -68,6 +68,45 @@ test('Safe to Spend on the phone is the desktop’s own number', () => {
   assert.equal(view.safeToSpendCents, selectSafeToSpendCents({ snapshot: desktop }))
   assert.equal(view.unpaidWallCents, selectUnpaidWallCents({ snapshot: desktop }))
   assert.equal(view.poolCents, selectSafeToSpendCents({ snapshot: desktop }) + view.unpaidWallCents + view.goalMoneyCents + view.unsettledCents)
+})
+
+test('accounts keep the desktop’s SQL order, including its name collation', () => {
+  const tables = emptyTables()
+  tables.accounts = [
+    { id: 'z', name: 'Zebra', kind: 'checking', sort_order: 1, is_archived: 0, deleted_at: null },
+    { id: 'a', name: 'apple', kind: 'checking', sort_order: 1, is_archived: 0, deleted_at: null },
+    {
+      id: 'old',
+      name: 'Archived',
+      kind: 'checking',
+      sort_order: 0,
+      is_archived: 1,
+      deleted_at: null
+    }
+  ]
+
+  const snapshot = buildSnapshot(tables, todayISO())
+  assert.deepEqual(
+    snapshot.accounts.map((account) => account.name),
+    ['Zebra', 'apple', 'Archived'],
+    'live accounts first, then sort order, then the same byte order SQLite uses'
+  )
+})
+
+test('a stale next-due date still shows the real upcoming occurrence', () => {
+  const { json } = demo()
+  const snapshot = buildSnapshot(parseBackup(json).tables, todayISO())
+  const today = todayISO()
+  const weekly = {
+    ...snapshot.bills[0]!,
+    frequency: 'weekly' as const,
+    nextDueOn: '2020-01-05'
+  }
+  const [line] = billLines({ ...snapshot, bills: [weekly] }, today)
+
+  assert.ok(line)
+  assert.ok(line.dueOn >= today, 'the due date is not five years in the past')
+  assert.ok(line.daysUntil >= 0 && line.daysUntil <= 7, 'a weekly bill is due within a week')
 })
 
 test('the wall marks paid and open bills from the same claims the desktop wrote', () => {
