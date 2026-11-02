@@ -54,7 +54,11 @@ async function navigationResponse(request) {
 /** Hashed files never change under the same name, so the cache is truth. */
 async function assetResponse(request) {
   const cache = await caches.open(SHELL_VERSION)
-  const hit = await cache.match(request)
+  // The dev server marks responses `Vary: Origin`; the install fetch and the
+  // browser's script request do not carry the same headers, so a plain match
+  // misses and the offline page loads without its scripts. A hashed name
+  // cannot change, so the variation is irrelevant here.
+  const hit = await cache.match(request, { ignoreVary: true })
   if (hit) return hit
   try {
     const response = await fetch(request)
