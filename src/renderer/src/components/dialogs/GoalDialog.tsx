@@ -77,8 +77,8 @@ export function GoalDialog({
 
   return (
     <Modal
-      title={goal ? 'Edit sinking fund' : 'New sinking fund'}
-      subtitle="Goals are filled in priority order, lowest number first."
+      title={goal ? 'Edit goal' : 'New goal'}
+      subtitle="Lower numbers get money first."
       onClose={onClose}
       footer={
         <>
@@ -123,7 +123,7 @@ export function GoalDialog({
             onChange={(event) => setForm({ ...form, targetDate: event.target.value })}
           />
         </Field>
-        <Field label="Priority" hint="Lower numbers are funded first">
+        <Field label="Priority" hint="Lower numbers get money first">
           <input
             className="input"
             type="number"
@@ -136,11 +136,11 @@ export function GoalDialog({
           label="Funding pace"
           hint={
             fundingIds.length > 0
-              ? 'A dedicated account already holds this goal, so the paycheck pace does not apply'
+              ? 'A linked account already holds this goal, so the paycheck pace does not apply'
               : form.fundingPace === 'by_date'
                 ? 'Only its even share each paycheck — it never races ahead'
                 : form.fundingPace === 'paused'
-                  ? 'The allocator leaves this goal alone until you resume it'
+                  ? 'No paycheck money goes to this goal until you resume it'
                   : 'Takes what it needs while the goal share lasts'
           }
         >
@@ -164,13 +164,13 @@ export function GoalDialog({
         currency={settings.currency}
         value={fundingIds}
         onChange={setFundingIds}
-        label="Funded by"
-        hint="Point an account at this goal and its balance becomes the progress."
+        label="Where the money sits"
+        hint="Link an account and its balance becomes this goal's progress."
       />
 
       <Field
         label="Deposit account"
-        hint="Where the lump lands when the goal is done. It does not measure progress."
+        hint="Where the money lands when the goal is done. It does not measure progress."
         wide
       >
         <select

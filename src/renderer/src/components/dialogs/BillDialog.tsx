@@ -100,8 +100,8 @@ export function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () =
 
   return (
     <Modal
-      title={bill ? 'Edit bill' : 'Lock in a bill'}
-      subtitle="This money leaves the surplus before anything else is routed."
+      title={bill ? 'Edit bill' : 'Add a bill'}
+      subtitle="This comes out of every paycheck before anything else."
       onClose={onClose}
       footer={
         <>
@@ -109,7 +109,7 @@ export function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () =
             Cancel
           </Button>
           <Button variant="primary" onClick={submit} disabled={saving}>
-            {bill ? 'Save bill' : 'Add to the wall'}
+            {bill ? 'Save bill' : 'Add bill'}
           </Button>
         </>
       }
@@ -144,7 +144,7 @@ export function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () =
               }}
             />
           </Field>
-          <Field label="Cadence">
+          <Field label="How often">
             <select
               className="select"
               value={form.frequency}
@@ -199,8 +199,8 @@ export function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () =
             </select>
           </Field>
           <Field
-            label="Funding schedule"
-            hint="Which paycheck sets this bill's money aside. One check a month carries the whole month's obligation; it never pays it twice."
+            label="When to set the money aside"
+            hint="Which paycheck covers this bill. One paycheck can hold the whole month without paying it twice."
             wide
           >
             <select
@@ -240,14 +240,13 @@ export function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () =
 
           {form.fundingStrategy !== 'all_checks' && form.fundingStrategy !== 'specific_check' && (
             <p className="field-hint">
-              Reserves the whole month&apos;s obligation on the{' '}
-              {ordinal(fundingCheckForForm ?? 1)} paycheck
+              Sets aside the whole month on the {ordinal(fundingCheckForForm ?? 1)} paycheck
               {form.fundingStrategy === 'closest_due_date'
-                ? ', closest to the due day'
+                ? ', the one closest to the due day'
                 : form.fundingStrategy === 'last_check'
-                  ? ', the last check your pay cycle is guaranteed to have every month'
+                  ? ', the last paycheck your pay cycle always has each month'
                   : ''}
-              . Every other paycheck reserves nothing for this bill.
+              . The other paychecks set nothing aside for it.
             </p>
           )}
         </div>
@@ -267,17 +266,17 @@ export function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () =
               checked={form.isActive}
               onChange={(event) => setForm({ ...form, isActive: event.target.checked })}
             />
-            Active bill
+            Use this bill
           </label>
         </div>
         <p className="field-hint hint-below">
-          Marked autopay, WageRoute records the payment for you the next time it opens after this
-          bill&apos;s due date, dated the due day. It does not move money between accounts — you
-          still pay the bill — but the wall clears itself instead of asking.
+          With autopay on, WageRoute records the payment for you the next time the app opens after
+          the due date, dated the due day. It does not move money between accounts — you still pay
+          the bill — but the bill shows as paid instead of asking.
         </p>
         {!form.isActive && (
           <p className="field-hint hint-below">
-            Bill inactive · excluded from the wall and from every paycheck until you resume it.
+            Paused · left off the Bills page and every paycheck until you turn it back on.
           </p>
         )}
 

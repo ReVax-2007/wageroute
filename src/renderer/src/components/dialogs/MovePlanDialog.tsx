@@ -167,8 +167,8 @@ export function MovePlanDialog({
     >
       <p className="field-hint">
         Each line becomes one transfer from the paycheck&apos;s deposit account. Pressing this
-        again later only moves what has not been moved yet. The Priority Wall and guilt-free
-        money stay where they are.
+        again later only moves what has not been moved yet. Bill money and fun money stay where
+        they are.
       </p>
 
       {settledCount > 0 && (

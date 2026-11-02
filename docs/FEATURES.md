@@ -29,13 +29,15 @@ The sidebar has six destinations and one global action:
 
 | Item | Screen id | Purpose |
 | --- | --- | --- |
-| Overview | `dashboard` | Summary and prompts |
-| Priority Wall | `wall` | Bills |
-| Sinking funds | `goals` | Goals and emergency calculator |
+| Home | `dashboard` | Summary and prompts |
+| Bills | `wall` | Recurring bills (the Priority Wall) |
+| Goals | `goals` | Goals (sinking funds) and the emergency calculator |
 | Accounts | `accounts` | Banks and credit |
 | Spreadsheet | `ledger` | Ledger and projections |
 | Settings | `settings` | Pay cycle and payday label, default paycheck account, theme, round-up, data |
 | **Route a paycheck** | — | Opens the allocator wizard over any screen |
+
+The sidebar labels are the interface; the rest of this document, and the code, keep the original names. The mapping is: **Bills** = Priority Wall and its reserve, **Goals** = sinking funds, **Fun money** = guilt-free money (`leisure`), **Left to split** = true surplus, **Left to spend** = Safe to Spend, and **set aside** = reserved. Screen ids and stored bucket keys never changed, so a database or backup written before the rename reads identically.
 
 The sidebar also shows a light/dark switch, cash on hand, the number of tracked accounts and the database path. Navigation is local state; there is no URL routing. The selected screen is not persisted across launches.
 

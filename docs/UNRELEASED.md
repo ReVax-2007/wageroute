@@ -149,6 +149,13 @@ Work merged to `main` after `v1.2.0`. None of it is in an installer yet; the `[U
 - **A goal can be paced or paused.** Schema 10 adds `goals.funding_pace`: `asap` funds the remaining need on the next cheque, `by_date` caps each cheque at `ceil(need / checksLeft)` so the goal still arrives by its target date, and `paused` removes it from the allocator entirely. The goal dialog sets the pace next to priority; the goal card has a pause/resume button and chips for **Funding paused** and **Paced to <date>**. Existing goals default to `asap`, so an upgrade writes the same allocations it did before.
 - New cases: five sanitiser cases in `money.test.ts`, four buffer cases in `emergency.test.ts`, three allocator cases in `domain.test.ts` (paused goal, paced goal, paced goal with no target date), four adjustment-reason cases in `adjustments.test.ts`, and the v10 migration case (existing goal defaults to `asap`, the CHECK refuses an unknown pace). `npm test` is **362 tests across forty-two files**; lint 132 files.
 
+### Batch 29 — the screens speak plain English
+
+- Navigation reads **Home**, **Bills**, **Goals**, **Accounts**, **Spreadsheet**, **Settings**; the Priority Wall screen is titled *The bills that come first* and the goals screen *Save for what is coming*.
+- **Sinking funds** became **Goals**, **guilt-free money** became **Fun money**, **true surplus** became **Left to split**, **safe to spend** became **Left to spend**, and *reserved* became *set aside*. The allocator's steps are **Income → Bills → Split it up**, with buttons that name the action.
+- Every allocator warning, dialog hint and empty state is rewritten as plain sentences; the paycheck plan stores its saved lines as **Bill money** and **Fun money**.
+- Internal identifiers are untouched: screen ids (`wall`), bucket keys (`priority`, `savings`, `leisure`), selectors and schema stay as they were, so existing databases and backups are unaffected. `PriorityWall.test.ts` and `Allocator.test.ts` assert the new copy.
+
 ### Before the next build
 
 - [x] Run the four gates on the final tree: `npm run lint`, `npm test`, `npm run build` (includes both type checks), and `npx electron-builder --dir --publish never`. *(2026-11-02, Batch 27: lint 127 files clean, 345/345 tests, build clean; packaging re-run below.)*

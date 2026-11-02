@@ -447,10 +447,10 @@ export function AccountDialog({
         )}
 
         <Field
-          label="Safe to spend"
+          label="Count as spending money"
           hint={
             form.dedicatedGoalId !== ''
-              ? 'Dedicated accounts are excluded by default'
+              ? 'Accounts tied to a goal are left out by default'
               : 'Default follows the account type; investments are never included by default'
           }
         >

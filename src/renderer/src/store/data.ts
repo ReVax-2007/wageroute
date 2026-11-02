@@ -214,7 +214,7 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
         reason === 'correction' ? 'Balance adjusted' : `${memo} recorded`
       )
     },
-    createBill: (input) => run(() => window.api.createBill(input), 'Bill locked into the wall'),
+    createBill: (input) => run(() => window.api.createBill(input), 'Bill added'),
     updateBill: (id, input) => run(() => window.api.updateBill(id, input), 'Bill updated'),
     deleteBill: (id) => run(() => window.api.deleteBill(id), 'Bill deleted'),
     createCategory: (input) => run(() => window.api.createCategory(input), 'Category added'),

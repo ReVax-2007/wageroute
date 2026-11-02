@@ -91,11 +91,11 @@ export function Dashboard() {
   const committedLabel =
     pool <= 0
       ? committed > 0
-        ? `No spendable cash is tracked, and ${formatMoney(committed, currency)} of bills, goals and routing is already claimed.`
-        : 'No spendable cash is tracked yet.'
+        ? `There is no spending cash tracked, and ${formatMoney(committed, currency)} of bills and goals is already claimed.`
+        : 'There is no spending cash tracked yet.'
       : committedShare > 1
-        ? `${committedPercent}% of spendable cash is committed — more than you have`
-        : `${committedPercent}% of spendable cash is already spoken for`
+        ? `${committedPercent}% of your spending cash is spoken for — more than you have`
+        : `${committedPercent}% of your spending cash is already spoken for`
 
   const monthKey = todayISO().slice(0, 7)
   const today = todayISO()
@@ -133,20 +133,20 @@ export function Dashboard() {
   const slices: DonutSlice[] = [
     {
       key: 'priority',
-      label: 'Priority Wall',
+      label: 'Bills',
       cents: routing.priorityCents,
       color: BUCKET_COLOR.priority
     },
     {
       key: 'growth',
-      label: 'Growth & sinking funds',
+      label: 'Savings and goals',
       cents: routing.growthCents,
       color: BUCKET_COLOR.investment
     },
     { key: 'debt', label: 'Debt payoff', cents: routing.debtCents, color: BUCKET_COLOR.debt },
     {
       key: 'leisure',
-      label: 'Guilt-free',
+      label: 'Fun money',
       cents: routing.leisureCents,
       color: BUCKET_COLOR.leisure
     }
@@ -159,12 +159,12 @@ export function Dashboard() {
 
   const segments = last
     ? [
-        { label: 'Priority Wall', cents: bucketAmount('priority'), color: BUCKET_COLOR.priority },
+        { label: 'Bills', cents: bucketAmount('priority'), color: BUCKET_COLOR.priority },
         { label: 'Savings', cents: bucketAmount('savings'), color: BUCKET_COLOR.savings },
         { label: 'Investments', cents: bucketAmount('investment'), color: BUCKET_COLOR.investment },
         { label: 'Debt', cents: bucketAmount('debt'), color: BUCKET_COLOR.debt },
         { label: 'Goals', cents: bucketAmount('goal'), color: BUCKET_COLOR.goal },
-        { label: 'Guilt-free', cents: bucketAmount('leisure'), color: BUCKET_COLOR.leisure }
+        { label: 'Fun money', cents: bucketAmount('leisure'), color: BUCKET_COLOR.leisure }
       ].filter((segment) => segment.cents > 0)
     : []
 
@@ -172,7 +172,7 @@ export function Dashboard() {
     <>
       <header className="page-head">
         <div>
-          <p className="eyebrow">Overview · {formatDateLong(todayISO())}</p>
+          <p className="eyebrow">Home · {formatDateLong(todayISO())}</p>
           <h1 className="page-title" tabIndex={-1}>
             {greeting()}
             {snapshot.user.displayName ? `, ${snapshot.user.displayName}` : ''}
@@ -204,13 +204,13 @@ export function Dashboard() {
 
       <section className="safe-hero">
         <div className="safe-main">
-          <p className="eyebrow">Safe to spend</p>
+          <p className="eyebrow">Left to spend</p>
           <p className={safeToSpend < 0 ? 'safe-value negative' : 'safe-value'}>
             <Money cents={safeToSpend} currency={currency} />
           </p>
           <p className="safe-note">
-            Cash no bill, funded goal or this month&apos;s routing has claimed yet. Routing
-            records a plan; it does not move the money.
+            Cash no bill, goal or plan has claimed yet. Routing records a plan; it does not move
+            the money.
           </p>
           <div className="safe-meter" aria-hidden="true">
             <span style={{ width: `${Math.min(100, committedPercent)}%` }} />
@@ -220,14 +220,14 @@ export function Dashboard() {
 
         <dl className="safe-breakdown">
           <div>
-            <dt>Spendable accounts</dt>
+            <dt>Cash you can spend</dt>
             <dd>
               <Money cents={pool} currency={currency} />
             </dd>
           </div>
           <div>
             <dt>
-              Priority Wall / still unpaid
+              Bills still to pay
               {monthlyPriority > unpaidPriority && (
                 <span className="alloc-note">
                   {' '}
@@ -240,21 +240,21 @@ export function Dashboard() {
             </dd>
           </div>
           <div>
-            <dt>Funded goals from the pool</dt>
+            <dt>Set aside for goals</dt>
             <dd className="deduct">
               − <Money cents={earmarked} currency={currency} />
             </dd>
           </div>
           {unsettled > 0 && (
             <div>
-              <dt>Routed to debt and investing, not yet moved</dt>
+              <dt>Planned for debt and investing, not moved yet</dt>
               <dd className="deduct">
                 − <Money cents={unsettled} currency={currency} />
               </dd>
             </div>
           )}
           <div className="safe-total">
-            <dt>Safe to spend</dt>
+            <dt>Left to spend</dt>
             <dd>
               <Money cents={safeToSpend} currency={currency} />
             </dd>
@@ -269,8 +269,8 @@ export function Dashboard() {
             <Money cents={wealth} currency={currency} />
           </p>
           <p className="wealth-note">
-            Money you cannot spend today is still money you own. This is the whole picture, debts
-            taken off.
+            Money you cannot spend today is still yours. This is everything you own, minus what
+            you owe.
           </p>
           {history.length > 1 && (
             <div className="wealth-trend">
@@ -302,8 +302,8 @@ export function Dashboard() {
       <BillPrompts />
 
       <Card
-        title="One-time income"
-        subtitle={`${formatMonthLong(monthKey)} · ${formatMoney(oneTimeTotal, currency)} logged, kept out of routing`}
+        title="Extra income"
+        subtitle={`${formatMonthLong(monthKey)} · ${formatMoney(oneTimeTotal, currency)} logged, outside your paycheck plan`}
         actions={
           <Button size="sm" icon={<HandCoins size={14} />} onClick={() => setAddingIncome(true)}>
             Add income
@@ -314,7 +314,7 @@ export function Dashboard() {
           <EmptyState
             icon={<HandCoins size={20} />}
             title="No extra income this month"
-            body="A gift, a tax refund, something you sold — log it here and the balance updates without touching your paycheck plan."
+            body="A gift, a tax refund, something you sold — log it here. The balance updates without changing your paycheck plan."
           />
         ) : (
           <ul className="due-list">
@@ -334,14 +334,14 @@ export function Dashboard() {
 
       <div className="dashboard-grid">
         <Card
-          title="Due in the next two weeks"
-          subtitle="Bills and card payments, soonest first"
+          title="Due soon"
+          subtitle="Bills and card payments in the next two weeks"
         >
           {upcoming.length === 0 ? (
             <EmptyState
               icon={<CalendarClock size={20} />}
               title="Nothing due"
-              body="No bill or card payment lands in the next fourteen days."
+              body="Nothing lands in the next 14 days."
             />
           ) : (
             <ul className="due-list">
@@ -425,20 +425,20 @@ export function Dashboard() {
 
         <article className="stat-card">
           <div className="stat-top">
-            <span className="stat-label">Priority Wall / month</span>
+            <span className="stat-label">Bills each month</span>
             <ShieldCheck size={16} className="stat-icon" />
           </div>
           <p className="stat-value">
             <Money cents={wall} currency={currency} compact />
           </p>
           <p className="stat-hint">
-            {formatMoney(perCheck, currency)} reserved each paycheck
+            {formatMoney(perCheck, currency)} set aside from each paycheck
           </p>
         </article>
 
         <article className="stat-card">
           <div className="stat-top">
-            <span className="stat-label">Sinking funds</span>
+            <span className="stat-label">Goals saved</span>
             <Target size={16} className="stat-icon" />
           </div>
           <p className="stat-value">{Math.round(goals.progress * 100)}%</p>
@@ -450,14 +450,14 @@ export function Dashboard() {
 
         <article className="stat-card">
           <div className="stat-top">
-            <span className="stat-label">Guilt-free last check</span>
+            <span className="stat-label">Fun money last paycheck</span>
             <Sparkles size={16} className="stat-icon" />
           </div>
           <p className="stat-value">
             <Money cents={last?.leisureCents ?? 0} currency={currency} compact />
           </p>
           <p className="stat-hint">
-            {last ? `Routed ${formatDateLong(last.receivedOn)}` : 'No paycheck routed yet'}
+            {last ? `From your ${formatDateLong(last.receivedOn)} paycheck` : 'No paycheck planned yet'}
           </p>
         </article>
       </div>
@@ -465,7 +465,7 @@ export function Dashboard() {
       <div className="dashboard-grid">
         <Card
           title="Accounts"
-          subtitle="Balances are derived from every entry, never typed over"
+          subtitle="Balances build from your entries, never typed over"
           className="accounts-card"
           actions={
             <Button size="sm" onClick={() => go('accounts')}>
@@ -514,18 +514,18 @@ export function Dashboard() {
         </Card>
 
         <Card
-          title="This month's routing"
+          title="Where this month's pay went"
           subtitle={
             snapshot.paycheckTotal > snapshot.paychecks.length
-              ? `${formatMonthLong(monthKey)} · newest ${snapshot.paychecks.length} of ${snapshot.paycheckTotal} routed checks loaded`
-              : `${formatMonthLong(monthKey)} · every routed cent`
+              ? `${formatMonthLong(monthKey)} · newest ${snapshot.paychecks.length} of ${snapshot.paycheckTotal} paychecks loaded`
+              : `${formatMonthLong(monthKey)} · every dollar you planned`
           }
         >
           {routing.totalCents === 0 ? (
             <EmptyState
               icon={<Sparkles size={20} />}
-              title="Nothing routed this month yet"
-              body="Once a paycheck is routed, this ring shows where the money went."
+              title="No paycheck planned this month"
+              body="Once you route a paycheck, this ring shows where the money went."
               action={
                 <Button variant="primary" onClick={openAllocator}>
                   Route a paycheck
@@ -560,12 +560,12 @@ export function Dashboard() {
 
       <div className="dashboard-grid">
         <Card
-          title="Last routing"
-          subtitle={last ? formatDateLong(last.receivedOn) : 'Nothing routed yet'}
+          title="Last paycheck plan"
+          subtitle={last ? formatDateLong(last.receivedOn) : 'No paycheck planned yet'}
           actions={
             last ? (
               <Button size="sm" onClick={() => setMoving(true)}>
-                Move this plan
+                Change this plan
               </Button>
             ) : undefined
           }
@@ -604,33 +604,33 @@ export function Dashboard() {
                 <span className={`health health-${last.health}`}>{last.health}</span>
                 <span className="alloc-note">
                   {last.priorityCents > 0
-                    ? `${formatMoney(last.priorityCents, currency)} locked before spending`
-                    : 'No bills locked in this cycle'}
+                    ? `${formatMoney(last.priorityCents, currency)} set aside for bills first`
+                    : 'No bills set aside in this cycle'}
                 </span>
               </div>
             </div>
           ) : (
             <EmptyState
               icon={<Sparkles size={20} />}
-              title="No paycheck routed yet"
-              body="Enter an income amount and the allocator will protect bills first, then split the surplus."
+              title="No paycheck planned yet"
+              body="Enter what you were paid and WageRoute sets bills aside first, then splits what is left."
               action={
                 <Button variant="primary" onClick={openAllocator}>
-                  Route your first paycheck
+                  Plan your first paycheck
                 </Button>
               }
             />
           )}
         </Card>
 
-        <Card title="Goals at a glance" subtitle="Money already routed to future expenses">
+        <Card title="Goals at a glance" subtitle="What you have set aside so far">
           <div className="goal-strip-body">
             {activeGoals.length === 0 ? (
               <EmptyState
                 icon={<Target size={20} />}
-                title="No sinking funds yet"
-                body="A sinking fund puts money aside each paycheck for a bill that only comes once or twice a year."
-                action={<Button onClick={() => go('goals')}>Create a sinking fund</Button>}
+                title="No goals yet"
+                body="Create a goal and each paycheck puts a little money toward it."
+                action={<Button onClick={() => go('goals')}>Create a goal</Button>}
               />
             ) : (
               activeGoals.map((goal) => (
@@ -656,8 +656,8 @@ export function Dashboard() {
       </div>
 
       <Card
-        title="Recent activity"
-        subtitle={`${snapshot.transactionTotal} ${snapshot.transactionTotal === 1 ? 'entry' : 'entries'} in the local ledger`}
+        title="Recent entries"
+        subtitle={`${snapshot.transactionTotal} ${snapshot.transactionTotal === 1 ? 'entry' : 'entries'} saved on this device`}
         actions={
           <Button variant="quiet" size="sm" onClick={() => go('ledger')}>
             Open spreadsheet

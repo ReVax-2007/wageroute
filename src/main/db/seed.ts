@@ -310,7 +310,7 @@ function seedPaycheck(db: Db, userId: string, input: SeedPaycheckInput): void {
       {
         bucket: 'priority',
         goalId: null,
-        label: 'Priority Wall reserve',
+        label: 'Bill money',
         amountCents: input.priorityCents
       },
       { bucket: 'savings', goalId: null, label: 'Savings', amountCents: input.savingsCents },
@@ -330,7 +330,7 @@ function seedPaycheck(db: Db, userId: string, input: SeedPaycheckInput): void {
       {
         bucket: 'leisure',
         goalId: null,
-        label: 'Guilt-free spending',
+        label: 'Fun money',
         amountCents: leisureCents
       }
     ]

@@ -143,12 +143,12 @@ test('one paid instalment does not make an open month read paid', async () => {
     'DataTable owns the body; a nested tbody is invalid markup'
   )
   const text = wallText(host)
-  assert.match(text, /Reserved this month/, 'money is still set aside for the month')
+  assert.match(text, /Set aside this month/, 'money is still set aside for the month')
   assert.doesNotMatch(text, /Paid this month/)
   assert.match(
     host.textContent ?? '',
-    /\$600\.00 reserved this month · \$600\.00 paid/,
-    'the hint reports both sums rather than folding paid into reserved'
+    /\$600\.00 set aside this month · \$600\.00 paid/,
+    'the hint reports both sums rather than folding paid into set aside'
   )
   await act(async () => root.unmount())
 })
@@ -157,7 +157,7 @@ test('a month with nothing open reads paid', async () => {
   const { host, root } = await mount([reserve('paid', 120_000)], 120_000)
   const text = wallText(host)
   assert.match(text, /Paid this month/)
-  assert.doesNotMatch(text, /Reserved this month/)
+  assert.doesNotMatch(text, /Set aside this month/)
   await act(async () => root.unmount())
 })
 
