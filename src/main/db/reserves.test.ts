@@ -38,6 +38,15 @@ function checking(db: Database.Database): string {
   })
 }
 
+function creditCard(db: Database.Database): string {
+  return createAccount(db, USER_ID, {
+    name: 'Card',
+    kind: 'credit',
+    institution: '',
+    startingBalanceCents: 0
+  })
+}
+
 function rent(
   db: Database.Database,
   accountId: string,
@@ -490,4 +499,123 @@ test('changing the due day does not rewrite how an old claim carries', () => {
     'paid',
     'the 31 January cheque still funds the 1 February due date'
   )
+})
+
+test('one payment closes only the claims its amount covers', () => {
+  const db = freshDb()
+  const accountId = checking(db)
+  const billId = rent(db, accountId, 15, 'all_checks')
+  route(db, accountId, '2026-03-05')
+  updateBill(db, USER_ID, billId, { fundingStrategy: 'last_check' })
+  route(db, accountId, '2026-03-20')
+  assert.equal(claimsThisMonthFor(db, USER_ID, '2026-03').length, 2)
+
+  createTransaction(db, USER_ID, {
+    accountId,
+    kind: 'bill_payment',
+    amountCents: -60_000,
+    occurredOn: '2026-03-25',
+    memo: 'Rent part',
+    category: 'Housing',
+    billId
+  })
+  const afterFirst = listBillReserves(db, USER_ID)
+  assert.equal(
+    afterFirst.filter((row) => row.state === 'paid').length,
+    1,
+    '60,000 closes one 60,000 instalment, not both'
+  )
+  assert.equal(afterFirst.filter((row) => row.state === 'reserved').length, 1)
+
+  createTransaction(db, USER_ID, {
+    accountId,
+    kind: 'bill_payment',
+    amountCents: -60_000,
+    occurredOn: '2026-03-26',
+    memo: 'Rent rest',
+    category: 'Housing',
+    billId
+  })
+  assert.equal(
+    listBillReserves(db, USER_ID).filter((row) => row.state === 'paid').length,
+    2,
+    'the second payment closes the other instalment'
+  )
+})
+
+test('a payment smaller than the claim leaves it reserved', () => {
+  const db = freshDb()
+  const accountId = checking(db)
+  const billId = rent(db, accountId, 15, 'first_check')
+  route(db, accountId, '2026-03-05')
+
+  createTransaction(db, USER_ID, {
+    accountId,
+    kind: 'bill_payment',
+    amountCents: -60_000,
+    occurredOn: '2026-03-10',
+    memo: 'Rent part',
+    category: 'Housing',
+    billId
+  })
+
+  const [claim] = listBillReserves(db, USER_ID)
+  assert.equal(claim.state, 'reserved', 'half of the claim was not half of the money')
+  assert.equal(claim.settledBy, null)
+})
+
+test('a claim closed by a card charge does not block the cash reserve', () => {
+  const db = freshDb()
+  const accountId = checking(db)
+  const cardId = creditCard(db)
+  const billId = rent(db, accountId, 15, 'first_check')
+  route(db, accountId, '2026-03-05')
+
+  createTransaction(db, USER_ID, {
+    accountId: cardId,
+    kind: 'bill_payment',
+    amountCents: -120_000,
+    occurredOn: '2026-03-10',
+    memo: 'Rent on card',
+    category: 'Housing',
+    billId
+  })
+  updateBill(db, USER_ID, billId, { fundingStrategy: 'all_checks' })
+
+  const second = route(db, accountId, '2026-03-20')
+  assert.ok(second.plan)
+  assert.equal(
+    second.plan.priorityReserves.find((reserve) => reserve.billId === billId)?.reserveCents,
+    60_000,
+    'the card did not shrink the cash pool'
+  )
+  assert.deepEqual(claimsThisMonthFor(db, USER_ID, '2026-03'), [
+    { billId, amountCents: 60_000, strategy: 'all_checks' }
+  ])
+})
+
+test('deleting a pre-v9 payment re-opens the claim it carried', () => {
+  const db = freshDb()
+  const accountId = checking(db)
+  const billId = rent(db, accountId, 1, 'first_check')
+  route(db, accountId, '2025-12-31', 500_000, false, 'monthly')
+
+  const paymentId = createTransaction(db, USER_ID, {
+    accountId,
+    kind: 'bill_payment',
+    amountCents: -120_000,
+    occurredOn: '2026-01-02',
+    memo: 'Rent',
+    category: 'Housing',
+    billId
+  })
+  // A row written by the pre-v9 build has no settled_by link.
+  db.prepare('UPDATE bill_reserves SET settled_by = NULL WHERE bill_id = ?').run(billId)
+
+  deleteTransaction(db, USER_ID, paymentId)
+
+  const [december] = listBillReserves(db, USER_ID)
+  assert.equal(december.cycle, '2025-12')
+  assert.equal(december.state, 'reserved', 'the money returns to the wall')
+  assert.equal(december.settledBy, null)
 })

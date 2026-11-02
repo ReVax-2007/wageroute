@@ -474,7 +474,7 @@ export function createTransaction(db: Db, userId: string, input: TransactionInpu
     // A bill payment closes the wall's reservation for that cycle — or, when
     // its month has no claim yet, the earlier claim whose cheque carried it.
     if (input.billId && (kind === 'bill_payment' || kind === 'expense')) {
-      settleBillReserveForPayment(db, userId, input.billId, id, occurredOn)
+      settleBillReserveForPayment(db, userId, input.billId, id, occurredOn, Math.abs(amountCents))
     }
     return id
   })()
@@ -649,7 +649,14 @@ export function updateTransaction(
         reopenCycleClaim(db, userId, existing.billId, existing.occurredOn)
       }
       if (nextKind === 'bill_payment' || nextKind === 'expense') {
-        settleBillReserveForPayment(db, userId, existing.billId, id, nextOccurredOn)
+        settleBillReserveForPayment(
+          db,
+          userId,
+          existing.billId,
+          id,
+          nextOccurredOn,
+          Math.abs(nextAmount)
+        )
       }
     }
   })()

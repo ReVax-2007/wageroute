@@ -332,16 +332,20 @@ function thisCyclePayments(
   db: Db,
   userId: string,
   cycle: string
-): { billId: string; transactionId: string }[] {
+): { billId: string; transactionId: string; amountCents: number }[] {
   return db
     .prepare(
-      `SELECT id AS transactionId, bill_id AS billId
+      `SELECT id AS transactionId, bill_id AS billId, ABS(amount_cents) AS amountCents
        FROM transactions
        WHERE user_id = ? AND deleted_at IS NULL AND bill_id IS NOT NULL
          AND kind IN ('bill_payment','expense') AND occurred_on LIKE ?
        ORDER BY occurred_on ASC, created_at ASC`
     )
-    .all(userId, `${cycle}-%`) as { billId: string; transactionId: string }[]
+    .all(userId, `${cycle}-%`) as {
+    billId: string
+    transactionId: string
+    amountCents: number
+  }[]
 }
 
 interface MoveCandidate {
