@@ -638,7 +638,6 @@ export function Dashboard() {
               { key: 'amount', label: 'Amount', className: 'right' }
             ]}
           >
-          <tbody>
             {recent.map((transaction) => (
               <tr key={transaction.id}>
                 <td className="num muted">{formatDateLong(transaction.occurredOn)}</td>
@@ -656,7 +655,6 @@ export function Dashboard() {
                 </td>
               </tr>
             ))}
-          </tbody>
           </DataTable>
         )}
       </Card>

@@ -110,6 +110,12 @@ Work merged to `main` after `v1.2.0`. None of it is in an installer yet; the `[U
 - A pre-v9 payment with no `settled_by` link re-opens the earlier carried claim it closed, not only a row in the payment's own month.
 - New cases: four in `reserves.test.ts` (an instalment-sized payment, a short payment, a card-closed claim, a legacy carry re-open), two in `cadence.test.ts` (mid-month and monthly recovery), the v9 migration's due day is now 28 so the backfill is actually exercised, and the restored-reserve case inherits a due day of 30. `npm test` is **330 tests across thirty-eight files**.
 
+### Batch 25 — the wall says which money is still open
+
+- A month with one paid instalment and one open claim used to print **Paid this month**, because any paid row won the chip. It now reads **Reserved** while anything is open and **Paid** only when every claim for the month is closed; the summary above the table already reported the two sums separately.
+- The Priority Wall and the dashboard passed their own `<tbody>` to `DataTable`, which supplies one, so both pages contained a nested body and React reported a hydration error. They now pass rows only.
+- New `PriorityWall.test.ts` mounts the wall in jsdom: the mixed month reads **Reserved**, a closed month reads **Paid**, the summary prints `$600.00 reserved this month · $600.00 paid`, the next check keeps only the $300 a cash payment and a claim leave owed, and the table has exactly one `<tbody>`. `npm test` is **333 tests across thirty-nine files**; lint 127 files.
+
 ### Before the next build
 
 - [x] Run the four gates on the final tree: `npm run lint`, `npm test`, `npm run build` (includes both type checks), and `npx electron-builder --dir --publish never`. *(2026-11-02: lint 126 files clean, 330/330 tests, build clean, unpacked packaging signed on disk.)*

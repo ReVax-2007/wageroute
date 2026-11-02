@@ -61,8 +61,10 @@ export function PriorityWall() {
   )
   const reserveStateOf = (billId: string): 'paid' | 'reserved' | null => {
     const rows = reservesThisMonth.filter((reserve) => reserve.billId === billId)
-    if (rows.some((reserve) => reserve.state === 'paid')) return 'paid'
-    return rows.length > 0 ? 'reserved' : null
+    // A payment can close one instalment while another stays open, so "paid"
+    // is only true when nothing is still reserved for the month.
+    if (rows.some((reserve) => reserve.state === 'reserved')) return 'reserved'
+    return rows.length > 0 ? 'paid' : null
   }
   const nextCheckMonth = nextCheck?.slice(0, 7) ?? null
   const nextCheckClaims = snapshot.billReserves.filter(
@@ -219,7 +221,6 @@ export function PriorityWall() {
               { key: 'actions', label: '', ariaLabel: 'Actions' }
             ]}
           >
-          <tbody>
             {bills.map((bill) => (
               <tr key={bill.id} className={bill.isActive ? undefined : 'inactive'}>
                 <td>
@@ -296,7 +297,6 @@ export function PriorityWall() {
               </td>
             </tr>
           ))}
-          </tbody>
           </DataTable>
         )}
       </Card>

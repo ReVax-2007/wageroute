@@ -179,7 +179,7 @@ Columns: bill name and category (plus “autopay”), amount, cadence, due day a
 
 A bill funded by a single paycheck shows its monthly amount in the per-check column with a **“Reserved on the 2nd check of the month”** sub-label (“each month” when no payday is set), so the row cannot be read as a recurring deduction. Paused bills sort below the active ones and are marked **Bill inactive** — that label belongs to bills; a paused emergency fund says **Saving paused**.
 
-The name cell carries the month's receipt when there is one: **Reserved this month** while a fully funded route has claimed the bill, **Paid this month** once a linked payment has landed. The claim is a record, not a movement: the money is still in the account until the bill is actually paid ([ADR 0012](decisions/0012-the-wall-remembers-its-claims.md)).
+The name cell carries the month's receipt when there is one: **Reserved this month** while a fully funded route has claimed the bill, **Paid this month** once every claim for the month is closed. A payment can close one instalment while another stays open, so a partly paid month still reads **Reserved**; the summary above the table reports the reserved and paid sums separately. The claim is a record, not a movement: the money is still in the account until the bill is actually paid ([ADR 0012](decisions/0012-the-wall-remembers-its-claims.md)).
 
 Actions:
 
