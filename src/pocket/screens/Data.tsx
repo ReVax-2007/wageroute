@@ -21,6 +21,7 @@ export function Data() {
   const snapshot = useSnapshot()
   const sourceName = usePocket((state) => state.sourceName)
   const importedAt = usePocket((state) => state.importedAt)
+  const exportedAt = usePocket((state) => state.exportedAt)
   const version = usePocket((state) => state.version)
   const newerSchema = usePocket((state) => state.newerSchema)
   const localIds = usePocket((state) => state.localIds)
@@ -51,6 +52,10 @@ export function Data() {
           <div>
             <dt>Imported</dt>
             <dd>{importedAt ? formatDateLabel(importedAt.slice(0, 10)) : 'Unknown'}</dd>
+          </div>
+          <div>
+            <dt>Backup from</dt>
+            <dd>{exportedAt ? formatDateLabel(exportedAt.slice(0, 10)) : 'Unknown'}</dd>
           </div>
           <div>
             <dt>Entries</dt>

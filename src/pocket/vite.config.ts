@@ -59,7 +59,7 @@ function offlineShell(): Plugin {
         : []
       const buildId = createHash('sha1').update(assets.join('\n')).digest('hex').slice(0, 8)
       const output = template
-        .replace('__SHELL_VERSION__', `pocket-${pkg.version}-${buildId}`)
+        .replace('__SHELL_VERSION__', `${pkg.version}-${buildId}`)
         .replace('/* __PRECACHE__ */ []', JSON.stringify(assets))
       writeFileSync(join(outDir, 'sw.js'), output)
     }

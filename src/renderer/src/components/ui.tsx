@@ -13,7 +13,13 @@ import {
   type ReactNode
 } from 'react'
 import { X } from 'lucide-react'
-import { formatMoney, formatMoneyCompact, sanitizeMoneyInput, sanitizePercentInput } from '@shared/money'
+import {
+  canonicalMoneyInput,
+  formatMoney,
+  formatMoneyCompact,
+  sanitizeMoneyInput,
+  sanitizePercentInput
+} from '@shared/money'
 import { useFinanceStore } from '../store/useFinanceStore'
 
 const FOCUSABLE =
@@ -185,6 +191,7 @@ export function MoneyInput({
   onValueChange,
   allowNegative = false,
   className = 'input',
+  onBlur,
   ...rest
 }: NumericInputProps & { allowNegative?: boolean }) {
   return (
@@ -198,6 +205,11 @@ export function MoneyInput({
       onChange={(event) =>
         onValueChange(sanitizeMoneyInput(event.target.value, { allowNegative }))
       }
+      onBlur={(event) => {
+        // Typing keeps its separators; leaving the field settles on one form.
+        onValueChange(canonicalMoneyInput(event.target.value, { allowNegative }))
+        onBlur?.(event)
+      }}
     />
   )
 }

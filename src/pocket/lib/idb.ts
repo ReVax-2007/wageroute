@@ -4,7 +4,10 @@ import type { ImportTables } from '@shared/importRepair'
 export interface StoredLedger {
   tables: ImportTables
   version: number
+  /** When this phone opened the file. */
   importedAt: string
+  /** When the desktop wrote the file; older records held this in `importedAt`. */
+  exportedAt?: string
   sourceName: string
   localIds: string[]
 }
@@ -53,9 +56,22 @@ function run<T>(mode: IDBTransactionMode, task: (store: IDBObjectStore) => IDBRe
       new Promise<T>((resolve, reject) => {
         const transaction = db.transaction(STORE, mode)
         const request = task(transaction.objectStore(STORE))
-        request.onsuccess = () => resolve(request.result)
-        request.onerror = () => reject(request.error ?? new Error('Phone storage failed'))
-        transaction.onabort = () => reject(transaction.error ?? new Error('Phone storage failed'))
+        let result!: T
+        let failure: DOMException | null = null
+        request.onsuccess = () => {
+          result = request.result
+        }
+        request.onerror = () => {
+          failure = request.error
+        }
+        // A write is only real once the transaction commits. A quota or disk
+        // error can arrive after the request itself reported success, and
+        // claiming a save before that leaves the screen ahead of the ledger.
+        transaction.oncomplete = () => resolve(result)
+        transaction.onerror = () =>
+          reject(failure ?? transaction.error ?? new Error('Phone storage failed'))
+        transaction.onabort = () =>
+          reject(transaction.error ?? failure ?? new Error('Phone storage failed'))
       })
   )
 }

@@ -21,6 +21,7 @@ import {
   monthlyWall,
   perPaycheckWall
 } from '../../renderer/src/lib/finance'
+import { byName } from './rows'
 
 /** Everything the phone shows, worked out with the desktop's own formulas. */
 export interface PocketView {
@@ -89,8 +90,9 @@ export interface BillLine {
 
 /**
  * A bill is settled for the month when a matching payment closed its claim, or
- * when the ledger says it was paid even if the claim never existed. Reserved
- * means the cheque already holds the money; open means it still needs paying.
+ * when cash actually left the pool for it. A card payment is netted out, so
+ * "Paid" here agrees with Safe to spend, which still holds the cash that will
+ * pay the card.
  */
 export function billLines(snapshot: Snapshot, today: string = todayISO()): BillLine[] {
   const settings = parseSettings(snapshot.settings)
@@ -99,13 +101,18 @@ export function billLines(snapshot: Snapshot, today: string = todayISO()): BillL
   const reserves = snapshot.billReserves.filter(
     (reserve) => reserve.cycle === cycle && liveBillIds.has(reserve.billId)
   )
-  const paid = new Map(snapshot.billPaymentsThisMonth.map((row) => [row.billId, row.paidCents]))
+  const paid = new Map(
+    snapshot.billPaymentsThisMonth.map((row) => [
+      row.billId,
+      Math.max(0, row.paidCents - row.creditCents)
+    ])
+  )
   const accounts = new Map(snapshot.accounts.map((account) => [account.id, account.name]))
 
   return activeBills(snapshot.bills)
     .map((bill) => {
       const claims = reserves.filter((reserve) => reserve.billId === bill.id)
-      const paidCents = Math.max(0, paid.get(bill.id) ?? 0)
+      const paidCents = paid.get(bill.id) ?? 0
       const state: BillState =
         claims.some((claim) => claim.state === 'reserved')
           ? 'reserved'
@@ -126,7 +133,7 @@ export function billLines(snapshot: Snapshot, today: string = todayISO()): BillL
         paidCents
       }
     })
-    .sort((a, b) => a.bill.dueDay - b.bill.dueDay || a.bill.name.localeCompare(b.bill.name))
+    .sort((a, b) => a.bill.dueDay - b.bill.dueDay || byName(a.bill.name, b.bill.name))
 }
 
 /** Bills not yet settled that fall due in the next two weeks. */

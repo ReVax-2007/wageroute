@@ -4,6 +4,10 @@
    list below; in development the list is empty and assets cache as they load. */
 
 const SHELL_VERSION = '__SHELL_VERSION__'
+/* The origin may host other apps (GitHub Pages shares one per account), so a
+   cache name carries this app's prefix and only prefixed caches are removed. */
+const CACHE_PREFIX = 'wageroute-pocket-'
+const SHELL_CACHE = `${CACHE_PREFIX}${SHELL_VERSION}`
 const ASSETS = /* __PRECACHE__ */ []
 const SHELL = [
   './',
@@ -19,7 +23,7 @@ const SHELL = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     (async () => {
-      const cache = await caches.open(SHELL_VERSION)
+      const cache = await caches.open(SHELL_CACHE)
       // The core files must all arrive or a reopen without signal shows a
       // blank page. Hashed assets are added one by one, so one bad file cannot
       // block an otherwise working offline shell.
@@ -35,7 +39,11 @@ self.addEventListener('activate', (event) => {
     caches
       .keys()
       .then((names) =>
-        Promise.all(names.filter((name) => name !== SHELL_VERSION).map((name) => caches.delete(name)))
+        Promise.all(
+          names
+            .filter((name) => name.startsWith(CACHE_PREFIX) && name !== SHELL_CACHE)
+            .map((name) => caches.delete(name))
+        )
       )
       .then(() => self.clients.claim())
   )
@@ -46,14 +54,20 @@ async function navigationResponse(request) {
   try {
     return await fetch(request)
   } catch {
-    const cache = await caches.open(SHELL_VERSION)
-    return (await cache.match('./index.html')) ?? (await cache.match('./')) ?? Response.error()
+    const cache = await caches.open(SHELL_CACHE)
+    // A dev server marks the shell `Vary: Origin`; the fallback still has to
+    // find it, and the shell's content does not vary by request header.
+    return (
+      (await cache.match('./index.html', { ignoreVary: true })) ??
+      (await cache.match('./', { ignoreVary: true })) ??
+      Response.error()
+    )
   }
 }
 
 /** Hashed files never change under the same name, so the cache is truth. */
 async function assetResponse(request) {
-  const cache = await caches.open(SHELL_VERSION)
+  const cache = await caches.open(SHELL_CACHE)
   // The dev server marks responses `Vary: Origin`; the install fetch and the
   // browser's script request do not carry the same headers, so a plain match
   // misses and the offline page loads without its scripts. A hashed name
