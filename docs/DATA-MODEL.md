@@ -103,7 +103,7 @@ The local profile. Exactly one active row is expected; the app never creates a s
 | `deleted_at` | TEXT | nullable | |
 | `revision` | INTEGER | NOT NULL, default 1 | |
 
-The development seed creates `display_name = 'Alex'` with `currency = 'USD'`. Packaged builds seed a blank display name, which the dashboard greeting renders without a name.
+The development seed creates `display_name = 'Alex'` with `currency = 'USD'`. Packaged builds seed a blank display name, which the dashboard greeting renders without a name. Settings → **Profile** edits this field through `user:set-name`: the value is trimmed, capped at 60 characters and refuses control characters, and an empty string clears the greeting.
 
 ### `settings`
 

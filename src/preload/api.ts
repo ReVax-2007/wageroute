@@ -18,6 +18,8 @@ export function createFinanceApi(call: IpcCaller): FinanceApi {
     applyStorageDirectory: (directory, mode) => call('storage:apply', directory, mode),
     useDefaultStorage: () => call('storage:default'),
 
+    setDisplayName: (name) => call('user:set-name', name),
+
     createAccount: (input) => call('account:create', input),
     updateAccount: (id, input) => call('account:update', id, input),
     deleteAccount: (id, options) => call('account:delete', id, options),

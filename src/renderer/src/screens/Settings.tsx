@@ -82,6 +82,7 @@ export function Settings() {
   const snapshot = useFinanceStore((state) => state.snapshot)
   const busy = useFinanceStore((state) => state.busy)
   const saveSettings = useFinanceStore((state) => state.saveSettings)
+  const setDisplayName = useFinanceStore((state) => state.setDisplayName)
   const exportBackup = useFinanceStore((state) => state.exportBackup)
   const exportCsv = useFinanceStore((state) => state.exportCsv)
   const openImport = useFinanceStore((state) => state.openImport)
@@ -90,6 +91,9 @@ export function Settings() {
   const dbPath = useFinanceStore((state) => state.dbPath)
   const appInfo = useFinanceStore((state) => state.appInfo)
   const [eraseStep, setEraseStep] = useState<0 | 1 | 2>(0)
+  const displayName = snapshot?.user.displayName ?? ''
+  const [nameDraft, setNameDraft] = useState(displayName)
+  const [nameBusy, setNameBusy] = useState(false)
   const [paydayDraft, setPaydayDraft] = useState(settings.paydayLabel)
   const [anchorDraft, setAnchorDraft] = useState(settings.payAnchorDate ?? '')
   const [diagnostics, setDiagnostics] = useState<AppDiagnostics | null>(null)
@@ -101,6 +105,12 @@ export function Settings() {
   const [storageError, setStorageError] = useState<string | null>(null)
   const [storageBusy, setStorageBusy] = useState(false)
   const [storageNotice, setStorageNotice] = useState<string | null>(null)
+
+  // An import or an erase replaces the user row; the field must follow it
+  // rather than keep a stale draft the user never typed.
+  useEffect(() => {
+    setNameDraft(displayName)
+  }, [displayName])
 
   useEffect(() => {
     let alive = true
@@ -241,6 +251,33 @@ export function Settings() {
       </header>
 
       <div className="settings-grid">
+        <Card title="Profile" subtitle="What the Home screen calls you">
+          <Field
+            label="Your name"
+            hint="Used only in the greeting on Home. Leave it blank for a plain hello; nothing here leaves this computer."
+          >
+            <input
+              className="input"
+              value={nameDraft}
+              maxLength={60}
+              placeholder="Your name"
+              onChange={(event) => setNameDraft(event.target.value)}
+            />
+          </Field>
+          {nameDraft.trim() !== displayName && (
+            <Button
+              variant="primary"
+              disabled={nameBusy}
+              onClick={() => {
+                setNameBusy(true)
+                void setDisplayName(nameDraft).finally(() => setNameBusy(false))
+              }}
+            >
+              Save name
+            </Button>
+          )}
+        </Card>
+
         <Card
           title="Appearance"
           subtitle="Pick what feels best; your numbers do not change"

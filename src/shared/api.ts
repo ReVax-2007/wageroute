@@ -215,6 +215,9 @@ export interface FinanceApi {
   /** Returns to the per-user folder this computer keeps, and restarts. */
   useDefaultStorage(): Promise<StorageMoveResult>
 
+  /** Sets or clears the name used in the Home greeting. */
+  setDisplayName(name: string): Promise<WriteResult<void>>
+
   createAccount(input: AccountInput): Promise<WriteResult<string>>
   updateAccount(id: string, input: Partial<AccountInput>): Promise<WriteResult<void>>
   /**

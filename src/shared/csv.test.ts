@@ -218,6 +218,22 @@ test('a row claiming both a debit and a credit is refused, not netted', () => {
   assert.match(issues[0]?.message ?? '', /both a debit and a credit/)
 })
 
+test('a European bank export reads its comma decimals as cents, not thousands', () => {
+  const { entries, issues } = parseEntriesCsv(
+    [
+      'Date,Description,Debit,Credit',
+      '2026-05-09,Groceries,"12,50",',
+      '2026-05-10,Payroll,,"2.500,00"'
+    ].join('\n')
+  )
+
+  assert.deepEqual(issues, [])
+  assert.deepEqual(
+    entries.map((entry) => entry.amountCents),
+    [-1250, 250_000]
+  )
+})
+
 test('an amount-only CSV is a statement, and an empty Amount row still reports', () => {
   const parsed = parseEntriesCsv('Date,Description,Amount\n2026-05-05,One,10\n2026-05-06,Two,\n')
 

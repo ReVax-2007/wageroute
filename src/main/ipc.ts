@@ -585,6 +585,12 @@ export function registerIpcHandlers(db: Database.Database): void {
     return { directory: userData, restartRequired: true as const }
   })
 
+  handle('user:set-name', (_event, name: unknown) =>
+    write(db, userId, ['user'], () => {
+      repo.setDisplayName(db, userId(), name)
+    })
+  )
+
   handle('account:create', (_event, input: AccountInput) =>
     write(db, userId, ['accounts', 'goals'], () => repo.createAccount(db, userId(), input))
   )

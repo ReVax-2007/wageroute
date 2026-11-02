@@ -44,7 +44,6 @@ function sanitizeDecimalInput(raw: string, allowNegative: boolean): string {
   return `${negative ? '-' : ''}${body}`
 }
 
-
 export function parseMoneyToCents(raw: string): number | null {
   if (typeof raw !== 'string') return null
   let text = raw.trim()
@@ -56,7 +55,7 @@ export function parseMoneyToCents(raw: string): number | null {
     text = text.slice(1, -1).trim()
   }
 
-  text = text.replace(/[\s,$]/g, '')
+  text = text.replace(/[\s$]/g, '')
   if (/^usd/i.test(text)) text = text.slice(3)
 
   if (text.startsWith('-')) {
@@ -69,6 +68,10 @@ export function parseMoneyToCents(raw: string): number | null {
     text = text.slice(1)
   }
 
+  const normalised = normaliseSeparators(text)
+  if (normalised === null) return null
+  text = normalised
+
   // Nothing numeric left: a bare "$", "usd" or "-" is not zero.
   if (!MONEY_INPUT.test(text) || text === '' || text === '.') return null
 
@@ -77,6 +80,51 @@ export function parseMoneyToCents(raw: string): number | null {
   const cents = Number(`${fraction}00`.slice(0, 2))
   const total = (negative ? -1 : 1) * (dollars * 100 + cents)
   return Number.isSafeInteger(total) ? total : null
+}
+
+/**
+ * Reads a comma as either a decimal point or a thousands separator without
+ * knowing the user's locale. Twelve-fifty is written `12,50` in much of the
+ * world and `12.50` in the rest; treating every comma as grouping turned a
+ * Dutch bank line into $1,250. A lone comma with one or two trailing digits is
+ * a decimal comma, three digits on every group is thousands, and when both
+ * separators appear the rightmost one is the decimal.
+ */
+function normaliseSeparators(text: string): string | null {
+  if (!text.includes(',')) return text
+
+  const lastComma = text.lastIndexOf(',')
+  const lastDot = text.lastIndexOf('.')
+  if (lastDot === -1) {
+    const groups = text.split(',')
+    if (groups.length === 2 && /^\d{1,2}$/.test(groups[1])) {
+      return `${groups[0]}.${groups[1]}`
+    }
+    if (groups.slice(1).every((group) => /^\d{3}$/.test(group))) return groups.join('')
+    return null
+  }
+
+  if (lastComma > lastDot) {
+    // `1.234,56`: the dot groups, the comma is the decimal point.
+    const groups = text.split(',')
+    if (groups.length !== 2) return null
+    const whole = groups[0].split('.')
+    if (
+      whole.length > 1 &&
+      !whole.slice(1).every((group) => /^\d{3}$/.test(group))
+    ) {
+      return null
+    }
+    return `${whole.join('')}.${groups[1]}`
+  }
+
+  // `1,234.56`: the comma can only be grouping.
+  const point = text.lastIndexOf('.')
+  const whole = text.slice(0, point).split(',')
+  if (whole.length > 1 && !whole.slice(1).every((group) => /^\d{3}$/.test(group))) {
+    return null
+  }
+  return `${whole.join('')}${text.slice(point)}`
 }
 
 export function centsToEditable(cents: number): string {

@@ -109,6 +109,7 @@ export interface DataSlice {
     targets: PlanMoveTarget[]
   ) => Promise<AppliedPlan | null>
   saveSettings: (next: AppSettings) => Promise<boolean>
+  setDisplayName: (name: string) => Promise<boolean>
   exportBackup: () => Promise<void>
   exportCsv: () => Promise<void>
   openImport: () => Promise<void>

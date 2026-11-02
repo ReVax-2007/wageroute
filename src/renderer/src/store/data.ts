@@ -328,6 +328,24 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
       }
     },
 
+    setDisplayName: async (name) => {
+      try {
+        const result = await enqueue(() => window.api.setDisplayName(name))
+        if (result.refreshError) {
+          get().notify(
+            `Saved, but the greeting could not refresh — ${result.refreshError}`,
+            'error'
+          )
+          return true
+        }
+        applyPatch(result.patch)
+        return true
+      } catch (error) {
+        get().notify(messageOf(error), 'error')
+        return false
+      }
+    },
+
     exportBackup: async () => {
       set({ busy: true })
       try {
