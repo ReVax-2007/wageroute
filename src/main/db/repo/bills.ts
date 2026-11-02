@@ -236,6 +236,29 @@ export function recordBillReserves(
   }
 }
 
+/**
+ * A payment can land in the month after the cheque that carried it: a January
+ * cheque funds a bill due on 1 February. Claims are deduplicated per cycle, so
+ * the February cheque has no claim of its own to close; without this the
+ * January row stays `reserved` for ever even though the money was spent.
+ */
+export function settleEarlierBillReserves(
+  db: Db,
+  userId: string,
+  cycle: string,
+  billIds: readonly string[]
+): void {
+  if (billIds.length === 0) return
+  const ts = nowISO()
+  const settle = db.prepare(
+    `UPDATE bill_reserves
+     SET state = 'paid', updated_at = ?, revision = revision + 1
+     WHERE user_id = ? AND bill_id = ? AND cycle < ? AND state = 'reserved'
+       AND deleted_at IS NULL`
+  )
+  for (const billId of new Set(billIds)) settle.run(ts, userId, billId, cycle)
+}
+
 export function setBillReserveState(
   db: Db,
   userId: string,

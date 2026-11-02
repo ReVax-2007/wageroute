@@ -686,7 +686,7 @@ The database path is displayed below the actions. The sidebar footer shows the r
 - **Version** — `app.getVersion()`, the version baked into the running bundle, delivered over the `app:info` IPC channel. It is *not* read from the checkout's `package.json` at runtime, so a build launched from `release/` reports the version it was packaged as.
 - **Database schema** — `SCHEMA_VERSION`, the last migration this build applies. A database at a lower `user_version` is migrated on launch; one above it is refused before any window opens, and the file is left untouched.
 - **Electron** — the runtime version the bundle carries, useful when a bug could be a runtime bug.
-- **Buy me a coffee** — an `https://buymeacoffee.com/revax` link with `target="_blank"`. The main process denies in-app windows and hands `http(s)` URLs to the system browser, so the app never navigates away from the ledger.
+- **Buy me a coffee** — an `https://buymeacoffee.com/revax` link with `target="_blank"`. The main process denies in-app windows and opens only that allowlisted URL in the system browser, so the app never navigates away from the ledger and no other host can be reached through the handler.
 - **Licence** and **Third-party notices** — open the packaged `LICENSE` and the generated `THIRD-PARTY-NOTICES.txt` in a scrollable dialog instead of sending the user to the repository. Both files are copied beside the packaged app as extra resources, so a build always carries the texts it is required to.
 
 ### Diagnostics

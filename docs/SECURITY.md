@@ -129,10 +129,10 @@ The app does not defend against malware running as the same user, an administrat
 | `contextIsolation: true` | same | Page JavaScript cannot reach Electron internals |
 | `nodeIntegration: false` | same | No `require`, `process` or Node APIs in the renderer |
 | Narrow preload bridge | [src/preload/index.ts](../src/preload/index.ts) | Only named finance operations, no generic IPC |
-| Navigation denied | `will-navigate` handler | The window cannot leave the app's own `file://` page |
-| Exact navigation allowlist | `will-navigate` compares the full `pathToFileURL(...).href` | A crafted same-directory or `file://` path cannot pass as the app page |
-| New windows denied | `setWindowOpenHandler` | No child windows; `http(s)` URLs are handed to the external browser |
-| All permission requests denied | `setPermissionRequestHandler` | Camera, microphone, notifications, geolocation, clipboard read, etc. |
+| Navigation denied | `will-navigate` handler | The window cannot leave the app's own page: the packaged `file://` URL exactly, or the dev server's origin in development |
+| Exact navigation allowlist | `isTrustedPageUrl()` in [src/main/window-security.ts](../src/main/window-security.ts) | A crafted same-directory, lookalike-host or wrong-port URL cannot pass as the app page |
+| New windows denied | `setWindowOpenHandler` | No child windows at all; only the allowlisted `https://buymeacoffee.com/revax` leaves for the external browser |
+| All permission requests denied | `setPermissionRequestHandler` and `setPermissionCheckHandler` | Camera, microphone, notifications, geolocation, clipboard read, etc. — requested or merely checked |
 | Single-instance lock | `app.requestSingleInstanceLock()` | Two processes writing the same SQLite file |
 | IPC sender validation | `isTrustedFrame()` in [src/main/ipc.ts](../src/main/ipc.ts) | Every handler refuses a frame that is not the app's own page (or the dev server during development) |
 | Content Security Policy | [src/renderer/index.html](../src/renderer/index.html) | Remote script/style/frame/connection origins are blocked by default |
@@ -243,7 +243,7 @@ connect-src 'self' ws://localhost:* http://localhost:*
 
 The Vite dev server needs both. A packaged build does not: `strictCsp()` in [electron.vite.config.ts](../electron.vite.config.ts) replaces the meta tag during the build with the policy quoted under [Application shell hardening](#application-shell-hardening), which has no inline-script allowance and `connect-src 'self'` only. The shipped page therefore cannot start an inline script or open a connection to a local service, and a compromised renderer has no CSP-sanctioned way to run injected code.
 
-The main process can open an external browser for `http(s)` URLs passed to `window.open` (`setWindowOpenHandler` in [src/main/index.ts](../src/main/index.ts)). The one UI link is the static **Buy me a coffee** anchor in Settings, which targets `_blank` and therefore leaves the app through this handler; no other page opens an external URL. If a renderer compromise occurs, that handler is a potential exfiltration path through a URL; it should be restricted to an allowlist or removed if it stays unused.
+The main process can open an external browser for `http(s)` URLs passed to `window.open` (`setWindowOpenHandler` in [src/main/index.ts](../src/main/index.ts)). Only one destination is allowed — `https://buymeacoffee.com/revax`, compared by exact origin and path in [src/main/window-security.ts](../src/main/window-security.ts) — and every other URL, including other `http(s)` hosts, is denied without being opened. The one UI link is the static **Buy me a coffee** anchor in Settings, which targets `_blank` and leaves the app through this handler. The allowlist means a renderer compromise can no longer use the handler as a general exfiltration path.
 
 ---
 

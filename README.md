@@ -10,7 +10,7 @@ WageRoute is a local-first personal finance ledger that puts every paycheck thro
 
 It is a planning and ledger tool, not a bank connection. There is no account linking, no cloud account, no telemetry and no sync. Everything lives in one SQLite file on the machine where you installed it.
 
-> Version 1.2.0 · single user · macOS, Windows and Linux · unsigned developer builds
+> Version 1.2.0 · single user · macOS, Windows and Linux · unsigned release builds
 
 ---
 
@@ -91,7 +91,7 @@ The **Allocator** is a full-screen wizard available from the sidebar or the Over
 | Database | better-sqlite3 13, SQLite in WAL mode |
 | Packaging | electron-builder 26 (DMG, NSIS, portable, zip, AppImage, deb, rpm) |
 | Tests | `node:test` through `tsx` |
-| CI | GitHub Actions: `verify` on Ubuntu for every pull request; tag builds produce macOS + Windows installers |
+| CI | GitHub Actions: `verify` on Ubuntu for every pull request (lint, tests, build, packaging dry run); tag builds produce the macOS, Windows and Linux installers |
 
 The renderer is sandboxed with `contextIsolation: true`, `nodeIntegration: false` and `sandbox: true`. It reaches the main process only through the typed `window.api` bridge.
 
@@ -136,11 +136,12 @@ Requirements: **Node.js 22 or newer** (CI uses 24) and npm. macOS packaging expe
 npm install          # also rebuilds better-sqlite3 for Electron
 npm run dev          # launch the app with hot reload
 npm test             # domain, accounts, import-repair, backup and repository tests
+npm run lint         # ESLint over main, preload, renderer and shared code
 npm run typecheck    # main/preload and renderer type checks
 npm run build        # typecheck + production bundles in out/
 npm run dist:mac     # DMG for arm64 and x64
 npm run dist:win     # NSIS, MSI, portable exe and zip for x64 and arm64 (MSI needs Windows)
-npm run dist:linux   # AppImage, deb and rpm for x64 and arm64
+npm run dist:linux   # AppImage, deb and rpm for the host architecture
 ```
 
 `npm run dev` seeds a demo profile (Alex, with accounts, bills, goals, paychecks and transactions) the first time it launches, so every screen is explorable. Packaged builds are different: first launch creates an empty profile and the dashboard offers **Start from scratch** or **Import a backup**. In both cases the seed never runs again once a user row exists.
@@ -173,7 +174,7 @@ Full format rules, examples and failure modes are in [docs/IMPORT-EXPORT.md](doc
 
 **WageRoute is local-only today.** There is no sync engine, no cloud backup, no server, no user account and no automatic updates. Multi-device use requires exporting and importing files manually. The schema is deliberately sync-ready, but no sync design has been agreed or implemented.
 
-The CI workflow builds unsigned installers only; it does not publish a release. Code signing and notarization are not configured.
+The CI workflow builds unsigned installers; on a tag it attaches them to a **draft** GitHub Release but never publishes it. Publishing the release is a manual step. Code signing and notarization are not configured.
 
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full status matrix and the GitHub vs GitLab recommendation, and [docs/RELEASING.md](docs/RELEASING.md) for the build and release checklist.
 
@@ -241,7 +242,7 @@ WageRoute is free, with no account, no telemetry and no paid tier. If it earns i
 
 ## Contributing
 
-Work on a separate branch and open a pull request; never push directly to `main`. Before requesting review, run `npm test`, `npm run typecheck` and `npm run build`. Do not commit databases, backups, CSV exports or real financial data. Full branch, review and data-safety standards are in [CONTRIBUTING.md](CONTRIBUTING.md).
+Work on a separate branch and open a pull request; never push directly to `main`. Before requesting review, run `npm run lint`, `npm test`, `npm run typecheck` and `npm run build`. Do not commit databases, backups, CSV exports or real financial data. Full branch, review and data-safety standards are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

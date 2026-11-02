@@ -24,7 +24,10 @@ export function FundingAccountsPicker({
   label: string
   hint: string
 }) {
-  const [many, setMany] = useState(value.length > 1)
+  // Follow the value until the user touches the toggle, so a picker that is
+  // remounted onto a multi-account goal does not reopen in single mode.
+  const [manyOverride, setManyOverride] = useState<boolean | null>(null)
+  const many = manyOverride ?? value.length > 1
 
   const goalNameFundedBy = (accountId: string): string | null => {
     const dedicated = accounts.find((account) => account.id === accountId)?.dedicatedGoalId
@@ -92,7 +95,7 @@ export function FundingAccountsPicker({
           checked={many}
           onChange={(event) => {
             const next = event.target.checked
-            setMany(next)
+            setManyOverride(next)
             if (!next && value.length > 1) onChange(value.slice(0, 1))
           }}
         />

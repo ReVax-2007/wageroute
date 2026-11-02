@@ -122,6 +122,9 @@ export function AccountDialog({
     if (form.creditLimit.trim() && limitTyped === null) {
       problems.creditLimit = 'Credit limit must be a number'
     }
+    if (limitTyped !== null && limitTyped < 0) {
+      problems.creditLimit = 'Credit limit cannot be negative'
+    }
     if (!account && startingTyped === null) {
       problems.startingBalance = 'Starting balance must be a number'
     }
@@ -139,6 +142,9 @@ export function AccountDialog({
     }
     if (form.lastStatementBalance.trim() && lastStatementTyped === null) {
       problems.lastStatementBalance = 'Last statement balance must be a number'
+    }
+    if (lastStatementTyped !== null && lastStatementTyped < 0) {
+      problems.lastStatementBalance = 'Last statement balance cannot be negative'
     }
     setFieldErrors(problems)
     if (Object.keys(problems).length > 0 || startingTyped === null) return

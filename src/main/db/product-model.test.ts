@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import Database from 'better-sqlite3'
 import test from 'node:test'
 import { todayISO } from '@shared/dates'
-import { DEFAULT_CATEGORIES } from '@shared/categories'
+import { DEFAULT_CATEGORIES, categoryKey } from '@shared/categories'
 import type { LedgerQuery } from '@shared/types'
 import { MIGRATIONS, migrate } from './migrations'
 import {
@@ -171,6 +171,25 @@ test('categories dedupe by name, rename the ledger text and survive deletion', (
   assert.equal(
     listCategories(db, USER_ID).some((category) => category.id === first),
     false
+  )
+  db.close()
+})
+
+test('a category is one row however its non-ASCII letters are cased', () => {
+  const db = freshDb()
+  const accountId = account(db)
+  const cafe = createCategory(db, USER_ID, { name: 'Café', kind: 'expense' })
+
+  const second = createCategory(db, USER_ID, { name: 'CAFÉ', kind: 'expense' })
+  assert.equal(second, cafe, 'a rename by case returns the same row')
+
+  entry(db, accountId, { category: 'CAFÉ', categoryId: null })
+  assert.deepEqual(
+    listCategories(db, USER_ID)
+      .filter((category) => categoryKey(category.name) === 'café')
+      .map((category) => category.id),
+    [cafe],
+    'an import in another casing does not create a twin'
   )
   db.close()
 })

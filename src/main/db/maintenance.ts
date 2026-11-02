@@ -36,6 +36,15 @@ function quote(path: string): string {
 }
 
 /**
+ * A fresh file (version 0) has nothing worth copying; a file already at the
+ * current version is not rewritten. Everything in between is about to be
+ * migrated in place and gets a copy first.
+ */
+export function needsPreUpgradeBackup(current: number, target: number): boolean {
+  return current > 0 && current < target
+}
+
+/**
  * A complete, consistent copy taken with VACUUM INTO *before* a migration
  * rewrites the file. Forward-only migrations have no undo, so this is the only
  * way back to the previous schema.

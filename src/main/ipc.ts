@@ -73,6 +73,7 @@ import { mergeEntries } from './db/entries'
 import { SCHEMA_VERSION } from './db/migrations'
 import { seedDemoIfEmpty, seedIfEmpty } from './db/seed'
 import { writeFileAtomic } from './files'
+import { isTrustedPageUrl } from './window-security'
 import * as repo from './db/repositories'
 
 const MAX_IMPORT_BYTES = 64 * 1024 * 1024
@@ -119,9 +120,11 @@ function isTrustedFrame(event: IpcMainInvokeEvent): boolean {
   } catch {
     return false
   }
-  const page = url.split('#')[0]
-  if (devUrl) return page.startsWith(devUrl)
-  return page === pathToFileURL(join(__dirname, '../renderer/index.html')).href
+  return isTrustedPageUrl(
+    url,
+    devUrl,
+    pathToFileURL(join(__dirname, '../renderer/index.html')).href
+  )
 }
 
 /**

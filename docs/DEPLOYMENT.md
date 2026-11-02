@@ -123,10 +123,10 @@ The code lives in [`src/main/db/legacy.ts`](../src/main/db/legacy.ts).
 | `npm run build` | `out/main`, `out/preload`, `out/renderer` |
 | `npm run dist:mac` | `release/*.dmg` for arm64 and x64 |
 | `npm run dist:win` | `release/*.exe` (NSIS + portable), `*.msi` and `*.zip` for x64 and arm64 — MSI only on Windows (WiX) |
-| `npm run dist:linux` | `release/*.AppImage`, `*.deb`, `*.rpm` for x64 and arm64 |
-
-The scripts pass `--x64 --arm64` explicitly; the config does not declare arches per target.
+| `npm run dist:linux` | `release/*.AppImage`, `*.deb`, `*.rpm` for the **host** architecture only |
 | `npm run dist` | Current platform default target |
+
+`dist:mac` and `dist:win` pass `--x64 --arm64` explicitly; `dist:linux` passes neither, so it builds the host architecture (CI runs one job per Linux architecture instead). The config does not declare arches per target.
 
 `release/` and `out/` are gitignored.
 
@@ -137,7 +137,7 @@ The GitHub Actions workflow at [`.github/workflows/build.yml`](../.github/workfl
 - triggers on `workflow_dispatch` and on tags matching `v*`;
 - runs a matrix of `macos-latest`, `windows-latest`, `ubuntu-latest` (`--linux --x64`) and `ubuntu-24.04-arm` (`--linux --arm64`);
 - installs Node 24 with npm caching;
-- runs `npm ci`, `npm test` and `npm run build` — the same gate as the `verify` job;
+- runs `npm ci`, `npm run lint`, `npm test` and `npm run build` — the same gate as the `verify` job in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml);
 - packages with `npx electron-builder <arch flag> --publish never`;
 - smoke-tests the Windows MSI (silent install, launch, database created, reinstall stays one entry, clean uninstall) and launches the Linux AppImage and the extracted deb under `xvfb-run`;
 - uploads the installers as build artifacts named `wageroute-mac`, `wageroute-win`, `wageroute-linux-x64` and `wageroute-linux-arm64`;

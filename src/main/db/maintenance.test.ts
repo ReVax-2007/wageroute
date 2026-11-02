@@ -9,7 +9,8 @@ import {
   backupBeforeErase,
   backupBeforeUpgrade,
   compact,
-  DatabaseCorruptError
+  DatabaseCorruptError,
+  needsPreUpgradeBackup
 } from './maintenance'
 import { migrate } from './migrations'
 import { wipeAllData } from './repo/users'
@@ -50,6 +51,25 @@ test('a file that is not a database fails the check instead of opening', () => {
   assert.throws(() => assertHealthy(db), DatabaseCorruptError)
   db.close()
   rmSync(dir, { recursive: true, force: true })
+})
+
+test('only a real upgrade in place gets a copy, never a fresh or current file', () => {
+  const cases: [number, number, boolean][] = [
+    [0, 8, false],
+    [1, 8, true],
+    [3, 8, true],
+    [7, 8, true],
+    [8, 8, false],
+    [8, 7, false],
+    [9, 8, false]
+  ]
+  for (const [current, target, expected] of cases) {
+    assert.equal(
+      needsPreUpgradeBackup(current, target),
+      expected,
+      `from ${current} to ${target}`
+    )
+  }
 })
 
 test('an upgrade copy carries every row and keeps only the newest three', () => {

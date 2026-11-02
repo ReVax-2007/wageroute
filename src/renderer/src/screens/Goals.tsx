@@ -257,9 +257,11 @@ function EmergencyCard() {
       ? centsToEditable(settings.emergencyManualTargetCents)
       : ''
   )
-  const [selectedIds, setSelectedIds] = useState<string[]>(
-    goal ? goal.dedicatedAccounts.map((account) => account.id) : []
-  )
+  // Null means "follow the saved goal"; a list means the user has touched the
+  // picker since the last apply. Copying the goal into state once would keep
+  // old ids after an edit made elsewhere on this screen and write them back.
+  const [draftIds, setDraftIds] = useState<string[] | null>(null)
+  const selectedIds = draftIds ?? goal?.dedicatedAccounts.map((account) => account.id) ?? []
   const [saving, setSaving] = useState(false)
 
   if (!snapshot) return null
@@ -323,6 +325,7 @@ function EmergencyCard() {
     }
     if (goal) {
       await updateGoal(goal.id, { targetCents, fundingAccountIds: selectedIds })
+      setDraftIds(null)
     } else {
       const input: GoalInput = {
         name: 'Emergency Fund',
@@ -430,7 +433,7 @@ function EmergencyCard() {
             goals={snapshot.goals}
             currency={currency}
             value={selectedIds}
-            onChange={setSelectedIds}
+            onChange={setDraftIds}
             label="Funded by"
             hint="Tick the account that holds the emergency money. Several accounts add together; tick none and progress is counted from allocations."
           />

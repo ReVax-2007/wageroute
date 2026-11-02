@@ -19,9 +19,15 @@ export function RemoveAccountDialog({
 
   useEffect(() => {
     let live = true
-    void accountEntryCount(account.id).then((count) => {
-      if (live) setEntries(count)
-    })
+    void accountEntryCount(account.id)
+      .then((count) => {
+        if (live) setEntries(count)
+      })
+      // The count only labels the button; a failed read must not leave the
+      // dialog with no way to delete. The ledger still goes with the account.
+      .catch(() => {
+        if (live) setEntries(0)
+      })
     return () => {
       live = false
     }

@@ -38,4 +38,36 @@ The `[1.2.0]` block in [CHANGELOG.md](../CHANGELOG.md) is the inventory; it is r
 
 ## Queued
 
-**Nothing is queued.** Nothing has merged since `v1.2.0`. Append work here as it lands; do not clear or replace this file until explicitly told to tag, build and publish the next release.
+Work merged to `main` after `v1.2.0`. None of it is in an installer yet; the `[Unreleased]` block in [CHANGELOG.md](../CHANGELOG.md) is the readable inventory.
+
+### Batch 17 — correctness
+
+- Category lookup and text backfill compare the JS `categoryKey` instead of SQL `lower()`, so `CAFÉ` and `Café` no longer create two rows or split a report total.
+- `settleEarlierBillReserves()` closes an earlier month's `reserved` claim when the bill is paid in a later month, while leaving each row in its own cycle.
+- The goal funding-account picker follows the saved goal until touched (`draftIds`), and its **Select all** state is derived from the live list.
+- A failed entry count no longer leaves the delete-account dialog disabled; negative credit limits and statement balances now show a field error; a dialog whose trigger is gone returns focus to `#main-content`.
+- `needsPreUpgradeBackup()` limits `pre-upgrade-*` copies to real version increases.
+
+### Batch 18 — release integrity and security
+
+- New tag-only `guard` job: the tag must equal `package.json`'s version and sit on `origin/main`.
+- The `release` job refuses to replace assets on an already-published release.
+- `setWindowOpenHandler` opens only `https://buymeacoffee.com/revax`; `will-navigate` and `isTrustedFrame()` share `isTrustedPageUrl()`; `setPermissionCheckHandler` denies alongside the request handler.
+
+### Batch 19 — coverage
+
+- `src/main/window-security.test.ts` (3), `src/renderer/src/lib/finance.test.ts` (8), plus 24 cases across six existing files. `npm test` is **299 tests across thirty-seven files**.
+- `package.json`'s explicit test list includes both new files; the `pretest` guard would otherwise fail every run.
+
+### Batch 20 — documentation
+
+- Corrected the error-notice/logging claims, the `dist:linux` architecture claim and the broken table in DEPLOYMENT, the missing `npm run lint` in CONTRIBUTING/README/PR template, the draft-release and blockmap claims in RELEASING, the in-app erase path, the migration history, and the ten-table backup count in ADR 0003.
+- Updated ARCHITECTURE, SECURITY and FEATURES to describe the new allowlist and permission check.
+
+### Before the next build
+
+- [ ] Run the four gates on the final tree: `npm run lint`, `npm test`, `npm run build` (includes both type checks), and `npx electron-builder --dir --publish never`.
+- [ ] Launch a packaged build on a disposable profile and confirm the Buy Me a Coffee link still opens and no other external URL does (no child window, no navigation).
+- [ ] Re-check the Priority Wall after a cross-month bill payment: the old month's row reads `paid`, not `reserved`.
+- [ ] Confirm the tag guard fires if `package.json` and the tag disagree (a scratch tag, deleted before push).
+- [ ] Choose the next version. No migration was added in this batch, so a patch bump is still defensible; the tag guard requires the tag to match `package.json`.

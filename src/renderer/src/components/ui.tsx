@@ -96,7 +96,11 @@ export function useDialog(onClose: () => void, active = true) {
       document.removeEventListener('keydown', handleKey)
       document.body.style.overflow = previousOverflow
       document.documentElement.classList.remove('dialog-open')
-      returnTo?.focus()
+      // The trigger can be gone: deleting the row that opened the dialog
+      // unmounts its button. Focusing a detached node drops focus to <body>,
+      // so fall back to the screen landmark and let Tab continue from there.
+      if (returnTo?.isConnected) returnTo.focus()
+      else document.getElementById('main-content')?.focus()
     }
   }, [active])
 

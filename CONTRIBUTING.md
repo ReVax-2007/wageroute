@@ -27,12 +27,13 @@ Node.js 22 or newer is required; `.nvmrc` pins the CI version (24).
 
 ```bash
 npm ci
+npm run lint
 npm test
 npm run typecheck
 npm run build
 ```
 
-`npm ci` installs the exact lockfile; all three checks below must pass before a pull request is ready for review. `npm run build` already runs both typecheck projects.
+`npm ci` installs the exact lockfile; all four checks (lint, tests, typecheck, build) must pass before a pull request is ready for review. `npm run build` already runs both typecheck projects.
 
 ### Testing without touching real data
 
