@@ -1,0 +1,443 @@
+import type { ImportTables } from '@shared/importRepair'
+import { addDaysISO, todayISO } from '@shared/dates'
+import type {
+  AccountKind,
+  AccountWithBalance,
+  Allocation,
+  AllocationBucket,
+  BalanceSnapshot,
+  Bill,
+  BillPaymentEntry,
+  BillPaymentTotal,
+  BillReserve,
+  BillReserveState,
+  BillFundingStrategy,
+  Category,
+  CategoryKind,
+  Frequency,
+  GoalFundingPace,
+  GoalFundingSource,
+  GoalWithProgress,
+  PaycheckWithAllocations,
+  PlanHealth,
+  Snapshot,
+  TransactionKind,
+  TransactionRow
+} from '@shared/types'
+import { SNAPSHOT_TRANSACTION_LIMIT } from '@shared/api'
+import { cents, flag, integer, isLive, nullableInteger, nullableText, settingRecord, text, type Row } from './rows'
+
+/** The ledger window the desktop reads, so both show the same latest entries. */
+export { SNAPSHOT_TRANSACTION_LIMIT }
+
+const BILL_PAYMENT_HISTORY_DAYS = 370
+const PAYCHECK_LIMIT = 24
+const BALANCE_HISTORY_DAYS = 400
+
+const ACCOUNT_KINDS: ReadonlySet<string> = new Set<AccountKind>([
+  'checking',
+  'savings',
+  'cash',
+  'investment',
+  'credit'
+])
+const TRANSACTION_KINDS: ReadonlySet<string> = new Set<TransactionKind>([
+  'income',
+  'expense',
+  'bill_payment',
+  'transfer',
+  'goal_funding',
+  'investment',
+  'adjustment'
+])
+const FREQUENCIES: ReadonlySet<string> = new Set<Frequency>([
+  'weekly',
+  'biweekly',
+  'semimonthly',
+  'monthly',
+  'quarterly',
+  'annual'
+])
+const FUNDING_STRATEGIES: ReadonlySet<string> = new Set<BillFundingStrategy>([
+  'all_checks',
+  'closest_due_date',
+  'specific_check',
+  'first_check',
+  'last_check'
+])
+const ALLOCATION_BUCKETS: ReadonlySet<string> = new Set<AllocationBucket>([
+  'priority',
+  'savings',
+  'investment',
+  'goal',
+  'debt',
+  'leisure'
+])
+const CATEGORY_KINDS: ReadonlySet<string> = new Set<CategoryKind>([
+  'expense',
+  'income',
+  'transfer',
+  'other'
+])
+const PLAN_HEALTH: ReadonlySet<string> = new Set<PlanHealth>(['covered', 'tight', 'shortfall'])
+
+function pick<T extends string>(allowed: ReadonlySet<string>, value: string, fallback: T): T {
+  return (allowed.has(value) ? value : fallback) as T
+}
+
+function sync(row: Row): {
+  createdAt: string
+  updatedAt: string
+  deletedAt: string | null
+  revision: number
+} {
+  return {
+    createdAt: text(row, 'created_at'),
+    updatedAt: text(row, 'updated_at'),
+    deletedAt: nullableText(row, 'deleted_at'),
+    revision: integer(row, 'revision', 1)
+  }
+}
+
+/**
+ * Rebuilds what the main process would hand the screens, from the rows in a
+ * backup. The same shared modules then do the money maths, so a phone and a
+ * desktop with the same file agree on every number.
+ */
+export function buildSnapshot(
+  tables: ImportTables,
+  today: string = todayISO()
+): Snapshot {
+  const liveAccounts = tables.accounts.filter(isLive)
+  const accountById = new Map<string, Row>()
+  for (const row of tables.accounts) accountById.set(text(row, 'id'), row)
+
+  // Balances are derived exactly as the desktop derives them: starting money
+  // plus every live entry, with cash stopping at today.
+  const entries = tables.transactions.filter(isLive)
+  const movement = new Map<string, { balance: number; cash: number }>()
+  for (const entry of entries) {
+    const accountId = text(entry, 'account_id')
+    const running = movement.get(accountId) ?? { balance: 0, cash: 0 }
+    const amount = cents(entry, 'amount_cents')
+    running.balance += amount
+    if (text(entry, 'occurred_on') <= today) running.cash += amount
+    movement.set(accountId, running)
+  }
+
+  const accounts: AccountWithBalance[] = liveAccounts
+    .map((row) => {
+      const id = text(row, 'id')
+      const starting = cents(row, 'starting_balance_cents')
+      const moved = movement.get(id) ?? { balance: 0, cash: 0 }
+      const inSafe = nullableInteger(row, 'in_safe_to_spend')
+      return {
+        id,
+        userId: text(row, 'user_id'),
+        name: text(row, 'name', 'Account'),
+        kind: pick(ACCOUNT_KINDS, text(row, 'kind'), 'checking'),
+        institution: nullableText(row, 'institution'),
+        startingBalanceCents: starting,
+        creditLimitCents: nullableInteger(row, 'credit_limit_cents'),
+        color: nullableText(row, 'color'),
+        dedicatedGoalId: nullableText(row, 'dedicated_goal_id'),
+        inSafeToSpend: inSafe === null ? null : inSafe === 1,
+        isArchived: flag(row, 'is_archived'),
+        sortOrder: integer(row, 'sort_order'),
+        aprBps: nullableInteger(row, 'apr_bps'),
+        minimumPaymentCents: nullableInteger(row, 'minimum_payment_cents'),
+        statementDay: nullableInteger(row, 'statement_day'),
+        paymentDueDay: nullableInteger(row, 'payment_due_day'),
+        lastStatementBalanceCents: nullableInteger(row, 'last_statement_balance_cents'),
+        ...sync(row),
+        balanceCents: starting + moved.balance,
+        cashCents: starting + moved.cash
+      }
+    })
+    .sort(
+      (a, b) =>
+        Number(a.isArchived) - Number(b.isArchived) ||
+        a.sortOrder - b.sortOrder ||
+        a.name.localeCompare(b.name)
+    )
+
+  const transactions: TransactionRow[] = entries
+    .map((row) => {
+      const account = accountById.get(text(row, 'account_id'))
+      return {
+        id: text(row, 'id'),
+        userId: text(row, 'user_id'),
+        accountId: text(row, 'account_id'),
+        kind: pick(TRANSACTION_KINDS, text(row, 'kind'), 'expense'),
+        amountCents: cents(row, 'amount_cents'),
+        occurredOn: text(row, 'occurred_on'),
+        memo: text(row, 'memo'),
+        category: text(row, 'category', 'Uncategorized'),
+        categoryId: nullableText(row, 'category_id'),
+        externalId: nullableText(row, 'external_id'),
+        billId: nullableText(row, 'bill_id'),
+        goalId: nullableText(row, 'goal_id'),
+        paycheckId: nullableText(row, 'paycheck_id'),
+        counterAccountId: nullableText(row, 'counter_account_id'),
+        transferGroupId: nullableText(row, 'transfer_group_id'),
+        ...sync(row),
+        accountName: account ? text(account, 'name') : 'Unknown account',
+        accountInstitution: account ? nullableText(account, 'institution') : null
+      }
+    })
+    .sort(
+      (a, b) =>
+        b.occurredOn.localeCompare(a.occurredOn) ||
+        b.createdAt.localeCompare(a.createdAt)
+    )
+    .slice(0, SNAPSHOT_TRANSACTION_LIMIT)
+
+  const bills: Bill[] = tables.bills
+    .filter(isLive)
+    .map((row) => ({
+      id: text(row, 'id'),
+      userId: text(row, 'user_id'),
+      name: text(row, 'name', 'Bill'),
+      amountCents: cents(row, 'amount_cents'),
+      frequency: pick(FREQUENCIES, text(row, 'frequency'), 'monthly'),
+      dueDay: integer(row, 'due_day', 1),
+      category: text(row, 'category', 'Bills'),
+      accountId: nullableText(row, 'account_id'),
+      autopay: flag(row, 'autopay'),
+      isActive: flag(row, 'is_active', true),
+      nextDueOn: nullableText(row, 'next_due_on'),
+      fundingStrategy: pick(FUNDING_STRATEGIES, text(row, 'funding_strategy'), 'all_checks'),
+      fundingPaycheckIndex: nullableInteger(row, 'funding_paycheck_index'),
+      ...sync(row)
+    }))
+    .sort(
+      (a, b) =>
+        Number(b.isActive) - Number(a.isActive) ||
+        a.dueDay - b.dueDay ||
+        a.name.localeCompare(b.name)
+    )
+
+  const allocationTotals = new Map<string, number>()
+  const allocationsByPaycheck = new Map<string, Allocation[]>()
+  for (const row of tables.allocations.filter(isLive)) {
+    const allocation: Allocation = {
+      id: text(row, 'id'),
+      userId: text(row, 'user_id'),
+      paycheckId: text(row, 'paycheck_id'),
+      bucket: pick(ALLOCATION_BUCKETS, text(row, 'bucket'), 'priority'),
+      goalId: nullableText(row, 'goal_id'),
+      label: text(row, 'label'),
+      amountCents: cents(row, 'amount_cents'),
+      ...sync(row)
+    }
+    const list = allocationsByPaycheck.get(allocation.paycheckId) ?? []
+    list.push(allocation)
+    allocationsByPaycheck.set(allocation.paycheckId, list)
+    if (allocation.bucket === 'goal' && allocation.goalId) {
+      allocationTotals.set(
+        allocation.goalId,
+        (allocationTotals.get(allocation.goalId) ?? 0) + allocation.amountCents
+      )
+    }
+  }
+  for (const list of allocationsByPaycheck.values()) {
+    list.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+  }
+
+  // A dedicated account's balance is the goal's progress, exactly as on the
+  // desktop; the allocation total is replaced, never added to.
+  const dedicatedByGoal = new Map<string, { id: string; name: string; balanceCents: number }[]>()
+  for (const account of accounts) {
+    if (account.isArchived || account.dedicatedGoalId === null) continue
+    const list = dedicatedByGoal.get(account.dedicatedGoalId) ?? []
+    list.push({ id: account.id, name: account.name, balanceCents: account.balanceCents })
+    dedicatedByGoal.set(account.dedicatedGoalId, list)
+  }
+
+  const goals: GoalWithProgress[] = tables.goals
+    .filter(isLive)
+    .map((row) => {
+      const id = text(row, 'id')
+      const sources = dedicatedByGoal.get(id) ?? []
+      const fundedFrom: GoalFundingSource = sources.length > 0 ? 'account' : 'allocations'
+      const fundedCents =
+        fundedFrom === 'account'
+          ? Math.max(0, sources.reduce((total, source) => total + source.balanceCents, 0))
+          : (allocationTotals.get(id) ?? 0)
+      const targetCents = cents(row, 'target_cents')
+      return {
+        id,
+        userId: text(row, 'user_id'),
+        name: text(row, 'name', 'Goal'),
+        targetCents,
+        targetDate: nullableText(row, 'target_date'),
+        priority: integer(row, 'priority'),
+        color: text(row, 'color', '#3ddc97'),
+        accountId: nullableText(row, 'account_id'),
+        isEmergency: flag(row, 'is_emergency'),
+        isArchived: flag(row, 'is_archived'),
+        fundingPace: pick<GoalFundingPace>(
+          new Set<GoalFundingPace>(['asap', 'by_date', 'paused']),
+          text(row, 'funding_pace'),
+          'asap'
+        ),
+        ...sync(row),
+        fundedCents,
+        remainingCents: Math.max(0, targetCents - fundedCents),
+        fundedFrom,
+        dedicatedAccounts: sources
+      }
+    })
+    .sort(
+      (a, b) =>
+        Number(a.isArchived) - Number(b.isArchived) ||
+        a.priority - b.priority ||
+        a.name.localeCompare(b.name)
+    )
+
+  const accountKind = new Map<string, AccountKind>()
+  for (const row of tables.accounts) {
+    accountKind.set(text(row, 'id'), pick(ACCOUNT_KINDS, text(row, 'kind'), 'checking'))
+  }
+
+  const month = today.slice(0, 7)
+  const paidByBill = new Map<string, BillPaymentTotal>()
+  for (const entry of entries) {
+    const billId = nullableText(entry, 'bill_id')
+    const kind = text(entry, 'kind')
+    if (!billId || (kind !== 'bill_payment' && kind !== 'expense')) continue
+    const occurredOn = text(entry, 'occurred_on')
+    if (occurredOn.slice(0, 7) !== month || occurredOn > today) continue
+    const total = paidByBill.get(billId) ?? { billId, paidCents: 0, creditCents: 0 }
+    const amount = -cents(entry, 'amount_cents')
+    total.paidCents += amount
+    if (accountKind.get(text(entry, 'account_id')) === 'credit') total.creditCents += amount
+    paidByBill.set(billId, total)
+  }
+
+  const since = addDaysISO(today, -BILL_PAYMENT_HISTORY_DAYS)
+  const billPayments: BillPaymentEntry[] = entries
+    .filter(
+      (entry) => nullableText(entry, 'bill_id') !== null && text(entry, 'occurred_on') >= since
+    )
+    .map((entry) => ({
+      billId: text(entry, 'bill_id'),
+      occurredOn: text(entry, 'occurred_on'),
+      amountCents: cents(entry, 'amount_cents')
+    }))
+    .sort((a, b) => b.occurredOn.localeCompare(a.occurredOn))
+
+  const paychecks: PaycheckWithAllocations[] = tables.paychecks
+    .filter(isLive)
+    .map((row) => {
+      const id = text(row, 'id')
+      return {
+        id,
+        userId: text(row, 'user_id'),
+        amountCents: cents(row, 'amount_cents'),
+        receivedOn: text(row, 'received_on'),
+        source: text(row, 'source', 'Paycheck'),
+        depositAccountId: nullableText(row, 'deposit_account_id'),
+        priorityCents: cents(row, 'priority_cents'),
+        surplusCents: cents(row, 'surplus_cents'),
+        leisureCents: cents(row, 'leisure_cents'),
+        health: pick(PLAN_HEALTH, text(row, 'health'), 'covered'),
+        ...sync(row),
+        allocations: allocationsByPaycheck.get(id) ?? []
+      }
+    })
+    .sort(
+      (a, b) =>
+        b.receivedOn.localeCompare(a.receivedOn) || b.createdAt.localeCompare(a.createdAt)
+    )
+    .slice(0, PAYCHECK_LIMIT)
+
+  const billReserves: BillReserve[] = tables.bill_reserves
+    .filter(isLive)
+    .map((row) => ({
+      id: text(row, 'id'),
+      userId: text(row, 'user_id'),
+      billId: text(row, 'bill_id'),
+      paycheckId: text(row, 'paycheck_id'),
+      cycle: text(row, 'cycle'),
+      amountCents: cents(row, 'amount_cents'),
+      state: pick<BillReserveState>(
+        new Set<BillReserveState>(['reserved', 'paid']),
+        text(row, 'state'),
+        'reserved'
+      ),
+      strategy: pick(FUNDING_STRATEGIES, text(row, 'strategy'), 'all_checks'),
+      dueDay: integer(row, 'due_day', 1),
+      settledBy: nullableText(row, 'settled_by'),
+      ...sync(row)
+    }))
+    .sort(
+      (a, b) =>
+        b.cycle.localeCompare(a.cycle) || b.createdAt.localeCompare(a.createdAt)
+    )
+
+  const balanceSince = addDaysISO(today, -BALANCE_HISTORY_DAYS)
+  const balanceSnapshots: BalanceSnapshot[] = tables.balance_snapshots
+    .filter((row) => {
+      if (!isLive(row)) return false
+      const onDate = text(row, 'on_date')
+      return onDate >= balanceSince && onDate <= today
+    })
+    .map((row) => ({
+      id: text(row, 'id'),
+      userId: text(row, 'user_id'),
+      accountId: text(row, 'account_id'),
+      onDate: text(row, 'on_date'),
+      balanceCents: cents(row, 'balance_cents'),
+      ...sync(row)
+    }))
+    .sort(
+      (a, b) => a.onDate.localeCompare(b.onDate) || a.accountId.localeCompare(b.accountId)
+    )
+
+  const categories: Category[] = tables.categories
+    .filter(isLive)
+    .map((row) => ({
+      id: text(row, 'id'),
+      userId: text(row, 'user_id'),
+      name: text(row, 'name', 'Category'),
+      kind: pick(CATEGORY_KINDS, text(row, 'kind'), 'expense'),
+      color: nullableText(row, 'color'),
+      sortOrder: integer(row, 'sort_order'),
+      ...sync(row)
+    }))
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+
+  const settings = settingRecord(tables.settings)
+  const userId =
+    accounts[0]?.userId ||
+    paychecks[0]?.userId ||
+    text(tables.settings[0] ?? {}, 'user_id') ||
+    'local'
+
+  return {
+    user: {
+      id: userId,
+      email: null,
+      displayName: '',
+      currency: settings.currency ?? 'USD',
+      createdAt: '',
+      updatedAt: '',
+      deletedAt: null,
+      revision: 1
+    },
+    settings,
+    accounts,
+    bills,
+    goals,
+    categories,
+    transactions,
+    transactionTotal: entries.length,
+    billPaymentsThisMonth: [...paidByBill.values()],
+    billPayments,
+    paychecks,
+    paycheckTotal: tables.paychecks.filter(isLive).length,
+    billReserves,
+    balanceSnapshots
+  }
+}

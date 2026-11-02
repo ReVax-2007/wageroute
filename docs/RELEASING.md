@@ -13,6 +13,7 @@ This document is the operational manual: what the version numbers mean, how to b
 - [Preflight checklist](#preflight-checklist)
 - [Local build](#local-build)
 - [What the build produces](#what-the-build-produces)
+- [WageRoute Pocket](#wageroute-pocket)
 - [CI pipeline](#ci-pipeline)
 - [Code signing and notarization](#code-signing-and-notarization)
 - [Manual release procedure](#manual-release-procedure)
@@ -78,8 +79,10 @@ Tags use the `v` prefix and match the app version exactly: `v1.0.0`. The CI work
 | `5` | Accepted; version 6 added no column |
 | `6` | Accepted; no `bill_reserves` rows |
 | `7` | Accepted; no `categories` or `balance_snapshots` rows and no card terms |
-| `8` | Accepted; the newest format this app writes |
-| `> 8` | Rejected: `This backup came from a newer version` |
+| `8` | Accepted; no per-claim strategy, carried due day or settling payment |
+| `9` | Accepted; goals have no funding pace |
+| `10` | Accepted; the newest format this app writes |
+| `> 10` | Rejected: `This backup came from a newer version` |
 
 Imports are additive and idempotent. Re-importing the same file skips rows that already exist by UUID. See [IMPORT-EXPORT.md](IMPORT-EXPORT.md).
 
@@ -111,8 +114,9 @@ Run this before building anything you intend to distribute. It is intentionally 
 - [ ] `npm ci` from a clean `node_modules` (not `npm install`).
 - [ ] `npm run lint` passes.
 - [ ] `npm test` passes.
-- [ ] `npm run typecheck` passes for both TypeScript projects.
+- [ ] `npm run typecheck` passes for all three TypeScript projects (node, web, pocket).
 - [ ] `npm run build` succeeds and regenerates `THIRD-PARTY-NOTICES.txt`.
+- [ ] `npm run pocket:build` succeeds and writes `dist-pocket/`.
 - [ ] The app boots with a throwaway profile.
 - [ ] The golden paths were exercised manually (see [DEVELOPMENT.md](DEVELOPMENT.md#known-test-gaps)).
 - [ ] A JSON export from the previous build imports into the new build on a fresh profile.
@@ -149,8 +153,9 @@ Run this before building anything you intend to distribute. It is intentionally 
 ```bash
 npm ci                      # exact dependency tree + native rebuild
 npm test                    # shared domain tests
-npm run typecheck           # node + web projects
+npm run typecheck           # node + web + pocket projects
 npm run build               # typecheck, then electron-vite build into out/
+npm run pocket:build        # static build of the phone app into dist-pocket/
 
 npm run dist:mac            # build + DMG
 npm run dist:win            # build + NSIS installer
@@ -167,13 +172,16 @@ npm run dist                # build + installers for the current platform
 | `dev` | electron-vite dev server with HMR |
 | `start` | preview the production build |
 | `lint` | repository-local gate: no `debugger`, console logging, `@ts-ignore` or `any` |
-| `test` | `node --import tsx --test` over the thirty-eight test files listed in `package.json` |
+| `test` | `node --import tsx --test` over every test file listed in `package.json` |
 | `notices` | regenerate `THIRD-PARTY-NOTICES.txt` from `package-lock.json` |
 | `prebuild` | runs `notices` automatically before every `npm run build` |
 | `typecheck:node` | main, preload, shared, config |
 | `typecheck:web` | renderer and shared |
-| `typecheck` | both projects |
+| `typecheck:pocket` | the phone app and shared |
+| `typecheck` | all three projects |
 | `build` | notices, typecheck, then bundle main/preload/renderer into `out/` |
+| `pocket:dev` | Vite dev server for the phone app |
+| `pocket:build` | static build of the phone app into `dist-pocket/` (not an installer) |
 | `dist` | build, then electron-builder for the host platform (`--publish never`) |
 | `dist:mac` | build, then macOS DMG |
 | `dist:win` | build, then Windows NSIS, MSI, portable and zip |
@@ -284,6 +292,29 @@ release/
 `publish: null` is deliberate. electron-builder otherwise infers a publisher from the repository field on a tag build and writes `latest-mac.yml` / `latest.yml`; WageRoute has no updater, so those files would advertise an update channel that does not exist. Releases are assembled by the workflow's release job instead.
 
 No database is bundled. On first launch the app seeds one blank local user with default settings if no user row exists, and the dashboard offers a start-from-scratch or import-a-backup path. The demo profile (Alex) is seeded only in development builds (`app.isPackaged` false); it is **not** a release asset.
+
+---
+
+## WageRoute Pocket
+
+WageRoute Pocket is the phone app: a static Vite/React build in `src/pocket/`, written to `dist-pocket/`, and installed from a browser. It is **not** part of a desktop release and not an electron-builder target.
+
+- **It has no version of its own.** It reads a desktop backup and writes append-only entries; the backup's format version is the only compatibility number that matters. A change to the backup shape belongs in the desktop schema procedure above.
+- **CI builds it, but never publishes it.** The `verify` job runs `npm run pocket:build` after `npm run build`, so a broken Pocket build fails the same gate as a broken desktop build. `dist-pocket/` is gitignored and is not uploaded as an artifact.
+- **Publishing is a separate, manual decision.** [`.github/workflows/pocket.yml`](../.github/workflows/pocket.yml) is `workflow_dispatch` only and deploys `dist-pocket/` to GitHub Pages. A normal push or tag never publishes the phone app, and the workflow has no effect on the desktop installers.
+- **A publish is a public deployment.** The static bundle is served from a public URL, so treat enabling Pages, running that workflow, or changing the published origin as owner actions, not release steps.
+- **The service worker is versioned separately.** `SHELL_VERSION` in `src/pocket/sw.js` names the cache; raise it in the same commit as a shell change, or installed phones will keep serving the old shell. Hashed assets are cache-first, navigation is network-first.
+
+Releasing the desktop app does not require rebuilding or republishing Pocket. The reverse is also true: fixing only the phone app does not need a new installer. If a release changes the backup format, rebuild Pocket and republish it so phones can read backups from the new app.
+
+To verify the phone build by hand:
+
+```bash
+npm run pocket:build
+npm run pocket:preview   # then open the printed URL
+```
+
+Check that an exported desktop backup imports, an entry survives a reload, and the manifest and service worker are served.
 
 ---
 
