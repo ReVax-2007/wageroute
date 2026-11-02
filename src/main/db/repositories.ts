@@ -3,7 +3,7 @@
  * implementation lives with each aggregate under `./repo`; this file only
  * re-exports, so a change to accounts cannot reach into transactions by accident.
  */
-export { getUser, getLocalUserId, wipeAllData } from './repo/users'
+export { getUser, getLocalUserId, setDisplayName, wipeAllData } from './repo/users'
 export { readSettings, writeSettings } from './repo/settings'
 export {
   listAccounts,

@@ -1,7 +1,7 @@
 import { RepositoryError } from '@shared/errors'
 import type { User } from '@shared/types'
 import { compact } from '../maintenance'
-import type { Db } from './common'
+import { nowISO, type Db } from './common'
 
 export function getUser(db: Db, userId: string): User {
   const row = db
@@ -14,6 +14,33 @@ export function getUser(db: Db, userId: string): User {
     .get(userId) as User | undefined
   if (!row) throw new RepositoryError('NOT_FOUND', 'Local user is missing')
   return row
+}
+
+/**
+ * The name the Home screen greets the user with. Empty is a real answer: the
+ * packaged seed asks for a name instead of inventing one, so clearing it must
+ * restore the generic greeting rather than be refused as a blank field.
+ */
+export function setDisplayName(db: Db, userId: string, raw: unknown): string {
+  if (typeof raw !== 'string') {
+    throw new RepositoryError('VALIDATION', 'Your name must be text')
+  }
+  const name = raw.trim()
+  if (name.length > 60) {
+    throw new RepositoryError('VALIDATION', 'Your name is too long', 'displayName')
+  }
+  // A line break would split the dashboard greeting across lines.
+  if (/[\u0000-\u001f\u007f]/.test(name)) {
+    throw new RepositoryError('VALIDATION', 'Your name cannot contain line breaks', 'displayName')
+  }
+  const result = db
+    .prepare(
+      `UPDATE users SET display_name = ?, updated_at = ?, revision = revision + 1
+       WHERE id = ? AND deleted_at IS NULL`
+    )
+    .run(name, nowISO(), userId)
+  if (result.changes === 0) throw new RepositoryError('NOT_FOUND', 'Local user is missing')
+  return name
 }
 
 export function getLocalUserId(db: Db): string {

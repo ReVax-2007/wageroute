@@ -459,6 +459,8 @@ Amounts use the same parser as the UI, so all of these work:
 42.50     -42.50     $1,234.56     (42.00)     USD 42.50
 ```
 
+The comma is read without assuming one locale. A lone comma with one or two trailing digits is a decimal comma (`12,50` → 1,250 cents); groups of exactly three digits are thousands (`1,250` → 125,000); when both separators appear, the rightmost one is the decimal (`1.234,56` and `1,234.56` both → 123,456). Grouping that fits neither pattern (`1,2345`, `1.23,45`, `1,`) is refused rather than guessed at.
+
 A missing, unreadable or zero amount produces:
 
 > row N has no usable amount

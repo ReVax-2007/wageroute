@@ -51,6 +51,8 @@ export interface IpcContract {
   }
   'storage:default': { args: []; result: StorageMoveResult }
 
+  'user:set-name': { args: [string]; result: WriteResult<void> }
+
   'account:create': { args: [AccountInput]; result: WriteResult<string> }
   'account:update': { args: [string, Partial<AccountInput>]; result: WriteResult<void> }
   'account:delete': { args: [string, { withEntries?: boolean }?]; result: WriteResult<void> }
@@ -110,6 +112,7 @@ export const CHANNELS = [
   'storage:choose',
   'storage:apply',
   'storage:default',
+  'user:set-name',
   'account:create',
   'account:update',
   'account:delete',
