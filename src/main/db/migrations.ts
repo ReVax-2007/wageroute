@@ -441,6 +441,8 @@ const SCHEMA_V9 = `
 ALTER TABLE bill_reserves ADD COLUMN strategy TEXT NOT NULL DEFAULT 'all_checks'
   CHECK (strategy IN ('all_checks','closest_due_date','specific_check','first_check','last_check'));
 ALTER TABLE bill_reserves ADD COLUMN settled_by TEXT;
+ALTER TABLE bill_reserves ADD COLUMN due_day INTEGER NOT NULL DEFAULT 1
+  CHECK (due_day BETWEEN 1 AND 31);
 
 CREATE INDEX idx_bill_reserves_settled_by
   ON bill_reserves(settled_by) WHERE settled_by IS NOT NULL;
@@ -449,6 +451,10 @@ UPDATE bill_reserves
    SET strategy = COALESCE(
          (SELECT b.funding_strategy FROM bills b WHERE b.id = bill_reserves.bill_id),
          'all_checks'
+       ),
+       due_day = COALESCE(
+         (SELECT b.due_day FROM bills b WHERE b.id = bill_reserves.bill_id),
+         1
        );
 `
 

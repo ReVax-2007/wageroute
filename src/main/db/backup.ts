@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type Database from 'better-sqlite3'
 import type { ImportCounts, ImportIssue } from '@shared/api'
-import { categoryKey, normalizeCategoryName } from '@shared/categories'
+import { CATEGORY_NAME_MAX, categoryKey, normalizeCategoryName } from '@shared/categories'
 import { IMPORT_TABLES, type ImportTable, type ImportTables } from '@shared/importRepair'
 import {
   DEFAULT_SETTINGS,
@@ -76,7 +76,8 @@ export const TABLE_COLUMNS: Record<BackupTable, readonly string[]> = {
   ],
   bill_reserves: [
     'id', 'user_id', 'bill_id', 'paycheck_id', 'cycle', 'amount_cents', 'state',
-    'strategy', 'settled_by', 'created_at', 'updated_at', 'deleted_at', 'revision'
+    'strategy', 'due_day', 'settled_by', 'created_at', 'updated_at', 'deleted_at',
+    'revision'
   ],
   transactions: [
     'id', 'user_id', 'account_id', 'kind', 'amount_cents', 'occurred_on', 'memo',
@@ -128,9 +129,10 @@ export const TABLE_DEFAULTS: Record<BackupTable, Record<string, SqlValue>> = {
   allocations: {},
   bill_reserves: {
     state: 'reserved',
-    // Only a file written before v9 lacks this; the merge fills it from the
-    // bill's own strategy instead of pretending every claim was a spread.
-    strategy: 'all_checks'
+    // Only a file written before v9 lacks these; the merge fills them from the
+    // bill's own strategy and due day instead of guessing a claim's history.
+    strategy: 'all_checks',
+    due_day: 1
   },
   transactions: {
     memo: '',
@@ -291,6 +293,7 @@ export function mergeBackup(db: Db, userId: string, payload: BackupPayload): Mer
    * the best record of how that claim was written, and bills import first.
    */
   const billStrategies = new Map<string, unknown>()
+  const billDueDays = new Map<string, unknown>()
 
   db.transaction(() => {
     const localRows = db
@@ -300,9 +303,12 @@ export function mergeBackup(db: Db, userId: string, payload: BackupPayload): Mer
       localCategories.set(categoryKey(row.name), { id: row.id, name: row.name })
     }
     const localBills = db
-      .prepare('SELECT id, funding_strategy AS strategy FROM bills WHERE user_id = ?')
-      .all(userId) as { id: string; strategy: unknown }[]
-    for (const row of localBills) billStrategies.set(row.id, row.strategy)
+      .prepare('SELECT id, funding_strategy AS strategy, due_day AS dueDay FROM bills WHERE user_id = ?')
+      .all(userId) as { id: string; strategy: unknown; dueDay: unknown }[]
+    for (const row of localBills) {
+      billStrategies.set(row.id, row.strategy)
+      billDueDays.set(row.id, row.dueDay)
+    }
 
     for (const table of TABLE_ORDER) {
       if (table === 'settings') {
@@ -362,7 +368,22 @@ export function mergeBackup(db: Db, userId: string, payload: BackupPayload): Mer
         }
         let categoryName: string | null = null
         if (table === 'categories') {
-          categoryName = typeof row.name === 'string' ? normalizeCategoryName(row.name) : ''
+          const stated = typeof row.name === 'string' ? normalizeCategoryName(row.name) : ''
+          if (stated.length === 0) {
+            issues.push({
+              table,
+              message: `${describeRow(table, row, index)}: no category name`
+            })
+            return
+          }
+          if (stated.length > CATEGORY_NAME_MAX) {
+            issues.push({
+              table,
+              message: `${describeRow(table, row, index)}: the name is longer than ${CATEGORY_NAME_MAX} characters`
+            })
+            return
+          }
+          categoryName = stated
           const match = localCategories.get(categoryKey(categoryName))
           if (match) {
             if (existingId) remapCategory.set(existingId, match)
@@ -370,9 +391,17 @@ export function mergeBackup(db: Db, userId: string, payload: BackupPayload): Mer
             return
           }
         }
+        // An entry can identify its category by id (v8+) or only by spelling
+        // (older files, and rows whose id did not travel). Both must land on the
+        // live row, or the report splits one category across two spellings.
         const remappedCategory =
-          table === 'transactions' && typeof row.category_id === 'string'
-            ? remapCategory.get(row.category_id)
+          table === 'transactions'
+            ? (typeof row.category_id === 'string'
+                ? remapCategory.get(row.category_id)
+                : undefined) ??
+              (typeof row.category === 'string'
+                ? localCategories.get(categoryKey(row.category))
+                : undefined)
             : undefined
         const defaults = TABLE_DEFAULTS[table]
         try {
@@ -386,6 +415,11 @@ export function mergeBackup(db: Db, userId: string, payload: BackupPayload): Mer
               const stated = row.strategy
               if (typeof stated === 'string' && stated.length > 0) return stated
               return billStrategies.get(String(row.bill_id ?? '')) ?? 'all_checks'
+            }
+            if (table === 'bill_reserves' && column === 'due_day') {
+              const stated = row.due_day
+              if (stated !== undefined) return toSqlValue(stated, column)
+              return billDueDays.get(String(row.bill_id ?? '')) ?? 1
             }
             if (table === 'bill_reserves' && column === 'settled_by') {
               return row.settled_by === undefined ? null : toSqlValue(row.settled_by, column)
@@ -412,6 +446,7 @@ export function mergeBackup(db: Db, userId: string, payload: BackupPayload): Mer
           }
           if (table === 'bills') {
             billStrategies.set(id, row.funding_strategy ?? 'all_checks')
+            billDueDays.set(id, row.due_day ?? 1)
           }
         } catch (error) {
           issues.push({ table, message: `${describeRow(table, row, index)}: ${issueOf(error)}` })

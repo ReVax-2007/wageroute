@@ -292,10 +292,15 @@ export function billFundingReserveCents(input: {
   // claimed the figure is untouched, so every existing number stays identical.
   const openCents = Math.max(0, billedCents - paidCents - claimedCents)
   const spread = reservePerPaycheckCents(input.amountCents, input.frequency, input.cadence)
+  // A claim is an instalment already set aside, so this cheque tops the month
+  // up to its normal share. A payment is only a partial settlement, so the
+  // remaining obligation is spread evenly over the month's cheques instead.
   const openSpread =
-    billedCents === 0 || (paidCents === 0 && claimedCents === 0)
-      ? spread
-      : Math.round((spread * openCents) / billedCents)
+    claimedCents > 0
+      ? Math.min(spread, openCents)
+      : paidCents === 0
+        ? spread
+        : Math.round((spread * openCents) / billedCents)
 
   if (strategy === 'all_checks') return openSpread
   if (!input.paycheckDate) return openSpread

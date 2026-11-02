@@ -142,7 +142,7 @@ Ten tables are exported and accepted. Each row carries the full column set below
 | `balance_snapshots` | `id`, `user_id`, `account_id`, `on_date`, `balance_cents`, `created_at`, `updated_at`, `deleted_at`, `revision` |
 | `categories` | `id`, `user_id`, `name`, `kind`, `color`, `sort_order`, `created_at`, `updated_at`, `deleted_at`, `revision` |
 | `bills` | `id`, `user_id`, `name`, `amount_cents`, `frequency`, `due_day`, `category`, `account_id`, `autopay`, `is_active`, `next_due_on`, `funding_strategy`, `funding_paycheck_index`, `created_at`, `updated_at`, `deleted_at`, `revision` |
-| `bill_reserves` | `id`, `user_id`, `bill_id`, `paycheck_id`, `cycle`, `amount_cents`, `state`, `strategy`, `settled_by`, `created_at`, `updated_at`, `deleted_at`, `revision` |
+| `bill_reserves` | `id`, `user_id`, `bill_id`, `paycheck_id`, `cycle`, `amount_cents`, `state`, `strategy`, `due_day`, `settled_by`, `created_at`, `updated_at`, `deleted_at`, `revision` |
 | `goals` | `id`, `user_id`, `name`, `target_cents`, `target_date`, `priority`, `color`, `account_id`, `is_emergency`, `is_archived`, `created_at`, `updated_at`, `deleted_at`, `revision` |
 | `paychecks` | `id`, `user_id`, `amount_cents`, `received_on`, `source`, `deposit_account_id`, `priority_cents`, `surplus_cents`, `leisure_cents`, `health`, `created_at`, `updated_at`, `deleted_at`, `revision` |
 | `allocations` | `id`, `user_id`, `paycheck_id`, `bucket`, `goal_id`, `label`, `amount_cents`, `created_at`, `updated_at`, `deleted_at`, `revision` |
@@ -216,7 +216,7 @@ Because every column is named explicitly in the `INSERT`, a SQLite column defaul
 | `goals` | `priority` → `100`, `color` → `#34D399`, `is_archived` → `0`, `is_emergency` → `0` |
 | `paychecks` | `source` → `Paycheck`, `priority_cents` → `0`, `surplus_cents` → `0`, `leisure_cents` → `0` |
 | `transactions` | `memo` → `""`, `category` → `Uncategorized` |
-| `bill_reserves` | `state` → `reserved`, `strategy` → the linked bill's strategy (or `all_checks`), `settled_by` → `null` |
+| `bill_reserves` | `state` → `reserved`, `strategy` → the linked bill's strategy (or `all_checks`), `due_day` → the linked bill's due day (or `1`), `settled_by` → `null` |
 | `categories` | `kind` → `expense`, `color` → `#94A3B8`, `sort_order` → `0` |
 | `allocations`, `balance_snapshots`, `settings` | — |
 
@@ -235,7 +235,7 @@ Anything else that is missing or unusable — no `name`, an out-of-range `due_da
 | `5` | Accepted; nothing new to fall back on — version 6 added no column |
 | `6` | Accepted; no `bill_reserves` rows, so the wall starts its receipts from the next route |
 | `7` | Accepted; no `categories` or `balance_snapshots` rows and no card terms, so the category list stays empty until an entry is written, the trend starts at the next launch, and the card rows show no amount due |
-| `8` | Accepted; no reserve `strategy` or `settled_by` values, so each restored claim takes its bill's strategy and starts unlinked |
+| `8` | Accepted; no reserve `strategy`, `due_day` or `settled_by` values, so each restored claim takes its bill's strategy and due day and starts unlinked |
 | `9` | Accepted |
 | `> 9` | Rejected: “This backup came from a newer version (schema N)” |
 | Non-integer | Rejected: “Backup has no version number” |
@@ -286,7 +286,7 @@ Identity is the UUID, not the name. Importing a full backup from a different ins
 
 This is deliberate: automatically merging by name would risk attaching transactions to the wrong account. If you want to combine installations, import into an empty database or accept that duplicate-named rows will appear and clean up manually.
 
-Categories are the exception. They are compared by case-insensitive name because the database refuses two live categories with the same name; a restored category with a local twin is counted as skipped, and every imported transaction that pointed at the file's category is relinked to the local row (text included), so the link is never left dangling.
+Categories are the exception. They are compared by case-insensitive name because the database refuses two live categories with the same name; a restored category with a local twin is counted as skipped, and every imported transaction that pointed at the file's category is relinked to the local row, whether it carried the id or only the spelling, so the link is never left dangling. A category row with no name, or a name longer than the 60 characters the ledger allows, is reported instead of written as a row the app could never save again.
 
 ### Tombstones
 

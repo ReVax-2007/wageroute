@@ -604,10 +604,135 @@ test('a restored reserve takes its bill’s strategy unless the file states one'
 
   assert.deepEqual(result.issues, [])
   const rows = db
-    .prepare('SELECT id, strategy, settled_by FROM bill_reserves ORDER BY id')
+    .prepare('SELECT id, strategy, due_day, settled_by FROM bill_reserves ORDER BY id')
     .all()
   assert.deepEqual(rows, [
-    { id: 'res-1', strategy: 'last_check', settled_by: null },
-    { id: 'res-2', strategy: 'first_check', settled_by: null }
+    { id: 'res-1', strategy: 'last_check', due_day: 1, settled_by: null },
+    { id: 'res-2', strategy: 'first_check', due_day: 1, settled_by: null }
   ])
+})
+
+test('a restored reserve keeps the due day the file states', () => {
+  const db = freshDb()
+  const result = mergeBackup(
+    db,
+    USER_ID,
+    payload({
+      accounts: [{ id: 'acc-1', user_id: USER_ID, name: 'Chequing', kind: 'checking' }],
+      bills: [
+        {
+          id: 'bill-1',
+          user_id: USER_ID,
+          name: 'Rent',
+          amount_cents: 120000,
+          frequency: 'monthly',
+          due_day: 1,
+          account_id: 'acc-1'
+        }
+      ],
+      paychecks: [
+        {
+          id: 'pay-1',
+          user_id: USER_ID,
+          amount_cents: 500000,
+          received_on: '2026-01-31',
+          source: 'Paycheck',
+          health: 'covered'
+        }
+      ],
+      bill_reserves: [
+        {
+          id: 'res-1',
+          user_id: USER_ID,
+          bill_id: 'bill-1',
+          paycheck_id: 'pay-1',
+          cycle: '2026-01',
+          amount_cents: 120000,
+          state: 'reserved',
+          due_day: 28
+        }
+      ]
+    })
+  )
+
+  assert.deepEqual(result.issues, [])
+  assert.equal(
+    (db.prepare('SELECT due_day FROM bill_reserves WHERE id = ?').get('res-1') as { due_day: number })
+      .due_day,
+    28
+  )
+})
+
+test('a category without a name is reported instead of stored blank', () => {
+  const db = freshDb()
+  const result = mergeBackup(
+    db,
+    USER_ID,
+    payload({
+      categories: [{ id: 'cat-1', user_id: USER_ID, kind: 'expense' }]
+    })
+  )
+
+  assert.equal(result.added.categories, 0)
+  assert.equal(result.issues.length, 1)
+  assert.match(result.issues[0].message, /no category name/)
+  assert.equal(
+    (db.prepare('SELECT COUNT(*) AS count FROM categories').get() as { count: number }).count,
+    0
+  )
+})
+
+test('a category name longer than the ledger allows is reported, not imported', () => {
+  const db = freshDb()
+  const result = mergeBackup(
+    db,
+    USER_ID,
+    payload({
+      categories: [
+        { id: 'cat-1', user_id: USER_ID, name: 'x'.repeat(61), kind: 'expense' }
+      ]
+    })
+  )
+
+  assert.equal(result.added.categories, 0)
+  assert.equal(result.issues.length, 1)
+  assert.match(result.issues[0].message, /longer than 60 characters/)
+  assert.equal(
+    (db.prepare('SELECT COUNT(*) AS count FROM categories').get() as { count: number }).count,
+    0
+  )
+})
+
+test('a transaction that names its category only by spelling links to the live row', () => {
+  const db = freshDb()
+  db.prepare(
+    `INSERT INTO categories (id, user_id, name, kind, color, created_at, updated_at, revision)
+     VALUES ('cat-live', ?, 'Café', 'expense', NULL,
+             '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 1)`
+  ).run(USER_ID)
+  const result = mergeBackup(
+    db,
+    USER_ID,
+    payload({
+      accounts: [{ id: 'acc-1', user_id: USER_ID, name: 'Chequing', kind: 'checking' }],
+      transactions: [
+        {
+          id: 'tx-1',
+          user_id: USER_ID,
+          account_id: 'acc-1',
+          kind: 'expense',
+          amount_cents: -1200,
+          occurred_on: '2026-03-02',
+          category: 'CAFÉ'
+        }
+      ]
+    })
+  )
+
+  assert.deepEqual(result.issues, [])
+  const row = db
+    .prepare('SELECT category, category_id FROM transactions WHERE id = ?')
+    .get('tx-1') as { category: string; category_id: string }
+  assert.equal(row.category, 'Café', 'the local spelling wins')
+  assert.equal(row.category_id, 'cat-live', 'the entry links to the live row')
 })

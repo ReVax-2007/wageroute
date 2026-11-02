@@ -64,8 +64,27 @@ export function PriorityWall() {
     if (rows.some((reserve) => reserve.state === 'paid')) return 'paid'
     return rows.length > 0 ? 'reserved' : null
   }
-  const nextCheckReserve = (bill: Bill): number =>
-    billFundingReserveCents({
+  const nextCheckMonth = nextCheck?.slice(0, 7) ?? null
+  const nextCheckClaims = snapshot.billReserves.filter(
+    (reserve) =>
+      reserve.cycle === nextCheckMonth && reserve.state === 'reserved'
+  )
+  const nextCheckPayments =
+    nextCheckMonth === monthlyKey
+      ? new Map(
+          snapshot.billPaymentsThisMonth.map((total) => [
+            total.billId,
+            Math.max(0, total.paidCents - total.creditCents)
+          ])
+        )
+      : new Map<string, number>()
+  const nextCheckReserve = (bill: Bill): number => {
+    // Every claim this month already covers that much of the bill, whatever
+    // strategy wrote it, so the next cheque funds only the remainder.
+    const claimedCents = nextCheckClaims
+      .filter((reserve) => reserve.billId === bill.id)
+      .reduce((total, reserve) => total + reserve.amountCents, 0)
+    return billFundingReserveCents({
       amountCents: bill.amountCents,
       frequency: bill.frequency,
       cadence: settings.payCadence,
@@ -73,8 +92,11 @@ export function PriorityWall() {
       fundingStrategy: bill.fundingStrategy,
       fundingPaycheckIndex: bill.fundingPaycheckIndex,
       paycheckDate: nextCheck,
-      payAnchorDate: anchor
+      payAnchorDate: anchor,
+      paidThisMonthCents: nextCheckPayments.get(bill.id) ?? 0,
+      claimedThisMonthCents: claimedCents
     })
+  }
   const nextCheckTotal = nextCheck
     ? active.reduce((total, bill) => total + nextCheckReserve(bill), 0)
     : null
@@ -121,9 +143,16 @@ export function PriorityWall() {
           <span className="stat-hint">
             {reservesThisMonth.length > 0
               ? `${formatMoney(
-                  reservesThisMonth.reduce((total, reserve) => total + reserve.amountCents, 0),
+                  reservesThisMonth
+                    .filter((reserve) => reserve.state === 'reserved')
+                    .reduce((total, reserve) => total + reserve.amountCents, 0),
                   currency
-                )} reserved this month · ${reservesThisMonth.filter((reserve) => reserve.state === 'paid').length} paid`
+                )} reserved this month · ${formatMoney(
+                  reservesThisMonth
+                    .filter((reserve) => reserve.state === 'paid')
+                    .reduce((total, reserve) => total + reserve.amountCents, 0),
+                  currency
+                )} paid`
               : 'Smoothed across cadences'}
           </span>
         </div>

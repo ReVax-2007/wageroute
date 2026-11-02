@@ -124,22 +124,14 @@ export function buildAllocationPlan(input: AllocatorInput): AllocationPlan {
   }
 
   const allClaimed = new Map<string, number>()
-  const wholeMonthClaimed = new Map<string, number>()
   for (const claim of input.monthClaims ?? []) {
     const amount = Math.max(0, Math.round(claim.amountCents))
     allClaimed.set(claim.billId, (allClaimed.get(claim.billId) ?? 0) + amount)
-    if (claim.strategy !== 'all_checks') {
-      wholeMonthClaimed.set(claim.billId, (wholeMonthClaimed.get(claim.billId) ?? 0) + amount)
-    }
   }
   const priorityReserves = input.bills.map<PriorityReserve>((bill) => {
-    // A spread bill's earlier instalments are already represented by the
-    // spread formula, so only a whole-month claim reduces it. A single-check
-    // bill owes whatever the month has neither paid nor claimed.
-    const claimed =
-      (bill.fundingStrategy ?? 'all_checks') !== 'all_checks'
-        ? allClaimed.get(bill.id)
-        : wholeMonthClaimed.get(bill.id)
+    // Every claim written this month—whatever strategy wrote it—already covers
+    // that much of the bill, so the cheque funds only the month's remainder.
+    const claimed = allClaimed.get(bill.id)
     return {
       billId: bill.id,
       name: bill.name,

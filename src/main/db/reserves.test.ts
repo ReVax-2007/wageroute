@@ -91,6 +91,7 @@ test('a route records the wall reservation for the month it funds', () => {
   assert.equal(reserve.amountCents, 120_000)
   assert.equal(reserve.state, 'reserved')
   assert.equal(reserve.strategy, 'first_check', 'the claim records how it was written')
+  assert.equal(reserve.dueDay, 15, 'the claim records the due day it was written against')
   assert.equal(reserve.settledBy, null)
   assert.deepEqual(claimsThisMonthFor(db, USER_ID, '2026-03'), [
     { billId: reserve.billId, amountCents: 120_000, strategy: 'first_check' }
@@ -368,4 +369,125 @@ test('deleting a bill releases the reservations it was carrying', () => {
   deleteBill(db, USER_ID, billId)
   assert.deepEqual(listBillReserves(db, USER_ID), [])
   assert.deepEqual(claimsThisMonthFor(db, USER_ID, '2026-03'), [])
+})
+
+test('one payment cannot close two months of carry', () => {
+  const db = freshDb()
+  const accountId = checking(db)
+  const billId = rent(db, accountId, 1, 'first_check')
+  route(db, accountId, '2025-12-31', 500_000, false, 'monthly')
+  route(db, accountId, '2026-01-31', 500_000, false, 'monthly')
+
+  const paymentId = createTransaction(db, USER_ID, {
+    accountId,
+    kind: 'bill_payment',
+    amountCents: -120_000,
+    occurredOn: '2026-02-01',
+    memo: 'Rent',
+    category: 'Housing',
+    billId
+  })
+  // The February cheque's backstop sees the same February payment, but that
+  // money already closed December's claim.
+  route(db, accountId, '2026-02-05', 500_000, false, 'monthly')
+
+  const rows = listBillReserves(db, USER_ID)
+  const paid = rows.filter((row) => row.state === 'paid')
+  assert.equal(paid.length, 1, 'one payment settles one claim')
+  assert.equal(paid[0].cycle, '2025-12')
+  assert.equal(paid[0].settledBy, paymentId)
+  assert.equal(
+    rows.find((row) => row.cycle === '2026-01')?.state,
+    'reserved',
+    'January’s claim was not paid by the money that settled December'
+  )
+})
+
+test('deleting a payment leaves the claim a different payment closed paid', () => {
+  const db = freshDb()
+  const accountId = checking(db)
+  const billId = rent(db, accountId, 1, 'first_check')
+  route(db, accountId, '2026-01-31', 500_000, false, 'monthly')
+  route(db, accountId, '2026-02-05', 500_000, false, 'monthly')
+
+  const januaryPayment = createTransaction(db, USER_ID, {
+    accountId,
+    kind: 'bill_payment',
+    amountCents: -120_000,
+    occurredOn: '2026-02-01',
+    memo: 'Rent January',
+    category: 'Housing',
+    billId
+  })
+  const februaryPayment = createTransaction(db, USER_ID, {
+    accountId,
+    kind: 'bill_payment',
+    amountCents: -120_000,
+    occurredOn: '2026-02-10',
+    memo: 'Rent February',
+    category: 'Housing',
+    billId
+  })
+
+  deleteTransaction(db, USER_ID, januaryPayment)
+  const byCycle = new Map(listBillReserves(db, USER_ID).map((row) => [row.cycle, row]))
+  assert.equal(byCycle.get('2026-01')?.state, 'reserved', 'January is owed again')
+  assert.equal(byCycle.get('2026-02')?.state, 'paid')
+  assert.equal(
+    byCycle.get('2026-02')?.settledBy,
+    februaryPayment,
+    'the February claim still names the payment that closed it'
+  )
+})
+
+test('switching back to every-check after a whole-month claim reserves nothing more', () => {
+  const db = freshDb()
+  const accountId = checking(db)
+  const billId = rent(db, accountId, 15, 'all_checks')
+  route(db, accountId, '2026-03-05')
+  updateBill(db, USER_ID, billId, { fundingStrategy: 'last_check' })
+  route(db, accountId, '2026-03-20')
+  updateBill(db, USER_ID, billId, { fundingStrategy: 'all_checks' })
+
+  const third = route(db, accountId, '2026-03-25')
+  assert.ok(third.plan)
+  assert.equal(
+    third.plan.priorityReserves.find((reserve) => reserve.billId === billId)?.reserveCents,
+    0,
+    'the two earlier claims already cover the month'
+  )
+  assert.equal(
+    claimsThisMonthFor(db, USER_ID, '2026-03').reduce(
+      (total, claim) => total + claim.amountCents,
+      0
+    ),
+    120_000,
+    'the month never claims more than the bill'
+  )
+})
+
+test('changing the due day does not rewrite how an old claim carries', () => {
+  const db = freshDb()
+  const accountId = checking(db)
+  const billId = rent(db, accountId, 1, 'first_check')
+  route(db, accountId, '2026-01-31', 500_000, false, 'monthly')
+  updateBill(db, USER_ID, billId, { dueDay: 31 })
+
+  createTransaction(db, USER_ID, {
+    accountId,
+    kind: 'bill_payment',
+    amountCents: -120_000,
+    occurredOn: '2026-02-01',
+    memo: 'Rent',
+    category: 'Housing',
+    billId
+  })
+
+  const [january] = listBillReserves(db, USER_ID)
+  assert.equal(january.dueDay, 1, 'the claim kept the day it was written against')
+  assert.equal(
+    january.state,
+    'paid',
+    'the 31 January cheque still funds the 1 February due date'
+  )
 })

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { monthlyEquivalentCents } from '@shared/cadence'
 import type {
   Bill,
   BillFundingStrategy,
@@ -180,7 +181,7 @@ export function listBillReserves(db: Db, userId: string): BillReserve[] {
     .prepare(
       `SELECT id, user_id AS userId, bill_id AS billId, paycheck_id AS paycheckId,
               cycle, amount_cents AS amountCents, state, strategy,
-              settled_by AS settledBy,
+              due_day AS dueDay, settled_by AS settledBy,
               created_at AS createdAt, updated_at AS updatedAt,
               deleted_at AS deletedAt, revision
        FROM bill_reserves
@@ -221,29 +222,49 @@ export function recordBillReserves(
   reserves: readonly { billId: string; reserveCents: number }[]
 ): void {
   const ts = nowISO()
-  const strategyOf = db.prepare(
-    'SELECT funding_strategy AS strategy FROM bills WHERE id = ? AND user_id = ?'
+  const billOf = db.prepare(
+    `SELECT funding_strategy AS strategy, due_day AS dueDay,
+            amount_cents AS amountCents, frequency
+     FROM bills WHERE id = ? AND user_id = ?`
+  )
+  const claimedOf = db.prepare(
+    `SELECT COALESCE(SUM(amount_cents), 0) AS total
+     FROM bill_reserves
+     WHERE user_id = ? AND bill_id = ? AND cycle = ? AND deleted_at IS NULL`
   )
   const insert = db.prepare(
     `INSERT INTO bill_reserves
        (id, user_id, bill_id, paycheck_id, cycle, amount_cents, state, strategy,
-        settled_by, created_at, updated_at, deleted_at, revision)
-     VALUES (?, ?, ?, ?, ?, ?, 'reserved', ?, NULL, ?, ?, NULL, 1)`
+        due_day, settled_by, created_at, updated_at, deleted_at, revision)
+     VALUES (?, ?, ?, ?, ?, ?, 'reserved', ?, ?, NULL, ?, ?, NULL, 1)`
   )
   for (const reserve of reserves) {
     if (reserve.reserveCents <= 0) continue
-    const row = strategyOf.get(reserve.billId, userId) as
-      | { strategy: BillFundingStrategy }
+    const row = billOf.get(reserve.billId, userId) as
+      | {
+          strategy: BillFundingStrategy
+          dueDay: number
+          amountCents: number
+          frequency: Frequency
+        }
       | undefined
     if (!row) continue
+    // A strategy switch can ask the same month to reserve again. The month's
+    // claims may never add up to more than the bill itself, so record only the
+    // part no earlier cheque already claimed.
+    const claimed = (claimedOf.get(userId, reserve.billId, cycle) as { total: number }).total
+    const remaining = monthlyEquivalentCents(row.amountCents, row.frequency) - claimed
+    const amountCents = Math.min(reserve.reserveCents, remaining)
+    if (amountCents <= 0) continue
     insert.run(
       randomUUID(),
       userId,
       reserve.billId,
       paycheckId,
       cycle,
-      reserve.reserveCents,
+      amountCents,
       row.strategy,
+      row.dueDay,
       ts,
       ts
     )
@@ -302,12 +323,11 @@ function settleEarlierBillReserve(
      SET state = 'paid', settled_by = ?, updated_at = ?, revision = revision + 1
      WHERE id = (
        SELECT r.id FROM bill_reserves r
-       JOIN bills b ON b.id = r.bill_id AND b.user_id = r.user_id
        JOIN paychecks p ON p.id = r.paycheck_id AND p.user_id = r.user_id
                        AND p.deleted_at IS NULL
        WHERE r.user_id = ? AND r.bill_id = ? AND r.cycle < ?
          AND r.state = 'reserved' AND r.deleted_at IS NULL
-         AND CAST(substr(p.received_on, 9, 2) AS INTEGER) > b.due_day
+         AND CAST(substr(p.received_on, 9, 2) AS INTEGER) > r.due_day
        ORDER BY r.cycle ASC, r.created_at ASC
        LIMIT 1
      )`
@@ -343,7 +363,8 @@ export function reopenCycleClaim(
   db.prepare(
     `UPDATE bill_reserves
      SET state = 'reserved', settled_by = NULL, updated_at = ?, revision = revision + 1
-     WHERE user_id = ? AND bill_id = ? AND cycle = ? AND deleted_at IS NULL AND state <> 'reserved'`
+     WHERE user_id = ? AND bill_id = ? AND cycle = ? AND deleted_at IS NULL
+       AND state <> 'reserved' AND settled_by IS NULL`
   ).run(ts, userId, billId, occurredOn.slice(0, 7))
 }
 
@@ -358,7 +379,14 @@ export function settleEarlierBillReserves(
   cycle: string,
   payments: readonly { billId: string; transactionId: string }[]
 ): void {
+  // A payment closes one claim, once. Re-using a payment that already settled
+  // something would close a second month with money that only left once.
+  const alreadySettled = db.prepare(
+    `SELECT 1 AS found FROM bill_reserves
+     WHERE user_id = ? AND settled_by = ? AND deleted_at IS NULL`
+  )
   for (const payment of payments) {
+    if (alreadySettled.get(userId, payment.transactionId)) continue
     settleEarlierBillReserve(db, userId, cycle, payment.billId, payment.transactionId)
   }
 }
