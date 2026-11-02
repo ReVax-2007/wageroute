@@ -5,6 +5,10 @@ import type {
   ImportPreview,
   ImportResult,
   LegalTexts,
+  StorageCandidate,
+  StorageLocationInfo,
+  StorageMoveMode,
+  StorageMoveResult,
   WriteResult
 } from './api'
 import type { ImportAnswer } from './importRepair'
@@ -39,6 +43,13 @@ export interface IpcContract {
   'app:info': { args: []; result: AppInfo }
   'app:diagnostics': { args: []; result: AppDiagnostics }
   'app:legal': { args: []; result: LegalTexts }
+  'storage:location': { args: []; result: StorageLocationInfo }
+  'storage:choose': { args: []; result: StorageCandidate | null }
+  'storage:apply': {
+    args: [string, StorageMoveMode]
+    result: StorageMoveResult
+  }
+  'storage:default': { args: []; result: StorageMoveResult }
 
   'account:create': { args: [AccountInput]; result: WriteResult<string> }
   'account:update': { args: [string, Partial<AccountInput>]; result: WriteResult<void> }
@@ -95,6 +106,10 @@ export const CHANNELS = [
   'app:info',
   'app:diagnostics',
   'app:legal',
+  'storage:location',
+  'storage:choose',
+  'storage:apply',
+  'storage:default',
   'account:create',
   'account:update',
   'account:delete',

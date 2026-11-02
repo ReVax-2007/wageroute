@@ -1,4 +1,11 @@
-import { app, BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  type IpcMainInvokeEvent,
+  type OpenDialogOptions
+} from 'electron'
 import { randomUUID } from 'node:crypto'
 import { readFileSync, statSync } from 'node:fs'
 import { join, basename } from 'node:path'
@@ -59,7 +66,16 @@ import type {
   TransactionPatch,
   TransactionRowsPatch
 } from '@shared/types'
-import { backupsPath, databasePath } from './db/connection'
+import { backupsPath, closeDatabase, databasePath, storageLocation } from './db/connection'
+import { DB_FILE } from './db/legacy'
+import {
+  backupFileAside,
+  copyLedgerInto,
+  copyLedgerToBackups,
+  describeStorageCandidate,
+  planStorageMove,
+  writeStoragePointer
+} from './storage'
 import { backupBeforeErase } from './db/maintenance'
 import { logPath, recentLogTail } from './log'
 import {
@@ -77,6 +93,18 @@ import { isTrustedPageUrl } from './window-security'
 import * as repo from './db/repositories'
 
 const MAX_IMPORT_BYTES = 64 * 1024 * 1024
+
+/**
+ * A storage switch is only complete when the process starts again in the new
+ * folder: the database handle and every handler around it were bound to the old
+ * one. The short delay lets the IPC reply leave before the app restarts.
+ */
+function relaunchSoon(): void {
+  setTimeout(() => {
+    app.relaunch()
+    app.exit(0)
+  }, 150)
+}
 
 function requireId(value: unknown): string {
   if (typeof value !== 'string' || value.length === 0) throw new Error('Invalid id')
@@ -501,6 +529,60 @@ export function registerIpcHandlers(db: Database.Database): void {
       }
     }
     return { license: read('LICENSE'), notices: read('THIRD-PARTY-NOTICES.txt') }
+  })
+
+  handle('storage:location', () => storageLocation())
+
+  handle('storage:choose', async (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    const options: OpenDialogOptions = {
+      title: 'Choose where WageRoute keeps your data',
+      buttonLabel: 'Inspect this folder',
+      properties: ['openDirectory', 'createDirectory']
+    }
+    const result = window
+      ? await dialog.showOpenDialog(window, options)
+      : await dialog.showOpenDialog(options)
+    if (result.canceled || result.filePaths.length === 0) return null
+    return describeStorageCandidate(result.filePaths[0])
+  })
+
+  handle('storage:apply', async (_event, directory: unknown, mode: unknown) => {
+    if (typeof directory !== 'string' || directory.trim() === '') {
+      throw new RepositoryError('VALIDATION', 'Pick a folder first.')
+    }
+    if (mode !== 'adopt' && mode !== 'move' && mode !== 'fresh') {
+      throw new RepositoryError('VALIDATION', 'Choose whether to open, move or start fresh.')
+    }
+    const userData = app.getPath('userData')
+    const plan = planStorageMove(userData, directory, mode)
+    if (plan.mode === 'move') {
+      // Both copies are required: one in the old folder so a switch can be
+      // undone, one in the new folder so it opens with the same ledger.
+      await copyLedgerToBackups(db, storageLocation().directory)
+      await copyLedgerInto(db, plan.directory)
+    }
+    writeStoragePointer(userData, plan.directory)
+    // The running handle still points at the old file. Stop touching it, then
+    // reopen in the new folder through the normal boot path.
+    closeDatabase()
+    relaunchSoon()
+    return { directory: plan.directory, restartRequired: true as const }
+  })
+
+  handle('storage:default', async () => {
+    const userData = app.getPath('userData')
+    if (storageLocation().isDefault) {
+      throw new RepositoryError('VALIDATION', 'WageRoute already keeps its data on this computer.')
+    }
+    // Returning is a move too: the ledger now in use becomes the local one, and
+    // the local file it replaces is kept aside first.
+    backupFileAside(join(userData, DB_FILE), userData, 'pre-return')
+    await copyLedgerInto(db, userData)
+    writeStoragePointer(userData, null)
+    closeDatabase()
+    relaunchSoon()
+    return { directory: userData, restartRequired: true as const }
   })
 
   handle('account:create', (_event, input: AccountInput) =>

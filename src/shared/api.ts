@@ -168,12 +168,52 @@ export interface LegalTexts {
   notices: string
 }
 
+/** Where the ledger and its safety copies currently live. */
+export interface StorageLocationInfo {
+  directory: string
+  defaultDirectory: string
+  backupsDirectory: string
+  isDefault: boolean
+}
+
+/** What a picked folder holds, before the user decides what to do with it. */
+export interface StorageCandidate {
+  directory: string
+  hasLedger: boolean
+  schemaVersion: number | null
+  locked: boolean
+  lockedBy: string | null
+}
+
+/**
+ * `adopt` opens a ledger that is already in the folder (another computer's data,
+ * or this computer's earlier copy). `move` copies this computer's ledger into an
+ * empty folder. `fresh` starts a new empty ledger there.
+ */
+export type StorageMoveMode = 'adopt' | 'move' | 'fresh'
+
+export interface StorageMoveResult {
+  directory: string
+  restartRequired: true
+}
+
 export interface FinanceApi {
   getSnapshot(): Promise<Snapshot>
   getDatabasePath(): Promise<string>
   getAppInfo(): Promise<AppInfo>
   getDiagnostics(): Promise<AppDiagnostics>
   getLegalTexts(): Promise<LegalTexts>
+  /** Where the ledger lives now, and whether that is the app's own folder. */
+  getStorageLocation(): Promise<StorageLocationInfo>
+  /** Opens the folder picker and inspects what is there; null when cancelled. */
+  chooseStorageDirectory(): Promise<StorageCandidate | null>
+  /**
+   * Points WageRoute at a folder and restarts it. The call does not resolve when
+   * the switch succeeds: the process exits so the next launch opens the new data.
+   */
+  applyStorageDirectory(directory: string, mode: StorageMoveMode): Promise<StorageMoveResult>
+  /** Returns to the per-user folder this computer keeps, and restarts. */
+  useDefaultStorage(): Promise<StorageMoveResult>
 
   createAccount(input: AccountInput): Promise<WriteResult<string>>
   updateAccount(id: string, input: Partial<AccountInput>): Promise<WriteResult<void>>

@@ -156,6 +156,16 @@ Work merged to `main` after `v1.2.0`. None of it is in an installer yet; the `[U
 - Every allocator warning, dialog hint and empty state is rewritten as plain sentences; the paycheck plan stores its saved lines as **Bill money** and **Fun money**.
 - Internal identifiers are untouched: screen ids (`wall`), bucket keys (`priority`, `savings`, `leisure`), selectors and schema stay as they were, so existing databases and backups are unaffected. `PriorityWall.test.ts` and `Allocator.test.ts` assert the new copy.
 
+### Batch 30 — the ledger can live in a folder you choose
+
+- **Settings → Where your data lives** shows the current folder and can point WageRoute at a NAS share, external disk or synced folder. The choice is recorded in `storage.json` in the per-user folder, outside the database.
+- Picking a folder returns what it holds: **open** an existing ledger (the local one is untouched), **move** the current ledger into an empty folder (with a `pre-move-*.db` safety copy), or **start empty** there. **Move it back to this computer** copies the external ledger over the local one after a `pre-return-*.db` copy.
+- Every switch validates the folder, refuses a ledger newer than this build, writes the pointer, closes the database and restarts. Boot opens the chosen file through the existing path.
+- `wageroute.lock` records hostname, PID and start time and is refreshed every 30 seconds. A live lock refuses a second computer; a lock untouched for three minutes is abandoned. A running app that finds its lock replaced closes the database and quits.
+- A chosen folder uses `journal_mode = DELETE`, `synchronous = FULL` and no mmap; the default per-user folder keeps WAL. A missing recorded folder stops the app with its path instead of falling back to a local copy.
+- New `src/main/storage.test.ts` (15 cases): pointer roundtrip and malformed/missing targets, live/dead/stale locks, schema inspection, adopt/move/fresh validation, newer-schema refusal, same-folder refusal, candidate reporting, the copy with its safety copy and sidecar removal, and the failed-copy cleanup. `npm test` is **377 tests across forty-three files**; lint 134 files.
+- [ADR 0022](decisions/0022-the-ledger-can-live-in-a-folder-you-choose.md) records the pointer, the lock, the restart and the journaling choice. FEATURES, SECURITY and README describe the feature and its limits.
+
 ### Before the next build
 
 - [x] Run the four gates on the final tree: `npm run lint`, `npm test`, `npm run build` (includes both type checks), and `npx electron-builder --dir --publish never`. *(2026-11-02, Batch 27: lint 127 files clean, 345/345 tests, build clean; packaging re-run below.)*
