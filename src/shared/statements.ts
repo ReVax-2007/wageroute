@@ -1,6 +1,7 @@
 import type { CsvEntry, CsvIssue } from './csv'
 import { isISODate } from './dates'
 import { parseMoneyToCents } from './money'
+import type { AccountKind } from './types'
 
 /**
  * What a statement says about itself. The importer prints this above the file's
@@ -26,6 +27,55 @@ export interface StatementParse {
   entries: CsvEntry[]
   issues: CsvIssue[]
   statement: StatementInfo
+}
+
+/**
+ * A statement's closing balance in the ledger's own sign. A card statement
+ * prints what is owed as a positive number while the ledger stores debt as a
+ * negative balance; cash, savings and investment accounts keep the file's sign.
+ */
+export function ledgerStatementCents(balanceCents: number, accountKind: AccountKind): number {
+  return accountKind === 'credit' ? -Math.abs(balanceCents) : balanceCents
+}
+
+/** What one statement's closing balance says about the account it belongs to. */
+export interface StatementReconciliation {
+  accountId: string
+  accountName: string
+  accountKind: AccountKind
+  /** The day the bank closed the statement on. */
+  balanceOn: string
+  /** The statement's closing balance, in the ledger's sign. */
+  statementCents: number
+  /** What the account held on that day once the statement's lines landed. */
+  ledgerCents: number
+  /** `statementCents − ledgerCents`: the adjustment that would make them agree. */
+  differenceCents: number
+}
+
+/**
+ * Compares the bank's own closing figure with the ledger on the day it closed.
+ * The comparison is made after the import, because the statement's own lines
+ * are what should bring the two together.
+ */
+export function reconcileStatement(input: {
+  accountId: string
+  accountName: string
+  accountKind: AccountKind
+  statementCents: number
+  ledgerCents: number
+  balanceOn: string
+}): StatementReconciliation {
+  const statementCents = ledgerStatementCents(input.statementCents, input.accountKind)
+  return {
+    accountId: input.accountId,
+    accountName: input.accountName,
+    accountKind: input.accountKind,
+    balanceOn: input.balanceOn,
+    statementCents,
+    ledgerCents: input.ledgerCents,
+    differenceCents: statementCents - input.ledgerCents
+  }
 }
 
 const ENTITIES: Record<string, string> = {

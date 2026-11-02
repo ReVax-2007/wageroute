@@ -24,7 +24,7 @@ import type {
   TransactionPatch,
   TransactionRowsPatch
 } from './types'
-import type { StatementInfo } from './statements'
+import type { StatementInfo, StatementReconciliation } from './statements'
 
 export interface CommittedPaycheck {
   paycheckId: string
@@ -106,6 +106,12 @@ export interface ImportResult {
   skipped: ImportCounts
   dropped: ImportDroppedRow[]
   issues: ImportIssue[]
+  /**
+   * Present when a statement carried a closing balance and its account was
+   * mapped. The comparison is made after the import, so it describes the
+   * ledger as it stands rather than a projection.
+   */
+  reconciliation?: StatementReconciliation
 }
 
 export function emptyImportCounts(): ImportCounts {
@@ -224,5 +230,15 @@ export interface FinanceApi {
   previewImport(): Promise<ImportPreview | null>
   /** Runs the import for a preview token, applying the wizard's answers. */
   confirmImport(token: string, answers: ImportAnswer[]): Promise<ImportResult>
+  /**
+   * Posts one adjustment so the account's balance on `balanceOn` equals the
+   * statement's closing figure. Resolves to the amount posted; zero means the
+   * ledger already agreed and nothing was written.
+   */
+  reconcileStatement(
+    accountId: string,
+    statementCents: number,
+    balanceOn: string
+  ): Promise<WriteResult<number>>
   resetData(): Promise<WriteResult<void>>
 }

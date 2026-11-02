@@ -1,5 +1,6 @@
 import type { AppInfo, ImportPreview } from '@shared/api'
 import type { ImportAnswer } from '@shared/importRepair'
+import type { StatementReconciliation } from '@shared/statements'
 import type {
   AccountInput,
   AccountWithBalance,
@@ -63,6 +64,8 @@ export interface DataSlice {
   appInfo: AppInfo | null
   importPreview: ImportPreview | null
   importStep: 'fix' | 'review'
+  /** A just-imported statement whose closing balance disagrees with the ledger. */
+  reconciliation: StatementReconciliation | null
   /** Boot, import, reset and export: everything that blocks the whole window. */
   busy: boolean
   /** Row-level writes in flight, keyed by id, so one save does not freeze the app. */
@@ -111,6 +114,9 @@ export interface DataSlice {
   goImportStep: (step: 'fix' | 'review') => void
   /** Resolves to an error message on failure, or null once the wizard can close. */
   runImport: (answers: ImportAnswer[]) => Promise<string | null>
+  /** Posts the one entry that brings the account to the statement's figure. */
+  reconcileStatement: (reconciliation: StatementReconciliation) => Promise<boolean>
+  dismissReconciliation: () => void
   resetData: () => Promise<void>
 }
 

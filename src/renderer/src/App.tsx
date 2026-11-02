@@ -20,6 +20,11 @@ const Allocator = lazy(() =>
 const ImportWizard = lazy(() =>
   import('./components/ImportWizard').then((module) => ({ default: module.ImportWizard }))
 )
+const ReconcileStatementDialog = lazy(() =>
+  import('./components/dialogs/ReconcileStatementDialog').then((module) => ({
+    default: module.ReconcileStatementDialog
+  }))
+)
 
 const SCREEN_LABEL: Record<Screen, string> = {
   dashboard: 'Overview',
@@ -112,6 +117,7 @@ export default function App() {
       <Suspense fallback={null}>
         <Allocator />
         <ImportWizard />
+        <ReconcileStatementDialog />
       </Suspense>
       <ConfirmDialog />
       <Toast />

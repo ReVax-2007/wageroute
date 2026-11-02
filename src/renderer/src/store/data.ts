@@ -138,6 +138,7 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
     appInfo: null,
     importPreview: null,
     importStep: 'fix',
+    reconciliation: null,
     busy: false,
     pending: {},
 
@@ -350,7 +351,9 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
         if (!preview) return
         set({
           importPreview: preview,
-          importStep: preview.problems.length > 0 ? 'fix' : 'review'
+          importStep: preview.problems.length > 0 ? 'fix' : 'review',
+          // A second file replaces the first answer rather than stacking two.
+          reconciliation: null
         })
       } catch (error) {
         get().notify(messageOf(error), 'error')
@@ -379,6 +382,12 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
         const dropped = result.dropped.length
         const refused = result.issues.length
         const noun = result.format === 'entries' ? 'entries' : 'records'
+        // A disagreement is asked about in its own dialog, which can post the
+        // one adjustment; an agreement is worth saying out loud and nothing more.
+        const reconciliation = result.reconciliation
+        if (reconciliation && reconciliation.differenceCents !== 0) {
+          set({ reconciliation })
+        }
 
         if (added === 0) {
           if (dropped > 0 || refused > 0) {
@@ -401,6 +410,9 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
         if (dropped > 0) parts.push(`${dropped} ${dropped === 1 ? 'row' : 'rows'} left out`)
         if (refused > 0)
           parts.push(`${refused} ${refused === 1 ? 'row' : 'rows'} could not be imported`)
+        if (reconciliation?.differenceCents === 0) {
+          parts.push('the closing balance matches')
+        }
         get().notify(parts.join(' · '))
         return null
       } catch (error) {
@@ -411,6 +423,22 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
         set({ busy: false })
       }
     },
+
+    reconcileStatement: async (reconciliation) => {
+      const done = await run(
+        () =>
+          window.api.reconcileStatement(
+            reconciliation.accountId,
+            reconciliation.statementCents,
+            reconciliation.balanceOn
+          ),
+        'Statement reconciled'
+      )
+      if (done) set({ reconciliation: null })
+      return done
+    },
+
+    dismissReconciliation: () => set({ reconciliation: null }),
 
     resetData: async () => {
       const ok = await run(

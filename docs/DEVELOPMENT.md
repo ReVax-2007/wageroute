@@ -55,7 +55,7 @@ npm run postinstall
 | `npm run dev` | `electron-vite dev` | Dev server, main/preload rebuild, hot renderer reload |
 | `npm start` | `electron-vite preview` | Run the production bundles in `out/` |
 | `npm run lint` | `node scripts/lint.mjs` | Repository-local checks: no `debugger`, no `console.log`/`console.debug`, no `@ts-ignore`/`@ts-expect-error`, no `any` cast and no `: any` annotation |
-| `npm test` | `node --import tsx --test` (thirty-one files listed explicitly) | Domain, cadence, categories, credit, payoff, history, accounts, importer, statements, backup-example, export round-trip, merge, migration, maintenance, entries, files, seed, product model, paycheck plan, allocator property, dialog focus, preload bridge and repository tests |
+| `npm test` | `node --import tsx --test` (thirty-three files listed explicitly) | Domain, cadence, categories, credit, payoff, history, accounts, importer, statements, backup-example, export round-trip, merge, migration, maintenance, entries, files, seed, product model, reconciliation, paycheck plan, allocator property, dialog focus, reconciliation dialog, preload bridge and repository tests |
 | `npm run notices` | `node scripts/third-party-notices.mjs` | Regenerate `THIRD-PARTY-NOTICES.txt` from the production tree in `package-lock.json`; also runs as `prebuild` |
 | `npm run typecheck` | node + web type checks | Both TypeScript projects |
 | `npm run typecheck:node` | `tsc --noEmit -p tsconfig.node.json` | Main, preload, shared, config |
@@ -218,7 +218,7 @@ When a test requires moving a database aside, move it to a dated quarantine fold
 
 ## Testing
 
-Thirty-one files run by `npm test` through `node --test` with `tsx` as the loader — 241 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**; the `pretest` guard ([`scripts/check-test-list.mjs`](../scripts/check-test-list.mjs)) fails the run when a `*.test.ts` on disk is missing from that list, or when the list names a file that no longer exists.
+Thirty-three files run by `npm test` through `node --test` with `tsx` as the loader — 249 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**; the `pretest` guard ([`scripts/check-test-list.mjs`](../scripts/check-test-list.mjs)) fails the run when a `*.test.ts` on disk is missing from that list, or when the list names a file that no longer exists.
 
 | File | Style | Covers |
 | --- | --- | --- |

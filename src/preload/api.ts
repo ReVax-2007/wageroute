@@ -46,6 +46,8 @@ export function createFinanceApi(call: IpcCaller): FinanceApi {
 
     exportBackup: () => call('backup:export'),
     exportTransactionsCsv: () => call('csv:export'),
+    reconcileStatement: (accountId, statementCents, balanceOn) =>
+      call('statement:reconcile', accountId, statementCents, balanceOn),
     previewImport: () => call('data:preview'),
     confirmImport: (token, answers) => call('data:confirm', token, answers),
     resetData: () => call('data:reset')

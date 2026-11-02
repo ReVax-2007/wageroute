@@ -9,9 +9,11 @@ export {
   listAccounts,
   createAccount,
   updateAccount,
+  accountBalanceOn,
   accountEntryCount,
   deleteAccount,
   setAccountArchived,
+  type AccountOnDate,
   type DeleteAccountOptions
 } from './repo/accounts'
 export { listBills, createBill, updateBill, deleteBill } from './repo/bills'
@@ -44,6 +46,7 @@ export {
   updateTransaction,
   deleteTransaction,
   deleteTransactions,
+  reconcileAccountOn,
   type NewTransactionInput
 } from './repo/transactions'
 export {
