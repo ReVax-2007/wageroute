@@ -204,6 +204,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      # gh reads the repository from the working tree; without a checkout it
+      # fails with "fatal: not a git repository" before it can create anything.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: wageroute-*
@@ -213,9 +217,14 @@ jobs:
       - name: Hash every asset
         run: |
           cd release
-          find . -maxdepth 1 -type f -printf '%f\n' | sort | while read -r file; do
+          # SHA256SUMS is the redirection target and exists before the loop
+          # runs; hashing it would list an empty file as an asset. A glob is
+          # also portable, unlike `find -printf`.
+          for file in *; do
+            [ -f "$file" ] || continue
+            [ "$file" = SHA256SUMS ] && continue
             sha256sum "$file"
-          done > SHA256SUMS
+          done | sort > SHA256SUMS
           cat SHA256SUMS
 
       # A draft release keeps the artifacts together without publishing them;
