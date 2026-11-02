@@ -170,7 +170,7 @@ export function Settings() {
           <p className="eyebrow">Settings</p>
           <h1 className="page-title" tabIndex={-1}>Make it feel like yours</h1>
           <p className="page-sub">
-            Appearance, round-up and data portability. Everything is stored on this machine.
+            Theme, spare-change savings and your data. Everything stays on this computer.
           </p>
         </div>
       </header>
@@ -178,7 +178,7 @@ export function Settings() {
       <div className="settings-grid">
         <Card
           title="Appearance"
-          subtitle="The ledger reads the same numbers either way"
+          subtitle="Pick what feels best; your numbers do not change"
           actions={
             settings.theme === 'dark' ? (
               <Moon size={16} className="stat-icon" />
@@ -228,10 +228,10 @@ export function Settings() {
 
         <Card
           title="Paycheck"
-          subtitle="How often you are paid, what to call paydays and where the money lands"
+          subtitle="How often you are paid, what you call payday and where the money lands"
         >
           <div className="form-grid compact">
-            <Field label="Pay cadence" hint="Sets the Priority Wall's per-check figures">
+            <Field label="How often you are paid" hint="Sets the bill figures for each paycheck">
               <select
                 className="select"
                 value={settings.payCadence}
@@ -246,7 +246,7 @@ export function Settings() {
                 ))}
               </select>
             </Field>
-            <Field label="Payday label" hint="Free text, shown on the wall">
+            <Field label="What you call payday" hint="Shown on the Bills page">
               <input
                 className="input"
                 value={paydayDraft}
@@ -262,8 +262,8 @@ export function Settings() {
               />
             </Field>
             <Field
-              label="Pay schedule anchor"
-              hint="Any one real payday. Keeps the wall's next-check date on the right weekday. Leave blank to spread evenly."
+              label="One real payday"
+              hint="Any date you were paid. Keeps the next payday on the right weekday. Leave blank to spread evenly."
             >
               <input
                 className="input"
@@ -283,8 +283,8 @@ export function Settings() {
               />
             </Field>
             <Field
-              label="Default paycheck account"
-              hint="The allocator preselects this when a paycheck arrives. Applies to new paychecks; past commits are unchanged."
+              label="Default deposit account"
+              hint="New paychecks start here. Past paychecks do not change."
               wide
             >
               <select
@@ -307,18 +307,18 @@ export function Settings() {
 
         <Card
           title="Round-up"
-          subtitle="Spare change moved to savings the moment you log an expense"
+          subtitle="Spare change goes to savings whenever you log a purchase"
         >
           <div className="setting-row">
             <div>
-              <strong>Round up debit spending</strong>
+              <strong>Round up what you spend</strong>
               <p className="field-hint">
-                Every purchase — a negative expense on a checking or cash account — sweeps the
-                difference to your savings.
+                When you log a purchase from checking or cash, the difference to the next dollar
+                goes to savings.
               </p>
             </div>
             <Switch
-              label="Round up expenses"
+              label="Round up purchases"
               checked={roundUpActive}
               disabled={savingsAccounts.length === 0}
               onChange={(roundUpEnabled) =>
@@ -341,12 +341,12 @@ export function Settings() {
             <>
               <div className="setting-row">
                 <Field
-                  label="Sweep into"
+                  label="Send spare change to"
                   hint={
                     roundUpAccount
                       ? 'Where the spare change lands'
                       : settings.roundUpAccountId
-                        ? 'The saved destination no longer exists — choose a savings account.'
+                        ? 'The saved account no longer exists — choose a savings account.'
                         : 'Choose the savings account the spare change should land in.'
                   }
                 >
@@ -371,7 +371,7 @@ export function Settings() {
 
               <div className="setting-row">
                 <div>
-                  <strong>Round to</strong>
+                  <strong>Round to the nearest</strong>
                   <p className="field-hint">
                     A {formatMoney(1240, currency)} coffee sweeps{' '}
                     {formatMoney(sampleSweepCents, currency)}.
@@ -435,12 +435,12 @@ export function Settings() {
 
         <Card
           title="Emergency fund"
-          subtitle="Auto-calculated from your Priority Wall and recent spending"
+          subtitle="Based on your bills and recent spending"
         >
           <p className="field-hint">
-            The calculator lives with your sinking funds, next to the goal it targets.
+            The calculator lives with your goals, next to the goal it targets.
           </p>
-          <Button onClick={() => go('goals')}>Open sinking funds</Button>
+          <Button onClick={() => go('goals')}>Open goals</Button>
         </Card>
 
         <Card
@@ -451,14 +451,14 @@ export function Settings() {
           <div className="setting-row">
             <div>
               <strong>Version</strong>
-              <p className="field-hint">Baked into this bundle, not read from the source tree.</p>
+              <p className="field-hint">The version of this build.</p>
             </div>
             <span className="about-value">{appInfo?.version ?? '…'}</span>
           </div>
           <div className="setting-row">
             <div>
               <strong>Database schema</strong>
-              <p className="field-hint">The last migration this build applies.</p>
+              <p className="field-hint">The database version this build uses.</p>
             </div>
             <span className="about-value">
               {appInfo ? `v${appInfo.schemaVersion}` : '…'}
@@ -467,7 +467,7 @@ export function Settings() {
           <div className="setting-row">
             <div>
               <strong>Electron</strong>
-              <p className="field-hint">The runtime bundled with this build.</p>
+              <p className="field-hint">The app engine bundled with this build.</p>
             </div>
             <span className="about-value">{appInfo?.electron ?? '…'}</span>
           </div>
@@ -547,11 +547,11 @@ export function Settings() {
             </Button>
           </div>
           <p className="field-hint">
-            Erases every account, bill, sinking fund, paycheck, entry and setting, returning
-            WageRoute to a blank first-run profile. The database file stays on disk, empty, and a
-            last-resort copy is written to the app&apos;s <code>backups</code> folder first (the
-            newest three are kept). Exported backups and CSV files are not touched. The live ledger
-            cannot be recovered after this.
+            Erases every account, bill, goal, paycheck, entry and setting, returning WageRoute to a
+            blank first-run profile. The database file stays on disk, empty, and a last-resort copy
+            is written to the app&apos;s <code>backups</code> folder first (the newest three are
+            kept). Exported backups and CSV files are not touched. The live ledger cannot be
+            recovered after this.
           </p>
         </Card>
       </div>
@@ -573,7 +573,7 @@ export function Settings() {
           }
         >
           <p className="field-hint">
-            This deletes every account, bill, sinking fund, paycheck and ledger entry from the live
+            This deletes every account, bill, goal, paycheck and ledger entry from the live
             database, and resets settings to their defaults.
           </p>
           <p className="field-hint">

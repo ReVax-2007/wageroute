@@ -118,7 +118,7 @@ export function PriorityWall() {
     // month's reservation go with it, so say that rather than implying a hide.
     void askConfirm({
       title: `Delete “${bill.name}”?`,
-      body: 'Its payment check history and this month’s reservation go with it. Paused bills stay on the wall; this removes the bill itself.',
+      body: 'Its payment history and this month’s set-aside go with it. Paused bills stay on this page; this removes the bill itself.',
       confirmLabel: 'Delete bill',
       danger: true
     }).then((ok) => {
@@ -130,10 +130,10 @@ export function PriorityWall() {
     <>
       <header className="page-head">
         <div>
-          <p className="eyebrow">Priority Wall</p>
-          <h1 className="page-title" tabIndex={-1}>Bills you cannot touch</h1>
+          <p className="eyebrow">Bills</p>
+          <h1 className="page-title" tabIndex={-1}>The bills that come first</h1>
           <p className="page-sub">
-            These amounts are locked out of the surplus before a single dollar is routed.
+            Each paycheck sets these aside before any other money is spent.
           </p>
         </div>
         <Button variant="primary" icon={<Plus size={16} />} onClick={() => setEditing('new')}>
@@ -143,7 +143,7 @@ export function PriorityWall() {
 
       <div className="summary-strip">
         <div className="summary-item">
-          <span className="stat-label">Locked every month</span>
+          <span className="stat-label">Bills every month</span>
           <p className="summary-value">
             <Money cents={monthly} currency={currency} />
           </p>
@@ -154,18 +154,18 @@ export function PriorityWall() {
                     .filter((reserve) => reserve.state === 'reserved')
                     .reduce((total, reserve) => total + reserve.amountCents, 0),
                   currency
-                )} reserved this month · ${formatMoney(
+                )} set aside this month · ${formatMoney(
                   reservesThisMonth
                     .filter((reserve) => reserve.state === 'paid')
                     .reduce((total, reserve) => total + reserve.amountCents, 0),
                   currency
                 )} paid`
-              : 'Smoothed across cadences'}
+              : 'Spread evenly across paychecks'}
           </span>
         </div>
         <div className="summary-item">
           <span className="stat-label">
-            {nextCheck ? 'Reserved on the next check' : 'Average per check'}
+            {nextCheck ? 'Set aside on the next check' : 'Average per paycheck'}
           </span>
           <p className="summary-value">
             <Money cents={nextCheckTotal ?? perCheck} currency={currency} />
@@ -175,11 +175,11 @@ export function PriorityWall() {
               ? `${formatDateLabel(nextCheck)} · ${PAY_CADENCE_LABEL[settings.payCadence]}`
               : `${PAY_CADENCE_LABEL[settings.payCadence]} pay cycle${payday ? ` · ${payday}` : ''}`}
             {' · '}
-            averages <Money cents={perCheck} currency={currency} /> per check
+            about <Money cents={perCheck} currency={currency} /> per paycheck
           </span>
         </div>
         <div className="summary-item">
-          <span className="stat-label">Active bills</span>
+          <span className="stat-label">Bills you pay</span>
           <p className="summary-value">{active.length}</p>
           <span className="stat-hint">
             {bills.length - active.length} paused
@@ -189,14 +189,14 @@ export function PriorityWall() {
       </div>
 
       <Card
-        title="The wall"
-        subtitle="Paused bills stay in your history but stop reserving money"
+        title="Your bills"
+        subtitle="Paused bills stay in your history but no longer set money aside"
       >
         {bills.length === 0 ? (
           <EmptyState
             icon={<ShieldCheck size={20} />}
-            title="The wall is empty"
-            body="Add rent, utilities and subscriptions so the allocator protects them first."
+            title="No bills yet"
+            body="Add rent, utilities and subscriptions so they are paid from every paycheck first."
             action={
               <Button variant="primary" onClick={() => setEditing('new')}>
                 Add your first bill
@@ -205,19 +205,19 @@ export function PriorityWall() {
           />
         ) : (
           <DataTable
-            caption="Bills on the Priority Wall"
+            caption="Your recurring bills"
             className="wall-table"
             columns={[
               { key: 'bill', label: 'Bill' },
               {
                 key: 'check',
-                label: nextCheck ? 'Next check' : 'Per check',
+                label: nextCheck ? 'Next paycheck' : 'Per paycheck',
                 className: 'right',
                 // Without a payday the column holds each bill's own funding
                 // check, not an average; say so instead of implying a flat figure.
                 title: nextCheck
                   ? undefined
-                  : 'What this bill reserves on its funding check; single-check bills carry the month there'
+                  : 'What this bill sets aside on its funding paycheck; single-check bills carry the month there'
               },
               { key: 'monthly', label: 'Monthly', className: 'right' },
               { key: 'actions', label: '', ariaLabel: 'Actions' }
@@ -256,10 +256,10 @@ export function PriorityWall() {
                         <span className="chip chip-quiet">Paid this month</span>
                       )}
                       {state === 'reserved' && (
-                        <span className="chip chip-quiet">Reserved this month</span>
+                        <span className="chip chip-quiet">Set aside this month</span>
                       )}
                       {!bill.isActive && (
-                        <span className="chip chip-quiet chip-inactive">Bill inactive</span>
+                        <span className="chip chip-quiet chip-inactive">Paused</span>
                       )}
                     </div>
                   </td>
@@ -271,11 +271,11 @@ export function PriorityWall() {
                       <div className="cell-sub">Nothing more due</div>
                     ) : bill.fundingStrategy !== 'all_checks' ? (
                       <div className="cell-sub chip-funding">
-                        On the{' '}
+                        With your{' '}
                         {ordinal(
                           fundingCheckFor(bill, settings.payCadence, nextCheck, anchor) ?? 1
                         )}{' '}
-                        check{nextCheck ? ' of the month' : ' each month'}
+                        paycheck{nextCheck ? ' this month' : ' each month'}
                       </div>
                     ) : null}
                   </td>
@@ -313,11 +313,11 @@ export function PriorityWall() {
       </Card>
 
       <p className="footnote">
-        Monthly figures are annualised and divided by twelve, so a{' '}
+        Yearly and quarterly bills are spread over twelve months, so a{' '}
         {formatMoneyCompact(60_000, currency)} yearly insurance premium counts as{' '}
-        {formatMoneyCompact(5_000, currency)} of obligation every month. A bill funded on one
-        check reserves that whole month on its check. Set a known payday in Settings and the wall
-        shows the exact reserve for the next real check instead of an average.
+        {formatMoneyCompact(5_000, currency)} a month. A bill set to come out of one paycheck holds
+        that whole month on that paycheck. Set a real payday in Settings and this table shows the
+        exact amount the next paycheck will set aside.
       </p>
 
       {editing !== null && (

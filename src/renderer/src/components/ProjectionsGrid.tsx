@@ -71,7 +71,7 @@ export function ProjectionsGrid({
       <EmptyState
         icon={<CalendarClock size={20} />}
         title="Nothing scheduled yet"
-        body="Add a bill to the Priority Wall or a sinking fund with a target date, and its next 90 days appear here."
+        body="Add a bill or a goal with a target date, and the next 90 days appear here."
       />
     )
   }

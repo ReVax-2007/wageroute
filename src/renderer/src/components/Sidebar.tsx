@@ -22,11 +22,11 @@ import { useFinanceStore, type Screen } from '../store/useFinanceStore'
 import { Button } from './ui'
 
 const NAV: { id: Screen; label: string; hint: string; icon: LucideIcon }[] = [
-  { id: 'dashboard', label: 'Overview', hint: 'Balances and activity', icon: LayoutDashboard },
-  { id: 'wall', label: 'Priority Wall', hint: 'Bills you cannot touch', icon: ShieldCheck },
-  { id: 'goals', label: 'Sinking funds', hint: 'Future expenses', icon: Target },
-  { id: 'accounts', label: 'Accounts', hint: 'Banks and credit', icon: Landmark },
-  { id: 'ledger', label: 'Spreadsheet', hint: 'Edit everything', icon: Table2 },
+  { id: 'dashboard', label: 'Home', hint: 'Balances and activity', icon: LayoutDashboard },
+  { id: 'wall', label: 'Bills', hint: 'Rent, utilities, subscriptions', icon: ShieldCheck },
+  { id: 'goals', label: 'Goals', hint: 'Save for what is coming', icon: Target },
+  { id: 'accounts', label: 'Accounts', hint: 'Banks and cards', icon: Landmark },
+  { id: 'ledger', label: 'Spreadsheet', hint: 'Every entry', icon: Table2 },
   { id: 'settings', label: 'Settings', hint: 'Theme and data', icon: SettingsIcon }
 ]
 

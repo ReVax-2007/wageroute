@@ -27,9 +27,9 @@ const ReconcileStatementDialog = lazy(() =>
 )
 
 const SCREEN_LABEL: Record<Screen, string> = {
-  dashboard: 'Overview',
-  wall: 'Priority Wall',
-  goals: 'Sinking funds',
+  dashboard: 'Home',
+  wall: 'Bills',
+  goals: 'Goals',
   accounts: 'Accounts',
   ledger: 'Spreadsheet',
   settings: 'Settings'

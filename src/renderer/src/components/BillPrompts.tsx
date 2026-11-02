@@ -70,7 +70,7 @@ export function BillPrompts() {
         <div>
           <p className="eyebrow">Bill check</p>
           <h2 className="card-title">Did these clear?</h2>
-          <p className="card-sub">Past the due date with no matching payment on the wall.</p>
+          <p className="card-sub">Past the due date with no matching payment in your ledger.</p>
         </div>
         <span className="prompt-count">{open.length}</span>
       </header>

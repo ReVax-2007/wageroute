@@ -266,7 +266,7 @@ export function commitPaycheck(
     {
       bucket: 'priority',
       goalId: null,
-      label: 'Priority Wall reserve',
+      label: 'Bill money',
       amountCents: plan.priorityFundedCents
     },
     { bucket: 'savings', goalId: null, label: 'Savings', amountCents: plan.savingsCents },
@@ -286,7 +286,7 @@ export function commitPaycheck(
     {
       bucket: 'leisure',
       goalId: null,
-      label: 'Guilt-free spending',
+      label: 'Fun money',
       amountCents: plan.leisureCents
     }
   ]

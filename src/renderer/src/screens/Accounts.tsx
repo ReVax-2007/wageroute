@@ -80,11 +80,10 @@ export function Accounts() {
       <header className="page-head">
         <div>
           <p className="eyebrow">Accounts</p>
-          <h1 className="page-title" tabIndex={-1}>Every bank, one ledger</h1>
+          <h1 className="page-title" tabIndex={-1}>All your accounts, in one place</h1>
           <p className="page-sub">
-            Name each account and tag the bank it lives at — Tangerine, Wealthsimple, whoever.
-            Balances come from entries, so a correction is always an adjustment, never a quiet
-            overwrite.
+            Name each account and the bank it is with. Balances come from your entries, so fixing
+            one records a change instead of quietly overwriting it.
           </p>
         </div>
         <Button variant="primary" icon={<Plus size={16} />} onClick={() => setEditing('new')}>
@@ -98,17 +97,17 @@ export function Accounts() {
           <p className="stat-value">
             <Money cents={wealth} currency={currency} compact />
           </p>
-          <span className="stat-hint">Everything you own, debts taken off</span>
+          <span className="stat-hint">What you own, minus what you owe</span>
         </article>
         <article className="summary-tile">
-          <span className="stat-label">Cash across accounts</span>
+          <span className="stat-label">Cash you have</span>
           <p className="stat-value">
             <Money cents={cash} currency={currency} compact />
           </p>
           <span className="stat-hint">Checking, savings and cash</span>
         </article>
         <article className="summary-tile">
-          <span className="stat-label">Credit owed</span>
+          <span className="stat-label">Owed on cards</span>
           <p className="stat-value">
             <Money cents={owed} currency={currency} compact />
           </p>
@@ -117,11 +116,11 @@ export function Accounts() {
           </span>
         </article>
         <article className="summary-tile">
-          <span className="stat-label">Available credit</span>
+          <span className="stat-label">Room on your cards</span>
           <p className="stat-value">
             <Money cents={available} currency={currency} compact />
           </p>
-          <span className="stat-hint">Sum of remaining limits</span>
+          <span className="stat-hint">What is left on each limit</span>
         </article>
       </div>
 
@@ -130,7 +129,7 @@ export function Accounts() {
           <EmptyState
             icon={<Landmark size={20} />}
             title="No accounts yet"
-            body="Add the accounts you actually move money through. You can rename them or change their balance later."
+            body="Add the accounts you actually move money through. You can rename them or fix a balance later."
             action={
               <Button variant="primary" onClick={() => setEditing('new')}>
                 Add your first account
@@ -189,7 +188,7 @@ export function Accounts() {
                               ? ` · only for ${goalNames.get(account.dedicatedGoalId) ?? 'a removed goal'}`
                               : ''}
                             {!countsInSafeToSpend(account) && !account.isArchived
-                              ? ' · not safe to spend'
+                              ? ' · not counted as spending money'
                               : ''}
                           </span>
                           {isCredit && limit !== null && limit > 0 && (
@@ -316,8 +315,8 @@ export function Accounts() {
       )}
 
       <p className="footnote">
-        Credit card balances count as money owed, never as cash. Paying a card records a transfer,
-        so the cash leaves one account and the debt falls in the other.
+        Card balances count as money owed, never as cash. Paying a card is a transfer: cash leaves
+        one account and the debt drops in the other.
       </p>
 
       {editing !== null && (

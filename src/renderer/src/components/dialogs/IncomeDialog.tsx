@@ -57,8 +57,8 @@ export function IncomeDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <Modal
-      title="Add one-time income"
-      subtitle="Record money that is not a paycheck. It changes the account balance and stays out of routing."
+      title="Add extra income"
+      subtitle="Record money that is not a paycheck. It updates the balance and stays out of your paycheck plan."
       onClose={onClose}
       footer={
         <>

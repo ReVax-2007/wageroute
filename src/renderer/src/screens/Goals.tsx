@@ -58,10 +58,11 @@ export function Goals() {
     <>
       <header className="page-head">
         <div>
-          <p className="eyebrow">Sinking funds</p>
-          <h1 className="page-title" tabIndex={-1}>Future expenses, funded on purpose</h1>
+          <p className="eyebrow">Goals</p>
+          <h1 className="page-title" tabIndex={-1}>Save for what is coming</h1>
           <p className="page-sub">
-            A tattoo, a trip, a new laptop — the allocator fills these before leisure.
+            A tattoo, a trip, a new laptop — each paycheck puts a little money aside before fun
+            money.
           </p>
         </div>
         <Button variant="primary" icon={<Plus size={16} />} onClick={() => setEditing('new')}>
@@ -75,8 +76,8 @@ export function Goals() {
         <Card>
           <EmptyState
             icon={<Target size={20} />}
-            title="No sinking funds yet"
-            body="Create a target and the allocator will route a slice of every surplus into it."
+            title="No goals yet"
+            body="Create a goal and each paycheck will put a slice of the extra toward it."
             action={
               <Button variant="primary" onClick={() => setEditing('new')}>
                 Create your first goal
@@ -176,16 +177,16 @@ export function Goals() {
                     <span className="chip chip-funded">
                       <Landmark size={12} />
                       {goal.dedicatedAccounts.length === 1
-                        ? 'Dedicated account'
-                        : `${goal.dedicatedAccounts.length} dedicated accounts`}
+                        ? 'Its own account'
+                        : `${goal.dedicatedAccounts.length} linked accounts`}
                     </span>
                   )}
                   <span className="chip">Priority {goal.priority}</span>
                   {goal.fundingPace === 'paused' && (
-                    <span className="chip chip-paused">Funding paused</span>
+                    <span className="chip chip-paused">Paused</span>
                   )}
                   {goal.fundingPace === 'by_date' && goal.targetDate !== null && (
-                    <span className="chip chip-quiet">Paced to {formatDateLong(goal.targetDate)}</span>
+                    <span className="chip chip-quiet">On pace for {formatDateLong(goal.targetDate)}</span>
                   )}
                   {overdue && <span className="chip chip-overdue">Overdue</span>}
                   {goal.isEmergency && (
@@ -198,7 +199,7 @@ export function Goals() {
                       <CalendarDays size={12} /> {formatMoney(monthlyNeed, currency)}/mo
                     </span>
                   ) : (
-                    <span className="chip chip-quiet">No pace set</span>
+                    <span className="chip chip-quiet">No deadline</span>
                   )}
                 </div>
               </article>
@@ -210,7 +211,7 @@ export function Goals() {
       {archivedGoals.length > 0 && (
         <Card
           title="Archived goals"
-          subtitle="Out of the allocator and every earmark. Restore one to start funding it again."
+          subtitle="Out of your plan and every goal total. Restore one to start saving for it again."
         >
           <ul className="account-list">
             {archivedGoals.map((goal) => (
@@ -255,9 +256,9 @@ export function Goals() {
       )}
 
       <p className="footnote">
-        A goal reads its progress from the accounts you point at it — one account, or several whose
-        balances add together. Every other goal counts the allocations recorded when a paycheck is
-        routed, so moving that money is still your job.
+        A goal reads its progress from the accounts you link to it — one account, or several whose
+        balances add together. Every other goal counts what paychecks have assigned, so moving that
+        money is still up to you.
       </p>
 
       {editing !== null && (
@@ -382,7 +383,7 @@ function EmergencyCard() {
   return (
     <Card
       title="Emergency fund"
-      subtitle="Three to six months of essentials, calculated from your own numbers"
+      subtitle="Three to six months of essentials, worked out from your own numbers"
       className={isActive ? 'emergency-card' : 'emergency-card paused'}
       actions={<LifeBuoy size={17} className="stat-icon" />}
     >
@@ -391,7 +392,7 @@ function EmergencyCard() {
           <strong>Save towards it every paycheck</strong>
           <p className="field-hint">
             {isActive
-              ? 'Active · the allocator routes a slice of every surplus here before leisure.'
+              ? 'On · each paycheck puts a slice of the extra here before fun money.'
               : 'Paused · no paycheck sets money aside for it until you resume.'}
           </p>
         </div>
@@ -415,14 +416,14 @@ function EmergencyCard() {
             value={mode}
             onChange={changeMode}
             options={[
-              { value: 'auto', label: 'Auto calculate' },
-              { value: 'manual', label: 'Manual' }
+              { value: 'auto', label: 'Work it out for me' },
+              { value: 'manual', label: 'I will pick' }
             ]}
           />
 
           {mode === 'auto' ? (
             <>
-              <Field label="Months of essentials" hint="Six months is the cautious end">
+              <Field label="Months of essentials" hint="Six months is the careful choice">
                 <Segmented<string>
                   label="Months of essentials"
                   value={String(months)}
@@ -435,15 +436,15 @@ function EmergencyCard() {
               </Field>
               <div className="setting-row">
                 <div>
-                  <strong>Include variable spending</strong>
+                  <strong>Include day-to-day spending</strong>
                   <p className="field-hint">
-                    Adds the average of recent non-bill expenses to the Priority Wall.
+                    Adds your average non-bill spending to the bills you already track.
                   </p>
                 </div>
                 <Switch
                   checked={includeVariable}
                   onChange={setIncludeVariable}
-                  label="Include variable spending"
+                  label="Include day-to-day spending"
                 />
               </div>
               <Field
@@ -475,18 +476,18 @@ function EmergencyCard() {
             currency={currency}
             value={selectedIds}
             onChange={setDraftIds}
-            label="Funded by"
-            hint="Tick the account that holds the emergency money. Several accounts add together; tick none and progress is counted from allocations."
+            label="Where the money sits"
+            hint="Tick the account that holds the emergency money. Several accounts add together; tick none and progress comes from paycheck allocations."
           />
         </div>
 
         <div className="emergency-figures">
           <div className="emergency-line">
-            <span>Priority Wall / month</span>
+            <span>Bills each month</span>
             <Money cents={wall} currency={currency} />
           </div>
           <div className="emergency-line">
-            <span>Variable average / month</span>
+            <span>Everyday spending / month</span>
             <Money cents={variable} currency={currency} />
           </div>
           <div className="emergency-line emergency-essentials">

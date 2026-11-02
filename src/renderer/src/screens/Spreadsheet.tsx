@@ -186,11 +186,11 @@ export function Spreadsheet() {
       <header className="page-head">
         <div>
           <p className="eyebrow">Spreadsheet</p>
-          <h1 className="page-title" tabIndex={-1}>Every number, one grid</h1>
+          <h1 className="page-title" tabIndex={-1}>Every entry in one place</h1>
           <p className="page-sub">
             {tab === 'ledger'
-              ? 'Double-click a cell to edit it in place. Dates, accounts, categories and amounts write straight to the local ledger.'
-              : `A read-only forecast of the next ${HORIZON_DAYS} days of bills and goal deadlines, built from your own numbers.`}
+              ? 'Double-click a cell to change it. Edits save straight to your ledger.'
+              : `A look ahead at the next ${HORIZON_DAYS} days of bills and goal dates, based on your own numbers.`}
           </p>
         </div>
         <Button
@@ -221,7 +221,7 @@ export function Spreadsheet() {
           <span className="sheet-hint">
             {tab === 'ledger'
               ? 'Double-click a cell to edit · Tick rows to delete several at once'
-              : 'Read-only forecast of bills and goal deadlines'}
+              : 'A read-only look at bills and goal dates coming up'}
           </span>
         </header>
 
@@ -268,7 +268,7 @@ export function Spreadsheet() {
               value={filters.kind}
               onChange={(event) => updateFilters({ kind: event.target.value })}
             >
-              <option value="">All kinds</option>
+              <option value="">All types</option>
               {Object.entries(TRANSACTION_KIND_LABEL).map(([kind, label]) => (
                 <option key={kind} value={kind}>
                   {label}
@@ -339,7 +339,7 @@ export function Spreadsheet() {
               <EmptyState
                 icon={<Landmark size={20} />}
                 title="Add an account first"
-                body="Every ledger entry belongs to an account, so the grid stays empty until there is one to record against."
+                body="Every entry belongs to an account, so the grid stays empty until you have one."
                 action={
                   <Button variant="primary" onClick={() => go('accounts')}>
                     Add your first account

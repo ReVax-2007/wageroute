@@ -13,8 +13,8 @@ const CADENCES = Object.keys(PAY_CADENCE_LABEL) as PayCadence[]
 
 const STEPS = [
   { id: 1, label: 'Income' },
-  { id: 2, label: 'Priority Wall' },
-  { id: 3, label: 'Distribute' }
+  { id: 2, label: 'Bills' },
+  { id: 3, label: 'Split it up' }
 ] as const
 
 type Step = (typeof STEPS)[number]['id']
@@ -32,19 +32,19 @@ function newDraftId(): string {
 function warningText(warning: PlanWarning, currency: string): string {
   switch (warning.code) {
     case 'shortfall':
-      return `This paycheck is ${formatMoney(warning.shortfallCents, currency)} short of your Priority Wall. Fund the bills before routing anything else.`
+      return `This paycheck is ${formatMoney(warning.shortfallCents, currency)} short of your bills. Cover the bills before planning anything else.`
     case 'splits_scaled':
-      return `Your splits asked for ${formatMoney(warning.requestedCents, currency)}, but only ${formatMoney(warning.availableCents, currency)} of surplus exists. They were scaled down proportionally.`
+      return `Your splits asked for ${formatMoney(warning.requestedCents, currency)}, but only ${formatMoney(warning.availableCents, currency)} is left. They were scaled down to fit.`
     case 'goal_overflow':
-      return `${formatMoney(warning.overflowCents, currency)} was budgeted for goals that are already fully funded, so it swept into savings.`
+      return `${formatMoney(warning.overflowCents, currency)} was meant for goals that are already fully funded, so it went to savings.`
     case 'no_bills':
-      return 'Your Priority Wall is empty. Add recurring bills so they are protected before leisure.'
+      return 'You have no bills yet. Add recurring bills so they are covered before fun money.'
     case 'no_goals':
-      return 'No sinking funds exist yet, so the goal share flowed into savings.'
+      return 'You have no goals yet, so the goal share went to savings.'
     case 'goals_account_funded':
-      return `Your goals are funded by their own accounts, so the ${formatMoney(warning.overflowCents, currency)} goal share went to savings instead. Add a goal that draws from the pool to route it here.`
+      return `Your goals are paid from their own accounts, so the ${formatMoney(warning.overflowCents, currency)} goal share went to savings. Add a goal that draws from this money to keep it here.`
     case 'tight_margin':
-      return `Only ${formatMoney(warning.leisureCents, currency)} is left guilt-free after this plan.`
+      return `Only ${formatMoney(warning.leisureCents, currency)} is left for fun after this plan.`
     default:
       return ''
   }
@@ -342,10 +342,10 @@ export function Allocator() {
       >
         <header className="allocator-head">
           <div>
-            <p className="eyebrow">Paycheck allocator</p>
-            <h2 id={titleId}>Route this paycheck</h2>
+            <p className="eyebrow">New paycheck</p>
+            <h2 id={titleId}>Plan this paycheck</h2>
             <p id={subtitleId} className="page-sub">
-              Bills first. Surplus second. Guilt-free last.
+              Bills first, then the rest gets a job.
             </p>
           </div>
           <button
@@ -359,7 +359,7 @@ export function Allocator() {
           </button>
         </header>
 
-        <nav className="wizard-rail" aria-label="Allocator steps">
+        <nav className="wizard-rail" aria-label="Paycheck steps">
           {STEPS.map((entry) => {
             const state = entry.id < step ? 'done' : entry.id === step ? 'active' : 'todo'
             return (
@@ -389,8 +389,8 @@ export function Allocator() {
               <section className="alloc-section">
                 <div className="alloc-section-head">
                   <div>
-                    <h3>What landed?</h3>
-                    <p>Enter the deposit, then tell us where it arrived.</p>
+                    <h3>How much landed?</h3>
+                    <p>Enter the deposit and where it arrived.</p>
                   </div>
                 </div>
 
@@ -421,7 +421,7 @@ export function Allocator() {
                     />
                   </label>
                   <label className="field">
-                    <span className="field-label">Source</span>
+                    <span className="field-label">Where it came from</span>
                     <input
                       className="input"
                       value={source}
@@ -444,12 +444,12 @@ export function Allocator() {
                     </select>
                     {depositAccounts.length === 0 && (
                       <span className="field-hint">
-                        Add a checking or savings account, then reopen the allocator.
+                        Add a checking or savings account, then open this screen again.
                       </span>
                     )}
                   </label>
                   <label className="field">
-                    <span className="field-label">Pay cadence</span>
+                    <span className="field-label">How often you are paid</span>
                     <select
                       className="select"
                       value={cadence}
@@ -482,14 +482,14 @@ export function Allocator() {
                 )}
 
                 <p className="wizard-hint">
-                  Next we hold back{' '}
-                  <strong>{formatMoney(plan.priorityRequiredCents, currency)}</strong> for the
-                  Priority Wall, leaving the true surplus to route.
+                  Next we set aside{' '}
+                  <strong>{formatMoney(plan.priorityRequiredCents, currency)}</strong> for bills.
+                  The rest is yours to split.
                 </p>
 
                 <p className="field-hint">
-                  {payday ? `Paydays: ${payday} — edit this label in Settings. ` : ''}
-                  The cadence decides which check of the month a single-check bill reserves on.
+                  {payday ? `Paydays: ${payday} — change this in Settings. ` : ''}
+                  How often you are paid decides which paycheck a once-a-month bill comes out of.
                 </p>
 
                 {error && (
@@ -504,18 +504,18 @@ export function Allocator() {
               <section className="alloc-section">
                 <div className="alloc-section-head">
                   <div>
-                    <h3>Subtract the Priority Wall</h3>
-                    <p>Bills are locked before a single surplus dollar is split.</p>
+                    <h3>Set aside bill money</h3>
+                    <p>Bills come out first. Everything left is yours to split.</p>
                   </div>
                 </div>
 
                 <div className="alloc-line">
                   <div>
                     <span className="alloc-label">
-                      {bills.length} active {bills.length === 1 ? 'bill' : 'bills'}
+                      {bills.length} {bills.length === 1 ? 'bill' : 'bills'}
                     </span>
                     <p className="alloc-note">
-                      {PAY_CADENCE_LABEL[cadence]} reserve for the wall
+                      {PAY_CADENCE_LABEL[cadence]} amount for bills
                     </p>
                   </div>
                   <Money
@@ -557,13 +557,13 @@ export function Allocator() {
 
                 <div className="surplus-hero true-surplus">
                   <div>
-                    <p className="eyebrow">True surplus</p>
+                    <p className="eyebrow">Left to split</p>
                     <p className="surplus-value">
                       <Money cents={plan.surplusCents} currency={currency} />
                     </p>
                     <p className="alloc-note">
-                      {formatMoney(plan.incomeCents, currency)} income −{' '}
-                      {formatMoney(plan.priorityFundedCents, currency)} wall
+                      {formatMoney(plan.incomeCents, currency)} paycheck −{' '}
+                      {formatMoney(plan.priorityFundedCents, currency)} bills
                     </p>
                   </div>
                   <Sparkles size={26} className="surplus-icon" />
@@ -571,14 +571,13 @@ export function Allocator() {
 
                 {plan.shortfallCents > 0 ? (
                   <Warning tone="danger">
-                    This paycheck cannot cover the wall. You are{' '}
-                    {formatMoney(plan.shortfallCents, currency)} short, so there is no surplus to
-                    distribute.
+                    This paycheck does not cover your bills. You are{' '}
+                    {formatMoney(plan.shortfallCents, currency)} short, so there is nothing left
+                    to split.
                   </Warning>
                 ) : (
                   <p className="wizard-hint">
-                    Everything above the wall is yours to route. Continue to split it across
-                    savings, investments, sinking funds and debt.
+                    What is left is yours to split between savings, investments, goals and debt.
                   </p>
                 )}
               </section>
@@ -588,29 +587,28 @@ export function Allocator() {
               <section className="alloc-section">
                 <div className="alloc-section-head">
                   <div>
-                    <h3>Distribute the true surplus</h3>
-                    <p>Percentages apply to what is left after bills.</p>
+                    <h3>Split what is left</h3>
+                    <p>Percentages apply to the money left after bills.</p>
                   </div>
                 </div>
 
                 <div className="surplus-hero">
                   <div>
-                    <p className="eyebrow">True surplus</p>
+                    <p className="eyebrow">Left to split</p>
                     <p className="surplus-value">
                       <Money cents={plan.surplusCents} currency={currency} />
                     </p>
                     <p className="alloc-note">
-                      {formatMoney(plan.incomeCents, currency)} income −{' '}
-                      {formatMoney(plan.priorityFundedCents, currency)} wall
+                      {formatMoney(plan.incomeCents, currency)} paycheck −{' '}
+                      {formatMoney(plan.priorityFundedCents, currency)} bills
                     </p>
                   </div>
                   <Sparkles size={26} className="surplus-icon" />
                 </div>
 
                 <p className="wizard-hint">
-                  This records a plan against your deposit. WageRoute does not move money between
-                  accounts or pay bills for you — the deposit stays where it landed until you
-                  transfer it yourself.
+                  This saves your plan against the deposit. WageRoute does not move money or pay
+                  bills for you — the money stays where it landed until you move it yourself.
                 </p>
 
                 <div className="split-list">
@@ -633,7 +631,7 @@ export function Allocator() {
                     onChange={setInvestment}
                   />
                   <SplitRow
-                    label="Sinking funds"
+                    label="Goals"
                     color="var(--goal)"
                     percent={goalsSplit}
                     maxPercent={capFor(goalsSplit)}
@@ -656,11 +654,11 @@ export function Allocator() {
                   className={overAllocated ? 'split-check over' : 'split-check'}
                   aria-live={overAllocated ? 'polite' : undefined}
                 >
-                  <span>Routed {splitTotal}% of the True Surplus</span>
+                  <span>{splitTotal}% of what is left is split</span>
                   <span>
                     {overAllocated
                       ? `${splitTotal - 100}% over — lower a split`
-                      : `${100 - splitTotal}% stays guilt-free`}
+                      : `${100 - splitTotal}% stays for fun`}
                   </span>
                 </div>
 
@@ -675,8 +673,8 @@ export function Allocator() {
 
                 <div className="leisure-box">
                   <div>
-                    <p className="eyebrow">Guilt-free</p>
-                    <p className="alloc-note">Whatever the plan leaves unassigned</p>
+                    <p className="eyebrow">Fun money</p>
+                    <p className="alloc-note">What the plan leaves for you</p>
                   </div>
                   <Money
                     cents={plan.leisureCents}
@@ -687,7 +685,7 @@ export function Allocator() {
 
                 {plan.goalFundings.length > 0 && (
                   <div className="funded-this-check">
-                    <p className="eyebrow">Funded from this paycheck</p>
+                    <p className="eyebrow">Goals getting money now</p>
                     <ul className="funding-list">
                       {plan.goalFundings.map((funding) => (
                         <li key={funding.goalId}>
@@ -726,7 +724,7 @@ export function Allocator() {
                     {duplicate.kind === 'same-day'
                       ? `A paycheck of ${formatMoney(duplicate.paycheck.amountCents, currency)} is already routed into this account on ${receivedOn}. Confirm only if a second deposit really landed that day.`
                       : `${formatMoney(incomeCents, currency)} was already routed into this account on ${duplicate.paycheck.receivedOn}. Confirm only if this is a separate deposit.`}{' '}
-                    Routing it twice adds the income a second time and reserves the wall twice.
+                    Routing it twice adds the income a second time and sets bill money aside twice.
                   </Warning>
                 )}
 
@@ -743,7 +741,7 @@ export function Allocator() {
         <footer className="allocator-foot">
           {step === 3 && (
             <div className="route-check">
-              <span>Locked {formatMoney(plan.priorityFundedCents, currency)}</span>
+              <span>Bills {formatMoney(plan.priorityFundedCents, currency)}</span>
               <span className="route-sep">+</span>
               <span>Save {formatMoney(plan.savingsCents, currency)}</span>
               <span className="route-sep">+</span>
@@ -753,7 +751,7 @@ export function Allocator() {
               <span className="route-sep">+</span>
               <span>Goals {formatMoney(plan.goalsCents, currency)}</span>
               <span className="route-sep">+</span>
-              <span>Leisure {formatMoney(plan.leisureCents, currency)}</span>
+              <span>Fun {formatMoney(plan.leisureCents, currency)}</span>
               <span className="route-total">= {formatMoney(plan.incomeCents, currency)}</span>
             </div>
           )}
@@ -781,7 +779,7 @@ export function Allocator() {
                 onClick={goNext}
                 disabled={busy || incomeCents <= 0}
               >
-                {step === 1 ? 'Subtract the wall' : 'Distribute the surplus'}
+                {step === 1 ? 'Set aside bills' : 'Split what is left'}
               </Button>
             ) : (
               <Button

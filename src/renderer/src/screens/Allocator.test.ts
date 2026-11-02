@@ -139,10 +139,10 @@ test('a split that cannot be saved stops the paycheck instead of routing it anyw
 
   await enterIncome('5000')
   await act(async () => {
-    button('Subtract the wall')?.click()
+    button('Set aside bills')?.click()
   })
   await act(async () => {
-    button('Distribute the surplus')?.click()
+    button('Split what is left')?.click()
   })
 
   const route = routeButton()
