@@ -176,6 +176,8 @@ export interface ImportProblem {
   table: ImportTable
   rowIndex: number
   line?: number
+  /** For an entry import, how many file lines share this one answer. */
+  lines?: number
   field: FieldSpec
   /** Which row this is, for display. */
   rowLabel: string

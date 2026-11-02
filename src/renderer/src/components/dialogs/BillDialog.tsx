@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { todayISO } from '@shared/dates'
 import {
   BILL_FUNDING_STRATEGY_LABEL,
   FREQUENCY_LABEL,
@@ -19,6 +20,7 @@ const FUNDING_STRATEGIES = Object.keys(BILL_FUNDING_STRATEGY_LABEL) as BillFundi
 export function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () => void }) {
   const snapshot = useFinanceStore((state) => state.snapshot)
   const cadence = useFinanceStore((state) => state.settings.payCadence)
+  const anchor = useFinanceStore((state) => state.settings.payAnchorDate)
   const createBill = useFinanceStore((state) => state.createBill)
   const updateBill = useFinanceStore((state) => state.updateBill)
 
@@ -59,7 +61,9 @@ export function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () =
     cadence,
     dueDay: Number(form.dueDay) || 1,
     fundingStrategy: form.fundingStrategy,
-    fundingPaycheckIndex: Number(form.fundingPaycheckIndex) || 1
+    fundingPaycheckIndex: Number(form.fundingPaycheckIndex) || 1,
+    paycheckDate: todayISO(),
+    payAnchorDate: anchor
   })
 
   const submit = async () => {

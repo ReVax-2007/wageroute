@@ -170,6 +170,15 @@ function ofxFlavour(text: string): 'bank' | 'loan' | 'investment' {
  * not, and the wizard says so instead of losing them silently.
  */
 export function parseOfxStatement(text: string): StatementParse {
+  // A combined export puts several accounts in one file. Every line would land
+  // in the first account's statement, so refuse rather than guess.
+  const statements = text.match(/<(?:CC|LOAN|INV)?STMTRS>/gi) ?? []
+  if (statements.length > 1) {
+    throw new Error(
+      `That file holds ${statements.length} statement accounts — export one account at a time`
+    )
+  }
+
   const blocks = transactionBlocks(text)
   if (blocks.length === 0) {
     throw new Error('That file has no transactions — is it an OFX or QFX statement?')

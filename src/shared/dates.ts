@@ -65,18 +65,20 @@ export function nextDueDateISO(dueDay: number, fromISO: string): string {
 /**
  * The most recent occurrence of a monthly due day on or before `fromISO`.
  * Used by the chronology engine to ask whether a bill has already cleared.
+ *
+ * The clamping happens inside each month, not after stepping back: a 31st due
+ * day must read 31 January, not 28 January, when today is in February.
  */
 export function previousDueDateISO(dueDay: number, fromISO: string): string {
   const from = fromISODate(fromISO)
   const day = Math.min(Math.max(1, Math.round(dueDay)), 31)
-  const daysThisMonth = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + 1, 0)).getUTCDate()
-  const candidate = new Date(
-    Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), Math.min(day, daysThisMonth))
-  )
-  if (candidate.getTime() > from.getTime()) {
-    return addMonthsISO(toISODate(candidate), -1)
-  }
-  return toISODate(candidate)
+  const year = from.getUTCFullYear()
+  const month = from.getUTCMonth()
+  const lastDayOf = (y: number, m: number): number =>
+    new Date(Date.UTC(y, m + 1, 0)).getUTCDate()
+  const thisMonth = new Date(Date.UTC(year, month, Math.min(day, lastDayOf(year, month))))
+  if (thisMonth.getTime() <= from.getTime()) return toISODate(thisMonth)
+  return toISODate(new Date(Date.UTC(year, month - 1, Math.min(day, lastDayOf(year, month - 1)))))
 }
 
 const dateLabelFormatter = new Intl.DateTimeFormat(undefined, {

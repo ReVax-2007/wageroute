@@ -19,12 +19,19 @@ import { activeBills, monthlyWall, ordinal, perPaycheckWall } from '../lib/finan
 import { useFinanceStore } from '../store/useFinanceStore'
 
 /** Which paycheck of the month actually reserves for this bill; null for 'all_checks'. */
-function fundingCheckFor(bill: Bill, cadence: PayCadence): number | null {
+function fundingCheckFor(
+  bill: Bill,
+  cadence: PayCadence,
+  paycheckDate: string | null,
+  anchorDate: string | null
+): number | null {
   return fundingCheckIndex({
     cadence,
     dueDay: bill.dueDay,
     fundingStrategy: bill.fundingStrategy,
-    fundingPaycheckIndex: bill.fundingPaycheckIndex
+    fundingPaycheckIndex: bill.fundingPaycheckIndex,
+    paycheckDate,
+    payAnchorDate: anchorDate
   })
 }
 
@@ -224,7 +231,10 @@ export function PriorityWall() {
                 />
                 {bill.fundingStrategy !== 'all_checks' && (
                   <div className="cell-sub chip-funding">
-                    Reserved on the {ordinal(fundingCheckFor(bill, settings.payCadence) ?? 1)}{' '}
+                    Reserved on the{' '}
+                    {ordinal(
+                      fundingCheckFor(bill, settings.payCadence, nextCheck, anchor) ?? 1
+                    )}{' '}
                     check{nextCheck ? ' of the month' : ' each month'}
                   </div>
                 )}

@@ -44,6 +44,15 @@ export function safeToSpendPoolCents(accounts: readonly AccountWithBalance[]): n
   )
 }
 
+/**
+ * A card's balance read as money owed: positive when the user owes, negative
+ * when the card is overpaid. Display badges clamp at zero; an edit form must
+ * not, or the credit it is about to change silently starts at zero.
+ */
+export function cardOwedCents(account: AccountWithBalance): number {
+  return account.kind === 'credit' ? -account.balanceCents : account.balanceCents
+}
+
 /** Everything owned minus everything owed, across every live account kind. */
 export function totalWealthCents(accounts: readonly AccountWithBalance[]): number {
   return accounts.reduce(

@@ -357,6 +357,22 @@ export function parseEntriesCsv(text: string): CsvEntryParse {
       continue
     }
 
+    const signedCents = normalizeSignedCents(kind, amountCents)
+    // A canonical kind states which way the money went; an alias such as
+    // "Payment" only implies it. When the alias and the sign disagree, the
+    // file is saying two things, so the row lands but the wizard says so.
+    const statedKind = cell('kind').trim().toLowerCase().replace(/[\s-]+/g, '_')
+    const aliasOnly =
+      statedKind !== '' &&
+      Object.hasOwn(KIND_ALIASES, statedKind) &&
+      !(TRANSACTION_KINDS as readonly string[]).includes(statedKind)
+    if (aliasOnly && Math.sign(signedCents) !== Math.sign(amountCents)) {
+      issues.push({
+        line,
+        message: `row ${line} says “${cell('kind')}” but its amount is ${amountCents > 0 ? 'positive' : 'negative'}; imported as ${kind} — check the sign`
+      })
+    }
+
     const institution = undefuseFormula(cell('institution'))
     const externalId = cell('external')
 
@@ -370,7 +386,7 @@ export function parseEntriesCsv(text: string): CsvEntryParse {
       memo: undefuseFormula(cell('memo')),
       // A file that states the kind but writes an unsigned amount is common;
       // the kind decides the sign so an expense can never import as income.
-      amountCents: normalizeSignedCents(kind, amountCents),
+      amountCents: signedCents,
       externalId: externalId ? externalId.slice(0, 120) : null
     })
   }

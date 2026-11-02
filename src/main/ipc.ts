@@ -19,7 +19,7 @@ import {
   type ChannelResult
 } from '@shared/channels'
 import { parseEntriesCsv, transactionsToCsv, type CsvEntry } from '@shared/csv'
-import { isISODate, todayISO } from '@shared/dates'
+import { addDaysISO, isISODate, todayISO } from '@shared/dates'
 import { encodeError, RepositoryError } from '@shared/errors'
 import {
   applyImportAnswers,
@@ -30,7 +30,6 @@ import {
   withFileIds,
   type EntryMapping,
   type ImportAnswer,
-  type ImportChoice,
   type ImportChoiceTable,
   type ImportContext,
   type ImportProblem,
@@ -192,7 +191,12 @@ function transactionRowsPatch(
     upsert: repo.transactionRowsFor(db, userId, id),
     remove: [],
     total: repo.transactionCount(db, userId),
-    billPayments: repo.listBillPaymentsThisMonth(db, userId, todayISO().slice(0, 7))
+    billPayments: repo.listBillPaymentsThisMonth(db, userId, todayISO().slice(0, 7)),
+    billPaymentsHistory: repo.listBillPaymentsSince(
+      db,
+      userId,
+      addDaysISO(todayISO(), -370)
+    )
   }
 }
 
@@ -287,10 +291,14 @@ function holdImport(entry: PendingImport): string {
   return token
 }
 
-function takeImport(token: string): PendingImport {
+/**
+ * Reads the held file without spending it. The token is retired only once the
+ * import lands, so a confirm that throws leaves the wizard able to retry —
+ * which is what its "safe to try again" copy promises.
+ */
+function peekImport(token: string): PendingImport {
   const pending = pendingImports.get(token)
   if (!pending) throw new Error('That import has expired — pick the file again')
-  pendingImports.delete(token)
   return pending
 }
 
@@ -345,13 +353,14 @@ function importContext(
   return withFileIds({ knownIds, choices, today: todayISO() }, payload.tables)
 }
 
-function entryProblem(mapping: EntryMapping, choices: Record<ImportChoiceTable, ImportChoice[]>): ImportProblem {
+function entryProblem(mapping: EntryMapping): ImportProblem {
   return {
     key: `e:${mapping.firstLine}`,
     scope: 'entry',
     table: 'transactions',
     rowIndex: 0,
     line: mapping.firstLine,
+    lines: mapping.lines,
     field: {
       column: 'account_id',
       label: 'Account',
@@ -361,7 +370,9 @@ function entryProblem(mapping: EntryMapping, choices: Record<ImportChoiceTable, 
     rowLabel: `CSV “${mapping.displayName}” (${mapping.lines} ${mapping.lines === 1 ? 'line' : 'lines'})`,
     reason: `no local account is named “${mapping.displayName}”`,
     fixHint: `Create an account named “${mapping.displayName}” and import again, or point these lines at an existing account.`,
-    suggested: choices.accounts[0]?.id ?? ''
+    // Nothing is pre-selected: a wrong guess would post the whole group into an
+    // account the user never chose. An unanswered group is left out and listed.
+    suggested: ''
   }
 }
 
@@ -389,6 +400,7 @@ function statementProblem(mapping: EntryMapping): ImportProblem {
     table: 'transactions',
     rowIndex: 0,
     line: mapping.firstLine,
+    lines: mapping.lines,
     field: {
       column: 'account_id',
       label: 'Account',
@@ -500,7 +512,7 @@ export function registerIpcHandlers(db: Database.Database): void {
     write(
       db,
       userId,
-      ['accounts', 'goals', 'bills', 'transactions', 'billReserves', 'settings'],
+      ['accounts', 'goals', 'bills', 'transactions', 'billReserves', 'paychecks', 'settings'],
       () =>
         repo.deleteAccount(db, userId(), requireId(id), {
           withEntries:
@@ -613,7 +625,8 @@ export function registerIpcHandlers(db: Database.Database): void {
   )
 
   handle('paycheck:apply', (_event, id: unknown, targets: unknown) =>
-    write(db, userId, ['transactions', 'accounts', 'paychecks', 'billReserves'], () =>
+    // The transfer rows resolve a "Transfer" category, which may be new.
+    write(db, userId, ['transactions', 'accounts', 'paychecks', 'billReserves', 'categories'], () =>
       repo.applyPaycheckPlan(
         db,
         userId(),
@@ -734,7 +747,7 @@ export function registerIpcHandlers(db: Database.Database): void {
         exportedAt: '',
         fileRows: rows,
         problems: mappings.map((mapping) =>
-          statement ? statementProblem(mapping) : entryProblem(mapping, choices)
+          statement ? statementProblem(mapping) : entryProblem(mapping)
         ),
         choices,
         statement,
@@ -787,7 +800,12 @@ export function registerIpcHandlers(db: Database.Database): void {
   })
 
   handle('data:confirm', (_event, token: unknown, answers: unknown) => {
-    const pending = takeImport(requireId(token))
+    const id = requireId(token)
+    const pending = peekImport(id)
+    const finish = <T extends ImportResult>(result: T): T => {
+      pendingImports.delete(id)
+      return result
+    }
     const list = Array.isArray(answers) ? (answers as ImportAnswer[]) : []
     const added = emptyImportCounts()
     const skipped = emptyImportCounts()
@@ -824,7 +842,7 @@ export function registerIpcHandlers(db: Database.Database): void {
           })
         }
       }
-      return {
+      return finish({
         path: pending.path,
         format: 'entries',
         exportedAt: '',
@@ -835,7 +853,7 @@ export function registerIpcHandlers(db: Database.Database): void {
         ),
         issues: [...(pending.parseIssues ?? []), ...merged.issues],
         ...(reconciliation ? { reconciliation } : {})
-      } satisfies ImportResult
+      } satisfies ImportResult)
     }
 
     const payload = pending.payload
@@ -850,7 +868,7 @@ export function registerIpcHandlers(db: Database.Database): void {
     }
     const repaired = applyImportAnswers(payload.tables, problems, list, context)
     const merged = mergeBackup(db, userId(), { ...payload, tables: repaired.tables })
-    return {
+    return finish({
       path: pending.path,
       format: 'backup',
       exportedAt: payload.exportedAt,
@@ -858,7 +876,7 @@ export function registerIpcHandlers(db: Database.Database): void {
       skipped: merged.skipped,
       dropped: repaired.dropped,
       issues: merged.issues
-    } satisfies ImportResult
+    } satisfies ImportResult)
   })
 
   handle('data:reset', () =>

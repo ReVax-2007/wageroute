@@ -85,7 +85,7 @@ Each answer is `{ key, value, skip }`, keyed by `b:<table>:<rowIndex>:<column>` 
 
 - **Fill it in** — the answer is validated by the same rules as the file (`validateFieldValue`). A valid answer patches the row before the merge.
 - **Leave it out** — the whole row is dropped from this import, and the review step lists it with every reason on it plus how to fix the source file.
-- **Say nothing** — an unanswered question drops its row too. Nothing invalid ever reaches SQLite, so nothing can abort the rest of the file.
+- **Say nothing** — an unanswered question drops its row too. Nothing invalid ever reaches SQLite, so nothing can abort the rest of the file. There is one pre-filled suggestion: a missing or bad **date** starts at today, and the review step prints it, so it can be corrected before importing. Account questions start blank, including an unmapped CSV name group.
 - **Answer wrongly** — an answer that still fails validation drops that row and reports why (`… — must be one of checking, savings, …`), instead of throwing.
 
 Dropping is per row: a bill with three problems is one card, and leaving it out removes only that bill. Every other row in the table still imports.
@@ -471,6 +471,10 @@ The kind cell is lowercased and spaces or hyphens become underscores.
 | A valid raw kind | That kind |
 | Anything else or blank | Inferred from the amount sign: positive → `income`, negative → `expense` |
 
+The kind decides the sign: `expense,42.50` imports as **−42.50**, because a file that names the kind but writes an unsigned amount is common. An *alias* is a weaker claim than a raw kind, so when one contradicts the amount's sign (`Payment,500` — an alias for `expense` with a positive amount) the row still lands with the kind's sign and the wizard reports it:
+
+> row N says “Payment” but its amount is positive; imported as expense — check the sign
+
 Transfers cannot be imported from CSV because one CSV row cannot reconstruct both legs. The row is reported:
 
 > row N is a transfer — import a JSON backup to keep both legs
@@ -608,7 +612,7 @@ All four produce the same `CsvEntry` rows as an entries file, so insertion, sign
 | `LEDGERBAL` | The closing balance and its date: shown in the wizard, and the figure the post-import check compares against. Read for a bank, card or loan statement; an investment statement's `INVBAL` is cash plus holdings, not a balance, so it is never used |
 | `FITID` | The bank's stable id for the line, stored as `transactions.external_id` (first 120 characters) so a re-import recognises it |
 
-`CHECKNUM`, `SIC` and the sign-on block are ignored. XML entities (`&amp;`, `&#39;`) are decoded; OFX 1.x's header lines before `<OFX>` do not affect parsing.
+`CHECKNUM`, `SIC` and the sign-on block are ignored. XML entities (`&amp;`, `&#39;`) are decoded; OFX 1.x's header lines before `<OFX>` do not affect parsing. A file holding more than one `STMTRS`/`CCSTMTRS`/`LOANSTMTRS`/`INVSTMTRS` block is refused (`That file holds N statement accounts — export one account at a time`) instead of pouring several accounts into the first one.
 
 ### Loan and investment statements
 
@@ -622,7 +626,7 @@ All four produce the same `CsvEntry` rows as an entries file, so insertion, sign
 
 | QIF field | Used as |
 | --- | --- |
-| `D` | The entry date. Slashed dates follow the same file-level order rule as CSV: one day above 12 proves the order for every row; a file whose dates are all 12 or under is read month-first and says so |
+| `D` | The entry date. Slashed dates follow the same file-level order rule as CSV: one day above 12 proves the order for every row; a file whose dates are all 12 or under is read month-first and says so. Both Quicken forms are read: `10/05'2026` and the older two-digit year `10/05'26` (years 70–99 become 19xx, everything else 20xx) |
 | `T` | The signed amount, with thousands separators accepted |
 | `P` / `M` | The description, joined with ` — ` when both differ |
 | `L` | The category. A category in square brackets (`[Savings]`) is a transfer and is refused, because one leg cannot become a paired movement |
@@ -781,7 +785,7 @@ The header is found at row 4. Both rows import as entries. The first becomes an 
 
 ## UI messages
 
-The wizard's review step is where detail lives: what is being imported, the values you filled in, and every row left out with its reason and how to fix the file. The toast after confirming is the one-line summary.
+The wizard's review step is where detail lives: what is being imported, the values you filled in, and every row left out with its reason and how to fix the file. A CSV name group stands for every line that shares that name, so leaving it out subtracts all of its lines from the "Importing …" total, not one.
 
 When rows were added — **records** for JSON, **entries** for CSV:
 
@@ -809,9 +813,10 @@ Problems raised before or during the run appear as error toasts with the main-pr
 | --- | --- |
 | Maximum import file size | 64 MiB |
 | Maximum rows per JSON table | 200,000 |
-| Pending wizard tokens held in the main process | 8, oldest evicted first, single use |
+| Pending wizard tokens held in the main process | 1; opening another file replaces it, and it is spent when the import lands |
 | Reference choices offered per table | 200 |
-| Snapshot/CSV export rows | 500 newest transactions |
+| Snapshot returned to the grid | 500 newest transactions |
+| CSV export rows | Every live transaction, not just the snapshot window |
 | JSON date range | Any valid date; no limit |
 
 Cautions:

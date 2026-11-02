@@ -19,9 +19,11 @@ export function BillPrompts() {
 
   if (!snapshot) return null
 
+  // The ledger window is capped; the bill history is not, so an annual bill's
+  // payment is still matchable when hundreds of newer rows have pushed it out.
   const prompts = dueBillPrompts({
     bills: snapshot.bills,
-    payments: snapshot.transactions,
+    payments: snapshot.billPayments,
     todayISO: todayISO()
   })
   const open = prompts.filter((prompt) => !snoozed.includes(promptKey(prompt)))

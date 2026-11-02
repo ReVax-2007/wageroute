@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { CreditCard } from 'lucide-react'
+import { cardOwedCents } from '@shared/accounts'
 import { todayISO } from '@shared/dates'
 import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
 import type { AccountWithBalance } from '@shared/types'
@@ -23,6 +24,7 @@ export function PayCardDialog({
       account.kind !== 'credit' && account.kind !== 'investment' && !account.isArchived
   )
   const owed = accountDisplayBalanceCents(card)
+  const creditCents = Math.max(0, -cardOwedCents(card))
 
   const [fromId, setFromId] = useState(sources[0]?.id ?? '')
   const [amount, setAmount] = useState(centsToEditable(owed))
@@ -62,7 +64,7 @@ export function PayCardDialog({
           <Button variant="quiet" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={submit} disabled={saving}>
+          <Button variant="primary" onClick={submit} disabled={saving || sources.length === 0}>
             Record payment
           </Button>
         </>
@@ -101,8 +103,17 @@ export function PayCardDialog({
         </Field>
       </div>
       <p className="field-hint">
-        <CreditCard size={13} /> Owed today: {formatMoney(owed, settings.currency)}
+        <CreditCard size={13} />{' '}
+        {creditCents > 0
+          ? `The card is overpaid by ${formatMoney(creditCents, settings.currency)}.`
+          : `Owed today: ${formatMoney(owed, settings.currency)}`}
       </p>
+      {sources.length === 0 && (
+        <p className="form-error" role="alert">
+          No spendable account is available. Add or restore a checking, savings or cash account
+          before paying this card.
+        </p>
+      )}
       {error && (
         <p className="form-error" role="alert">
           {error}

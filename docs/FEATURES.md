@@ -523,7 +523,7 @@ In order:
 9. If whole-dollar mode is on, floor savings, investments, debt and each goal funding to whole dollars.
 10. Recompute goal total.
 11. Leisure = surplus − savings − investment − goals − debt.
-12. Health: `shortfall` if the wall was not covered; otherwise `tight` when income is zero or leisure is less than 10% of income; otherwise `covered`.
+12. Health: `shortfall` if the wall was not covered; otherwise `tight` when the paycheck is fully spoken for (income is zero or nothing is left after the bills and splits); otherwise `covered`. Saving almost everything on purpose is `covered`, not tight — the bills are funded and the choice was deliberate.
 
 The identity `priority + savings + investment + goals + debt + leisure = income` always holds.
 
@@ -536,7 +536,7 @@ The identity `priority + savings + investment + goals + debt + leisure = income`
 | `goal_overflow` | Goal budget remained after all goals were funded and swept to savings |
 | `no_bills` | The wall is empty |
 | `no_goals` | No goals exist, so the goal share became savings |
-| `tight_margin` | Leisure is below 10% of income |
+| `tight_margin` | The paycheck is fully spoken for: nothing is left after the bills and splits |
 
 The UI suppresses `splits_scaled` when the user's own split total is over 100%, because the over-allocation message is clearer.
 

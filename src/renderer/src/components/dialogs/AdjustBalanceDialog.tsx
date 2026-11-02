@@ -1,9 +1,9 @@
 import { useState } from 'react'
+import { cardOwedCents } from '@shared/accounts'
 import { todayISO } from '@shared/dates'
 import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
 import type { AccountWithBalance } from '@shared/types'
 import { Button, Field, Modal } from '../ui'
-import { accountDisplayBalanceCents } from '../../lib/finance'
 import { useFinanceStore } from '../../store/useFinanceStore'
 import { useDialogSave } from '../useDialogSave'
 
@@ -17,7 +17,9 @@ export function AdjustBalanceDialog({
   const settings = useFinanceStore((state) => state.settings)
   const adjustAccountBalance = useFinanceStore((state) => state.adjustAccountBalance)
   const isCredit = account.kind === 'credit'
-  const [value, setValue] = useState(centsToEditable(accountDisplayBalanceCents(account)))
+  // Signed, so an overpaid card starts at its credit instead of a misleading 0.
+  const owedCents = cardOwedCents(account)
+  const [value, setValue] = useState(centsToEditable(owedCents))
   const [occurredOn, setOccurredOn] = useState(todayISO())
   const { saving, error, setError, run } = useDialogSave(onClose)
 
@@ -73,8 +75,11 @@ export function AdjustBalanceDialog({
         </Field>
       </div>
       <p className="field-hint">
-        Current {isCredit ? 'owed' : 'balance'}:{' '}
-        {formatMoney(accountDisplayBalanceCents(account), settings.currency)}
+        {isCredit
+          ? owedCents < 0
+            ? `Credit on the card: ${formatMoney(-owedCents, settings.currency)}`
+            : `Current owed: ${formatMoney(owedCents, settings.currency)}`
+          : `Current balance: ${formatMoney(owedCents, settings.currency)}`}
       </p>
       {error && (
         <p className="form-error" role="alert">

@@ -111,6 +111,37 @@ PSTORE
   assert.equal(statement.accountLabel, null)
 })
 
+test('the old two-digit Quicken year is expanded instead of refusing the row', () => {
+  const { entries } = parseQif(`!Type:Bank
+D10/05'26
+T-25.00
+PSTORE
+^
+D12/31'99
+T-10.00
+POLD
+^
+`)
+  assert.deepEqual(
+    entries.map((entry) => entry.occurredOn),
+    ['2026-10-05', '1999-12-31']
+  )
+})
+
+test('a transfer-only QIF says what it held instead of "no transactions"', () => {
+  assert.throws(
+    () =>
+      parseQif(`!Type:Bank
+D10/05/2026
+T-500.00
+PTO SAVINGS
+L[Savings]
+^
+`),
+    /no importable cash transactions — statement line 2 is a transfer/
+  )
+})
+
 test('a QIF naming two accounts is refused rather than poured into one', () => {
   assert.throws(
     () =>

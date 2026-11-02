@@ -68,8 +68,16 @@ export function TransactionsGrid({
       if (!previous.transferGroupId && next.kind !== previous.kind) patch.kind = next.kind
 
       if (Object.keys(patch).length === 0) continue
+      // A refused save leaves the grid holding the value it never wrote, so a
+      // failure re-reads the snapshot and the cell snaps back with the reason
+      // already on screen.
+      const save = (id: string, next: TransactionPatch): void => {
+        void updateTransaction(id, next).then((ok) => {
+          if (!ok) void refresh().catch(() => undefined)
+        })
+      }
       if (patch.kind === undefined && patch.accountId === undefined) {
-        void updateTransaction(next.id, patch)
+        save(next.id, patch)
         continue
       }
 
@@ -83,7 +91,7 @@ export function TransactionsGrid({
           : `The entry leaves “${previous.accountName}” and joins “${next.accountName}”. Both balances, reports and any round-up are recomputed.`,
         confirmLabel: changesKind ? 'Change kind' : 'Move entry'
       }).then((ok) => {
-        if (ok) void updateTransaction(next.id, patch)
+        if (ok) save(next.id, patch)
         // The grid already holds the new cell value; re-read the snapshot so a
         // cancelled change snaps back instead of sitting there unsaved.
         else void refresh().catch(() => undefined)

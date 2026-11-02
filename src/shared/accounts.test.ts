@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { buildAllocationPlan } from './allocator'
 import {
+  cardOwedCents,
   countsInSafeToSpend,
   poolEarmarkedGoalsCents,
   safeToSpendPoolCents,
@@ -380,4 +381,14 @@ test('a paycheck swallowed whole by bills is tight, and one that cannot cover th
   assert.equal(short.health, 'shortfall')
   assert.equal(short.shortfallCents, 50_000)
   assert.ok(short.warnings.some((warning) => warning.code === 'shortfall'))
+})
+
+test('a card reads as owed money, and an overpaid card keeps its sign', () => {
+  assert.equal(cardOwedCents(account({ kind: 'credit', balanceCents: -45_000 })), 45_000)
+  assert.equal(
+    cardOwedCents(account({ kind: 'credit', balanceCents: 2_500 })),
+    -2_500,
+    'a credit on the card is negative, not clamped to zero'
+  )
+  assert.equal(cardOwedCents(account({ kind: 'checking', balanceCents: 12_000 })), 12_000)
 })

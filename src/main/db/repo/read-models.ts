@@ -9,9 +9,20 @@ import { getUser } from './users'
 import { listGoals } from './goals'
 import { listPaychecks, paycheckCount } from './paychecks'
 import { readSettings } from './settings'
-import { listBillPaymentsThisMonth, listTransactions, transactionCount } from './transactions'
+import {
+  listBillPaymentsSince,
+  listBillPaymentsThisMonth,
+  listTransactions,
+  transactionCount
+} from './transactions'
 import type { Db } from './common'
-import { todayISO } from '@shared/dates'
+import { addDaysISO, todayISO } from '@shared/dates'
+
+/**
+ * Bill prompts compare the latest occurrence of an annual bill with its
+ * payment, so the history has to reach a year back; the ledger window does not.
+ */
+const BILL_PAYMENT_HISTORY_DAYS = 370
 
 /** The tables a write can change; a patch names only the ones it touched. */
 export type SnapshotPart =
@@ -83,6 +94,11 @@ export function getSnapshot(db: Db, userId: string): Snapshot {
       transactions: listTransactions(db, userId),
       transactionTotal: transactionCount(db, userId),
       billPaymentsThisMonth: listBillPaymentsThisMonth(db, userId, todayISO().slice(0, 7)),
+      billPayments: listBillPaymentsSince(
+        db,
+        userId,
+        addDaysISO(todayISO(), -BILL_PAYMENT_HISTORY_DAYS)
+      ),
       paychecks: listPaychecks(db, userId),
       paycheckTotal: paycheckCount(db, userId),
       billReserves: listBillReserves(db, userId),
@@ -113,6 +129,11 @@ export function readSnapshotParts(
       patch.transactions = listTransactions(db, userId, SNAPSHOT_TRANSACTION_LIMIT)
       patch.transactionTotal = transactionCount(db, userId)
       patch.billPaymentsThisMonth = listBillPaymentsThisMonth(db, userId, todayISO().slice(0, 7))
+      patch.billPayments = listBillPaymentsSince(
+        db,
+        userId,
+        addDaysISO(todayISO(), -BILL_PAYMENT_HISTORY_DAYS)
+      )
     }
     if (wanted.has('paychecks')) {
       patch.paychecks = listPaychecks(db, userId)
