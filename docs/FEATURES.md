@@ -144,6 +144,10 @@ The six newest transactions show date, description, account, category chip and s
 
 See [Bill prompts](#bill-prompts) below. The prompt card appears above the stat grid only when at least one active bill is past due and unconfirmed.
 
+### One-time income
+
+A full-width card lists this month's income entries that are not paychecks — `kind = 'income'` with `paycheck_id IS NULL`. It shows the month total, up to five entries with the account and date, and an **Add income** action. The dialog asks for an amount, a date, the account that received it (live checking, savings or cash) and a short description, then writes one `income` transaction under the **Income** category. The money raises the ledger and account balance but is deliberately left out of routing: it creates no paycheck, allocation or goal funding.
+
 ---
 
 ## Priority Wall
@@ -238,7 +242,8 @@ Each card shows:
 - progress bar coloured by the goal;
 - percent funded, capped at 100 for display;
 - amount remaining (`max(0, target − funded)`);
-- priority chip, emergency chip when flagged, a monthly pace chip, and a **Dedicated account** / **N dedicated accounts** chip when the goal is fed by its own accounts;
+- priority chip, emergency chip when flagged, a monthly pace chip, a **Funding paused** chip or a **Paced to <date>** chip for the goal's chosen pace, and a **Dedicated account** / **N dedicated accounts** chip when the goal is fed by its own accounts;
+- a pause/resume button beside the goal: pausing sets `fundingPace = 'paused'`, and resuming sets it back to `asap`;
 - when accounts fund the goal, each one is listed under the total with its own balance, so the sum is never a black box.
 
 Monthly pace:
@@ -259,7 +264,15 @@ Detaching or archiving the last dedicated account puts the goal back on its allo
 
 ### Goal dialog
 
-Fields: name, target amount, optional target date, priority, **Funded by**, **Deposit account**, colour. Goal colours are a fixed six-swatch palette.
+Fields: name, target amount, optional target date, priority, **Funding pace**, **Funded by**, **Deposit account**, colour. Goal colours are a fixed six-swatch palette.
+
+**Funding pace** is the goal's own answer to what happens on payday, and it is stored on the goal (schema 10):
+
+- **As fast as possible** (`asap`) — take the remaining need from this paycheck's goal slice, which is the original behaviour;
+- **Spread until the target date** (`by_date`) — take only `ceil(remaining / checksLeft)`, where `checksLeft` counts the pay periods from the paycheck date to the target date. With no target date it behaves like `asap`;
+- **Paused — leave it alone** (`paused`) — keep the target, progress and card, but write no paycheck money against it.
+
+The hint under the field changes with the choice, and a paused goal stays excluded from routing until it is resumed from the card or the dialog.
 
 **Funded by** is the picker that decides where progress comes from, and it is a property of the goal, not of the account:
 
@@ -283,7 +296,7 @@ When the allocator distributes the goal percentage, eligible goals are sorted by
 2. target date ascending, with no date sorting last;
 3. name ascending.
 
-Fully funded goals are skipped, and so is every goal fed by a dedicated account: an allocation written against it would be invisible, so its share of the budget falls through to savings instead. When no goal is allocatable at all the warning is “no goals”, whether that means none exist or all of them have their own account. Each remaining goal takes `min(remaining need, remaining goal budget)`. Any leftover goal budget becomes savings.
+Fully funded goals and `paused` goals are skipped, and so is every goal fed by a dedicated account: an allocation written against it would be invisible, so its share of the budget falls through to savings instead. When no goal is allocatable at all the warning is “no goals”, whether that means none exist or all of them have their own account. Each remaining goal takes `min(remaining need, remaining goal budget, pace allowance)`. A `by_date` goal's allowance is `ceil(remaining need / checksLeft)`; an `asap` goal has no extra cap. Any leftover goal budget becomes savings.
 
 ---
 
@@ -297,6 +310,7 @@ The emergency calculator is embedded at the top of Sinking funds, not in Setting
 | --- | --- |
 | Mode | **Auto calculate** or **Manual** |
 | Months | 3, 4, 5 or 6 in auto mode |
+| Extra buffer | Optional amount added on top of the automatic target; blank or invalid adds nothing |
 | Include variable spending | Adds recent variable expenses to the wall |
 | Manual target | A free-form amount shown only in manual mode |
 
@@ -306,7 +320,7 @@ The emergency calculator is embedded at the top of Sinking funds, not in Setting
 monthly wall = smoothed active bills
 variable average = average monthly variable expenses over the last 6 months
 essentials = wall + (includeVariable ? variable average : 0)
-target = essentials × months
+target = essentials × months + buffer
 ```
 
 The variable average:
@@ -340,7 +354,7 @@ There is no separate list of emergency account IDs in settings. The relation liv
 “Apply target” / “Create emergency fund”:
 
 1. validates the target is above zero;
-2. saves the emergency settings (`emergencyMode`, months, include-variable, manual target, `emergencyActive`) — no account list, because accounts belong to the goal;
+2. saves the emergency settings (`emergencyMode`, months, include-variable, `emergencyBufferCents`, manual target, `emergencyActive`) — no account list, because accounts belong to the goal;
 3. if an emergency goal exists, updates `target_cents` **and** its `fundingAccountIds` in the one `goal:update` call, which binds the ticked accounts and releases the ones unticked;
 4. otherwise creates a goal named **Emergency Fund**, priority 1, colour `#38BDF8`, `isEmergency = true`, funders attached in the same `goal:create`.
 
@@ -411,13 +425,23 @@ Editing cannot change the starting balance. The subtitle explains that correctio
 
 ### Adjust balance
 
-The dialog takes a target balance and a date. It computes:
+The dialog takes a target balance and a date. On a credit card it also offers three ways to say the same thing:
+
+| Mode | You type | Target owed becomes |
+| --- | --- | --- |
+| Balance owed | The amount owed | The typed amount |
+| Available credit | The unused part of the limit | `limit − typed` |
+| Utilisation percent | How full the card is (0–100) | `round(limit × typed / 100)` |
+
+Available credit and percent need a credit limit; without one the dialog stays in balance mode. Every mode previews the resulting balance, available credit and utilisation before saving, and clamps available credit and percent at zero.
+
+It then computes:
 
 ```text
 delta = target − current derived balance
 ```
 
-If the delta is zero, it reports “That balance is already correct” and writes nothing. Otherwise it posts one `adjustment` transaction for the delta with memo “Balance adjustment” and category “Adjustment”. For a credit card, the typed amount owed is negated before comparison.
+If the delta is zero, it reports “That balance is already correct” and writes nothing. Otherwise it posts one `adjustment` transaction for the delta with memo “Balance adjustment” and category “Adjustment”. For a credit card, the typed amount owed is negated before comparison — a negative “owed” entry records a credit balance in the card's favour.
 
 This keeps every correction visible in the spreadsheet.
 
@@ -437,6 +461,7 @@ Not every picker lists every account, and the difference is deliberate:
 - **Deposit and routing destinations** (paycheck deposit, plan moves, the account a goal's money is spent from) offer live checking, savings and cash accounts. Money has to land somewhere spendable; a credit card or brokerage account is a different instrument, not a place a paycheck is deposited, so `fundableAccounts` excludes both.
 - **“Paid from” on a bill, and the account select in the entry dialog, stay wider.** A bill can legitimately be charged to a credit card, and an entry can be a transfer onto that card (paying it) or into an investment account. Restricting those lists would make real ledgers impossible to record, so every live account remains selectable there.
 - **Money hints use the one currency from Settings.** Every money field formats its example with that currency (`Enter 12.34 for $12.34`) instead of a hard-coded symbol, so a EUR ledger is never explained in dollars.
+- **Every money field is typed as money.** Bill, entry, goal, account, card and adjustment amounts accept digits, one decimal point and at most two decimals, and show a decimal keypad on touch devices. Letters, currency symbols and stray separators never reach the field; a ledger entry additionally accepts a leading minus for an expense.
 
 ### Remove an account
 

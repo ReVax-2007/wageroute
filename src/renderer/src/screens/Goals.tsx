@@ -29,6 +29,7 @@ import {
   Field,
   IconButton,
   Money,
+  MoneyInput,
   Progress,
   Segmented,
   Switch
@@ -43,6 +44,8 @@ export function Goals() {
   const settings = useFinanceStore((state) => state.settings)
   const archiveGoal = useFinanceStore((state) => state.archiveGoal)
   const deleteGoal = useFinanceStore((state) => state.deleteGoal)
+  const updateGoal = useFinanceStore((state) => state.updateGoal)
+  const notify = useFinanceStore((state) => state.notify)
   const askConfirm = useFinanceStore((state) => state.askConfirm)
   const [editing, setEditing] = useState<GoalWithProgress | null | 'new'>(null)
 
@@ -108,6 +111,24 @@ export function Goals() {
                         : 'No deadline set'}
                     </p>
                   </div>
+                  <IconButton
+                    label={goal.fundingPace === 'paused' ? 'Resume funding' : 'Pause funding'}
+                    onClick={() => {
+                      const next = goal.fundingPace === 'paused' ? 'asap' : 'paused'
+                      void updateGoal(goal.id, { fundingPace: next }).then((ok) => {
+                        if (ok) {
+                          notify(
+                            next === 'paused'
+                              ? `${goal.name} will not take paycheck money until you resume it`
+                              : `${goal.name} is funded again from paychecks`,
+                            'success'
+                          )
+                        }
+                      })
+                    }}
+                  >
+                    {goal.fundingPace === 'paused' ? <Play size={15} /> : <Pause size={15} />}
+                  </IconButton>
                   <IconButton label="Edit goal" onClick={() => setEditing(goal)}>
                     <Pencil size={15} />
                   </IconButton>
@@ -160,6 +181,12 @@ export function Goals() {
                     </span>
                   )}
                   <span className="chip">Priority {goal.priority}</span>
+                  {goal.fundingPace === 'paused' && (
+                    <span className="chip chip-paused">Funding paused</span>
+                  )}
+                  {goal.fundingPace === 'by_date' && goal.targetDate !== null && (
+                    <span className="chip chip-quiet">Paced to {formatDateLong(goal.targetDate)}</span>
+                  )}
                   {overdue && <span className="chip chip-overdue">Overdue</span>}
                   {goal.isEmergency && (
                     <span className="chip chip-emergency">
@@ -257,6 +284,9 @@ function EmergencyCard() {
       ? centsToEditable(settings.emergencyManualTargetCents)
       : ''
   )
+  const [buffer, setBuffer] = useState(
+    settings.emergencyBufferCents > 0 ? centsToEditable(settings.emergencyBufferCents) : ''
+  )
   // Null means "follow the saved goal"; a list means the user has touched the
   // picker since the last apply. Copying the goal into state once would keep
   // old ids after an edit made elsewhere on this screen and write them back.
@@ -277,7 +307,8 @@ function EmergencyCard() {
     variableMonthlyCents: variable,
     includeVariable
   })
-  const autoTarget = recommendedEmergencyTargetCents(essentials, months)
+  const bufferCents = parseMoneyToCents(buffer) ?? 0
+  const autoTarget = recommendedEmergencyTargetCents(essentials, months, bufferCents)
   const manualCents = mode === 'manual' ? parseMoneyToCents(manual) : null
   const targetCents = mode === 'manual' ? Math.max(0, manualCents ?? 0) : autoTarget
   const funded = goal?.fundedCents ?? 0
@@ -317,7 +348,8 @@ function EmergencyCard() {
       // The manual target is a saved preference: switching to automatic keeps
       // the number so switching back does not lose it.
       emergencyManualTargetCents:
-        mode === 'manual' ? targetCents : settings.emergencyManualTargetCents
+        mode === 'manual' ? targetCents : settings.emergencyManualTargetCents,
+      emergencyBufferCents: mode === 'auto' ? Math.max(0, bufferCents) : settings.emergencyBufferCents
     })
     if (!settingsSaved) {
       setSaving(false)
@@ -414,22 +446,26 @@ function EmergencyCard() {
                   label="Include variable spending"
                 />
               </div>
+              <Field
+                label="Extra buffer"
+                hint="Optional. Covers one-offs the monthly average misses, like a repair or a deductible."
+              >
+                <MoneyInput value={buffer} placeholder="500.00" onValueChange={setBuffer} />
+              </Field>
             </>
           ) : (
             <Field label="Target amount" hint="A number you choose yourself">
-              <input
-                className="input"
-                inputMode="decimal"
+              <MoneyInput
                 value={manual}
                 placeholder="20,000.00"
-                onChange={(event) => setManual(event.target.value)}
+                onValueChange={setManual}
               />
             </Field>
           )}
 
           <p className="field-hint">
             {mode === 'auto'
-              ? `Target = ${months} × monthly essentials`
+              ? `Target = ${months} × monthly essentials${bufferCents > 0 ? ` + ${formatMoney(bufferCents, currency)} buffer` : ''}`
               : 'Manual target replaces the calculation until you switch back.'}
           </p>
 

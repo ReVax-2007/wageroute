@@ -116,6 +116,7 @@ function goalRow(
     accountId: null,
     isEmergency: false,
     isArchived: false,
+    fundingPace: 'asap',
     fundedCents,
     remainingCents: 0,
     fundedFrom: 'allocations',

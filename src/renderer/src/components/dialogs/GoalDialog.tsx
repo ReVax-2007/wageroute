@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { centsToEditable, parseMoneyToCents } from '@shared/money'
-import type { GoalInput, GoalWithProgress } from '@shared/types'
-import { Button, Field, Modal } from '../ui'
+import type { GoalFundingPace, GoalInput, GoalWithProgress } from '@shared/types'
+import { Button, Field, Modal, MoneyInput } from '../ui'
 import { FundingAccountsPicker } from '../FundingAccountsPicker'
 import { fundableAccounts } from '../../lib/finance'
 import { useFinanceStore } from '../../store/useFinanceStore'
@@ -39,7 +39,8 @@ export function GoalDialog({
     targetDate: goal?.targetDate ?? '',
     priority: goal ? String(goal.priority) : '100',
     color: goal?.color ?? COLORS[0].value,
-    accountId: goal?.accountId ?? ''
+    accountId: goal?.accountId ?? '',
+    fundingPace: (goal?.fundingPace ?? 'asap') as GoalFundingPace
   })
   const [fundingIds, setFundingIds] = useState<string[]>(
     goal ? goal.dedicatedAccounts.map((account) => account.id) : []
@@ -67,6 +68,7 @@ export function GoalDialog({
       priority: Number(form.priority) || 100,
       color: form.color,
       accountId: form.accountId || null,
+      fundingPace: form.fundingPace,
       fundingAccountIds: fundingIds
     }
 
@@ -104,14 +106,12 @@ export function GoalDialog({
           />
         </Field>
         <Field label="Target amount" error={fieldErrors.target}>
-          <input
-            className="input"
-            inputMode="decimal"
+          <MoneyInput
             value={form.target}
             placeholder="1,200.00"
-            onChange={(event) => {
+            onValueChange={(target) => {
               clearField('target')
-              setForm({ ...form, target: event.target.value })
+              setForm({ ...form, target })
             }}
           />
         </Field>
@@ -131,6 +131,30 @@ export function GoalDialog({
             value={form.priority}
             onChange={(event) => setForm({ ...form, priority: event.target.value })}
           />
+        </Field>
+        <Field
+          label="Funding pace"
+          hint={
+            fundingIds.length > 0
+              ? 'A dedicated account already holds this goal, so the paycheck pace does not apply'
+              : form.fundingPace === 'by_date'
+                ? 'Only its even share each paycheck — it never races ahead'
+                : form.fundingPace === 'paused'
+                  ? 'The allocator leaves this goal alone until you resume it'
+                  : 'Takes what it needs while the goal share lasts'
+          }
+        >
+          <select
+            className="select"
+            value={form.fundingPace}
+            onChange={(event) =>
+              setForm({ ...form, fundingPace: event.target.value as GoalFundingPace })
+            }
+          >
+            <option value="asap">As fast as possible</option>
+            <option value="by_date">Spread until the target date</option>
+            <option value="paused">Paused — leave it alone</option>
+          </select>
         </Field>
       </div>
 

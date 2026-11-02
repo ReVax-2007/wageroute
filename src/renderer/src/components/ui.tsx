@@ -6,13 +6,14 @@ import {
   useId,
   useRef,
   type ButtonHTMLAttributes,
+  type InputHTMLAttributes,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactElement,
   type ReactNode
 } from 'react'
 import { X } from 'lucide-react'
-import { formatMoney, formatMoneyCompact } from '@shared/money'
+import { formatMoney, formatMoneyCompact, sanitizeMoneyInput, sanitizePercentInput } from '@shared/money'
 import { useFinanceStore } from '../store/useFinanceStore'
 
 const FOCUSABLE =
@@ -167,6 +168,57 @@ export function Money({
     <span className={className ? `num ${className}` : 'num'}>
       {compact ? formatMoneyCompact(cents, currency) : formatMoney(cents, currency)}
     </span>
+  )
+}
+
+type NumericInputProps = Omit<
+  InputHTMLAttributes<HTMLInputElement>,
+  'type' | 'value' | 'onChange' | 'inputMode'
+> & {
+  value: string
+  onValueChange: (value: string) => void
+}
+
+/** A money field that only ever holds a number: no letters, one point, two decimals. */
+export function MoneyInput({
+  value,
+  onValueChange,
+  allowNegative = false,
+  className = 'input',
+  ...rest
+}: NumericInputProps & { allowNegative?: boolean }) {
+  return (
+    <input
+      {...rest}
+      type="text"
+      inputMode="decimal"
+      autoComplete="off"
+      className={className}
+      value={value}
+      onChange={(event) =>
+        onValueChange(sanitizeMoneyInput(event.target.value, { allowNegative }))
+      }
+    />
+  )
+}
+
+/** A percentage field with the same restraint, used by the allocator splits. */
+export function PercentInput({
+  value,
+  onValueChange,
+  className = 'input',
+  ...rest
+}: NumericInputProps) {
+  return (
+    <input
+      {...rest}
+      type="text"
+      inputMode="decimal"
+      autoComplete="off"
+      className={className}
+      value={value}
+      onChange={(event) => onValueChange(sanitizePercentInput(event.target.value))}
+    />
   )
 }
 

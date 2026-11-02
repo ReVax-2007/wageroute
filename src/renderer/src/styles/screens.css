@@ -58,6 +58,10 @@
   background: var(--goal);
 }
 
+.account-dot.kind-income {
+  background: var(--accent);
+}
+
 .account-name {
   display: flex;
   flex-direction: column;

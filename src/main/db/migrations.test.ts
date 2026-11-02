@@ -70,8 +70,8 @@ test('v6 rebuilds bills, keeps every row and restores enforcement', () => {
   const db = v5Database()
   migrate(db)
 
-  assert.equal(SCHEMA_VERSION, 9)
-  assert.equal(db.pragma('user_version', { simple: true }), 9)
+  assert.equal(SCHEMA_VERSION, 10)
+  assert.equal(db.pragma('user_version', { simple: true }), 10)
   assert.equal(db.pragma('foreign_keys', { simple: true }), 1, 'enforcement is back on')
   assert.deepEqual(db.pragma('foreign_key_check'), [])
   assert.equal(db.pragma('integrity_check', { simple: true }), 'ok')
@@ -238,6 +238,39 @@ test('v9 remembers how each claim was written and refuses an unknown strategy', 
   )
   assert.throws(
     () => db.prepare('UPDATE bill_reserves SET due_day = 32 WHERE id = ?').run('r1'),
+    /CHECK/i
+  )
+  db.close()
+})
+
+test('v10 gives existing goals a pace and refuses an unknown one', () => {
+  const db = new Database(':memory:')
+  db.pragma('foreign_keys = ON')
+  migrateThrough(db, 9)
+  db.prepare(
+    `INSERT INTO users (id, display_name, created_at, updated_at)
+     VALUES (?, 'Tester', ?, ?)`
+  ).run(USER_ID, TS, TS)
+  db.prepare(
+    `INSERT INTO goals (id, user_id, name, target_cents, created_at, updated_at)
+     VALUES ('goal-1', ?, 'Tattoo Fund', 120000, ?, ?)`
+  ).run(USER_ID, TS, TS)
+
+  migrate(db)
+
+  assert.equal(db.pragma('user_version', { simple: true }), SCHEMA_VERSION)
+  assert.deepEqual(db.pragma('foreign_key_check'), [])
+  assert.equal(
+    (db.prepare("SELECT funding_pace FROM goals WHERE id = 'goal-1'").get() as {
+      funding_pace: string
+    }).funding_pace,
+    'asap',
+    'existing goals keep funding on sight'
+  )
+  db.prepare("UPDATE goals SET funding_pace = 'paused' WHERE id = 'goal-1'").run()
+  db.prepare("UPDATE goals SET funding_pace = 'by_date' WHERE id = 'goal-1'").run()
+  assert.throws(
+    () => db.prepare("UPDATE goals SET funding_pace = 'whenever' WHERE id = 'goal-1'").run(),
     /CHECK/i
   )
   db.close()

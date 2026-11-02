@@ -458,6 +458,11 @@ UPDATE bill_reserves
        );
 `
 
+const SCHEMA_V10 = `
+ALTER TABLE goals ADD COLUMN funding_pace TEXT NOT NULL DEFAULT 'asap'
+  CHECK (funding_pace IN ('asap','by_date','paused'));
+`
+
 function isoDay(): string {
   const now = new Date()
   const pad = (value: number): string => String(value).padStart(2, '0')
@@ -596,6 +601,12 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 9,
     up: (db) => {
       db.exec(SCHEMA_V9)
+    }
+  },
+  {
+    version: 10,
+    up: (db) => {
+      db.exec(SCHEMA_V10)
     }
   }
 ]

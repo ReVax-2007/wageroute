@@ -127,6 +127,80 @@ test('priority wall is funded before any surplus is split', () => {
   )
 })
 
+test('a paused goal takes nothing and its share falls through to savings', () => {
+  const plan = buildAllocationPlan({
+    incomeCents: 500_000,
+    payCadence: 'monthly',
+    bills: [],
+    goals: [
+      {
+        id: 'trip',
+        name: 'Trip',
+        targetCents: 120_000,
+        fundedCents: 0,
+        priority: 1,
+        targetDate: '2026-04-01',
+        fundingPace: 'paused'
+      }
+    ],
+    splits: { savingsPercent: 25, investmentPercent: 25, goalsPercent: 25, debtPercent: 0 }
+  })
+
+  assert.equal(plan.goalFundings.length, 0)
+  assert.equal(plan.goalsCents, 0)
+  assert.equal(plan.savingsCents, 250_000, 'the goal share sweeps into savings')
+  assert.ok(plan.warnings.some((warning) => warning.code === 'no_goals'))
+})
+
+test('a paced goal takes only its even share, not the whole budget', () => {
+  const plan = buildAllocationPlan({
+    incomeCents: 500_000,
+    payCadence: 'monthly',
+    paycheckDate: '2026-01-01',
+    bills: [],
+    goals: [
+      {
+        id: 'trip',
+        name: 'Trip',
+        targetCents: 120_000,
+        fundedCents: 0,
+        priority: 1,
+        targetDate: '2026-04-01',
+        fundingPace: 'by_date'
+      }
+    ],
+    splits: { savingsPercent: 25, investmentPercent: 25, goalsPercent: 25, debtPercent: 0 }
+  })
+
+  // 90 days at a monthly cadence leaves three checks, so $1,200 needs $400 each.
+  assert.equal(plan.goalFundings[0].amountCents, 40_000)
+  assert.equal(plan.goalsCents, 40_000)
+  assert.equal(allocated(plan), plan.incomeCents)
+})
+
+test('a paced goal with no date still takes what it needs', () => {
+  const plan = buildAllocationPlan({
+    incomeCents: 500_000,
+    payCadence: 'monthly',
+    paycheckDate: '2026-01-01',
+    bills: [],
+    goals: [
+      {
+        id: 'trip',
+        name: 'Trip',
+        targetCents: 120_000,
+        fundedCents: 0,
+        priority: 1,
+        targetDate: null,
+        fundingPace: 'by_date'
+      }
+    ],
+    splits: { savingsPercent: 25, investmentPercent: 25, goalsPercent: 25, debtPercent: 0 }
+  })
+
+  assert.equal(plan.goalFundings[0].amountCents, 120_000)
+})
+
 test('shortfall halts allocation and reports the gap', () => {
   const plan = buildAllocationPlan({
     incomeCents: 50000,

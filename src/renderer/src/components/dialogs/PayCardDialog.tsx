@@ -4,7 +4,7 @@ import { cardOwedCents } from '@shared/accounts'
 import { todayISO } from '@shared/dates'
 import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
 import type { AccountWithBalance } from '@shared/types'
-import { Button, Field, Modal } from '../ui'
+import { Button, Field, Modal, MoneyInput } from '../ui'
 import { accountDisplayBalanceCents } from '../../lib/finance'
 import { useFinanceStore } from '../../store/useFinanceStore'
 import { useDialogSave } from '../useDialogSave'
@@ -85,13 +85,7 @@ export function PayCardDialog({
           </select>
         </Field>
         <Field label="Amount">
-          <input
-            className="input"
-            autoFocus
-            inputMode="decimal"
-            value={amount}
-            onChange={(event) => setAmount(event.target.value)}
-          />
+          <MoneyInput autoFocus value={amount} onValueChange={setAmount} />
         </Field>
         <Field label="Date">
           <input

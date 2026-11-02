@@ -116,9 +116,17 @@ export interface Goal extends SyncMeta {
   accountId: string | null
   isEmergency: boolean
   isArchived: boolean
+  fundingPace: GoalFundingPace
 }
 
 export type GoalFundingSource = 'allocations' | 'account'
+
+/**
+ * How the allocator fills a sinking fund. `asap` takes the whole remaining need
+ * while the goals budget lasts; `by_date` spreads it evenly across the
+ * paychecks left before the target date; `paused` asks for nothing at all.
+ */
+export type GoalFundingPace = 'asap' | 'by_date' | 'paused'
 
 /** One account whose balance counts as a goal's progress. */
 export interface GoalFundingAccount {
@@ -359,6 +367,7 @@ export interface GoalInput {
   color: string
   accountId: string | null
   isEmergency?: boolean
+  fundingPace?: GoalFundingPace
   /**
    * Accounts whose balances become this goal's progress. Omitted means "leave
    * the current dedication alone"; an empty array releases every account.
@@ -469,6 +478,8 @@ export interface AppSettings {
   emergencyMonths: number
   emergencyIncludeVariable: boolean
   emergencyManualTargetCents: number
+  /** Added on top of the auto calculation for costs the monthly average misses. */
+  emergencyBufferCents: number
   /**
    * When false the emergency goal is excluded from the allocator, so no
    * paycheck reserves towards it until saving is resumed.

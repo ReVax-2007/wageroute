@@ -70,12 +70,19 @@ export function emergencyMonthlyEssentialsCents(input: {
   return Math.max(0, input.wallMonthlyCents + (input.includeVariable ? input.variableMonthlyCents : 0))
 }
 
+/**
+ * The recommended target: months of essentials plus an optional manual buffer.
+ * The buffer covers the costs the monthly average misses — a big repair, a
+ * deductible — without pretending they happen every month.
+ */
 export function recommendedEmergencyTargetCents(
   monthlyEssentialsCents: number,
-  months: number
+  months: number,
+  bufferCents = 0
 ): number {
   const safeMonths = Math.max(0, Math.round(months))
-  return Math.max(0, Math.round(monthlyEssentialsCents * safeMonths))
+  const safeBuffer = Number.isFinite(bufferCents) ? Math.max(0, Math.round(bufferCents)) : 0
+  return Math.max(0, Math.round(monthlyEssentialsCents * safeMonths) + safeBuffer)
 }
 
 export function emergencyCoverageMonths(

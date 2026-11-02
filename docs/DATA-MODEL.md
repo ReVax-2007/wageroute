@@ -1,6 +1,6 @@
 # Data model
 
-WageRoute stores everything in one SQLite database, `wageroute.db`, using `STRICT` tables, integer cents, UUID text keys and ISO-8601 timestamps. This document describes the schema at version 9, the semantics of each column, the derived values the app computes at read time, and the invariants that keep the ledger coherent.
+WageRoute stores everything in one SQLite database, `wageroute.db`, using `STRICT` tables, integer cents, UUID text keys and ISO-8601 timestamps. This document describes the schema at version 10, the semantics of each column, the derived values the app computes at read time, and the invariants that keep the ledger coherent.
 
 Source of truth: [`src/main/db/migrations.ts`](../src/main/db/migrations.ts). Read model assembly: [`src/main/db/repo/read-models.ts`](../src/main/db/repo/read-models.ts).
 
@@ -262,6 +262,7 @@ All of this lives in `src/shared/cadence.ts` and is covered by `src/shared/caden
 | `account_id` | TEXT | nullable, FK accounts | Deposit account — where the finished lump is spent. Never measures progress |
 | `is_emergency` | INTEGER | NOT NULL, default 0, CHECK 0/1 | Added in v3 |
 | `is_archived` | INTEGER | NOT NULL, default 0, CHECK 0/1 | |
+| `funding_pace` | TEXT | NOT NULL, default `'asap'`, CHECK in `asap,by_date,paused` | Added in v10. How the allocator funds the goal: on sight, spread until `target_date`, or not at all |
 | `created_at` | TEXT | NOT NULL | |
 | `updated_at` | TEXT | NOT NULL | |
 | `deleted_at` | TEXT | nullable | |
@@ -289,6 +290,8 @@ Consequences:
 - With `fundedFrom = 'account'`, `fundedCents` is whatever the balances say right now — including after a withdrawal, and including money that arrived without any allocation row.
 - A manual `goal_funding` transaction does not fund an allocation-driven goal; on a dedicated account it moves the balance, so it *does* change progress.
 - An allocation-driven goal's held-in account balance is unrelated to its funded amount. The app tracks intent, not ring-fenced cash — except where an account is explicitly dedicated.
+
+The **pace** (`funding_pace`) belongs to the goal, not the allocator. `asap` takes as much of the paycheck's goal slice as the remaining need allows. `by_date` caps this paycheck at `ceil(remaining / checksLeft)`, where `checksLeft` is the number of pay periods from the paycheck date to `target_date`, so the goal still arrives on time without draining the routing in one go. `paused` removes the goal from the eligible list entirely: it keeps its target and progress, but no paycheck money is written against it. A `by_date` goal with no target date behaves like `asap`. The goal card offers the same choice as a pause/resume button, and the goal dialog sets it alongside priority.
 
 ### `paychecks`
 
@@ -496,6 +499,7 @@ Stored in `settings.value` as text. Defaults and validation live in `src/shared/
 | `roundUpToCents` | enum number | `100` | Only `100`, `200`, `500` |
 | `emergencyMode` | enum | `auto` | `auto`, `manual` |
 | `emergencyMonths` | number | `3` | Integer 1–12, else 3 |
+| `emergencyBufferCents` | number | `0` | Optional extra cushion added to the automatic target; positive integer, else 0 |
 | `emergencyIncludeVariable` | boolean | `true` | |
 | `emergencyManualTargetCents` | number | `0` | Positive integer, else 0 |
 | `emergencyActive` | boolean | `true` | When false the allocator stops routing surplus into the emergency fund; the fund's target and progress stay visible |
@@ -519,8 +523,9 @@ Migrations run inside a transaction per version and are tracked by `PRAGMA user_
 | **7** | Adds `bill_reserves` and its two indexes, adds `transactions.round_up_source_id` and its index, rebuilds `idx_transactions_user_date` to cover live rows, and deletes the draft settings keys `emergencyAccountIds`, `insurance_floor_cents` and `round_up_enabled` | The wall needs a stored claim per bill per month ([ADR 0012](decisions/0012-the-wall-remembers-its-claims.md)); the round-up legs need a link back to the purchase that produced them; the ledger's month query must stay indexed; and the three settings rows are read by no released build ([ADR 0009](decisions/0009-the-goal-chooses-its-funding-accounts.md)) |
 | **8** | Adds `transactions.category_id` and `transactions.external_id` with their indexes, the five card columns on `accounts`, and the `categories` and `balance_snapshots` tables; then, in JS, seeds `DEFAULT_CATEGORIES`, links every distinct category text to a row by its normalised key, and writes today's balance for every live account | Categories need an identity to group by; a statement re-import needs the bank's own line id; the card rows need their terms; and net worth needs a history. The backfill only adds rows and sets `category_id` — no existing text, amount or date is rewritten, so every number on an upgraded database is unchanged |
 | **9** | Adds `bill_reserves.strategy` (NOT NULL, default `'all_checks'`, CHECKed enum), `bill_reserves.due_day` (NOT NULL, default `1`, CHECKed) and `bill_reserves.settled_by` with a partial index, then backfills each live row's strategy and due day from its bill | A claim must remember how it was written: a strategy change must not double-reserve, and editing the bill's due day must not rewrite an old carry. The payment link lets a delete or move re-open exactly the row it closed instead of guessing by cycle. Pre-v9 rows take their bill's current strategy and due day, which is the best available reading and moves no money |
+| **10** | Adds `goals.funding_pace` (NOT NULL, default `'asap'`, CHECKed enum) | The sinking fund needs an explicit answer to “what should happen to this goal on payday”: fund it now, spread it to its target date, or leave it alone. Existing goals default to `asap`, which is exactly the pre-v10 behaviour, so an upgraded database funds the same goals on the same cheque |
 
-`SCHEMA_VERSION` is derived from the last migration and is reported in JSON backups. Backups with a higher version are rejected. Backups older than version 2 are rejected; every version from 2 through 9 is accepted.
+`SCHEMA_VERSION` is derived from the last migration and is reported in JSON backups. Backups with a higher version are rejected. Backups older than version 2 are rejected; every version from 2 through 10 is accepted.
 
 Migration procedure for future work is in [DEVELOPMENT.md](DEVELOPMENT.md#adding-a-schema-migration).
 

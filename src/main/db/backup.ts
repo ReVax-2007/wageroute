@@ -63,7 +63,7 @@ export const TABLE_COLUMNS: Record<BackupTable, readonly string[]> = {
   ],
   goals: [
     'id', 'user_id', 'name', 'target_cents', 'target_date', 'priority', 'color',
-    'account_id', 'is_emergency', 'is_archived', 'created_at', 'updated_at',
+    'account_id', 'is_emergency', 'is_archived', 'funding_pace', 'created_at', 'updated_at',
     'deleted_at', 'revision'
   ],
   paychecks: [
@@ -119,7 +119,8 @@ export const TABLE_DEFAULTS: Record<BackupTable, Record<string, SqlValue>> = {
     priority: 100,
     color: '#34D399',
     is_archived: 0,
-    is_emergency: 0
+    is_emergency: 0,
+    funding_pace: 'asap'
   },
   paychecks: {
     source: 'Paycheck',
