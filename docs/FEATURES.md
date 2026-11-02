@@ -679,7 +679,7 @@ The wizard has three steps — choose file, missing info, review — and the sam
 
 The file path stays in the main process between the two steps — the renderer only ever holds a single-use token. See [docs/IMPORT-EXPORT.md](IMPORT-EXPORT.md#the-import-wizard).
 
-The database path is displayed below the actions. The sidebar footer shows the running version instead — `WageRoute v1.1.0` — with the full database path as its tooltip.
+The database path is displayed below the actions. The sidebar footer shows the running version instead — `WageRoute v1.2.0` — with the full database path as its tooltip.
 
 ### About
 

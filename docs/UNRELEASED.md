@@ -26,11 +26,11 @@ The `[1.1.0]` block in [CHANGELOG.md](../CHANGELOG.md) is the inventory; it is r
 
 | Field | Value |
 | --- | --- |
-| App version | **undecided** — at least a minor bump once the audit batches land |
+| App version | **1.2.0** — release branch cut 2026-11-02 |
 | Database schema | `8` — upgrades 3 → 4 → 5 → 6 → 7 → 8 on first launch, forward-only, no downgrade |
 | Backup format written | `8` |
 | Backup format accepted | `2`, `3`, `4`, `5`, `6`, `7`, `8` |
-| `package.json` today | `1.1.0` — bump it **inside** the release branch, never before |
+| `package.json` today | `1.2.0` — bumped on `release/1.2.0` |
 | Windows installers | NSIS, **MSI**, portable exe and zip for x64/arm64; the MSI is built on `windows-latest` |
 | Linux installers | AppImage/deb/rpm for x64/arm64, built on native Ubuntu runners and booted under `xvfb-run` in CI |
 | macOS signing | ad-hoc only: every Mach-O and helper bundle signed deepest-first, then the app, then the DMG container; `codesign --verify --deep --strict` must pass |

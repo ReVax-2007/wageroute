@@ -8,9 +8,15 @@ All notable changes to WageRoute are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+Nothing has merged since 1.2.0.
+
+---
+
+## [1.2.0] - 2026-11-02
+
 ### Added
 
-- **The running version is shown in the app.** Settings → **About** prints the version baked into the bundle — `app.getVersion()` over a new `app:info` IPC channel, alongside the database schema this build applies and its Electron runtime — and the sidebar footer reads `WageRoute v1.1.0` with the full database path as its tooltip. This is the surface that would have made the last three releases' "an unpublished build that still reports 1.0.2" confusion visible at a glance.
+- **The running version is shown in the app.** Settings → **About** prints the version baked into the bundle — `app.getVersion()` over a new `app:info` IPC channel, alongside the database schema this build applies and its Electron runtime — and the sidebar footer reads `WageRoute v<version>` (1.2.0 in this build) with the full database path as its tooltip. This is the surface that would have made the last three releases' "an unpublished build that still reports 1.0.2" confusion visible at a glance.
 - **A Buy me a coffee link.** `https://buymeacoffee.com/revax` in Settings → About, a Support section and badge in the README, and a `.github/FUNDING.yml` so GitHub shows its Sponsor button. The in-app link opens in the system browser through the existing `setWindowOpenHandler`: the app denies child windows and never navigates away from the ledger.
 - **Installers for every desktop, not just the Mac.** `electron-builder.yml` now builds an **MSI** (`WageRoute-<version>-x64.msi`, `-arm64.msi`) beside the NSIS installer, both from WiX on Windows and both per-user so `msiexec /i … /qn` needs no elevation; it builds a **portable exe** and an unpack-and-run **zip** for locked-down machines; and it builds **Linux x64 and arm64** as **AppImage** (no root, any distro), **deb** and **rpm**. The NSIS installer (`WageRoute.Setup.<version>.exe`) and the portable exe each carry both architectures in one file; the MSI and the zips are per architecture. Every asset name is pinned in the config instead of inheriting electron-builder's per-target defaults. The release workflow gained the Linux runners, a Windows MSI job, and a smoke test that installs the MSI, launches the app, proves the ledger was created, reinstalls to check the upgrade stays one entry in Apps & features, and uninstalls; the Linux jobs boot the AppImage and the extracted deb under `xvfb-run`. On a tag push the artifacts now attach themselves to a **draft** GitHub Release — publishing stays a separate, deliberate step.
 - **Bank statements import.** **Import data** accepts `.ofx` and `.qfx` (OFX 1.x SGML and OFX 2.x/QFX XML) and reads any CSV with no Account column as a bank statement, including Debit/Credit pairs. A statement is one account's history, so the wizard prints the bank, masked account number, covered date range and closing balance, lists the lines it left out while reading (unreadable `DTPOSTED`, zero amounts, transfers that need a paired leg), and asks a single question for the whole file — nothing pre-selected, and **Import** stays disabled until an account is chosen. Choosing one maps every line; re-importing an overlapping statement adds only the days that are new through the existing fingerprint allowance. A CSV row that fills both Debit and Credit is reported instead of netted.
@@ -317,7 +323,8 @@ Tag `ad56de9`. First stable release, schema 3, importer accepting backup version
 - The documentation set: `docs/ARCHITECTURE.md`, `DATA-MODEL.md`, `FEATURES.md`, `IMPORT-EXPORT.md`, `DEPLOYMENT.md`, `DEVELOPMENT.md`, `RELEASING.md`, `SECURITY.md` and ADRs 0001–0005.
 - Source-available licence, protected `main`, pull-request-only merges and `verify` CI.
 
-[Unreleased]: https://github.com/ReVax-2007/wageroute/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/ReVax-2007/wageroute/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/ReVax-2007/wageroute/releases/tag/v1.2.0
 [1.1.0]: https://github.com/ReVax-2007/wageroute/releases/tag/v1.1.0
 [1.0.2]: https://github.com/ReVax-2007/wageroute/releases/tag/v1.0.2
 [1.0.1]: https://github.com/ReVax-2007/wageroute/releases/tag/v1.0.1

@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-The published line is 1.1.x; the unreleased 1.2.x line carries schema 8. Security fixes are applied to the newest supported line (1.1.0 is schema 6). Older builds and unsupported backup versions are not patched.
+The published line is 1.2.x (schema 8 and backup format 8). Security fixes are applied to the newest supported line; 1.1.0 carries schema 6 and is superseded. Older builds and unsupported backup versions are not patched.
 
 ## Reporting a vulnerability
 

@@ -4,7 +4,7 @@ WageRoute is a **single-user, local-only desktop ledger**. It does not authentic
 
 This document describes what is actually implemented, what the trust boundaries are, what an attacker with local access can do, and which weaknesses are known and accepted. It is deliberately specific; “secure” without a threat model is not useful.
 
-> **Scope:** the application in this repository, the unreleased `1.2.x` line and the published `1.1.x` line. There is no production server, hosted service or multi-tenant deployment to assess.
+> **Scope:** the application in this repository, the published `1.2.x` line and the superseded `1.1.x` line. There is no production server, hosted service or multi-tenant deployment to assess.
 
 ---
 
@@ -32,8 +32,8 @@ This document describes what is actually implemented, what the trust boundaries 
 
 | Version | Supported | Notes |
 | --- | --- | --- |
-| `1.2.x` (unreleased) | Yes | Current line; fixes land here. Carries schema 8, writes backup format 8 and accepts backups from schema 2–8. |
-| `1.1.x` | Yes until 1.2.0 ships | Latest published line. 1.1.0 carries schema 6; it cannot open a schema-8 database and is not patched once 1.2.0 ships. |
+| `1.2.x` | Yes | Latest published line; fixes land here. Carries schema 8, writes backup format 8 and accepts backups from schema 2–8. |
+| `1.1.x` | No | Superseded. 1.1.0 carries schema 6 and cannot open a schema-8 database; upgrade instead of patching. |
 | `1.0.x` | No | Superseded. 1.0.2 carries schema 3 and cannot open a 1.1.0 database; upgrade instead of patching. |
 | Older app versions | No | No security backports; upgrade or restore a backup |
 | Backups with schema `1` | No | Rejected by the importer |
@@ -354,11 +354,11 @@ Likelihood assumes a normal personal installation, not a targeted investigation.
 
 ## Known weaknesses
 
-Listed with severity for this app's context. None are fixed in `1.1.x` unless stated.
+Listed with severity for this app's context. None are fixed in `1.2.x` unless stated.
 
 | Weakness | Severity | Impact | Notes |
 | --- | --- | --- | --- |
-| Unsigned macOS and Windows builds | **High** for distribution | Tampering is hard to detect; Gatekeeper/SmartScreen friction | Published `SHA256SUMS` is the only integrity check; see [RELEASING.md](RELEASING.md#code-signing-and-notarization) |
+| Unsigned macOS, Windows and Linux builds | **High** for distribution | Tampering is hard to detect; Gatekeeper/SmartScreen friction | Published `SHA256SUMS` is the only integrity check; see [RELEASING.md](RELEASING.md#code-signing-and-notarization) |
 | No encryption at rest | **High** on a stolen disk | Full ledger readable | Rely on FileVault/BitLocker ([ADR 0019](decisions/0019-the-ledger-is-plaintext-at-rest.md)) |
 | Soft-deleted rows retained | **Medium** (privacy) | A normal “delete” keeps the row in the database and in backups | **Erase all data** drops every row and compacts the file; per-row deletion is still a tombstone |
 | Pre-erase copies outlive the erase | **Low–Medium** (privacy) | The ledger can be recovered from `backups/pre-erase-*.db` | Disclosed in the confirmation dialog; delete the `backups` folder to remove it |
