@@ -1,6 +1,6 @@
 # Import and export
 
-WageRoute has one data-movement principle: **imports add, they never restore over what is already there.** A JSON backup can be complete or partial, and a CSV file can be a full export or a handful of rows from a bank. Existing rows and existing settings always win.
+WageRoute has one data-movement principle: **imports add, they never restore over what is already there.** A JSON backup can be complete or partial, and a CSV file can be a full export or a handful of rows from a bank. Existing rows and existing settings always win — with one deliberate exception: a backup imported into a profile that has no accounts, bills, goals, paychecks or entries yet is that profile's first data, so it also supplies the settings. This is the documented erase-then-restore path, and it keeps the restored ledger's currency, pay cadence and splits.
 
 The second principle is **a file is never rejected because of one bad row.** Anything the app cannot work out on its own is asked about in an import wizard, and anything you cannot answer is left out with an explanation while the rest of the file lands.
 
@@ -75,7 +75,7 @@ Detection is pure shared code (`findImportProblems`), so the main process re-der
 | A CSV account name with no matching local account | "no local account is named “COFFSHOC *BREW BAR”" | Dropdown of local accounts, one question per distinct name covering every line that shares it |
 | A bank statement (OFX/QFX, QIF, or a CSV with no Account column) | "a bank statement does not say which local account it belongs to" | Dropdown of local accounts, one question covering every line, **nothing pre-selected** |
 
-Columns that have a schema default — `sort_order`, `is_archived`, `category`, `memo`, `revision`, `priority` and friends — are **never** asked about; they are filled silently. See [partial tables](#partial-tables). The two v4 account columns are not in that list either, in the other direction: they have no default and are nullable, so an absent `dedicated_goal_id` or `in_safe_to_spend` simply arrives as `NULL`.
+Columns that have a schema default — `sort_order`, `is_archived`, `category`, `memo`, `revision`, `priority`, `bill_reserves.state` and friends — are **never** asked about; they are filled silently. A bill reserve without `state` therefore lands `reserved` rather than being dropped, so the money it represents is not thrown away. See [partial tables](#partial-tables). The two v4 account columns are not in that list either, in the other direction: they have no default and are nullable, so an absent `dedicated_goal_id` or `in_safe_to_spend` simply arrives as `NULL`.
 
 Rows without an `id` are not a question either: a UUID is minted at import time. Only rows that *other* rows in the same file point at need a real ID, which is why the wizard's reference check counts IDs the file creates itself (`withFileIds`).
 
@@ -93,6 +93,8 @@ Dropping is per row: a bill with three problems is one card, and leaving it out 
 ### What the wizard cannot fix
 
 Rows that satisfy every question but still break a database rule — a `CHECK` on a column the wizard does not police, such as `bills.funding_strategy`, a foreign key to a row that vanished between the two steps — are caught per row inside the merge transaction and returned as `issues` with a row description (`account “Weekend Fun”: CHECK constraint failed: kind`). The transaction still commits everything else.
+
+The claim replay runs **inside** that same transaction. Rows are inserted, every bill's claims are re-derived from the merged ledger, and only then is the transaction committed. If the replay itself fails (a corrupt database, a trigger refusing a write), the entire import rolls back; an import never leaves rows committed with half-replayed claims.
 
 
 ---
@@ -269,7 +271,7 @@ There is no upsert for financial rows. A row with the same ID is skipped even if
 
 ### Settings
 
-Settings use `INSERT OR IGNORE` against `PRIMARY KEY (user_id, key)`:
+On a ledger that already has history, settings use `INSERT OR IGNORE` against `PRIMARY KEY (user_id, key)`:
 
 - missing keys are added;
 - existing keys are skipped, so local preferences always win;
@@ -278,7 +280,9 @@ Settings use `INSERT OR IGNORE` against `PRIMARY KEY (user_id, key)`:
 - a row with no usable `key` or `value` is asked about in the wizard, and left out with an explanation if it stays blank — it never fails the import;
 - a missing `updated_at` becomes import time.
 
-Importing a backup never changes your existing currency, theme, splits, round-up or emergency settings.
+**Restore into an empty ledger.** When the target has no accounts, bills, goals, paychecks, allocations, reserves, entries or balance snapshots — a fresh install, or the erase-then-import recovery flow — the file's settings replace the seeded defaults instead. The profile has no user-chosen preferences to protect, and keeping the defaults would silently change the restored ledger's currency, pay cadence and splits. Seeded default rows that the file carries unchanged are still counted as skipped.
+
+Any account, bill, goal, cheque or entry — including a tombstone — makes the ledger "in use", and local settings win again. Importing an old backup never changes an established profile's preferences.
 
 ### Duplicate names are not merged
 
@@ -291,6 +295,11 @@ Categories are the exception. They are compared by case-insensitive name because
 ### Tombstones
 
 Because full exports include `deleted_at` rows, an import can add a tombstone for a row that does not exist locally. It will not appear in the UI, but its ID is now taken. Re-importing a backup taken before a local delete will not resurrect the row: the local tombstone has the same ID and is skipped.
+
+A row can be live while the parent it names is a tombstone. Two rules keep the wall honest:
+
+- a **live bill reserve under a deleted bill** is reported (`its bill was deleted or is not in this file`) and left out. A claim is money the ledger holds for a bill; with the bill gone there is nothing to hold it for, and every later export would carry it forward.
+- a **claim whose funding paycheck is a tombstone** still imports, and the claim replay still reads that cheque's pay date. The payment already left the account; keeping the claim `reserved` because the cheque row is dead would show the bill as still owed.
 
 ### Foreign keys and partial files
 
@@ -684,13 +693,13 @@ The bank's `FITID` is the primary marker: a line whose id is already stored for 
 
 - Every table is present.
 - IDs are preserved, so links hold.
-- Settings keys are inserted because none exist locally (apart from the seeded defaults; those keys already exist and are skipped).
-- Result: all rows added, `skipped` counts zero except possibly settings keys that were seeded.
+- Settings keys either do not exist locally or still hold the seeded default; because the profile has no history, the file's values replace those defaults.
+- Result: all rows added, `skipped` only for a setting whose file value already matches the seeded default.
 
 ### 2. Full backup into the same database
 
 - Every financial row has the same ID and is skipped.
-- Every settings key already exists and is skipped.
+- Every settings key already exists, and the ledger now has history, so it is skipped.
 - Result: `added` zero across the board; the UI reports “Nothing new — those records are already in your data”.
 
 ### 3. Partial settings file

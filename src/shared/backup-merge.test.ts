@@ -736,3 +736,297 @@ test('a transaction that names its category only by spelling links to the live r
   assert.equal(row.category, 'Café', 'the local spelling wins')
   assert.equal(row.category_id, 'cat-live', 'the entry links to the live row')
 })
+
+function setting(db: Database.Database, key: string): string | undefined {
+  const row = db
+    .prepare('SELECT value FROM settings WHERE user_id = ? AND key = ?')
+    .get(USER_ID, key) as { value: string } | undefined
+  return row?.value
+}
+
+test('a restore into an empty ledger adopts the file’s settings', () => {
+  const db = freshDb()
+  // What a fresh install leaves behind: the default value, chosen by nobody.
+  db.prepare(
+    `INSERT INTO settings (user_id, key, value, updated_at)
+     VALUES (?, 'savingsPercent', '20', '2026-01-01T00:00:00.000Z')`
+  ).run(USER_ID)
+
+  const result = mergeBackup(
+    db,
+    USER_ID,
+    payload({
+      settings: [
+        { user_id: USER_ID, key: 'savingsPercent', value: '35' },
+        { user_id: USER_ID, key: 'payCadence', value: 'monthly' }
+      ]
+    })
+  )
+
+  assert.equal(result.added.settings, 2, 'the file’s values are the ledger’s first values')
+  assert.equal(setting(db, 'savingsPercent'), '35')
+  assert.equal(setting(db, 'payCadence'), 'monthly')
+  assert.equal(result.skipped.settings, 0)
+})
+
+test('an import into a ledger with history keeps the local settings', () => {
+  const db = freshDb()
+  mergeBackup(
+    db,
+    USER_ID,
+    payload({
+      accounts: [{ id: 'acc-1', user_id: USER_ID, name: 'Chequing', kind: 'checking' }]
+    })
+  )
+  db.prepare(
+    `INSERT INTO settings (user_id, key, value, updated_at)
+     VALUES (?, 'savingsPercent', '20', '2026-01-01T00:00:00.000Z')`
+  ).run(USER_ID)
+
+  const result = mergeBackup(
+    db,
+    USER_ID,
+    payload({ settings: [{ user_id: USER_ID, key: 'savingsPercent', value: '35' }] })
+  )
+
+  assert.equal(result.skipped.settings, 1)
+  assert.equal(result.added.settings, 0)
+  assert.equal(setting(db, 'savingsPercent'), '20', 'an account means this ledger is in use')
+})
+
+test('a live claim under a deleted bill is reported instead of held forever', () => {
+  const db = freshDb()
+  db.prepare(
+    `INSERT INTO accounts (id, user_id, name, kind, sort_order, is_archived,
+       starting_balance_cents, created_at, updated_at, revision)
+     VALUES ('acc-1', ?, 'Chequing', 'checking', 0, 0, 0,
+             '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 1)`
+  ).run(USER_ID)
+  db.prepare(
+    `INSERT INTO bills (id, user_id, name, amount_cents, frequency, due_day, category,
+       account_id, autopay, is_active, funding_strategy, created_at, updated_at,
+       deleted_at, revision)
+     VALUES ('bill-1', ?, 'Rent', 120000, 'monthly', 1, 'Bills', 'acc-1', 0, 1,
+             'all_checks', '2026-01-01T00:00:00.000Z', '2026-01-02T00:00:00.000Z',
+             '2026-01-02T00:00:00.000Z', 2)`
+  ).run(USER_ID)
+
+  const result = mergeBackup(
+    db,
+    USER_ID,
+    payload({
+      bills: [
+        {
+          id: 'bill-1',
+          user_id: USER_ID,
+          name: 'Rent',
+          amount_cents: 120000,
+          frequency: 'monthly',
+          due_day: 1,
+          account_id: 'acc-1'
+        }
+      ],
+      paychecks: [
+        {
+          id: 'pay-1',
+          user_id: USER_ID,
+          amount_cents: 500000,
+          received_on: '2026-01-31',
+          health: 'covered'
+        }
+      ],
+      bill_reserves: [
+        {
+          id: 'res-1',
+          user_id: USER_ID,
+          bill_id: 'bill-1',
+          paycheck_id: 'pay-1',
+          cycle: '2026-02',
+          amount_cents: 120000
+        }
+      ]
+    })
+  )
+
+  assert.equal(result.skipped.bills, 1, 'the local tombstone is not resurrected')
+  assert.equal(result.added.paychecks, 1)
+  assert.equal(result.added.bill_reserves, 0, 'money is not held under a bill no screen can show')
+  assert.equal(result.issues.length, 1)
+  assert.match(result.issues[0].message, /bill was deleted or is not in this file/)
+})
+
+test('a claim whose funding cheque is a tombstone still reconciles with its payment', () => {
+  const db = freshDb()
+  db.prepare(
+    `INSERT INTO accounts (id, user_id, name, kind, sort_order, is_archived,
+       starting_balance_cents, created_at, updated_at, revision)
+     VALUES ('acc-1', ?, 'Chequing', 'checking', 0, 0, 0,
+             '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 1)`
+  ).run(USER_ID)
+  db.prepare(
+    `INSERT INTO bills (id, user_id, name, amount_cents, frequency, due_day, category,
+       account_id, autopay, is_active, funding_strategy, created_at, updated_at, revision)
+     VALUES ('bill-1', ?, 'Rent', 120000, 'monthly', 1, 'Bills', 'acc-1', 0, 1,
+             'all_checks', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 1)`
+  ).run(USER_ID)
+  db.prepare(
+    `INSERT INTO paychecks (id, user_id, amount_cents, received_on, source,
+       deposit_account_id, priority_cents, surplus_cents, leisure_cents, health,
+       created_at, updated_at, deleted_at, revision)
+     VALUES ('pay-1', ?, 500000, '2026-10-24', 'Paycheck', 'acc-1', 0, 0, 0,
+             'covered', '2026-10-24T00:00:00.000Z', '2026-10-24T00:00:00.000Z',
+             '2026-10-24T00:00:00.000Z', 2)`
+  ).run(USER_ID)
+
+  const result = mergeBackup(
+    db,
+    USER_ID,
+    payload({
+      bill_reserves: [
+        {
+          id: 'res-1',
+          user_id: USER_ID,
+          bill_id: 'bill-1',
+          paycheck_id: 'pay-1',
+          cycle: '2026-10',
+          amount_cents: 120000
+        }
+      ],
+      transactions: [
+        {
+          id: 'txn-rent',
+          user_id: USER_ID,
+          account_id: 'acc-1',
+          kind: 'bill_payment',
+          amount_cents: -120000,
+          occurred_on: '2026-10-25',
+          bill_id: 'bill-1'
+        }
+      ]
+    })
+  )
+
+  assert.deepEqual(result.issues, [])
+  const claim = db
+    .prepare('SELECT state, settled_by FROM bill_reserves WHERE id = ?')
+    .get('res-1') as { state: string; settled_by: string | null }
+  assert.equal(claim.state, 'paid', 'the money already left; the claim must not read reserved')
+  assert.equal(claim.settled_by, 'txn-rent')
+})
+
+test('a reserve row with no state lands reserved', () => {
+  const db = freshDb()
+  const result = mergeBackup(
+    db,
+    USER_ID,
+    payload({
+      bills: [
+        {
+          id: 'bill-1',
+          user_id: USER_ID,
+          name: 'Rent',
+          amount_cents: 120000,
+          frequency: 'monthly',
+          due_day: 1
+        }
+      ],
+      paychecks: [
+        {
+          id: 'pay-1',
+          user_id: USER_ID,
+          amount_cents: 500000,
+          received_on: '2026-01-31',
+          health: 'covered'
+        }
+      ],
+      bill_reserves: [
+        {
+          id: 'res-1',
+          user_id: USER_ID,
+          bill_id: 'bill-1',
+          paycheck_id: 'pay-1',
+          cycle: '2026-02',
+          amount_cents: 120000
+        }
+      ]
+    })
+  )
+
+  assert.deepEqual(result.issues, [])
+  assert.equal(
+    (db.prepare('SELECT state FROM bill_reserves WHERE id = ?').get('res-1') as { state: string })
+      .state,
+    'reserved'
+  )
+})
+
+test('a replay failure rolls the whole import back', () => {
+  const db = freshDb()
+  db.exec(
+    `CREATE TRIGGER refuse_res_2 BEFORE UPDATE ON bill_reserves
+     WHEN NEW.id = 'res-2'
+     BEGIN SELECT RAISE(ABORT, 'refused'); END`
+  )
+
+  assert.throws(() =>
+    mergeBackup(
+      db,
+      USER_ID,
+      payload({
+        bills: [
+          {
+            id: 'bill-1',
+            user_id: USER_ID,
+            name: 'Rent',
+            amount_cents: 120000,
+            frequency: 'monthly',
+            due_day: 1
+          },
+          {
+            id: 'bill-2',
+            user_id: USER_ID,
+            name: 'Phone',
+            amount_cents: 6500,
+            frequency: 'monthly',
+            due_day: 18
+          }
+        ],
+        paychecks: [
+          {
+            id: 'pay-1',
+            user_id: USER_ID,
+            amount_cents: 500000,
+            received_on: '2026-01-31',
+            health: 'covered'
+          }
+        ],
+        bill_reserves: [
+          {
+            id: 'res-1',
+            user_id: USER_ID,
+            bill_id: 'bill-1',
+            paycheck_id: 'pay-1',
+            cycle: '2026-02',
+            amount_cents: 120000,
+            state: 'paid'
+          },
+          {
+            id: 'res-2',
+            user_id: USER_ID,
+            bill_id: 'bill-2',
+            paycheck_id: 'pay-1',
+            cycle: '2026-02',
+            amount_cents: 6500,
+            state: 'paid'
+          }
+        ]
+      })
+    )
+  )
+
+  const count = (table: string): number =>
+    (db.prepare(`SELECT COUNT(*) AS total FROM ${table}`).get() as { total: number }).total
+  assert.equal(count('bills'), 0, 'the rows are not left behind without their replayed claims')
+  assert.equal(count('paychecks'), 0)
+  assert.equal(count('bill_reserves'), 0)
+})

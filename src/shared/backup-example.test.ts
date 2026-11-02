@@ -3,8 +3,9 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { parseBackupJson } from '../main/db/backup'
-import { SCHEMA_VERSION } from '../main/db/migrations'
+import Database from 'better-sqlite3'
+import { mergeBackup, parseBackupJson } from '../main/db/backup'
+import { migrate, SCHEMA_VERSION } from '../main/db/migrations'
 
 const here = dirname(fileURLToPath(import.meta.url))
 
@@ -62,5 +63,34 @@ test('the example keeps its cross-table links intact', () => {
   for (const reserve of tables.bill_reserves) {
     assert.ok(billIds.has(reserve.bill_id), 'reserve links to a bill in the file')
     assert.ok(paycheckIds.has(reserve.paycheck_id), 'reserve links to a paycheck in the file')
+  }
+})
+
+test('the example’s claims agree with its own payments after a merge', () => {
+  const text = readFileSync(join(here, '../../examples/backup.example.json'), 'utf8')
+  const payload = parseBackupJson(text)
+  const db = new Database(':memory:')
+  migrate(db)
+  const userId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+  db.prepare(
+    `INSERT INTO users (id, display_name, created_at, updated_at)
+     VALUES (?, 'Example', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`
+  ).run(userId)
+
+  const result = mergeBackup(db, userId, payload)
+  assert.deepEqual(result.issues, [])
+
+  const claims = db
+    .prepare('SELECT id, state, settled_by FROM bill_reserves ORDER BY id')
+    .all() as { id: string; state: string; settled_by: string | null }[]
+  for (const stated of payload.tables.bill_reserves) {
+    const claim = claims.find((row) => row.id === stated.id)
+    assert.ok(claim, `reserve ${String(stated.id)} imported`)
+    assert.equal(
+      claim.state,
+      stated.state,
+      'a shipped example must not flip its own claim on import'
+    )
+    assert.equal(claim.settled_by, stated.settled_by)
   }
 })
