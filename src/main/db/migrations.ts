@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type Database from 'better-sqlite3'
-import { DEFAULT_CATEGORIES, normalizeCategoryName } from '@shared/categories'
+import { DEFAULT_CATEGORIES, categoryKey, normalizeCategoryName } from '@shared/categories'
 
 /**
  * Sync-readiness rules baked into this schema:
@@ -450,11 +450,11 @@ function backfillSchema8(db: Database.Database): void {
     const categories = db
       .prepare('SELECT id, name FROM categories WHERE user_id = ? AND deleted_at IS NULL')
       .all(user.id) as { id: string; name: string }[]
-    for (const category of categories) byKey.set(category.name.toLocaleLowerCase(), category.id)
+    for (const category of categories) byKey.set(categoryKey(category.name), category.id)
 
     let order = 0
     const ensure = (name: string, kind: string, color: string | null): string => {
-      const key = name.toLocaleLowerCase()
+      const key = categoryKey(name)
       const found = byKey.get(key)
       if (found) return found
       const id = randomUUID()
@@ -469,17 +469,16 @@ function backfillSchema8(db: Database.Database): void {
 
     const texts = db
       .prepare(
-        `SELECT DISTINCT category FROM transactions
-         WHERE user_id = ? AND deleted_at IS NULL`
+        `SELECT id, category FROM transactions
+         WHERE user_id = ? AND category_id IS NULL AND deleted_at IS NULL`
       )
-      .all(user.id) as { category: string }[]
+      .all(user.id) as { id: string; category: string }[]
+    const link = db.prepare(
+      `UPDATE transactions SET category_id = ? WHERE id = ? AND user_id = ?`
+    )
     for (const row of texts) {
       const name = normalizeCategoryName(row.category) || 'Uncategorized'
-      const id = ensure(name, 'other', null)
-      db.prepare(
-        `UPDATE transactions SET category_id = ?
-         WHERE user_id = ? AND category_id IS NULL AND lower(category) = lower(?) AND deleted_at IS NULL`
-      ).run(id, user.id, row.category)
+      link.run(ensure(name, 'other', null), row.id, user.id)
     }
 
     const day = isoDay()

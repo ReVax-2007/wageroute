@@ -10,7 +10,7 @@ import type { Db } from './db/repo/common'
 import { seedDemoIfEmpty, seedIfEmpty } from './db/seed'
 import { registerIpcHandlers } from './ipc'
 import { installCrashLogging, logCrash } from './log'
-import { isAllowedExternalUrl, isTrustedPageUrl } from './window-security'
+import { isAllowedExternalUrl, isTrustedPageUrl, permissionAllowed } from './window-security'
 
 app.setName('WageRoute')
 installCrashLogging()
@@ -123,12 +123,14 @@ function runBootTasks(db: Db, userId: string): void {
 }
 
 function boot(): void {
-  session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => {
-    callback(false)
+  session.defaultSession.setPermissionRequestHandler((_contents, permission, callback) => {
+    callback(permissionAllowed(permission))
   })
   // Synchronous queries (navigator.permissions.query) bypass the request
-  // handler, so the check handler has to refuse them separately.
-  session.defaultSession.setPermissionCheckHandler(() => false)
+  // handler, so the check handler answers separately with the same allowlist.
+  session.defaultSession.setPermissionCheckHandler((_contents, permission) =>
+    permissionAllowed(permission)
+  )
 
   if (process.platform === 'darwin' && !app.isPackaged) {
     const iconPath = join(__dirname, '../../build/icon.png')

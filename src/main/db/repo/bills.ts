@@ -237,10 +237,16 @@ export function recordBillReserves(
 }
 
 /**
- * A payment can land in the month after the cheque that carried it: a January
- * cheque funds a bill due on 1 February. Claims are deduplicated per cycle, so
- * the February cheque has no claim of its own to close; without this the
- * January row stays `reserved` for ever even though the money was spent.
+ * A payment can land in the month after the cheque that carried it: a last
+ * check of January funds a bill due on 1 February. Claims are deduplicated per
+ * cycle, so the February cheque has no claim of its own to close; without this
+ * the January row stays `reserved` for ever even though the money was spent.
+ *
+ * Only a `last_check` claim can carry across the boundary — every other
+ * strategy funds a due date inside its own month. A payment dated later must
+ * not settle a claim it did not spend: moving a March payment to April leaves
+ * March owed, and April's cheque must not mark it paid. One payment settles one
+ * claim, so the earliest open row is the one it closes.
  */
 export function settleEarlierBillReserves(
   db: Db,
@@ -253,8 +259,15 @@ export function settleEarlierBillReserves(
   const settle = db.prepare(
     `UPDATE bill_reserves
      SET state = 'paid', updated_at = ?, revision = revision + 1
-     WHERE user_id = ? AND bill_id = ? AND cycle < ? AND state = 'reserved'
-       AND deleted_at IS NULL`
+     WHERE id = (
+       SELECT r.id FROM bill_reserves r
+       JOIN bills b ON b.id = r.bill_id AND b.user_id = r.user_id
+       WHERE r.user_id = ? AND r.bill_id = ? AND r.cycle < ?
+         AND r.state = 'reserved' AND r.deleted_at IS NULL
+         AND b.funding_strategy = 'last_check'
+       ORDER BY r.cycle ASC, r.created_at ASC
+       LIMIT 1
+     )`
   )
   for (const billId of new Set(billIds)) settle.run(ts, userId, billId, cycle)
 }

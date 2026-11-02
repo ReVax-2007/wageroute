@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { isAllowedExternalUrl, isTrustedPageUrl } from './window-security'
+import { isAllowedExternalUrl, isTrustedPageUrl, permissionAllowed } from './window-security'
 
 const PACKAGED = 'file:///Applications/WageRoute.app/out/renderer/index.html'
 const DEV = 'http://localhost:5173'
@@ -28,4 +28,20 @@ test('only the support page may open in the system browser', () => {
   assert.equal(isAllowedExternalUrl('http://buymeacoffee.com/revax'), false, 'https only')
   assert.equal(isAllowedExternalUrl('file:///etc/passwd'), false)
   assert.equal(isAllowedExternalUrl('javascript:alert(1)'), false)
+})
+
+test('only a sanitised clipboard write is permitted', () => {
+  assert.equal(permissionAllowed('clipboard-sanitized-write'), true, 'the copy buttons need it')
+  for (const denied of [
+    'clipboard-read',
+    'media',
+    'geolocation',
+    'notifications',
+    'openExternal',
+    'fullscreen',
+    'pointerLock',
+    ''
+  ]) {
+    assert.equal(permissionAllowed(denied), false, `${denied} stays denied`)
+  }
 })

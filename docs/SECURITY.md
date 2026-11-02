@@ -132,7 +132,7 @@ The app does not defend against malware running as the same user, an administrat
 | Navigation denied | `will-navigate` handler | The window cannot leave the app's own page: the packaged `file://` URL exactly, or the dev server's origin in development |
 | Exact navigation allowlist | `isTrustedPageUrl()` in [src/main/window-security.ts](../src/main/window-security.ts) | A crafted same-directory, lookalike-host or wrong-port URL cannot pass as the app page |
 | New windows denied | `setWindowOpenHandler` | No child windows at all; only the allowlisted `https://buymeacoffee.com/revax` leaves for the external browser |
-| All permission requests denied | `setPermissionRequestHandler` and `setPermissionCheckHandler` | Camera, microphone, notifications, geolocation, clipboard read, etc. — requested or merely checked |
+| Permissions denied except clipboard writes | `permissionAllowed()` in [src/main/window-security.ts](../src/main/window-security.ts), wired through `setPermissionRequestHandler` and `setPermissionCheckHandler` | Camera, microphone, notifications, geolocation, clipboard read, etc. — requested or merely checked. The one allowlisted permission is `clipboard-sanitized-write`, which the copy buttons need; it writes what the page already shows and cannot read the clipboard |
 | Single-instance lock | `app.requestSingleInstanceLock()` | Two processes writing the same SQLite file |
 | IPC sender validation | `isTrustedFrame()` in [src/main/ipc.ts](../src/main/ipc.ts) | Every handler refuses a frame that is not the app's own page (or the dev server during development) |
 | Content Security Policy | [src/renderer/index.html](../src/renderer/index.html) | Remote script/style/frame/connection origins are blocked by default |

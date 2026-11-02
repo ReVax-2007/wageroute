@@ -353,7 +353,7 @@ Semantics:
 - The cycle is the **calendar month** of the cheque, not a pay period, because `monthlyEquivalentCents` normalises every frequency to a month.
 - `state = 'paid'` is set by a `bill_payment` or `expense` transaction carrying that `bill_id` in that cycle. Deleting that transaction, or moving it to another month, sets the old row back to `reserved`.
 - `reservedBillIdsFor` reads the live single-check bills of a cycle, so a second cheque does not claim the same bill twice. `all_checks` bills are spread and are not deduplicated.
-- A payment dated after the claim's cycle settles every earlier `reserved` row for that bill (`settleEarlierBillReserves`), so a January cheque's claim does not stay "reserved" forever once the bill is paid in February. The row stays in its original cycle; only its state moves to `paid`.
+- A payment dated after the claim's cycle settles the earliest open earlier claim for that bill (`settleEarlierBillReserves`), so a January cheque's claim does not stay "reserved" forever once the bill is paid in February. Only `last_check` claims qualify — the one strategy that funds a due date in the next month — so moving a March payment to April leaves March `reserved`. The row stays in its original cycle; only its state moves to `paid`.
 - Deleting a bill soft-deletes its reserves in the same transaction.
 - A claim is **not** an account movement: no balance changes and no transfer row is written ([ADR 0013](decisions/0013-a-route-is-a-plan-not-a-movement.md)).
 

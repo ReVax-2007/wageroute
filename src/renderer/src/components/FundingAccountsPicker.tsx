@@ -53,13 +53,18 @@ export function FundingAccountsPicker({
                   <input
                     type="checkbox"
                     checked={value.includes(account.id)}
-                    onChange={() =>
+                    onChange={() => {
+                      // Ticking or unticking inside the list is the user
+                      // choosing multi-account mode; without pinning it, a
+                      // 2 → 1 untick would swap the list for a select under
+                      // the finger that just clicked.
+                      setManyOverride(true)
                       onChange(
                         value.includes(account.id)
                           ? value.filter((id) => id !== account.id)
                           : [...value, account.id]
                       )
-                    }
+                    }}
                   />
                   <span className="funding-account-name">{account.name}</span>
                   <span className="funding-account-balance num muted">

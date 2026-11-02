@@ -40,7 +40,7 @@ Reserves are rows, not derived state, so they travel in exports and through the 
 - `createTransaction` with a `bill_id` and kind `bill_payment` or `expense` sets the month's claim to `paid`.
 - `deleteTransaction` sets it back to `reserved`.
 - `updateTransaction` re-opens the old month and closes the new one when the date, amount or kind changed, so moving a payment from March to April never leaves March looking settled.
-- A payment dated in a later cycle also settles every earlier `reserved` row for that bill (`settleEarlierBillReserves`), so a January cheque's claim does not sit "reserved" for the rest of the ledger's life once the bill is paid in February. The older row keeps its own cycle; only its state flips.
+- A payment dated in a later cycle settles the earliest open earlier claim for that bill (`settleEarlierBillReserves`), so a January cheque's claim does not sit "reserved" for the rest of the ledger's life once the bill is paid in February. Only a `last_check` claim is eligible: it is the one strategy that funds a due date in the next month. A payment moved from March to April therefore leaves March owed, and one payment closes at most one claim. The older row keeps its own cycle; only its state flips.
 - `deleteBill` soft-deletes the bill's claims in the same transaction.
 
 Every transition is a state flip on an existing row. No path creates a second claim for the same bill and month, which is what makes "a second cheque does not re-reserve" true by construction rather than by a special case in the allocator.
@@ -99,7 +99,7 @@ Rejected: the app has no per-bill account, transfers are paired ledger rows, and
 
 - [src/main/db/migrations.ts](../../src/main/db/migrations.ts) — `SCHEMA_V7`, `bill_reserves`, the rebuilt ledger index, the settings cleanup
 - [src/main/db/repositories.ts](../../src/main/db/repositories.ts) — `recordBillReserves`, `settleEarlierBillReserves`, `setBillReserveState`, `reservedBillIdsFor`, the lifecycle paths, `commitPaycheck`
-- [src/main/db/reserves.test.ts](../../src/main/db/reserves.test.ts) — reserved → paid → re-opened, no double claim, no receipt on shortfall, duplicate guard, bill deletion, and a next-month payment settling the earlier cheque's claim
+- [src/main/db/reserves.test.ts](../../src/main/db/reserves.test.ts) — reserved → paid → re-opened, no double claim, no receipt on shortfall, duplicate guard, bill deletion, a next-month payment settling the earlier cheque's claim, and a payment moved into the next month leaving its source claim open
 - [src/shared/occurrences.ts](../../src/shared/occurrences.ts) — the recurrence engine the wall and prompts share
 - [src/shared/cadence.ts](../../src/shared/cadence.ts) — `payAnchorDate`, `nextPaydayISO`, `billFundingReserveCents`
 - [src/renderer/src/screens/PriorityWall.tsx](../../src/renderer/src/screens/PriorityWall.tsx) — reserve chips, next-check column, anchor footnote
