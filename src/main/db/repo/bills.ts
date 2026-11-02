@@ -276,177 +276,136 @@ export function recordBillReserves(
 
 interface ClaimRow {
   id: string
+  cycle: string
+  amountCents: number
+  state: BillReserve['state']
+  settledBy: string | null
+  dueDay: number
+  receivedOn: string
+}
+
+interface PaymentRow {
+  id: string
+  occurredOn: string
   amountCents: number
 }
 
 /**
- * Close the claims this money fully covers, oldest first, and return what is
- * left. A claim is never part-paid: a payment smaller than the next claim
- * leaves that claim open, so the wall keeps reserving money still owed.
- */
-function closeCoveredClaims(
-  db: Db,
-  userId: string,
-  transactionId: string,
-  claims: readonly ClaimRow[],
-  amountCents: number
-): number {
-  const close = db.prepare(
-    `UPDATE bill_reserves
-     SET state = 'paid', settled_by = ?, updated_at = ?, revision = revision + 1
-     WHERE id = ? AND user_id = ? AND state = 'reserved' AND deleted_at IS NULL`
-  )
-  const ts = nowISO()
-  let left = Math.max(0, Math.round(amountCents))
-  for (const claim of claims) {
-    if (claim.amountCents <= 0 || claim.amountCents > left) break
-    close.run(transactionId, ts, claim.id, userId)
-    left -= claim.amountCents
-  }
-  return left
-}
-
-/**
- * A claim is closed by the money that pays it. The payment's own month wins
- * when its cheque was already received; a payment dated before that cheque
- * cannot have spent it, so any money left falls back to earlier claims.
+ * Derive a bill's claim states from its payments instead of patching them one
+ * entry at a time. Two half payments close one claim, a payment already spent
+ * on one claim is never offered to another, and deleting or re-dating any
+ * payment simply replays the rest.
  *
- * An earlier claim is only eligible when its cheque came *after* the bill's
- * due day in its own cycle. That is the carry: a 31 January cheque funds a bill
- * due on 1 February, because the next occurrence after the cheque is February's.
- * A mid-month cheque funds its own month, so a later payment is paying that
- * month late, not carrying it — the month stays owed until a payment is dated
- * inside it.
+ * A payment is offered first to the claims of its own cycle whose cheque had
+ * already arrived. Money left over falls back to earlier claims that cheque
+ * carried: a cheque dated after the bill's due day funds the next occurrence,
+ * so a 31 January cheque pays a bill due 1 February. A claim turns paid only
+ * when the money offered to it covers it.
  */
-export function settleBillReserveForPayment(
-  db: Db,
-  userId: string,
-  billId: string,
-  transactionId: string,
-  occurredOn: string,
-  amountCents: number
-): void {
-  const cycle = occurredOn.slice(0, 7)
-  const sameCycle = db
-    .prepare(
-      `SELECT r.id, r.amount_cents AS amountCents
-       FROM bill_reserves r
-       JOIN paychecks p ON p.id = r.paycheck_id AND p.user_id = r.user_id
-                       AND p.deleted_at IS NULL
-       WHERE r.user_id = ? AND r.bill_id = ? AND r.cycle = ?
-         AND r.state = 'reserved' AND r.deleted_at IS NULL
-         AND p.received_on <= ?
-       ORDER BY r.created_at ASC, r.id ASC`
-    )
-    .all(userId, billId, cycle, occurredOn) as ClaimRow[]
-  const left = closeCoveredClaims(db, userId, transactionId, sameCycle, amountCents)
-  if (left > 0) settleEarlierBillReserve(db, userId, cycle, billId, transactionId, left)
-}
-
-function settleEarlierBillReserve(
-  db: Db,
-  userId: string,
-  cycle: string,
-  billId: string,
-  transactionId: string,
-  amountCents: number
-): void {
+export function reconcileBillReserve(db: Db, userId: string, billId: string): void {
   const claims = db
     .prepare(
-      `SELECT r.id, r.amount_cents AS amountCents
+      `SELECT r.id, r.cycle, r.amount_cents AS amountCents, r.state,
+              r.settled_by AS settledBy, r.due_day AS dueDay,
+              p.received_on AS receivedOn
        FROM bill_reserves r
        JOIN paychecks p ON p.id = r.paycheck_id AND p.user_id = r.user_id
                        AND p.deleted_at IS NULL
-       WHERE r.user_id = ? AND r.bill_id = ? AND r.cycle < ?
-         AND r.state = 'reserved' AND r.deleted_at IS NULL
-         AND CAST(substr(p.received_on, 9, 2) AS INTEGER) > r.due_day
+       WHERE r.user_id = ? AND r.bill_id = ? AND r.deleted_at IS NULL
+         AND r.amount_cents > 0
        ORDER BY r.cycle ASC, r.created_at ASC, r.id ASC`
     )
-    .all(userId, billId, cycle) as ClaimRow[]
-  closeCoveredClaims(db, userId, transactionId, claims, amountCents)
-}
+    .all(userId, billId) as ClaimRow[]
+  if (claims.length === 0) return
 
-/** Undo exactly what a payment closed, so a delete or move re-opens it. */
-export function reopenBillReservesSettledBy(
-  db: Db,
-  userId: string,
-  transactionId: string
-): void {
-  const ts = nowISO()
-  db.prepare(
-    `UPDATE bill_reserves
-     SET state = 'reserved', settled_by = NULL, updated_at = ?, revision = revision + 1
-     WHERE user_id = ? AND settled_by = ? AND deleted_at IS NULL`
-  ).run(ts, userId, transactionId)
-}
-
-/**
- * Re-open a month's claim without a link to the payment that closed it. Rows
- * paid before v9 have no `settled_by`, so moving or deleting their payment
- * still has to find the claim by the date it left: a same-cycle row first,
- * then the carried claim the old settlement rule picked.
- */
-export function reopenCycleClaim(
-  db: Db,
-  userId: string,
-  billId: string,
-  occurredOn: string
-): void {
-  const ts = nowISO()
-  const cycle = occurredOn.slice(0, 7)
-  const reopened = db
+  // Signed, so a refund can take back the money a payment put down. A positive
+  // row is never allowed to close a claim by itself.
+  const payments = db
     .prepare(
-      `UPDATE bill_reserves
-       SET state = 'reserved', settled_by = NULL, updated_at = ?, revision = revision + 1
-       WHERE user_id = ? AND bill_id = ? AND cycle = ? AND deleted_at IS NULL
-         AND state = 'paid' AND settled_by IS NULL`
+      `SELECT id, occurred_on AS occurredOn, amount_cents AS amountCents
+       FROM transactions
+       WHERE user_id = ? AND bill_id = ? AND deleted_at IS NULL
+         AND kind IN ('bill_payment','expense') AND amount_cents <> 0
+       ORDER BY occurred_on ASC, created_at ASC, id ASC`
     )
-    .run(ts, userId, billId, cycle)
-  if (reopened.changes > 0) return
+    .all(userId, billId) as PaymentRow[]
 
-  db.prepare(
+  const offered = new Map<string, { cents: number; settledBy: string | null }>(
+    claims.map((claim) => [claim.id, { cents: 0, settledBy: null }])
+  )
+  const contributions: { claimId: string; cents: number }[] = []
+  for (const payment of payments) {
+    if (payment.amountCents > 0) {
+      // The refund reverses the most recent coverage first: that is the
+      // payment it most likely came from.
+      let refund = payment.amountCents
+      for (let index = contributions.length - 1; index >= 0 && refund > 0; index -= 1) {
+        const contribution = contributions[index]
+        const take = Math.min(contribution.cents, refund)
+        if (take === 0) continue
+        contribution.cents -= take
+        refund -= take
+        const slot = offered.get(contribution.claimId)!
+        slot.cents -= take
+        slot.settledBy = null
+      }
+      continue
+    }
+
+    const cycle = payment.occurredOn.slice(0, 7)
+    const order = [
+      ...claims.filter(
+        (claim) => claim.cycle === cycle && claim.receivedOn <= payment.occurredOn
+      ),
+      ...claims.filter(
+        (claim) =>
+          claim.cycle < cycle &&
+          Number.parseInt(claim.receivedOn.slice(8, 10), 10) > claim.dueDay
+      )
+    ]
+    let left = -payment.amountCents
+    for (const claim of order) {
+      if (left <= 0) break
+      const slot = offered.get(claim.id)!
+      const need = claim.amountCents - slot.cents
+      if (need <= 0) continue
+      const give = Math.min(need, left)
+      slot.cents += give
+      left -= give
+      contributions.push({ claimId: claim.id, cents: give })
+      if (slot.cents === claim.amountCents) slot.settledBy = payment.id
+    }
+  }
+
+  const ts = nowISO()
+  const update = db.prepare(
     `UPDATE bill_reserves
-     SET state = 'reserved', settled_by = NULL, updated_at = ?, revision = revision + 1
-     WHERE id = (
-       SELECT r.id FROM bill_reserves r
-       JOIN paychecks p ON p.id = r.paycheck_id AND p.user_id = r.user_id
-                       AND p.deleted_at IS NULL
-       WHERE r.user_id = ? AND r.bill_id = ? AND r.cycle < ?
-         AND r.state = 'paid' AND r.settled_by IS NULL AND r.deleted_at IS NULL
-         AND CAST(substr(p.received_on, 9, 2) AS INTEGER) > r.due_day
-       ORDER BY r.cycle ASC, r.created_at ASC, r.id ASC
-       LIMIT 1
-     )`
-  ).run(ts, userId, billId, cycle)
+     SET state = ?, settled_by = ?, updated_at = ?, revision = revision + 1
+     WHERE id = ? AND user_id = ? AND deleted_at IS NULL`
+  )
+  for (const claim of claims) {
+    const slot = offered.get(claim.id)!
+    const paid = slot.cents === claim.amountCents
+    const state: BillReserve['state'] = paid ? 'paid' : 'reserved'
+    const settledBy = paid ? slot.settledBy : null
+    if (claim.state === state && claim.settledBy === settledBy) continue
+    update.run(state, settledBy, ts, claim.id, userId)
+  }
 }
 
 /**
- * The backstop for a ledger this build did not write: an imported payment
- * never ran {@link settleBillReserveForPayment}, so the next cheque closes the
- * carry it left open and names the latest payment for the bill in this cycle.
+ * The backstop for a ledger this build did not write: every live claim is
+ * replayed against the payments that exist, so an imported bill or a restored
+ * backup lands on the same state the entry path would have produced.
  */
-export function settleEarlierBillReserves(
-  db: Db,
-  userId: string,
-  cycle: string,
-  payments: readonly { billId: string; transactionId: string; amountCents: number }[]
-): void {
-  // A payment closes a claim, once. Re-using a payment that already settled
-  // something would close a second month with money that only left once.
-  const alreadySettled = db.prepare(
-    `SELECT 1 AS found FROM bill_reserves
-     WHERE user_id = ? AND settled_by = ? AND deleted_at IS NULL`
-  )
-  for (const payment of payments) {
-    if (alreadySettled.get(userId, payment.transactionId)) continue
-    settleEarlierBillReserve(
-      db,
-      userId,
-      cycle,
-      payment.billId,
-      payment.transactionId,
-      payment.amountCents
+export function reconcileAllBillReserves(db: Db, userId: string): void {
+  const bills = db
+    .prepare(
+      `SELECT DISTINCT bill_id AS billId
+       FROM bill_reserves
+       WHERE user_id = ? AND deleted_at IS NULL`
     )
-  }
+    .all(userId) as { billId: string }[]
+  for (const bill of bills) reconcileBillReserve(db, userId, bill.billId)
 }
 

@@ -333,19 +333,42 @@ export function billFundingReserveCents(input: {
 }
 
 /**
- * How many guaranteed paydays remain in this cheque's month, counting the
- * cheque itself. A payment that landed after an earlier cheque has to be
- * recovered by the ones still to come.
+ * How many cheques are left in this cheque's month, counting the cheque
+ * itself. A payment that landed after an earlier cheque has to be recovered by
+ * the ones still to come.
+ *
+ * With a payday anchor the real series decides, so a fifth weekly cheque or a
+ * third biweekly cheque later in the same month counts: it is a known date this
+ * month, not the optional extra a future month might skip. Without an anchor
+ * the guaranteed slots are the only ones that can be relied on.
  */
 function remainingChecksInMonth(
   paycheckDate: string,
   input: { cadence: PayCadence; payAnchorDate?: string | null }
 ): number {
+  if ((input.cadence === 'weekly' || input.cadence === 'biweekly') && input.payAnchorDate) {
+    const step = input.cadence === 'weekly' ? 7 : 14
+    const day = epochDay(paycheckDate)
+    const anchor = epochDay(input.payAnchorDate)
+    const sinceAnchor = ((day - anchor) % step + step) % step
+    const nextPayday = sinceAnchor === 0 ? day + step : day + (step - sinceAnchor)
+    const year = Number.parseInt(paycheckDate.slice(0, 4), 10)
+    const month = Number.parseInt(paycheckDate.slice(5, 7), 10)
+    const monthEnd = epochDay(paycheckDate.slice(0, 8) + '01') + daysInMonth(year, month)
+    let count = 1
+    for (let next = nextPayday; next < monthEnd; next += step) count += 1
+    return count
+  }
+
   const guaranteed = GUARANTEED_CHECKS_PER_MONTH[input.cadence]
   const index = input.payAnchorDate
     ? paydayIndexInMonth(paycheckDate, input.cadence, input.payAnchorDate)
     : paycheckIndexInMonth(paycheckDate, input.cadence)
   return Math.max(1, guaranteed - Math.min(index, guaranteed) + 1)
+}
+
+function daysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate()
 }
 
 function dayOfMonth(dateISO: string): number {

@@ -153,7 +153,7 @@ See [Bill prompts](#bill-prompts) below. The prompt card appears above the stat 
 | Figure | Formula |
 | --- | --- |
 | Locked every month | `Σ round(bill.amount × billPeriodsPerYear / 12)` over active bills |
-| Reserved on the next check | `Σ billFundingReserveCents(bill, payCadence, nextCheckDate, anchor, paidThisMonth)` over active bills — the spread for `all_checks` bills plus the full month on the one funding check for the four single-check strategies; a bill already claimed this month reserves 0, and a bill partly paid reserves only the remainder |
+| Reserved on the next check | `Σ billFundingReserveCents(bill, payCadence, nextCheckDate, anchor, paidThisMonth, claimedThisMonth)` over active bills — the spread for `all_checks` bills plus the full month on the one funding check for the four single-check strategies; a bill fully claimed this month reserves 0, and a bill partly paid or partly claimed reserves only what remains |
 | Active bills | Count of active bills; hint shows paused count and, when a paycheck exists, `perCheck / lastPaycheck.amount` as a percentage |
 
 The two figures answer different questions and are deliberately not the same arithmetic: *locked every month* is the obligation, *reserved on the next check* is what the next real cheque carries. Averaging is what makes a $600 yearly premium look like $50 a month instead of a shock. The reserve figure is labelled **Next check** with the date when Settings → Paycheck has a **Pay schedule anchor**; without one the card reads **Average per check** and the table column is labelled **Per check**. The hint names the cycle, the date and, when one is set, the free-text payday label ("Biweekly pay cycle · 15th and last day"); the label is display only.

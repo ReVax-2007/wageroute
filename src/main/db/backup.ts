@@ -10,6 +10,7 @@ import {
   settingsToRecord
 } from '@shared/settings'
 import { SCHEMA_VERSION } from './migrations'
+import { reconcileAllBillReserves } from './repo/bills'
 
 type Db = Database.Database
 type SqlValue = string | number | null
@@ -454,6 +455,10 @@ export function mergeBackup(db: Db, userId: string, payload: BackupPayload): Mer
       })
     }
   })()
+  // A partial restore may have brought payments for a bill whose claims were
+  // already in the ledger (or the other way round), so derive the claim states
+  // from what the merged ledger now holds.
+  reconcileAllBillReserves(db, userId)
 
   return { added, skipped, issues, generatedIds }
 }

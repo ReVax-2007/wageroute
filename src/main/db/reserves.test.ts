@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
 import Database from 'better-sqlite3'
 import test from 'node:test'
 import type { BillFundingStrategy, PayCadence } from '@shared/types'
 import { migrate } from './migrations'
+import { reconcileBillReserve } from './repo/bills'
 import {
   commitPaycheck,
   createAccount,
@@ -618,4 +620,138 @@ test('deleting a pre-v9 payment re-opens the claim it carried', () => {
   assert.equal(december.cycle, '2025-12')
   assert.equal(december.state, 'reserved', 'the money returns to the wall')
   assert.equal(december.settledBy, null)
+})
+
+test('two half payments close one claim and name the payment that finished it', () => {
+  const db = freshDb()
+  const accountId = checking(db)
+  const billId = rent(db, accountId, 15, 'first_check')
+  route(db, accountId, '2026-03-05')
+
+  createTransaction(db, USER_ID, {
+    accountId,
+    kind: 'bill_payment',
+    amountCents: -60_000,
+    occurredOn: '2026-03-10',
+    memo: 'Rent part',
+    category: 'Housing',
+    billId
+  })
+  assert.equal(
+    listBillReserves(db, USER_ID)[0].state,
+    'reserved',
+    'half a claim is not a paid claim'
+  )
+
+  const secondId = createTransaction(db, USER_ID, {
+    accountId,
+    kind: 'bill_payment',
+    amountCents: -60_000,
+    occurredOn: '2026-03-20',
+    memo: 'Rent rest',
+    category: 'Housing',
+    billId
+  })
+
+  const [claim] = listBillReserves(db, USER_ID)
+  assert.equal(claim.state, 'paid', 'the two instalments together cover the month')
+  assert.equal(claim.settledBy, secondId, 'the second payment completed the claim')
+})
+
+test('deleting a linked payment leaves a legacy claim another payment closed paid', () => {
+  const db = freshDb()
+  const accountId = checking(db)
+  const billId = rent(db, accountId, 1, 'first_check')
+  route(db, accountId, '2026-01-31', 500_000, false, 'monthly')
+  route(db, accountId, '2026-02-05', 500_000, false, 'monthly')
+
+  const januaryPayment = createTransaction(db, USER_ID, {
+    accountId,
+    kind: 'bill_payment',
+    amountCents: -120_000,
+    occurredOn: '2026-02-01',
+    memo: 'Rent January',
+    category: 'Housing',
+    billId
+  })
+  const februaryPayment = createTransaction(db, USER_ID, {
+    accountId,
+    kind: 'bill_payment',
+    amountCents: -120_000,
+    occurredOn: '2026-02-10',
+    memo: 'Rent February',
+    category: 'Housing',
+    billId
+  })
+  // Both rows were written before v9 learned to link the settling payment.
+  db.prepare('UPDATE bill_reserves SET settled_by = NULL WHERE bill_id = ?').run(billId)
+
+  deleteTransaction(db, USER_ID, januaryPayment)
+
+  const byCycle = new Map(listBillReserves(db, USER_ID).map((row) => [row.cycle, row]))
+  assert.equal(byCycle.get('2026-01')?.state, 'reserved', 'January lost its payment')
+  assert.equal(byCycle.get('2026-02')?.state, 'paid', 'February still has its own')
+  assert.equal(byCycle.get('2026-02')?.settledBy, februaryPayment)
+})
+
+test('a refund takes back the money its payment put down', () => {
+  const db = freshDb()
+  const accountId = checking(db)
+  const billId = rent(db, accountId, 15, 'first_check')
+  route(db, accountId, '2026-03-05')
+
+  createTransaction(db, USER_ID, {
+    accountId,
+    kind: 'bill_payment',
+    amountCents: -120_000,
+    occurredOn: '2026-03-10',
+    memo: 'Rent',
+    category: 'Housing',
+    billId
+  })
+  assert.equal(listBillReserves(db, USER_ID)[0].state, 'paid')
+
+  // A refund arrives as a positive bill-linked row, as an imported ledger has it.
+  const ts = '2026-03-12T00:00:00.000Z'
+  db.prepare(
+    `INSERT INTO transactions
+       (id, user_id, account_id, kind, amount_cents, occurred_on, memo, category,
+        bill_id, created_at, updated_at, revision)
+     VALUES (?, ?, ?, 'bill_payment', 120_000, '2026-03-12', 'Rent refund',
+             'Housing', ?, ?, ?, 1)`
+  ).run(randomUUID(), USER_ID, accountId, billId, ts, ts)
+  reconcileBillReserve(db, USER_ID, billId)
+
+  const [claim] = listBillReserves(db, USER_ID)
+  assert.equal(claim.state, 'reserved', 'the refunded month is owed again')
+  assert.equal(claim.settledBy, null)
+})
+
+test('a zero-amount claim does not stop the claims behind it from settling', () => {
+  const db = freshDb()
+  const accountId = checking(db)
+  const billId = rent(db, accountId, 1, 'first_check')
+  route(db, accountId, '2026-03-05')
+  const [march] = listBillReserves(db, USER_ID)
+  const ts = '2026-03-05T00:00:00.000Z'
+  db.prepare(
+    `INSERT INTO bill_reserves
+       (id, user_id, bill_id, paycheck_id, cycle, amount_cents, state, strategy,
+        due_day, created_at, updated_at, revision)
+     VALUES (?, ?, ?, ?, '2026-02', 0, 'reserved', 'first_check', 1, ?, ?, 1)`
+  ).run(randomUUID(), USER_ID, billId, march.paycheckId, ts, ts)
+
+  createTransaction(db, USER_ID, {
+    accountId,
+    kind: 'bill_payment',
+    amountCents: -120_000,
+    occurredOn: '2026-04-01',
+    memo: 'Rent',
+    category: 'Housing',
+    billId
+  })
+
+  const rows = new Map(listBillReserves(db, USER_ID).map((row) => [row.cycle, row]))
+  assert.equal(rows.get('2026-03')?.state, 'paid', 'the March claim is still settled')
+  assert.equal(rows.get('2026-02')?.state, 'reserved', 'an empty claim has nothing to pay')
 })
