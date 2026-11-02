@@ -56,7 +56,7 @@ Work merged to `main` after `v1.2.0`. None of it is in an installer yet; the `[U
 
 ### Batch 19 — coverage
 
-- `src/main/window-security.test.ts` (4), `src/renderer/src/lib/finance.test.ts` (8), plus 27 cases across seven existing files. `npm test` is **302 tests across thirty-seven files**.
+- `src/main/window-security.test.ts` (4), `src/renderer/src/lib/finance.test.ts` (8), plus the rest of the new cases across the existing suite. `npm test` is **302 tests across thirty-seven files**.
 - `package.json`'s explicit test list includes both new files; the `pretest` guard would otherwise fail every run.
 
 ### Batch 20 — documentation
