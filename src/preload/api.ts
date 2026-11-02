@@ -13,6 +13,10 @@ export function createFinanceApi(call: IpcCaller): FinanceApi {
     getAppInfo: () => call('app:info'),
     getDiagnostics: () => call('app:diagnostics'),
     getLegalTexts: () => call('app:legal'),
+    getStorageLocation: () => call('storage:location'),
+    chooseStorageDirectory: () => call('storage:choose'),
+    applyStorageDirectory: (directory, mode) => call('storage:apply', directory, mode),
+    useDefaultStorage: () => call('storage:default'),
 
     createAccount: (input) => call('account:create', input),
     updateAccount: (id, input) => call('account:update', id, input),

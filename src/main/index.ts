@@ -10,6 +10,7 @@ import type { Db } from './db/repo/common'
 import { seedDemoIfEmpty, seedIfEmpty } from './db/seed'
 import { registerIpcHandlers } from './ipc'
 import { installCrashLogging, logCrash } from './log'
+import { DataLockedError, hasCustomDataDirectory, StorageUnavailableError } from './storage'
 import { isAllowedExternalUrl, isTrustedPageUrl, permissionAllowed } from './window-security'
 
 app.setName('WageRoute')
@@ -137,22 +138,42 @@ function boot(): void {
     if (existsSync(iconPath)) app.dock?.setIcon(iconPath)
   }
 
-  const adoption = adoptLegacyDatabase()
-  if (adoption.error) {
-    dialog.showErrorBox(
-      'Could not move your old data',
-      `${adoption.error}\n\nYour Cash Flow Routing data has been left exactly where it was. ` +
-        'Nothing in WageRoute was changed. Fix the problem above and open WageRoute again.'
-    )
-    // Opening a fresh database here would make the next launch skip adoption
-    // (the target exists) and strand the old ledger for good.
-    app.quit()
-    return
+  // Adoption only applies while the app still uses its own data folder; a user
+  // who pointed WageRoute at an external ledger has already made that choice.
+  if (!hasCustomDataDirectory(app.getPath('userData'))) {
+    const adoption = adoptLegacyDatabase()
+    if (adoption.error) {
+      dialog.showErrorBox(
+        'Could not move your old data',
+        `${adoption.error}\n\nYour Cash Flow Routing data has been left exactly where it was. ` +
+          'Nothing in WageRoute was changed. Fix the problem above and open WageRoute again.'
+      )
+      // Opening a fresh database here would make the next launch skip adoption
+      // (the target exists) and strand the old ledger for good.
+      app.quit()
+      return
+    }
   }
   const db = (() => {
     try {
       return getDatabase()
     } catch (error) {
+      if (error instanceof StorageUnavailableError) {
+        logCrash('storage-unavailable', error)
+        dialog.showErrorBox(
+          'Your data folder is not available',
+          `${error.message}\n\nWageRoute did not open a different ledger, because that would ` +
+            'fork your data. Reconnect the folder and open WageRoute again.'
+        )
+        app.quit()
+        return null
+      }
+      if (error instanceof DataLockedError) {
+        logCrash('storage-locked', error)
+        dialog.showErrorBox('This data folder is in use', error.message)
+        app.quit()
+        return null
+      }
       if (error instanceof SchemaTooNewError) {
         dialog.showErrorBox(
           'This database is from a newer WageRoute',

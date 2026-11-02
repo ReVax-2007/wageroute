@@ -179,7 +179,10 @@ Repository functions validate renderer input: text length, cent ranges, enum val
 | --- | --- |
 | `wageroute.db` | **None beyond the OS.** Plaintext SQLite, tightened to mode `0600` on open where the filesystem allows it. |
 | `wageroute.db-wal` / `-shm` | Same, inherited from the database file's directory and umask. Recent commits may exist only in the WAL. |
-| Pre-upgrade and pre-erase copies | `backups/pre-upgrade-*.db` and `backups/pre-erase-*.db` in the app data folder; plaintext, newest three of each kept. The pre-erase copies deliberately outlive the erase. |
+| `storage.json` | Plaintext pointer to a chosen data folder, written `0600` in the per-user folder. Contains a path, no ledger data. |
+| `wageroute.lock` | Plaintext, `0600` where the folder allows it: hostname, PID and start time of the process writing the ledger. No ledger data. |
+| A chosen external data folder | The database and its backups inherit that folder's permissions. On a share or a cloud-synced folder the provider and everyone with access can read them, and WageRoute cannot tighten an ACL it does not own. |
+| Pre-upgrade, pre-erase and pre-move copies | `backups/pre-upgrade-*.db`, `pre-erase-*.db`, `pre-move-*.db` and `pre-return-*.db` in the data folder; plaintext, newest three of each kept. The pre-erase copies deliberately outlive the erase. |
 | JSON backups | Plaintext JSON at the user-selected path; default name is in Documents. |
 | CSV exports | Plaintext at the user-selected path, written `0600` on macOS and Linux; on Windows it inherits the profile ACL. |
 | Logs | `logs/main.log` in the app data folder, mode `0600`, rotated at 512 KB to `main.log.1`. Contains error messages and stack traces, not ledger rows. |
@@ -204,7 +207,8 @@ The plaintext-at-rest decision is recorded in [ADR 0019](decisions/0019-the-ledg
 - Do not store backups in a cloud-synced folder unless you accept that the provider can read them. The default save location is Documents, which is often synced by iCloud Drive or OneDrive.
 - Encrypt backups before moving them off the machine (for example with an encrypted archive or `age`).
 - Quit the app before copying the database. Copy `.db`, `-wal` and `-shm` together.
-- Do not sync the **live** `WageRoute` folder. Syncing a WAL-mode SQLite database across devices can corrupt it or resurrect old data.
+- A chosen data folder on a NAS or in a sync service is readable by whoever controls that service. Only use it if you accept that exposure, and set the folder's permissions there yourself. WageRoute opens such folders with rollback journaling and takes a writer lock, but a sync client can still produce a conflict copy; the app can only see the file it opens. See [ADR 0022](decisions/0022-the-ledger-can-live-in-a-folder-you-choose.md).
+- Never run two copies of WageRoute against one ledger outside the app's own lock — for example by copying the file while one is open, or by mounting the same share on two computers that ignore the lock. The lock is advisory, not a database cluster.
 
 ---
 

@@ -6,6 +6,7 @@ import {
   Download,
   ExternalLink,
   FileSpreadsheet,
+  FolderOpen,
   HardDrive,
   Info,
   Moon,
@@ -15,9 +16,10 @@ import {
   Trash2,
   Upload
 } from 'lucide-react'
-import type { AppDiagnostics, LegalTexts } from '@shared/api'
+import type { AppDiagnostics, LegalTexts, StorageCandidate, StorageLocationInfo } from '@shared/api'
 import { PAY_CADENCE_LABEL } from '@shared/cadence'
 import { isISODate } from '@shared/dates'
+import { apiErrorMessage } from '@shared/errors'
 import { currencySymbol, formatMoney } from '@shared/money'
 import type { PayCadence, RoundUpIncrementCents, ThemePreference } from '@shared/types'
 import { roundUpRemainderCents } from '@shared/transfers'
@@ -94,6 +96,26 @@ export function Settings() {
   const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [legal, setLegal] = useState<{ title: string; body: string } | null>(null)
+  const [storage, setStorage] = useState<StorageLocationInfo | null>(null)
+  const [storageCandidate, setStorageCandidate] = useState<StorageCandidate | null>(null)
+  const [storageError, setStorageError] = useState<string | null>(null)
+  const [storageBusy, setStorageBusy] = useState(false)
+  const [storageNotice, setStorageNotice] = useState<string | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    window.api
+      .getStorageLocation()
+      .then((info) => {
+        if (alive) setStorage(info)
+      })
+      .catch((error: unknown) => {
+        if (alive) setStorageError(apiErrorMessage(error))
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
 
   useEffect(() => {
     setPaydayDraft(settings.paydayLabel)
@@ -160,6 +182,49 @@ export function Settings() {
       setLegal({ title, body: which === 'license' ? texts.license : texts.notices })
     } catch (error) {
       setLegal({ title, body: error instanceof Error ? error.message : String(error) })
+    }
+  }
+
+  const chooseStorageFolder = async () => {
+    setStorageError(null)
+    setStorageNotice(null)
+    setStorageBusy(true)
+    try {
+      const candidate = await window.api.chooseStorageDirectory()
+      if (candidate) setStorageCandidate(candidate)
+    } catch (error) {
+      setStorageError(apiErrorMessage(error))
+    } finally {
+      setStorageBusy(false)
+    }
+  }
+
+  const applyStorage = async (mode: 'adopt' | 'move' | 'fresh') => {
+    if (!storageCandidate) return
+    setStorageBusy(true)
+    setStorageError(null)
+    setStorageNotice('Switching folders. WageRoute will restart in a moment…')
+    try {
+      await window.api.applyStorageDirectory(storageCandidate.directory, mode)
+      // A successful switch restarts the app, so this usually never returns.
+    } catch (error) {
+      setStorageBusy(false)
+      setStorageNotice(null)
+      setStorageError(apiErrorMessage(error))
+      setStorageCandidate(null)
+    }
+  }
+
+  const returnToThisComputer = async () => {
+    setStorageBusy(true)
+    setStorageError(null)
+    setStorageNotice('Moving your data back. WageRoute will restart in a moment…')
+    try {
+      await window.api.useDefaultStorage()
+    } catch (error) {
+      setStorageBusy(false)
+      setStorageNotice(null)
+      setStorageError(apiErrorMessage(error))
     }
   }
 
@@ -434,6 +499,66 @@ export function Settings() {
         </Card>
 
         <Card
+          title="Where your data lives"
+          subtitle="Keep the ledger here, or in a folder you choose"
+          actions={<FolderOpen size={16} className="stat-icon" />}
+        >
+          <div className="setting-row">
+            <div>
+              <strong>{storage?.isDefault ? 'This computer' : 'A folder you chose'}</strong>
+              <p className="field-hint">
+                {storage?.isDefault
+                  ? 'WageRoute keeps the ledger in its own folder on this computer.'
+                  : 'WageRoute reads the ledger from the folder below. Nothing on this computer is used while it does.'}
+              </p>
+            </div>
+          </div>
+          <p className="db-path" title={storage?.directory ?? ''}>
+            {storage?.directory ?? '…'}
+          </p>
+          <div className="data-actions">
+            <Button
+              icon={<FolderOpen size={15} />}
+              onClick={() => void chooseStorageFolder()}
+              disabled={storageBusy || busy}
+            >
+              Use another folder…
+            </Button>
+            {storage && !storage.isDefault && (
+              <Button
+                icon={<HardDrive size={15} />}
+                onClick={() => void returnToThisComputer()}
+                disabled={storageBusy || busy}
+              >
+                Move it back to this computer
+              </Button>
+            )}
+          </div>
+          <p className="field-hint">
+            A NAS, an external disk, or a folder that Google Drive, Dropbox or OneDrive syncs can
+            hold the ledger, so several computers can read the same data. Only one computer may
+            have it open at a time: WageRoute locks the folder and tells a second computer to wait.
+            If your sync tool creates conflict copies of the ledger, close WageRoute everywhere and
+            keep the newest copy before opening it again.
+          </p>
+          <p className="field-hint">
+            Switching folders copies your ledger; the folder you leave keeps a dated safety copy.
+            The app restarts to open the new location. Backups follow the ledger into the new
+            folder.
+          </p>
+          {storageNotice && (
+            <p className="field-hint" role="status">
+              {storageNotice}
+            </p>
+          )}
+          {storageError && (
+            <p className="form-error" role="alert">
+              {storageError}
+            </p>
+          )}
+        </Card>
+
+        <Card
           title="Emergency fund"
           subtitle="Based on your bills and recent spending"
         >
@@ -555,6 +680,120 @@ export function Settings() {
           </p>
         </Card>
       </div>
+
+      {storageCandidate && (
+        <Modal
+          title="Use this folder for your data?"
+          subtitle={
+            storageCandidate.hasLedger
+              ? 'It already holds a WageRoute ledger'
+              : 'It holds no WageRoute ledger yet'
+          }
+          onClose={() => {
+            if (!storageBusy) setStorageCandidate(null)
+          }}
+          footer={
+            storageCandidate.locked ? (
+              <Button variant="quiet" autoFocus onClick={() => setStorageCandidate(null)}>
+                Close
+              </Button>
+            ) : (
+              <>
+                <Button
+                  variant="quiet"
+                  onClick={() => setStorageCandidate(null)}
+                  disabled={storageBusy}
+                  autoFocus
+                >
+                  Cancel
+                </Button>
+                {!storageCandidate.hasLedger && (
+                  <Button
+                    variant="ghost"
+                    onClick={() => void applyStorage('fresh')}
+                    disabled={storageBusy}
+                  >
+                    Start empty here
+                  </Button>
+                )}
+                <Button
+                  variant="primary"
+                  onClick={() =>
+                    void applyStorage(storageCandidate.hasLedger ? 'adopt' : 'move')
+                  }
+                  disabled={
+                    storageBusy ||
+                    (storageCandidate.hasLedger &&
+                      storageCandidate.schemaVersion !== null &&
+                      appInfo !== null &&
+                      storageCandidate.schemaVersion > appInfo.schemaVersion)
+                  }
+                >
+                  {storageCandidate.hasLedger ? 'Open that data' : 'Move my data here'}
+                </Button>
+              </>
+            )
+          }
+        >
+          <p className="db-path" title={storageCandidate.directory}>
+            {storageCandidate.directory}
+          </p>
+
+          {storageCandidate.locked && (
+            <p className="form-error" role="alert">
+              Another WageRoute is using this folder right now
+              {storageCandidate.lockedBy ? ` (${storageCandidate.lockedBy})` : ''}. Close it on
+              that computer, then choose the folder again.
+            </p>
+          )}
+
+          {!storageCandidate.locked && storageCandidate.hasLedger && (
+            <>
+              <p className="field-hint">
+                WageRoute will open the ledger already in this folder. The ledger on this computer
+                is left exactly as it is — nothing is merged, copied over or deleted.
+              </p>
+              {storageCandidate.schemaVersion !== null && (
+                <p className="field-hint">
+                  That ledger uses schema v{storageCandidate.schemaVersion}
+                  {storageCandidate.schemaVersion > (appInfo?.schemaVersion ?? 0)
+                    ? ', which is newer than this build. Update WageRoute on this computer first.'
+                    : ', and will be upgraded automatically if it is older.'}
+                </p>
+              )}
+            </>
+          )}
+
+          {!storageCandidate.locked && !storageCandidate.hasLedger && (
+            <>
+              <p className="field-hint">
+                <strong>Move my data here</strong> copies the ledger into this folder, leaves a
+                dated safety copy in this computer&apos;s backups, and uses the folder from now on.
+              </p>
+              <p className="field-hint">
+                <strong>Start empty here</strong> opens a brand-new ledger in this folder. The
+                ledger on this computer stays where it is, but WageRoute will not open it while the
+                folder is in use.
+              </p>
+            </>
+          )}
+
+          {!storageCandidate.locked && (
+            <>
+              <p className="field-hint">
+                Close WageRoute on every other computer before continuing. Only one computer can
+                use a ledger at a time; the others are told to wait, never to write over it.
+              </p>
+              <p className="field-hint">
+                If this folder is inside Google Drive, Dropbox, OneDrive or iCloud, let syncing
+                finish first. A sync tool can create conflict copies of the ledger, and WageRoute
+                can only see the file it opens.
+              </p>
+              <p className="field-hint">WageRoute will restart to open the new folder.</p>
+            </>
+          )}
+        </Modal>
+      )}
 
       {eraseStep === 1 && (
         <Modal

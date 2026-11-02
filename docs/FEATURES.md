@@ -663,6 +663,18 @@ Transfers create both legs, and an expense may trigger a round-up. The dialog cl
 
 ## Settings
 
+### Where your data lives
+
+The ledger is one SQLite file. It lives in WageRoute's own per-user folder by default, and the **Where your data lives** card can point it at a folder the user chooses — a NAS share, an external disk, or a folder that Google Drive, Dropbox, OneDrive or iCloud already syncs.
+
+- **Choose another folder…** opens the directory picker and inspects the choice. A folder with a ledger can be **opened** (adopt: the ledger on this computer is left untouched), an empty folder can receive **Move my data here** (copy the current ledger, keeping a `pre-move-*.db` safety copy in the backups folder beside the ledger it leaves) or **Start empty here** (a fresh profile in that folder).
+- **Move it back to this computer** copies the current external ledger over the local one after writing a `pre-return-*.db` safety copy, then returns to the default folder.
+- Every switch validates the folder (exists, writable, not in use), refuses a ledger from a newer schema, writes `storage.json` outside the database and **restarts** WageRoute. The next launch opens the chosen file through the normal boot path.
+- The folder is locked while WageRoute runs (`wageroute.lock`, refreshed every 30 seconds). A second computer is told which machine holds the lock instead of opening the ledger. A lock that has not been refreshed for three minutes is treated as abandoned. If the running app loses the lock, it closes the database and quits rather than overwrite the new owner.
+- A folder on anything other than the default per-user location opens with rollback journaling (`journal_mode = DELETE`, `synchronous = FULL`, no mmap), because WAL's shared-memory and locking assumptions do not hold on SMB, NFS or a cloud-sync client. This is slower and deliberate.
+- If a recorded folder is missing at launch, WageRoute shows a dialog naming it and quits. It never falls back to the local copy, because two divergent ledgers would be worse than a clear error.
+- The app warns, in the confirmation dialog, that only one computer may have the ledger open and that a sync tool can create conflict copies; WageRoute can only see the file it opens. See [ADR 0022](decisions/0022-the-ledger-can-live-in-a-folder-you-choose.md).
+
 ### Appearance
 
 Three choices in the sidebar, presented as a radio group — **System**, **Light**, **Dark** — with the resolved state printed beside the label (`System · light`). It is one tab stop: the arrows move the selection between options, Home and End jump to either end, and only the checked button is in the tab order. System follows `prefers-color-scheme` and switches live across a running app, because the preference is read through `useSyncExternalStore` rather than sampled once at startup. The resolved theme is written to `document.documentElement.dataset.theme` and cached in `localStorage['cfr-theme']` so the next launch paints the right palette immediately. Settings remain the source of truth; the cache is only a first-paint hint.
