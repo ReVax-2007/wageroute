@@ -11,8 +11,10 @@ import {
   createBill,
   createTransaction,
   claimsThisMonthFor,
+  deleteAccount,
   deleteBill,
   deleteTransaction,
+  listBillPaymentsThisMonth,
   listBillReserves,
   updateBill,
   updateTransaction
@@ -754,4 +756,110 @@ test('a zero-amount claim does not stop the claims behind it from settling', () 
   const rows = new Map(listBillReserves(db, USER_ID).map((row) => [row.cycle, row]))
   assert.equal(rows.get('2026-03')?.state, 'paid', 'the March claim is still settled')
   assert.equal(rows.get('2026-02')?.state, 'reserved', 'an empty claim has nothing to pay')
+})
+
+test('one annual payment settles every monthly slice it covers', () => {
+  const db = freshDb()
+  const accountId = checking(db)
+  const billId = createBill(db, USER_ID, {
+    name: 'Insurance',
+    amountCents: 1_200_000,
+    frequency: 'annual',
+    dueDay: 15,
+    category: 'Insurance',
+    accountId,
+    autopay: false,
+    isActive: true,
+    nextDueOn: null,
+    fundingStrategy: 'all_checks',
+    fundingPaycheckIndex: 1
+  })
+  for (let month = 1; month <= 12; month += 1) {
+    route(db, accountId, `2025-${String(month).padStart(2, '0')}-05`, 5_000_000, false, 'monthly')
+  }
+  const claims = listBillReserves(db, USER_ID)
+  assert.equal(claims.length, 12, 'each cheque left a slice behind')
+  assert.equal(
+    claims.reduce((total, claim) => total + claim.amountCents, 0),
+    1_200_000
+  )
+
+  createTransaction(db, USER_ID, {
+    accountId,
+    kind: 'bill_payment',
+    amountCents: -1_200_000,
+    occurredOn: '2025-12-10',
+    memo: 'Insurance',
+    category: 'Insurance',
+    billId
+  })
+
+  assert.ok(
+    listBillReserves(db, USER_ID).every((claim) => claim.state === 'paid'),
+    'the single annual payment cleared the slices the cheques carried'
+  )
+})
+
+test('a bill-linked adjustment is not a payment', () => {
+  const db = freshDb()
+  const accountId = checking(db)
+  const billId = rent(db, accountId)
+  route(db, accountId, '2026-03-05')
+
+  createTransaction(db, USER_ID, {
+    accountId,
+    kind: 'adjustment',
+    amountCents: -120_000,
+    occurredOn: '2026-03-10',
+    memo: 'Balance fix',
+    category: 'Adjustment',
+    billId
+  })
+
+  assert.deepEqual(listBillPaymentsThisMonth(db, USER_ID, '2026-03', '2026-03-31'), [])
+  assert.equal(listBillReserves(db, USER_ID)[0].state, 'reserved')
+})
+
+test('a payment dated after the as-of day does not release the month early', () => {
+  const db = freshDb()
+  const accountId = checking(db)
+  const billId = rent(db, accountId)
+  route(db, accountId, '2026-03-05')
+  createTransaction(db, USER_ID, {
+    accountId,
+    kind: 'bill_payment',
+    amountCents: -120_000,
+    occurredOn: '2026-03-20',
+    memo: 'Rent',
+    category: 'Housing',
+    billId
+  })
+
+  assert.deepEqual(listBillPaymentsThisMonth(db, USER_ID, '2026-03', '2026-03-15'), [])
+  assert.deepEqual(listBillPaymentsThisMonth(db, USER_ID, '2026-03', '2026-03-31'), [
+    { billId, paidCents: 120_000, creditCents: 0 }
+  ])
+})
+
+test('deleting the account re-opens the bill its payment settled', () => {
+  const db = freshDb()
+  const accountId = checking(db)
+  const billId = rent(db, accountId)
+  route(db, accountId, '2026-03-05')
+  createTransaction(db, USER_ID, {
+    accountId,
+    kind: 'bill_payment',
+    amountCents: -120_000,
+    occurredOn: '2026-03-10',
+    memo: 'Rent',
+    category: 'Housing',
+    billId
+  })
+  assert.equal(listBillReserves(db, USER_ID)[0].state, 'paid')
+
+  deleteAccount(db, USER_ID, accountId, { withEntries: true })
+
+  const [claim] = listBillReserves(db, USER_ID)
+  assert.equal(claim.state, 'reserved', 'the payment it named no longer exists')
+  assert.equal(claim.settledBy, null)
 })

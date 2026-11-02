@@ -423,8 +423,15 @@
   text-align: right;
 }
 
-.wall-table td {
+.wall-table td:not(:first-child) {
   white-space: nowrap;
+}
+
+/* The bill cell carries its own amount, cadence and status, so it has to wrap
+   instead of pushing the numbers off the card. */
+.wall-table td:first-child {
+  white-space: normal;
+  min-width: 180px;
 }
 
 .table-scroll {

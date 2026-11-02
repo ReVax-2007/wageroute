@@ -238,7 +238,7 @@ export function commitPaycheck(
   const paidByBill = new Map(
     // A charge on a credit card settles the bill without lowering the pool —
     // the debt rose instead — so only the cash part releases the wall here.
-    listBillPaymentsThisMonth(db, userId, cycle).map((total) => [
+    listBillPaymentsThisMonth(db, userId, cycle, receivedOn).map((total) => [
       total.billId,
       Math.max(0, total.paidCents - total.creditCents)
     ])

@@ -95,14 +95,21 @@ function snapshot(reserves: ReturnType<typeof reserve>[], paidCents = 0) {
   }
 }
 
-async function mount(reserves: ReturnType<typeof reserve>[], paidCents = 0) {
+async function mount(
+  reserves: ReturnType<typeof reserve>[],
+  paidCents = 0,
+  billPatch: Partial<ReturnType<typeof bill>> = {}
+) {
   const { useFinanceStore } = await import('../store/useFinanceStore')
   const { parseSettings } = await import('@shared/settings')
   const { PriorityWall } = await import('./PriorityWall')
   const { createRoot } = await import('react-dom/client')
 
   useFinanceStore.setState({
-    snapshot: snapshot(reserves, paidCents) as never,
+    snapshot: {
+      ...snapshot(reserves, paidCents),
+      bills: [{ ...bill(), ...billPatch }]
+    } as never,
     // The anchor makes the next check land today, so the month under test is
     // the month the wall reads its claims from.
     settings: parseSettings({
@@ -161,9 +168,32 @@ test('the next check keeps only what the month still owes', async () => {
   )
   const cells = [...(row?.querySelectorAll('td') ?? [])]
   assert.equal(
-    cells[4]?.textContent?.trim(),
+    cells[1]?.textContent?.trim(),
     '$300.00',
     'a $600 cash payment and a $300 claim leave $300 for the next check'
   )
+  await act(async () => root.unmount())
+})
+
+test('a bill already covered this month asks for nothing', async () => {
+  const { host, root } = await mount([reserve('paid', 120_000)], 120_000)
+  const row = [...host.querySelectorAll('tbody tr')].find((tr) =>
+    tr.textContent?.includes('Rent')
+  )
+  const cells = [...(row?.querySelectorAll('td') ?? [])]
+  assert.match(cells[1]?.textContent ?? '', /^\$0\.00/, 'the next check has nothing left to do')
+  assert.match(cells[1]?.textContent ?? '', /Nothing more due/)
+  assert.doesNotMatch(cells[1]?.textContent ?? '', /check of the month/)
+  await act(async () => root.unmount())
+})
+
+test('a paused bill reserves nothing on the next check', async () => {
+  const { host, root } = await mount([], 0, { isActive: false })
+  const row = [...host.querySelectorAll('tbody tr')].find((tr) =>
+    tr.textContent?.includes('Rent')
+  )
+  const cells = [...(row?.querySelectorAll('td') ?? [])]
+  assert.match(cells[1]?.textContent ?? '', /^\$0\.00/)
+  assert.match(cells[1]?.textContent ?? '', /Paused/)
   await act(async () => root.unmount())
 })

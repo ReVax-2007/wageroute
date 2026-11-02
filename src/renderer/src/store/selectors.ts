@@ -46,7 +46,9 @@ export function selectUnpaidWallCents(state: SnapshotState): number {
   const paid = new Map(
     state.snapshot.billPaymentsThisMonth.map((row) => [
       row.billId,
-      row.paidCents - row.creditCents
+      // A refund can push the net past zero; a negative "paid" would otherwise
+      // grow the wall it is meant to shrink.
+      Math.max(0, row.paidCents - row.creditCents)
     ])
   )
   return unpaidMonthlyWallCents(activeBills(state.snapshot.bills), paid)

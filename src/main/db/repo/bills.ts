@@ -201,11 +201,18 @@ export function claimsThisMonthFor(
   userId: string,
   cycle: string
 ): { billId: string; amountCents: number; strategy: BillFundingStrategy }[] {
+  // A claim whose bill or funding cheque was deleted is not money the plan
+  // still holds, even if a merge left the row live.
   return db
     .prepare(
-      `SELECT bill_id AS billId, amount_cents AS amountCents, strategy
-       FROM bill_reserves
-       WHERE user_id = ? AND cycle = ? AND state = 'reserved' AND deleted_at IS NULL`
+      `SELECT r.bill_id AS billId, r.amount_cents AS amountCents, r.strategy
+       FROM bill_reserves r
+       JOIN bills b ON b.id = r.bill_id AND b.user_id = r.user_id
+                   AND b.deleted_at IS NULL
+       JOIN paychecks p ON p.id = r.paycheck_id AND p.user_id = r.user_id
+                       AND p.deleted_at IS NULL
+       WHERE r.user_id = ? AND r.cycle = ? AND r.state = 'reserved'
+         AND r.deleted_at IS NULL`
     )
     .all(userId, cycle) as {
     billId: string
@@ -225,13 +232,15 @@ export function recordBillReserves(
   const billOf = db.prepare(
     `SELECT funding_strategy AS strategy, due_day AS dueDay,
             amount_cents AS amountCents, frequency
-     FROM bills WHERE id = ? AND user_id = ?`
+     FROM bills WHERE id = ? AND user_id = ? AND deleted_at IS NULL`
   )
   const claimedOf = db.prepare(
-    `SELECT COALESCE(SUM(amount_cents), 0) AS total
-     FROM bill_reserves
-     WHERE user_id = ? AND bill_id = ? AND cycle = ? AND state = 'reserved'
-       AND deleted_at IS NULL`
+    `SELECT COALESCE(SUM(r.amount_cents), 0) AS total
+     FROM bill_reserves r
+     JOIN paychecks p ON p.id = r.paycheck_id AND p.user_id = r.user_id
+                     AND p.deleted_at IS NULL
+     WHERE r.user_id = ? AND r.bill_id = ? AND r.cycle = ? AND r.state = 'reserved'
+       AND r.deleted_at IS NULL`
   )
   const insert = db.prepare(
     `INSERT INTO bill_reserves
@@ -282,6 +291,7 @@ interface ClaimRow {
   settledBy: string | null
   dueDay: number
   receivedOn: string
+  frequency: Bill['frequency']
 }
 
 interface PaymentRow {
@@ -301,14 +311,22 @@ interface PaymentRow {
  * carried: a cheque dated after the bill's due day funds the next occurrence,
  * so a 31 January cheque pays a bill due 1 February. A claim turns paid only
  * when the money offered to it covers it.
+ *
+ * A bill that is paid a few times a year (quarterly or annual) gathers one
+ * claim per cheque, so its single payment has to clear every slice it covers.
+ * That leftover skips the due-day gate and walks the earlier claims in order;
+ * the cheque had already arrived before the payment, so it was still holding
+ * them.
  */
 export function reconcileBillReserve(db: Db, userId: string, billId: string): void {
   const claims = db
     .prepare(
       `SELECT r.id, r.cycle, r.amount_cents AS amountCents, r.state,
               r.settled_by AS settledBy, r.due_day AS dueDay,
-              p.received_on AS receivedOn
+              p.received_on AS receivedOn, b.frequency
        FROM bill_reserves r
+       JOIN bills b ON b.id = r.bill_id AND b.user_id = r.user_id
+                   AND b.deleted_at IS NULL
        JOIN paychecks p ON p.id = r.paycheck_id AND p.user_id = r.user_id
                        AND p.deleted_at IS NULL
        WHERE r.user_id = ? AND r.bill_id = ? AND r.deleted_at IS NULL
@@ -334,6 +352,7 @@ export function reconcileBillReserve(db: Db, userId: string, billId: string): vo
     claims.map((claim) => [claim.id, { cents: 0, settledBy: null }])
   )
   const contributions: { claimId: string; cents: number }[] = []
+  const smoothed = claims[0].frequency === 'quarterly' || claims[0].frequency === 'annual'
   for (const payment of payments) {
     if (payment.amountCents > 0) {
       // The refund reverses the most recent coverage first: that is the
@@ -353,14 +372,15 @@ export function reconcileBillReserve(db: Db, userId: string, billId: string): vo
     }
 
     const cycle = payment.occurredOn.slice(0, 7)
+    const arrived = (claim: ClaimRow) => claim.receivedOn <= payment.occurredOn
     const order = [
-      ...claims.filter(
-        (claim) => claim.cycle === cycle && claim.receivedOn <= payment.occurredOn
-      ),
+      ...claims.filter((claim) => claim.cycle === cycle && arrived(claim)),
       ...claims.filter(
         (claim) =>
           claim.cycle < cycle &&
-          Number.parseInt(claim.receivedOn.slice(8, 10), 10) > claim.dueDay
+          arrived(claim) &&
+          (smoothed ||
+            Number.parseInt(claim.receivedOn.slice(8, 10), 10) > claim.dueDay)
       )
     ]
     let left = -payment.amountCents

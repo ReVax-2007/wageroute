@@ -247,6 +247,10 @@ export function Allocator() {
   if (!open || !snapshot) return null
 
   const currency = settings.currency
+  // Lines at zero are bills this month already covers; listing them would make
+  // a settled wall look like it is still asking for money.
+  const listedReserves = plan.priorityReserves.filter((reserve) => reserve.reserveCents > 0)
+  const coveredBills = plan.priorityReserves.length - listedReserves.length
   const splitTotal = savings + investment + goalsSplit + debtSplit
   const overAllocated = splitTotal > 100
   const capFor = (percent: number) => Math.max(0, 100 - (splitTotal - percent))
@@ -528,11 +532,11 @@ export function Allocator() {
                   </Warning>
                 )}
 
-                {plan.priorityReserves.length > 0 && (
+                {listedReserves.length > 0 && (
                   <details className="priority-breakdown">
                     <summary>See the breakdown</summary>
                     <ul>
-                      {plan.priorityReserves.map((reserve) => (
+                      {listedReserves.map((reserve) => (
                         <li key={reserve.billId}>
                           <span>{reserve.name}</span>
                           <span className="num">
@@ -541,6 +545,13 @@ export function Allocator() {
                         </li>
                       ))}
                     </ul>
+                    {coveredBills > 0 && (
+                      <p className="alloc-note">
+                        {coveredBills} {coveredBills === 1 ? 'bill is' : 'bills are'} already
+                        covered this month, so {coveredBills === 1 ? 'it asks' : 'they ask'} for
+                        nothing here.
+                      </p>
+                    )}
                   </details>
                 )}
 
