@@ -426,6 +426,32 @@ CREATE INDEX idx_balance_snapshots_user
   ON balance_snapshots(user_id, on_date DESC) WHERE deleted_at IS NULL;
 `
 
+/**
+ * v9 makes a reserve say how it was claimed and what closed it.
+ *
+ * `strategy` is the funding strategy in force when the cheque wrote the row,
+ * not the bill's strategy today: switching a bill to `all_checks` mid-month
+ * must not turn an already-carried whole month into a second instalment, and
+ * switching the other way must not pretend the earlier instalment never
+ * happened. `settled_by` names the payment whose money closed a claim from an
+ * earlier cycle, so deleting or moving that payment re-opens exactly the row it
+ * settled instead of guessing.
+ */
+const SCHEMA_V9 = `
+ALTER TABLE bill_reserves ADD COLUMN strategy TEXT NOT NULL DEFAULT 'all_checks'
+  CHECK (strategy IN ('all_checks','closest_due_date','specific_check','first_check','last_check'));
+ALTER TABLE bill_reserves ADD COLUMN settled_by TEXT;
+
+CREATE INDEX idx_bill_reserves_settled_by
+  ON bill_reserves(settled_by) WHERE settled_by IS NOT NULL;
+
+UPDATE bill_reserves
+   SET strategy = COALESCE(
+         (SELECT b.funding_strategy FROM bills b WHERE b.id = bill_reserves.bill_id),
+         'all_checks'
+       );
+`
+
 function isoDay(): string {
   const now = new Date()
   const pad = (value: number): string => String(value).padStart(2, '0')
@@ -482,17 +508,21 @@ function backfillSchema8(db: Database.Database): void {
     }
 
     const day = isoDay()
+    // The snapshot claims to be the balance *on* that day, so an entry dated
+    // later belongs to a later snapshot — the same cutoff the daily recorder
+    // uses. Without it, a scheduled payment would be baked into day one.
     const accounts = db
       .prepare(
         `SELECT a.id,
                 a.starting_balance_cents + COALESCE((
                   SELECT SUM(t.amount_cents) FROM transactions t
                   WHERE t.account_id = a.id AND t.deleted_at IS NULL
+                    AND t.occurred_on <= ?
                 ), 0) AS balance
          FROM accounts a
          WHERE a.user_id = ? AND a.deleted_at IS NULL`
       )
-      .all(user.id) as { id: string; balance: number }[]
+      .all(day, user.id) as { id: string; balance: number }[]
     const insertSnapshot = db.prepare(
       `INSERT OR IGNORE INTO balance_snapshots
          (id, user_id, account_id, on_date, balance_cents,
@@ -554,6 +584,12 @@ export const MIGRATIONS: readonly Migration[] = [
     up: (db) => {
       db.exec(SCHEMA_V8)
       backfillSchema8(db)
+    }
+  },
+  {
+    version: 9,
+    up: (db) => {
+      db.exec(SCHEMA_V9)
     }
   }
 ]

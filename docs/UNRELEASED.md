@@ -29,8 +29,8 @@ The `[1.2.0]` block in [CHANGELOG.md](../CHANGELOG.md) is the inventory; it is r
 | Field | Value |
 | --- | --- |
 | App version | `1.2.0` — no next version chosen; `package.json` stays `1.2.0` until the next bump |
-| Database schema | `8`, forward-only; any new migration makes the next release at least a minor bump |
-| Backup format | writes `8`, accepts `2`–`8` until a schema change says otherwise |
+| Database schema | `9`, forward-only; the new migration makes the next release at least a minor bump |
+| Backup format | writes `9`, accepts `2`–`9` |
 | CI gates | `npm run lint`, `npm test`, `npm run build` and both type checks on every pull request; a tag builds all four platforms and creates a **draft** release with `SHA256SUMS` |
 | macOS signing | ad-hoc only; no notarization, so Gatekeeper still needs **Open Anyway** or a locally copied DMG |
 
@@ -43,7 +43,7 @@ Work merged to `main` after `v1.2.0`. None of it is in an installer yet; the `[U
 ### Batch 17 — correctness
 
 - Category lookup and text backfill compare the JS `categoryKey` instead of SQL `lower()`, so `CAFÉ` and `Café` no longer create two rows or split a report total.
-- `settleEarlierBillReserves()` closes the earliest open `last_check` claim when the bill is paid in the following month, while leaving each row in its own cycle and never settling a claim the later payment did not spend.
+- `settleEarlierBillReserves()` closes the earliest open claim when the bill is paid in the following month, while leaving each row in its own cycle and never settling a claim the later payment did not spend. (Batch 22 replaced its `last_check`-only test with the funding cheque's day-of-month; see below.)
 - The goal funding-account picker follows the saved goal until touched (`draftIds`), its **Select all** state is derived from the live list, unticking 2 → 1 keeps the checklist open, and a rejected save keeps the draft.
 - A failed entry count no longer pretends the account is empty; negative credit limits and statement balances now show a field error; a dialog whose trigger is gone returns focus to `#main-content`.
 - `needsPreUpgradeBackup()` limits `pre-upgrade-*` copies to real version increases.
@@ -56,7 +56,7 @@ Work merged to `main` after `v1.2.0`. None of it is in an installer yet; the `[U
 
 ### Batch 19 — coverage
 
-- `src/main/window-security.test.ts` (4), `src/renderer/src/lib/finance.test.ts` (8), plus 27 cases across seven existing files. `npm test` is **302 tests across thirty-seven files**.
+- `src/main/window-security.test.ts` (4), `src/renderer/src/lib/finance.test.ts` (8), plus the rest of the new cases across the existing suite. `npm test` is **309 tests across thirty-eight files**.
 - `package.json`'s explicit test list includes both new files; the `pretest` guard would otherwise fail every run.
 
 ### Batch 20 — documentation
@@ -67,16 +67,39 @@ Work merged to `main` after `v1.2.0`. None of it is in an installer yet; the `[U
 ### Batch 21 — audit follow-up
 
 - Schema 8's backfill grouped categories with SQL `lower()` for the transaction link while the plan used the JS key; a version-7 upgrade now links every entry by id and treats `CAFÉ` and `Café` as one category. Dead `backfillCategories` in the category repository removed.
-- Reserve settlement narrowed to `last_check` claims, one per payment, so a payment moved into April no longer marks an unspent March claim paid.
+- Reserve settlement limited to one claim per payment, so a payment moved into April no longer marks an unspent March claim paid. Batch 22 later replaced the strategy-based eligibility test with the funding cheque's own day-of-month; see below.
 - The tag guard fetches full history instead of `--depth=1`, which could hide a genuine ancestor of `main`.
 - Permission handlers allow `clipboard-sanitized-write` so the copy buttons work; every other permission stays denied.
 - Funding picker keeps the checklist open when unticking 2 → 1; goal save failure keeps the draft; account-delete dialog no longer claims zero entries when the count failed.
+
+### Batch 22 — money, import and documentation audit
+
+- A restored category that matches a live name by `categoryKey` now reuses the local row instead of inserting a twin, and the file's transactions are relinked to that row's id and spelling. `CAFÉ` restores into `Café`; the imported rows count as skipped, not as failures.
+- A bill charged to a credit card no longer releases the Priority Wall in `commitPaycheck`: only `paid − credit` lowers the withheld total, because the debt rose rather than the cash leaving. Reserve settlement still receives every paid bill id.
+- The v8 balance-snapshot backfill stops at today, so an entry dated in the future no longer inflates the launch-day net-worth point.
+- Renaming a category carries the rename into `bills.category`, so autopay cannot recreate the old spelling on its next bill.
+- The import wizard refuses an impossible calendar date (`2026-02-31`) instead of letting `Date.parse` roll it into March and sort the entry into the wrong month.
+- The Allocator aborts before writing a paycheck when the split settings save fails, instead of routing with a split the screen no longer shows.
+- `Field` still links its hint and error to the control when a `<datalist>` follows it in the same field.
+- Twelve documentation corrections: selector and dialog counts, the CSP's inline-style allowance, the transaction index order, boolean and due-day settings parsing, the uncapped reference import, deposit account kinds, the lint gate's description, the restored-category rule, the settings-allowlist claim, the narrowed malformed-date claim, the external-URL description, and the `309`/`38` test count.
+
+### Batch 22 — the reserve lifecycle remembers how it was written
+
+- Schema 9 adds `bill_reserves.strategy` (the funding strategy in force when the cheque wrote the claim) and `bill_reserves.settled_by` (the transaction that closed it), with a partial index on the link. The migration backfills each live row from its bill; no amount, state or date changes, and a pre-v9 database upgrades on first launch.
+- The plan now receives the month's open claims (`monthClaims`) instead of a list of reserved bill ids. A single-check bill subtracts every claim; an `all_checks` bill subtracts only a whole-month claim. Switching a carried bill to every-check no longer reserves the month twice, and switching a spread bill to one check reserves only the remainder.
+- A payment in a later month settles an earlier claim when that claim's funding cheque fell **after** the bill's due day in its own cycle — the real carry rule. It is no longer limited to `last_check`: a monthly `first_check` cheque on 31 January funds a 1 February due date. A payment dated before the new month's cheque settles the carry, not the new claim, because that cheque had not been received yet.
+- Deleting or moving a payment re-opens exactly the claim `settled_by` names, then falls back to the old cycle lookup for rows paid before v9.
+- A restored reserve row takes its bill's strategy when the file states none, and starts with no `settled_by` link. The example backup and both backup allowlists carry the two columns.
+- `src/main/db/reserves.test.ts` gains five lifecycle cases (carry under `first_check`, payment-before-cheque ordering, delete re-opening the carry, and both strategy switches), `migrations.test.ts` gains the v9 case, and `backup-merge.test.ts` proves a restored claim takes its bill's strategy unless the file states one. `npm test` is **316 tests across thirty-eight files**.
 
 ### Before the next build
 
 - [ ] Run the four gates on the final tree: `npm run lint`, `npm test`, `npm run build` (includes both type checks), and `npx electron-builder --dir --publish never`.
 - [ ] Launch a packaged build on a disposable profile and confirm the Buy Me a Coffee link still opens and no other external URL does (no child window, no navigation).
 - [ ] Re-check the Priority Wall after a cross-month bill payment: the old month's row reads `paid`, not `reserved`; then move the payment to the next month and confirm the source month reads `reserved` again even after the next cheque commits.
+- [ ] Open a copy of a schema-8 database with the new build: it must migrate to 9, keep every reserve row and amount, and show the same wall on first launch.
+- [ ] Switch a bill from first-check to every-check between two cheques and confirm the second cheque reserves nothing for it; switch a spread bill to one check and confirm the second cheque reserves only the remainder.
+- [ ] Remove `settled_by` from one reserve row in a scratch copy and confirm the delete/move path still re-opens the claim by cycle.
 - [ ] Launch a packaged build and copy an entry id from Settings/About to the clipboard: the permission handlers allow only `clipboard-sanitized-write`, so a denied copy would now show up as a silent no-op.
 - [ ] Confirm the tag guard fires if `package.json` and the tag disagree (a scratch tag, deleted before push).
-- [ ] Choose the next version. No migration was added in this batch, so a patch bump is still defensible; the tag guard requires the tag to match `package.json`.
+- [ ] Choose the next version. Schema 9 is a new migration, so the next release is at least a minor bump; the tag guard requires the tag to match `package.json`.

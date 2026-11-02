@@ -70,8 +70,8 @@ test('v6 rebuilds bills, keeps every row and restores enforcement', () => {
   const db = v5Database()
   migrate(db)
 
-  assert.equal(SCHEMA_VERSION, 8)
-  assert.equal(db.pragma('user_version', { simple: true }), 8)
+  assert.equal(SCHEMA_VERSION, 9)
+  assert.equal(db.pragma('user_version', { simple: true }), 9)
   assert.equal(db.pragma('foreign_keys', { simple: true }), 1, 'enforcement is back on')
   assert.deepEqual(db.pragma('foreign_key_check'), [])
   assert.equal(db.pragma('integrity_check', { simple: true }), 'ok')
@@ -201,8 +201,44 @@ test('v7 links round-ups, creates the wall lifecycle and drops dead settings', (
   db.close()
 })
 
-/** A schema-1 database as the first release wrote it: no categories, no reserves. */
-function v1Database(): Database.Database {
+test('v9 remembers how each claim was written and refuses an unknown strategy', () => {
+  const db = new Database(':memory:')
+  db.pragma('foreign_keys = ON')
+  migrateThrough(db, 8)
+  db.prepare(
+    `INSERT INTO users (id, display_name, created_at, updated_at)
+     VALUES (?, 'Tester', ?, ?)`
+  ).run(USER_ID, TS, TS)
+  db.prepare(
+    `INSERT INTO bills
+       (id, user_id, name, amount_cents, frequency, due_day, funding_strategy, created_at, updated_at)
+     VALUES (?, ?, 'Rent', 185000, 'monthly', 1, 'last_check', ?, ?)`
+  ).run(BILL_ID, USER_ID, TS, TS)
+  db.prepare(
+    `INSERT INTO paychecks (id, user_id, amount_cents, received_on, health, created_at, updated_at)
+     VALUES ('pay-1', ?, 240000, '2026-01-31', 'covered', ?, ?)`
+  ).run(USER_ID, TS, TS)
+  db.prepare(
+    `INSERT INTO bill_reserves
+       (id, user_id, bill_id, paycheck_id, cycle, amount_cents, state, created_at, updated_at)
+     VALUES ('r1', ?, ?, 'pay-1', '2026-01', 185000, 'reserved', ?, ?)`
+  ).run(USER_ID, BILL_ID, TS, TS)
+
+  migrate(db)
+
+  const row = db
+    .prepare('SELECT strategy, settled_by FROM bill_reserves WHERE id = ?')
+    .get('r1') as { strategy: string; settled_by: string | null }
+  assert.equal(row.strategy, 'last_check', 'the bill current strategy is the best record')
+  assert.equal(row.settled_by, null, 'no cross-cycle payment has closed it')
+  assert.throws(
+    () => db.prepare(`UPDATE bill_reserves SET strategy = 'sometimes' WHERE id = ?`).run('r1'),
+    /CHECK/i
+  )
+  db.close()
+})
+
+/** A schema-1 database as the first release wrote it: no categories, no reserves. */function v1Database(): Database.Database {
   const db = new Database(':memory:')
   db.pragma('foreign_keys = ON')
   migrateThrough(db, 1)
@@ -272,6 +308,38 @@ test('a v1 database migrates to the current schema with its money and settings i
   for (const table of ['bill_reserves', 'categories', 'balance_snapshots', 'accounts']) {
     assert.ok(tables.includes(table), `${table} exists after the upgrade`)
   }
+  db.close()
+})
+
+test('the v8 snapshot backfill leaves out entries dated after the snapshot day', () => {
+  const db = new Database(':memory:')
+  db.pragma('foreign_keys = ON')
+  migrateThrough(db, 7)
+  db.prepare(
+    `INSERT INTO users (id, display_name, created_at, updated_at)
+     VALUES (?, 'Tester', ?, ?)`
+  ).run(USER_ID, TS, TS)
+  db.prepare(
+    `INSERT INTO accounts
+       (id, user_id, name, kind, starting_balance_cents, created_at, updated_at)
+     VALUES (?, ?, 'Everyday Checking', 'checking', 100000, ?, ?)`
+  ).run(ACCOUNT_ID, USER_ID, TS, TS)
+  db.prepare(
+    `INSERT INTO transactions
+       (id, user_id, account_id, kind, amount_cents, occurred_on, created_at, updated_at)
+     VALUES ('txn-future', ?, ?, 'income', 500000, '2099-01-01', ?, ?)`
+  ).run(USER_ID, ACCOUNT_ID, TS, TS)
+
+  migrate(db)
+
+  const snapshot = db
+    .prepare('SELECT balance_cents AS balance FROM balance_snapshots WHERE account_id = ?')
+    .get(ACCOUNT_ID) as { balance: number }
+  assert.equal(
+    snapshot.balance,
+    100_000,
+    'an entry that had not landed by the snapshot day is not part of its opening balance'
+  )
   db.close()
 })
 

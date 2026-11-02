@@ -1,4 +1,5 @@
 import {
+  Children,
   cloneElement,
   isValidElement,
   useEffect,
@@ -235,22 +236,22 @@ export function Field({
   const describedBy =
     [hint ? hintId : null, error ? errorId : null].filter(Boolean).join(' ') || undefined
 
+  // A field can hold a control plus a <datalist> for suggestions. The control
+  // is the first node, so it takes the aria wiring and the list stays beside it.
+  const [first, ...rest] = Children.toArray(children)
   const control =
-    isValidElement(children) && error
-      ? cloneElement(children as ReactElement<Record<string, unknown>>, {
-          'aria-invalid': true,
+    isValidElement(first) && describedBy
+      ? cloneElement(first as ReactElement<Record<string, unknown>>, {
+          'aria-invalid': error ? true : undefined,
           'aria-describedby': describedBy
         })
-      : isValidElement(children) && describedBy
-        ? cloneElement(children as ReactElement<Record<string, unknown>>, {
-            'aria-describedby': describedBy
-          })
-        : children
+      : first
 
   return (
     <label className={wide ? 'field span-2' : 'field'}>
       <span className="field-label">{label}</span>
       {control}
+      {rest}
       {hint && (
         <span className="field-hint" id={hintId}>
           {hint}

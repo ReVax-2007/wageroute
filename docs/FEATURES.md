@@ -460,7 +460,7 @@ Fields:
 - paycheck amount (large currency input; Enter advances when positive);
 - pay date (defaults to today);
 - source (defaults to “Payroll”);
-- deposit account (defaults to the account chosen in Settings → Paycheck, falling back to the first non-archived checking account, then the first non-archived checking or savings account; the list offers checking and savings only);
+- deposit account (defaults to the account chosen in Settings → Paycheck, falling back to the first non-archived checking account, then the first non-archived checking or savings account; the list offers checking, savings and cash accounts);
 - pay cadence (defaults to the saved cadence).
 
 The step also previews the wall reserve: “Next we hold back X for the Priority Wall”, and, when a payday label is set, names the paydays — “Paydays: 15th and last day — edit this label in Settings.”

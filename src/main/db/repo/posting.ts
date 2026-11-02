@@ -2,7 +2,7 @@ import { dueBillPrompts } from '@shared/billPrompts'
 import { todayISO } from '@shared/dates'
 import { parseSettings } from '@shared/settings'
 import type { Bill } from '@shared/types'
-import { listBills, setBillReserveState } from './bills'
+import { listBills, settleBillReserveForPayment } from './bills'
 import type { Db } from './common'
 import { readSettings } from './settings'
 import { insertTransactionRow } from './transactions'
@@ -76,7 +76,7 @@ export function postDueAutopay(
       // counts it; posting the full bill again would double-charge the cycle.
       const remaining = prompt.amountCents - prompt.paidCents
       if (remaining <= 0) continue
-      insertTransactionRow(db, userId, {
+      const paymentId = insertTransactionRow(db, userId, {
         accountId,
         kind: 'bill_payment',
         amountCents: -Math.abs(remaining),
@@ -85,7 +85,9 @@ export function postDueAutopay(
         category: bill.category,
         billId: bill.id
       })
-      setBillReserveState(db, userId, bill.id, prompt.dueOn, 'paid')
+      // insertTransactionRow is the raw writer, so the posted bill settles its
+      // claim here the same way a hand-entered payment does.
+      settleBillReserveForPayment(db, userId, bill.id, paymentId, prompt.dueOn)
       posted += 1
     }
   })()

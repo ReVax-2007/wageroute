@@ -1,3 +1,4 @@
+import { isISODate } from './dates'
 import { parseMoneyToCents } from './money'
 
 export type ImportTable =
@@ -201,8 +202,6 @@ export interface ImportContext {
   today: string
 }
 
-const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
-
 /**
  * Adds the ids this file creates itself, because a row may point at another row
  * in the same file that is imported first.
@@ -352,7 +351,8 @@ export function validateFieldValue(spec: FieldSpec, raw: unknown, context: Impor
     return { ok: false, message: `${spec.label} is missing` }
   }
 
-  if (typeof raw === 'object' || typeof raw === 'boolean') {    return { ok: false, message: `${spec.label} is not a plain value` }
+  if (typeof raw === 'object' || typeof raw === 'boolean') {
+    return { ok: false, message: `${spec.label} is not a plain value` }
   }
 
   switch (spec.input) {
@@ -377,7 +377,9 @@ export function validateFieldValue(spec: FieldSpec, raw: unknown, context: Impor
     }
     case 'date': {
       const iso = String(raw).trim()
-      if (!DATE_PATTERN.test(iso) || Number.isNaN(Date.parse(iso))) {
+      // Date.parse rolls 2026-02-31 into March, so it would wave through a day
+      // that never existed and the ledger would sort it in the wrong month.
+      if (!isISODate(iso)) {
         return { ok: false, message: `${spec.label} must look like 2026-01-31` }
       }
       return { ok: true, value: iso }

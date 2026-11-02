@@ -1,17 +1,18 @@
 import assert from 'node:assert/strict'
 import Database from 'better-sqlite3'
 import test from 'node:test'
-import type { BillFundingStrategy } from '@shared/types'
+import type { BillFundingStrategy, PayCadence } from '@shared/types'
 import { migrate } from './migrations'
 import {
   commitPaycheck,
   createAccount,
   createBill,
   createTransaction,
+  claimsThisMonthFor,
   deleteBill,
   deleteTransaction,
   listBillReserves,
-  reservedBillIdsFor,
+  updateBill,
   updateTransaction
 } from './repositories'
 
@@ -63,14 +64,15 @@ function route(
   accountId: string,
   receivedOn: string,
   incomeCents = 500_000,
-  allowDuplicate = false
+  allowDuplicate = false,
+  payCadence: PayCadence = 'semimonthly'
 ) {
   return commitPaycheck(db, USER_ID, {
     incomeCents,
     receivedOn,
     source: 'Paycheck',
     depositAccountId: accountId,
-    payCadence: 'semimonthly',
+    payCadence,
     splits: { savingsPercent: 0, investmentPercent: 0, goalsPercent: 0, debtPercent: 0 },
     wholeDollarBuckets: false,
     allowDuplicate
@@ -88,8 +90,12 @@ test('a route records the wall reservation for the month it funds', () => {
   assert.equal(reserve.cycle, '2026-03')
   assert.equal(reserve.amountCents, 120_000)
   assert.equal(reserve.state, 'reserved')
-  assert.deepEqual(reservedBillIdsFor(db, USER_ID, '2026-03'), [reserve.billId])
-  assert.deepEqual(reservedBillIdsFor(db, USER_ID, '2026-04'), [])
+  assert.equal(reserve.strategy, 'first_check', 'the claim records how it was written')
+  assert.equal(reserve.settledBy, null)
+  assert.deepEqual(claimsThisMonthFor(db, USER_ID, '2026-03'), [
+    { billId: reserve.billId, amountCents: 120_000, strategy: 'first_check' }
+  ])
+  assert.deepEqual(claimsThisMonthFor(db, USER_ID, '2026-04'), [])
 })
 
 test('a bill payment turns its reservation paid, and deleting it re-opens the month', () => {
@@ -195,6 +201,125 @@ test('a payment next month settles the earlier cheque’s claim instead of stran
   assert.equal(rows[0].state, 'paid', 'the January carry is closed, not left reserved for ever')
 })
 
+test('a cheque after the due day carries into the next month whatever the strategy', () => {
+  const db = freshDb()
+  const accountId = checking(db)
+  const billId = rent(db, accountId, 1, 'first_check')
+  route(db, accountId, '2026-01-31', 500_000, false, 'monthly')
+
+  const [january] = listBillReserves(db, USER_ID)
+  assert.equal(january.cycle, '2026-01')
+  assert.equal(january.strategy, 'first_check')
+
+  const paymentId = createTransaction(db, USER_ID, {
+    accountId,
+    kind: 'bill_payment',
+    amountCents: -120_000,
+    occurredOn: '2026-02-01',
+    memo: 'Rent',
+    category: 'Housing',
+    billId
+  })
+
+  const rows = listBillReserves(db, USER_ID)
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].state, 'paid', 'the 31 January cheque funded 1 February')
+  assert.equal(rows[0].settledBy, paymentId, 'the carry names the payment that closed it')
+})
+
+test('a payment dated before this month’s cheque settles the carry, not the new claim', () => {
+  const db = freshDb()
+  const accountId = checking(db)
+  const billId = rent(db, accountId, 1, 'first_check')
+  route(db, accountId, '2026-01-31', 500_000, false, 'monthly')
+  route(db, accountId, '2026-02-05', 500_000, false, 'monthly')
+
+  createTransaction(db, USER_ID, {
+    accountId,
+    kind: 'bill_payment',
+    amountCents: -120_000,
+    occurredOn: '2026-02-01',
+    memo: 'Rent',
+    category: 'Housing',
+    billId
+  })
+
+  const byCycle = new Map(listBillReserves(db, USER_ID).map((row) => [row.cycle, row]))
+  assert.equal(byCycle.get('2026-01')?.state, 'paid', 'the carry is what the payment spent')
+  assert.equal(
+    byCycle.get('2026-02')?.state,
+    'reserved',
+    'the February cheque landed after the payment, so it still funds February'
+  )
+})
+
+test('deleting the payment re-opens the carry it closed', () => {
+  const db = freshDb()
+  const accountId = checking(db)
+  const billId = rent(db, accountId, 1, 'first_check')
+  route(db, accountId, '2026-01-31', 500_000, false, 'monthly')
+  route(db, accountId, '2026-02-05', 500_000, false, 'monthly')
+
+  const paymentId = createTransaction(db, USER_ID, {
+    accountId,
+    kind: 'bill_payment',
+    amountCents: -120_000,
+    occurredOn: '2026-02-01',
+    memo: 'Rent',
+    category: 'Housing',
+    billId
+  })
+
+  deleteTransaction(db, USER_ID, paymentId)
+  const byCycle = new Map(listBillReserves(db, USER_ID).map((row) => [row.cycle, row]))
+  assert.equal(byCycle.get('2026-01')?.state, 'reserved', 'January is owed again')
+  assert.equal(byCycle.get('2026-01')?.settledBy, null)
+  assert.equal(byCycle.get('2026-02')?.state, 'reserved')
+})
+
+test('switching a carried bill to every-check does not reserve it twice', () => {
+  const db = freshDb()
+  const accountId = checking(db)
+  const billId = rent(db, accountId, 15, 'first_check')
+  route(db, accountId, '2026-03-05')
+  updateBill(db, USER_ID, billId, { fundingStrategy: 'all_checks' })
+
+  const second = route(db, accountId, '2026-03-20')
+  assert.ok(second.plan)
+  const line = second.plan.priorityReserves.find((reserve) => reserve.billId === billId)
+  assert.equal(line?.reserveCents, 0, 'the first-check claim already covers the month')
+  assert.deepEqual(claimsThisMonthFor(db, USER_ID, '2026-03'), [
+    { billId, amountCents: 120_000, strategy: 'first_check' }
+  ])
+})
+
+test('switching a spread bill to one check reserves the month’s remainder', () => {
+  const db = freshDb()
+  const accountId = checking(db)
+  const billId = rent(db, accountId, 15, 'all_checks')
+  const first = route(db, accountId, '2026-03-05')
+  assert.ok(first.plan)
+  assert.equal(
+    first.plan.priorityReserves.find((reserve) => reserve.billId === billId)?.reserveCents,
+    60_000,
+    'the spread takes its first instalment'
+  )
+
+  updateBill(db, USER_ID, billId, { fundingStrategy: 'last_check' })
+  const second = route(db, accountId, '2026-03-20')
+  assert.ok(second.plan)
+  assert.equal(
+    second.plan.priorityReserves.find((reserve) => reserve.billId === billId)?.reserveCents,
+    60_000,
+    'the last cheque covers only what the spread has not'
+  )
+
+  const claims = claimsThisMonthFor(db, USER_ID, '2026-03')
+  assert.equal(claims.length, 2)
+  assert.equal(claims.reduce((total, claim) => total + claim.amountCents, 0), 120_000)
+  assert.equal(claims.find((claim) => claim.strategy === 'last_check')?.amountCents, 60_000)
+})
+
 test('a second cheque in the same month does not reserve a single-check bill twice', () => {
   const db = freshDb()
   const accountId = checking(db)
@@ -242,5 +367,5 @@ test('deleting a bill releases the reservations it was carrying', () => {
 
   deleteBill(db, USER_ID, billId)
   assert.deepEqual(listBillReserves(db, USER_ID), [])
-  assert.deepEqual(reservedBillIdsFor(db, USER_ID, '2026-03'), [])
+  assert.deepEqual(claimsThisMonthFor(db, USER_ID, '2026-03'), [])
 })

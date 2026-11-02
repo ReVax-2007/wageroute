@@ -287,15 +287,16 @@ JSON backups and CSV entry files are the only external data the app accepts.
 - **It cannot escape the chosen export path.** Export writes to the path returned by the save dialog.
 - **It cannot abort a healthy import.** Everything inserts inside one transaction, but each row is guarded on its own: a row that still violates a `STRICT` type, `CHECK` or foreign-key rule after the wizard is reported as an issue and skipped, and the remaining rows commit. A file built to break one row cannot damage the rest of the database. (Before the import wizard existed, a constraint failure rolled the whole import back; that is no longer the design.)
 - **It cannot overwrite existing settings.** Settings use `INSERT OR IGNORE`; the local value wins.
+- **It cannot plant settings this build does not read.** A key outside the build's settings table is reported and skipped, so a future downgrade cannot act on an unknown switch.
 - **It cannot overwrite an existing row by ID.** Existing IDs are skipped, not updated.
+- **It cannot split a category.** A category whose name already exists is matched by case-insensitive name and the imported transactions are relinked to the local row, instead of inserting a twin or a dangling id.
 
 ### What a malicious file can do
 
 - **Create plausible-looking but false financial records.** Imports are additive and there is no signature or provenance. A file can add accounts, transactions, bills and goals that look real. Treat an imported ledger as untrusted until reviewed.
 - **Exhaust resources within the caps.** 64 MiB of JSON and up to 200,000 rows per table can still take time and disk. The UI grid shows at most 500 transactions and 24 paychecks, so the damage is mostly to derived totals and startup time.
 - **Insert misleading text.** Memos, categories, account names and institution names are stored and displayed. React escapes them, so they cannot become HTML, but they can contain control characters, very long strings or deceptive labels.
-- **Insert malformed dates and absurd text lengths.** The backup path does not apply the repository's date and length validators. SQLite `STRICT` and `CHECK` constraints catch wrong types and invalid enums/amounts; they do not validate date syntax or limit string size. A resulting “Invalid Date” can distort projections.
-- **Add unknown settings keys.** They are stored and ignored by the UI. Existing keys are not changed.
+- **Insert malformed optional dates and absurd text lengths.** The wizard now rejects impossible calendar dates in the required date fields, but optional dates such as `bills.next_due_on` and `goals.target_date` still bypass it, and the backup path does not apply the repository's length validators. SQLite `STRICT` and `CHECK` constraints catch wrong types and invalid enums/amounts; they do not validate date syntax or limit string size. A resulting “Invalid Date” can distort projections.
 - **Add tombstoned rows.** A deleted row imported from another device is invisible but retained, consistent with the sync model.
 - **Use up to the full 64 MiB in one string value.** Nothing in the backup path caps individual field lengths.
 - **Trigger confusing duplicate accounts.** IDs are preserved, so importing the same account under a new ID creates a second account with the same name and institution.
@@ -365,7 +366,7 @@ Listed with severity for this app's context. None are fixed in `1.2.x` unless st
 | Backup import bypasses length/date validators | **Medium** (integrity) | Oversized strings, malformed dates, odd revision values | SQLite constraints still apply |
 | No dependency audit, SBOM or provenance | **Medium** | Supply-chain issues are found late | `npm ci`, SHA-pinned actions and review only |
 | No app lock or idle timeout | **Medium** on shared devices | Anyone at an unlocked session can read the ledger | No auth by design ([ADR 0020](decisions/0020-there-is-no-app-lock.md)) |
-| External URL handler is unrestricted | **Low** today | Potential exfiltration if renderer is compromised | Only the Settings support link uses it; remove or allowlist |
+| External URL handler has one hard-coded entry | **Low** today | A compromised renderer could still ask the OS to open the support page | Exact origin and path allowlist (`https://buymeacoffee.com/revax`); all other navigation blocked |
 | Default backup path is Documents | **Low–Medium** | May be cloud-synced | User can choose another path |
 | No audit log of edits/deletes | **Low–Medium** | Cannot reconstruct who changed what | Single-user app; backups are the fallback |
 | Error messages may include local paths | **Low** | Reveals username/path to the local user | Not remote |

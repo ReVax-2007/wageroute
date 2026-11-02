@@ -48,7 +48,13 @@ function randomInput(random: () => number): Parameters<typeof buildAllocationPla
     fundingStrategy: pick(STRATEGIES),
     fundingPaycheckIndex: 1 + int(4)
   }))
-  const reservedBillIds = bills.filter(() => random() < 0.5).map((bill) => bill.id)
+  const monthClaims = bills
+    .filter(() => random() < 0.5)
+    .map((bill) => ({
+      billId: bill.id,
+      amountCents: 1 + int(200_000),
+      strategy: pick(STRATEGIES)
+    }))
 
   const goals: AllocatorGoal[] = Array.from({ length: int(5) }, (_, index) => {
     const targetCents = 1 + int(500_000)
@@ -70,7 +76,7 @@ function randomInput(random: () => number): Parameters<typeof buildAllocationPla
     payCadence: pick(CADENCES),
     paycheckDate: pick(DATES),
     payAnchorDate: pick(DATES),
-    reservedBillIds,
+    monthClaims,
     bills,
     goals,
     splits: {

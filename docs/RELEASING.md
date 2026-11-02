@@ -33,10 +33,10 @@ WageRoute has three independent version numbers. Confusing them is the most comm
 | Version | Where it lives | Current value | What it means |
 | --- | --- | --- | --- |
 | App version | `package.json` → `version` | `1.2.0` | The build users install. Drives installer names, macOS bundle version and release tags. |
-| Database schema version | `src/main/db/migrations.ts` → `SCHEMA_VERSION`, stored in SQLite `PRAGMA user_version` | `8` | The shape of the on-disk database. Changes only when a migration is added. |
-| Backup format version | Written into every JSON backup, equal to `SCHEMA_VERSION` | `8` | The newest backup the app writes. The reader accepts versions `2` through `8`. |
+| Database schema version | `src/main/db/migrations.ts` → `SCHEMA_VERSION`, stored in SQLite `PRAGMA user_version` | `9` | The shape of the on-disk database. Changes only when a migration is added. |
+| Backup format version | Written into every JSON backup, equal to `SCHEMA_VERSION` | `9` | The newest backup the app writes. The reader accepts versions `2` through `9`. |
 
-`package.json` reads `1.2.0` at the moment of the 1.2.0 release; between releases it keeps the last released number even though newer commits have landed, so the **commit SHA** is the only reliable identifier of an un-released build. Bump the version as part of the release, never before. Every build users had before 1.1.0 was schema 3; 1.1.0 was the first installer carrying schemas 4, 5 and 6, and 1.2.0 adds schema 7 (bill reserves) and schema 8 (categories, card terms and balance history), so it migrates a 1.0.x database through every step in one launch.
+`package.json` reads `1.2.0` at the moment of the 1.2.0 release; between releases it keeps the last released number even though newer commits have landed, so the **commit SHA** is the only reliable identifier of an un-released build. Bump the version as part of the release, never before. Every build users had before 1.1.0 was schema 3; 1.1.0 was the first installer carrying schemas 4, 5 and 6, and 1.2.0 adds schema 7 (bill reserves) and schema 8 (categories, card terms and balance history), so it migrates a 1.0.x database through every step in one launch. Schema 9 (each claim's strategy and the payment that settled it) is on `main` after that release, so the next build migrates 1.2.0 databases 8 → 9 on first launch.
 
 The source of truth for the app version is `package.json`. `npm` updates `package-lock.json` with it; electron-builder reads it when naming artifacts and writing bundle metadata.
 
@@ -167,7 +167,7 @@ npm run dist                # build + installers for the current platform
 | `dev` | electron-vite dev server with HMR |
 | `start` | preview the production build |
 | `lint` | repository-local gate: no `debugger`, console logging, `@ts-ignore` or `any` |
-| `test` | `node --import tsx --test` over the thirty-five test files listed in `package.json` |
+| `test` | `node --import tsx --test` over the thirty-eight test files listed in `package.json` |
 | `notices` | regenerate `THIRD-PARTY-NOTICES.txt` from `package-lock.json` |
 | `prebuild` | runs `notices` automatically before every `npm run build` |
 | `typecheck:node` | main, preload, shared, config |

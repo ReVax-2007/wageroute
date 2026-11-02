@@ -136,7 +136,7 @@ Requirements: **Node.js 22 or newer** (CI uses 24) and npm. macOS packaging expe
 npm install          # also rebuilds better-sqlite3 for Electron
 npm run dev          # launch the app with hot reload
 npm test             # domain, accounts, import-repair, backup and repository tests
-npm run lint         # ESLint over main, preload, renderer and shared code
+npm run lint         # repository lint gate: no debugger, console logging, @ts-ignore or any
 npm run typecheck    # main/preload and renderer type checks
 npm run build        # typecheck + production bundles in out/
 npm run dist:mac     # DMG for arm64 and x64

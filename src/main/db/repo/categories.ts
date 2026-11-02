@@ -117,6 +117,23 @@ export function updateCategory(
          SET category = ?, updated_at = ?, revision = revision + 1
          WHERE user_id = ? AND category_id = ? AND deleted_at IS NULL`
       ).run(nextName, ts, userId, id)
+      // A bill carries only the text, and autopay posts it through
+      // ensureCategory — leaving the old spelling there would mint the old
+      // category again the first time the bill ran.
+      const oldKey = categoryKey(current.name)
+      const updateBill = db.prepare(
+        `UPDATE bills SET category = ?, updated_at = ?, revision = revision + 1
+         WHERE id = ? AND user_id = ?`
+      )
+      const bills = db
+        .prepare(
+          `SELECT id, category FROM bills
+           WHERE user_id = ? AND deleted_at IS NULL`
+        )
+        .all(userId) as { id: string; category: string }[]
+      for (const bill of bills) {
+        if (categoryKey(bill.category) === oldKey) updateBill.run(nextName, ts, bill.id, userId)
+      }
     }
   })()
 }
