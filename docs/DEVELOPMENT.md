@@ -352,7 +352,7 @@ Do not expose `ipcRenderer`, `require`, `fs` or raw SQL to the renderer. `src/pr
 
 ## Adding a schema migration
 
-Migrations are append-only. Never modify a `SCHEMA_V*` string once its version has shipped (`SCHEMA_V1`–`SCHEMA_V6` shipped in 1.1.0; `SCHEMA_V7` and `SCHEMA_V8` are the unreleased 1.2.0 schemas, and `SCHEMA_V8` becomes immutable when 1.2.0 ships); databases in the field have already run them.
+Migrations are append-only. Never modify a `SCHEMA_V*` string once its version has shipped (`SCHEMA_V1`–`SCHEMA_V6` shipped in 1.1.0; `SCHEMA_V7` and `SCHEMA_V8` shipped in 1.2.0 and are immutable); databases in the field have already run them.
 
 ### Procedure
 

@@ -10,7 +10,7 @@ WageRoute is a local-first personal finance ledger that puts every paycheck thro
 
 It is a planning and ledger tool, not a bank connection. There is no account linking, no cloud account, no telemetry and no sync. Everything lives in one SQLite file on the machine where you installed it.
 
-> Version 1.1.0 · single user · macOS and Windows · unsigned developer builds
+> Version 1.2.0 · single user · macOS, Windows and Linux · unsigned developer builds
 
 ---
 
@@ -113,11 +113,11 @@ Homebrew verifies the DMG against a pinned SHA-256 before installing. To drop th
 
 **DMG (manual):** download `WageRoute-<version>-arm64.dmg` (Apple Silicon) or `WageRoute-<version>-x64.dmg` (Intel) from [GitHub Releases](https://github.com/ReVax-2007/wageroute/releases), drag to Applications, then right-click → **Open** on first launch. (1.1.0 named its Intel file `WageRoute-1.1.0.dmg`; later releases carry the `-x64` suffix.)
 
-**curl (no Gatekeeper prompt at all):** browsers tag downloads with a quarantine flag that triggers Gatekeeper; curl does not. Replace `v1.1.0` below with the latest version from [GitHub Releases](https://github.com/ReVax-2007/wageroute/releases).
+**curl (no Gatekeeper prompt at all):** browsers tag downloads with a quarantine flag that triggers Gatekeeper; curl does not. Replace `v1.2.0` below with the latest version from [GitHub Releases](https://github.com/ReVax-2007/wageroute/releases).
 
 ```bash
-curl -LO https://github.com/ReVax-2007/wageroute/releases/download/v1.1.0/WageRoute-1.1.0-arm64.dmg
-hdiutil attach -nobrowse -mountpoint /tmp/wageroute-dmg WageRoute-1.1.0-arm64.dmg
+curl -LO https://github.com/ReVax-2007/wageroute/releases/download/v1.2.0/WageRoute-1.2.0-arm64.dmg
+hdiutil attach -nobrowse -mountpoint /tmp/wageroute-dmg WageRoute-1.2.0-arm64.dmg
 cp -R /tmp/wageroute-dmg/WageRoute.app /Applications/
 hdiutil detach /tmp/wageroute-dmg
 ```

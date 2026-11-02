@@ -33,7 +33,7 @@ This document separates what exists from what has been discussed. It also record
 | Manual CSV export and entries import | **Implemented** | Settings → Data |
 | Unsigned installer builds | **Implemented** | Local scripts and GitHub Actions artifacts |
 | CI build on demand / version tag | **Implemented** | `.github/workflows/build.yml` |
-| Published GitHub release | **Implemented** | 1.0.0–1.1.0 published on `ReVax-2007/wageroute`; CI uploads the artifacts and the release is assembled by hand |
+| Published GitHub release | **Implemented** | 1.0.0–1.2.0 published on `ReVax-2007/wageroute`; CI uploads the artifacts and the release is assembled by hand |
 | Code signing / notarization | **Not implemented** | No certificates or config |
 | Automatic updates | **Not implemented** | No `electron-updater`, no publish config |
 | Cloud backup | **Not implemented** | No provider, no credentials, no code |
@@ -290,7 +290,7 @@ For this project, GitHub is the better default:
 
 1. **The CI is already written for it.** `.github/workflows/build.yml` uses GitHub Actions, `actions/checkout`, `setup-node` and `upload-artifact`. Moving to GitLab means rewriting the pipeline as `.gitlab-ci.yml`.
 2. **The toolchain fits.** electron-builder publishes naturally to GitHub Releases; the `gh` CLI covers issues, PRs and release assets; Dependabot can watch Electron and better-sqlite3, which matter for security.
-3. **macOS and Windows runners are available without managing infrastructure.** A desktop app needs both platforms to produce installers.
+3. **macOS, Windows and Linux runners are available without managing infrastructure.** A desktop app needs all three platforms to produce installers.
 4. **Source-available, not open-source.** The [LICENSE](../LICENSE) keeps commercial redistribution off the table — only the licensor ships WageRoute — so a public repository does not hand the product to anyone, and the app holds no server-side secrets. Privacy therefore rests on the licence, not on repository visibility, and nothing user-financial is ever committed (see [DEVELOPMENT.md](DEVELOPMENT.md#working-safely-with-data)).
 5. **No self-hosting requirement.** Nothing about WageRoute needs a self-managed DevOps platform.
 

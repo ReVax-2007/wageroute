@@ -32,11 +32,11 @@ WageRoute has three independent version numbers. Confusing them is the most comm
 
 | Version | Where it lives | Current value | What it means |
 | --- | --- | --- | --- |
-| App version | `package.json` → `version` | `1.1.0` | The build users install. Drives installer names, macOS bundle version and release tags. |
+| App version | `package.json` → `version` | `1.2.0` | The build users install. Drives installer names, macOS bundle version and release tags. |
 | Database schema version | `src/main/db/migrations.ts` → `SCHEMA_VERSION`, stored in SQLite `PRAGMA user_version` | `8` | The shape of the on-disk database. Changes only when a migration is added. |
 | Backup format version | Written into every JSON backup, equal to `SCHEMA_VERSION` | `8` | The newest backup the app writes. The reader accepts versions `2` through `8`. |
 
-`package.json` reads `1.1.0` at the moment of the 1.1.0 release; between releases it keeps the last released number even though newer commits have landed, so the **commit SHA** is the only reliable identifier of an un-released build. Bump the version as part of the release, never before. Every build users had before 1.1.0 was schema 3; 1.1.0 was the first installer carrying schemas 4, 5 and 6. The unreleased 1.2.0 line adds schema 7 (bill reserves) and schema 8 (categories, card terms and balance history), so it will migrate a 1.0.x database through every step in one launch.
+`package.json` reads `1.2.0` at the moment of the 1.2.0 release; between releases it keeps the last released number even though newer commits have landed, so the **commit SHA** is the only reliable identifier of an un-released build. Bump the version as part of the release, never before. Every build users had before 1.1.0 was schema 3; 1.1.0 was the first installer carrying schemas 4, 5 and 6, and 1.2.0 adds schema 7 (bill reserves) and schema 8 (categories, card terms and balance history), so it migrates a 1.0.x database through every step in one launch.
 
 The source of truth for the app version is `package.json`. `npm` updates `package-lock.json` with it; electron-builder reads it when naming artifacts and writing bundle metadata.
 
@@ -167,7 +167,7 @@ npm run dist                # build + installers for the current platform
 | `dev` | electron-vite dev server with HMR |
 | `start` | preview the production build |
 | `lint` | repository-local gate: no `debugger`, console logging, `@ts-ignore` or `any` |
-| `test` | `node --import tsx --test` over the thirty-one test files listed in `package.json` |
+| `test` | `node --import tsx --test` over the thirty-five test files listed in `package.json` |
 | `notices` | regenerate `THIRD-PARTY-NOTICES.txt` from `package-lock.json` |
 | `prebuild` | runs `notices` automatically before every `npm run build` |
 | `typecheck:node` | main, preload, shared, config |
@@ -422,7 +422,7 @@ This is the full path for a release you intend to distribute. It assumes the rep
 ### 2. Bump the version
 
 ```bash
-npm version 1.1.0 --no-git-tag-version
+npm version 1.2.0 --no-git-tag-version
 ```
 
 This updates `package.json` and `package-lock.json` without committing or tagging. Review the diff. Do not hand-edit one file and forget the other.
@@ -483,17 +483,17 @@ They let a recipient confirm the file was not truncated or replaced.
 
 ```bash
 git add package.json package-lock.json docs
-git commit -m "Release 1.1.0"
+git commit -m "Release 1.2.0"
 git push
-git tag -a v1.1.0 -m "WageRoute 1.1.0"
-git push origin v1.1.0
+git tag -a v1.2.0 -m "WageRoute 1.2.0"
+git push origin v1.2.0
 ```
 
 Only do this when you intend to release. The tag push starts CI. Do not move or force-push a tag after artifacts have been distributed; publish a new patch version instead.
 
 ### 8. Wait for CI and collect artifacts
 
-Both matrix jobs must pass. Download the macOS and Windows artifacts. Compare their file names and sizes with the local build. If CI and local builds disagree, investigate before publishing; a platform-specific native-module failure is the usual cause.
+Every matrix job must pass. Download the macOS, Windows and Linux artifacts. Compare their file names and sizes with the local build. If CI and local builds disagree, investigate before publishing; a platform-specific native-module failure is the usual cause.
 
 ### 9. Publish the release
 
@@ -518,8 +518,8 @@ If a future migration is questioned, this archive is how you reproduce the old b
 CI uploads workflow artifacts only. Creating a release is a manual, deliberate step.
 
 1. Open **Releases → Draft a new release**.
-2. Choose the existing tag (`v1.1.0`). Do not create the tag in the web UI unless you intentionally skipped the CLI step.
-3. Title: `WageRoute 1.1.0`.
+2. Choose the existing tag (`v1.2.0`). Do not create the tag in the web UI unless you intentionally skipped the CLI step.
+3. Title: `WageRoute 1.2.0`.
 4. Paste the release notes from the template below.
 5. Attach:
    - `WageRoute-<version>-arm64.dmg` and `WageRoute-<version>-x64.dmg` (Intel)
@@ -634,7 +634,7 @@ If the fix requires a schema change, it is not a patch. Follow the schema proced
 ```markdown
 # WageRoute 1.2.0
 
-Released: 2026-11-01
+Released: 2026-11-02
 Schema: 8 (migrates 3 → 4 → 5 → 6 → 7 → 8) · Backups: accepts 2–8
 
 ## Highlights
