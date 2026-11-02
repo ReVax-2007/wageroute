@@ -192,7 +192,9 @@ function entry(
     deletedAt: null,
     revision: 1,
     accountName: accountId,
-    accountInstitution: null
+    accountInstitution: null,
+    billName: null,
+    goalName: null
   }
 }
 

@@ -175,6 +175,21 @@ export function TransactionsGrid({
         key: 'memo',
         name: 'Description',
         minWidth: 180,
+        renderCell: ({ row }) => (
+          <span className="grid-memo">
+            {row.memo}
+            {row.billName && (
+              <span className="grid-link" title={`Paid ${row.billName}`}>
+                {row.billName}
+              </span>
+            )}
+            {row.goalName && (
+              <span className="grid-link" title={`Funded ${row.goalName}`}>
+                {row.goalName}
+              </span>
+            )}
+          </span>
+        ),
         renderEditCell: renderTextEditor
       },
       {

@@ -18,6 +18,29 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* The description grows a small tag only when the entry names a bill or goal,
+   so ordinary rows keep the plain column. */
+.grid-memo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.grid-link {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 110px;
+  overflow: hidden;
+  padding: 1px 6px;
+  font-size: 10.5px;
+  color: var(--accent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: var(--accent-soft);
+  border-radius: 999px;
+}
+
 .grid-editor {
   width: 100%;
   height: 100%;

@@ -212,7 +212,7 @@ Notes:
 - `data:confirm` returns a `reconciliation` when a statement carried a closing balance and its account was mapped. The comparison is made after the merge against `accountBalanceOn`, so the dialog describes the ledger as it stands; `statement:reconcile` then posts one `adjustment` dated on the closing day. `reconcileAccountOn` in the repository owns the credit-card sign conversion and the "already agrees" case.
 - File dialogs are owned by the invoking window, so they are modal to WageRoute.
 - Export and import use native save/open dialogs. The main process reads and writes the chosen file.
-- The import reader rejects files larger than **64 MiB** before parsing.
+- The import reader rejects files larger than **64 MiB** before parsing, and both the `stat` and the read are asynchronous so a large file does not block the main process.
 - `data:preview` keeps the chosen file in a main-process map and hands back a single-use token; `data:confirm` accepts only that token. The renderer can never ask the main process to read a path it chose itself.
 
 ## The shared domain layer
@@ -405,7 +405,7 @@ Both round-up legs share a new `transfer_group_id`. Imported CSV entries call th
 ```text
 data:preview
   ├─ open dialog (JSON, CSV, OFX/QFX, QIF) → null when cancelled
-  ├─ read file, reject > 64 MiB
+  ├─ read file asynchronously, reject > 64 MiB
   ├─ .ofx/.qfx ──► parseOfxStatement ─┐
   ├─ .qif ──────► parseQif ───────────┴─► one statement question ──► problems
   ├─ .csv  ──► parseEntriesCsv

@@ -8,6 +8,7 @@ import {
 } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { readFileSync, statSync } from 'node:fs'
+import { readFile, stat } from 'node:fs/promises'
 import { join, basename } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type Database from 'better-sqlite3'
@@ -344,14 +345,18 @@ async function pickImportFile(win: BrowserWindow | null): Promise<string | null>
   return result.filePaths[0]
 }
 
-function readImportText(path: string): string {
+/**
+ * Read off the main thread: a 64 MiB file would otherwise freeze the window
+ * (and every other IPC call) while the disk and UTF-8 decode catch up.
+ */
+async function readImportText(path: string): Promise<string> {
   // Check the file on disk first: reading a FIFO or device node would block or
   // grow without bound before the size guard below ever ran.
   let size: number
   try {
-    const stat = statSync(path)
-    if (!stat.isFile()) throw new Error('That path is not a file')
-    size = stat.size
+    const info = await stat(path)
+    if (!info.isFile()) throw new Error('That path is not a file')
+    size = info.size
   } catch {
     throw new Error('That file could not be read')
   }
@@ -359,7 +364,7 @@ function readImportText(path: string): string {
 
   let text: string
   try {
-    text = readFileSync(path, 'utf8')
+    text = await readFile(path, 'utf8')
   } catch {
     throw new Error('That file could not be read')
   }
@@ -798,7 +803,7 @@ export function registerIpcHandlers(db: Database.Database): void {
   handle('data:preview', async (event) => {
     const path = await pickImportFile(ownerWindow(event))
     if (!path) return null
-    const text = readImportText(path)
+    const text = await readImportText(path)
 
     const entriesPreview = (
       entries: CsvEntry[],

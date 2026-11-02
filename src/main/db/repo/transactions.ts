@@ -50,6 +50,52 @@ function requirePaycheck(db: Db, userId: string, id: string): void {
   if (!row) throw new RepositoryError('VALIDATION', 'That paycheck no longer exists')
 }
 
+function requireBill(db: Db, userId: string, id: string): void {
+  const row = db
+    .prepare(`SELECT 1 FROM bills WHERE id = ? AND user_id = ? AND deleted_at IS NULL`)
+    .get(id, userId)
+  // A tombstoned bill cannot receive a payment: its reservation no longer exists.
+  if (!row) throw new RepositoryError('VALIDATION', 'That bill no longer exists')
+}
+
+function requireGoal(db: Db, userId: string, id: string): void {
+  const row = db
+    .prepare(`SELECT 1 FROM goals WHERE id = ? AND user_id = ? AND deleted_at IS NULL`)
+    .get(id, userId)
+  if (!row) throw new RepositoryError('VALIDATION', 'That goal no longer exists')
+}
+
+/**
+ * A link has to mean what the kind says. Without this, a renderer could attach
+ * any row's id to any entry, and the ledger would claim a bill was paid by a
+ * row that never touched its reservation.
+ */
+function checkLinks(
+  db: Db,
+  userId: string,
+  kind: TransactionKind,
+  billId: string | null,
+  goalId: string | null
+): void {
+  if (billId && goalId) {
+    throw new RepositoryError('VALIDATION', 'An entry can name a bill or a goal, not both')
+  }
+  if (billId) {
+    // An adjustment can name a bill as a note, but only these kinds reconcile
+    // it; the link still has to point at one of the user's live bills.
+    if (kind !== 'bill_payment' && kind !== 'expense' && kind !== 'adjustment') {
+      throw new RepositoryError('VALIDATION', 'This entry kind cannot name a bill')
+    }
+    requireBill(db, userId, billId)
+  }
+  if (goalId) {
+    if (kind !== 'goal_funding') {
+      throw new RepositoryError('VALIDATION', 'Only a goal funding can name a goal')
+    }
+    requireGoal(db, userId, goalId)
+  }
+}
+
 const TRANSACTION_SELECT = `
   SELECT t.id, t.user_id AS userId, t.account_id AS accountId, t.kind,
          t.amount_cents AS amountCents, t.occurred_on AS occurredOn, t.memo, t.category,
@@ -58,9 +104,12 @@ const TRANSACTION_SELECT = `
          t.counter_account_id AS counterAccountId, t.transfer_group_id AS transferGroupId,
          t.created_at AS createdAt,
          t.updated_at AS updatedAt, t.deleted_at AS deletedAt, t.revision,
-         a.name AS accountName, a.institution AS accountInstitution
+         a.name AS accountName, a.institution AS accountInstitution,
+         b.name AS billName, g.name AS goalName
   FROM transactions t
-  JOIN accounts a ON a.id = t.account_id`
+  JOIN accounts a ON a.id = t.account_id
+  LEFT JOIN bills b ON b.id = t.bill_id AND b.user_id = t.user_id
+  LEFT JOIN goals g ON g.id = t.goal_id AND g.user_id = t.user_id`
 
 const TRANSACTION_ORDER = 'ORDER BY t.occurred_on DESC, t.created_at DESC'
 
@@ -225,9 +274,12 @@ export function queryTransactions(db: Db, userId: string, query: LedgerQuery): T
               t.transfer_group_id AS transferGroupId,
               t.created_at AS createdAt, t.updated_at AS updatedAt,
               t.deleted_at AS deletedAt, t.revision,
-              a.name AS accountName, a.institution AS accountInstitution
+              a.name AS accountName, a.institution AS accountInstitution,
+              b.name AS billName, g.name AS goalName
        FROM transactions t
        JOIN accounts a ON a.id = t.account_id
+       LEFT JOIN bills b ON b.id = t.bill_id AND b.user_id = t.user_id
+       LEFT JOIN goals g ON g.id = t.goal_id AND g.user_id = t.user_id
        WHERE ${whereSql}
        ORDER BY ${sort}
        LIMIT ? OFFSET ?`
@@ -405,6 +457,9 @@ export function createTransaction(db: Db, userId: string, input: TransactionInpu
   const category = input.category
   const categoryId = input.categoryId ?? null
   const account = requireAccount(db, userId, input.accountId)
+  const billId = input.billId ?? null
+  const goalId = input.goalId ?? null
+  checkLinks(db, userId, kind, billId, goalId)
   if (input.paycheckId) requirePaycheck(db, userId, input.paycheckId)
 
   if (kind === 'transfer') {
@@ -457,8 +512,8 @@ export function createTransaction(db: Db, userId: string, input: TransactionInpu
       memo,
       category,
       categoryId,
-      billId: input.billId ?? null,
-      goalId: input.goalId ?? null,
+      billId,
+      goalId,
       paycheckId: input.paycheckId ?? null
     })
     if (kind === 'expense' && amountCents < 0) {
@@ -473,8 +528,8 @@ export function createTransaction(db: Db, userId: string, input: TransactionInpu
     }
     // A bill payment closes the wall's reservation for that cycle — or, when
     // its month has no claim yet, the earlier claim whose cheque carried it.
-    if (input.billId && (kind === 'bill_payment' || kind === 'expense')) {
-      reconcileBillReserve(db, userId, input.billId)
+    if (billId && (kind === 'bill_payment' || kind === 'expense')) {
+      reconcileBillReserve(db, userId, billId)
     }
     return id
   })()
