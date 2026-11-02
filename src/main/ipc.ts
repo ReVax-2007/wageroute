@@ -36,6 +36,7 @@ import {
   type ImportProblem,
   type ImportTable
 } from '@shared/importRepair'
+import { parseQif } from '@shared/qif'
 import { parseSettings, settingsToRecord } from '@shared/settings'
 import {
   describeCsvStatement,
@@ -297,7 +298,7 @@ async function pickImportFile(win: BrowserWindow | null): Promise<string | null>
   const options = {
     title: 'Import data',
     properties: ['openFile' as const],
-    filters: [{ name: 'Backup, entries or statement', extensions: ['json', 'csv', 'ofx', 'qfx'] }]
+    filters: [{ name: 'Backup, entries or statement', extensions: ['json', 'csv', 'ofx', 'qfx', 'qif'] }]
   }
   const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
   if (result.canceled || result.filePaths.length === 0) return null
@@ -743,6 +744,11 @@ export function registerIpcHandlers(db: Database.Database): void {
 
     if (/\.(ofx|qfx)$/i.test(path)) {
       const parsed = parseOfxStatement(text)
+      return entriesPreview(parsed.entries, parsed.issues, parsed.statement)
+    }
+
+    if (/\.qif$/i.test(path)) {
+      const parsed = parseQif(text)
       return entriesPreview(parsed.entries, parsed.issues, parsed.statement)
     }
 

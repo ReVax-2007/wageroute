@@ -22,7 +22,7 @@ Source: [`src/shared/importRepair.ts`](../src/shared/importRepair.ts), [`src/mai
 - [CSV account matching](#csv-account-matching)
 - [CSV duplicates](#csv-duplicates)
 - [CSV insert semantics](#csv-insert-semantics)
-- [Bank statements (OFX, QFX and account-less CSV)](#bank-statements-ofx-qfx-and-account-less-csv)
+- [Bank statements and QIF (OFX, QFX, QIF and account-less CSV)](#bank-statements-and-qif-ofx-qfx-qif-and-account-less-csv)
 - [Worked examples](#worked-examples)
 - [UI messages](#ui-messages)
 - [Limits and cautions](#limits-and-cautions)
@@ -37,11 +37,11 @@ Import lives in **Settings → Data**; export lives beside it.
 | --- | --- | --- | --- |
 | Export full backup | `exportBackup()` | Save JSON | `~/Documents/wageroute-backup-YYYY-MM-DD.json` |
 | Export transactions CSV | `exportTransactionsCsv()` | Save CSV | `~/Documents/wageroute-transactions-YYYY-MM-DD.csv` |
-| Import data | `previewImport()` then `confirmImport(token, answers)` | Open JSON, CSV, OFX or QFX, then the wizard | — |
+| Import data | `previewImport()` then `confirmImport(token, answers)` | Open JSON, CSV, OFX, QFX or QIF, then the wizard | — |
 
 The first-run dashboard offers **Start from scratch** or **Import a backup**; the second button opens the same wizard as Settings → Import data. There is no longer a single "pick a file and hope" import.
 
-The file picker accepts `.json`, `.csv`, `.ofx` and `.qfx`. `.ofx` and `.qfx` are read as bank statements; a `.csv` is an entry list when it has an Account column and a bank statement when it does not; anything else must be a JSON backup. The branch is chosen by the file extension, case-insensitively, with the CSV shape checked from its header. A file larger than **64 MiB** is rejected before parsing.
+The file picker accepts `.json`, `.csv`, `.ofx`, `.qfx` and `.qif`. `.ofx` and `.qfx` are read as statements (bank, card, loan or investment); `.qif` is read as a Quicken export; a `.csv` is an entry list when it has an Account column and a bank statement when it does not; anything else must be a JSON backup. The branch is chosen by the file extension, case-insensitively, with the CSV shape checked from its header. A file larger than **64 MiB** is rejected before parsing.
 
 Cancelling the file picker returns `null` and opens nothing. Cancelling the wizard leaves the database untouched.
 
@@ -73,7 +73,7 @@ Detection is pure shared code (`findImportProblems`), so the main process re-der
 | A foreign key pointing at something that does not exist | "Posting account is not valid (acc-nope)" | Dropdown of local rows, plus **Leave unlinked** where the column is nullable |
 | A value of the wrong JSON type (object, array, boolean in a text/date column) | "Pay date is not a plain value" | The column's own editor |
 | A CSV account name with no matching local account | "no local account is named “COFFSHOC *BREW BAR”" | Dropdown of local accounts, one question per distinct name covering every line that shares it |
-| A bank statement (OFX/QFX, or a CSV with no Account column) | "a bank statement does not say which local account it belongs to" | Dropdown of local accounts, one question covering every line, **nothing pre-selected** |
+| A bank statement (OFX/QFX, QIF, or a CSV with no Account column) | "a bank statement does not say which local account it belongs to" | Dropdown of local accounts, one question covering every line, **nothing pre-selected** |
 
 Columns that have a schema default — `sort_order`, `is_archived`, `category`, `memo`, `revision`, `priority` and friends — are **never** asked about; they are filled silently. See [partial tables](#partial-tables). The two v4 account columns are not in that list either, in the other direction: they have no default and are nullable, so an absent `dedicated_goal_id` or `in_safe_to_spend` simply arrives as `NULL`.
 
@@ -582,17 +582,18 @@ Rows are inserted even if they fall outside the UI's 500-row snapshot window; th
 
 ---
 
-## Bank statements (OFX, QFX and account-less CSV)
+## Bank statements and QIF (OFX, QFX, QIF and account-less CSV)
 
-A bank statement is an entries file for exactly one account. WageRoute reads three shapes of it:
+A statement is an entries file for exactly one account. WageRoute reads four shapes of it:
 
-| File | How it is recognised |
-| --- | --- |
-| OFX 1.x (SGML) | `.ofx`, with `<STMTTRN>` blocks whose values have no closing tags |
-| OFX 2.x / QFX (XML) | `.ofx` or `.qfx`, with `<STMTTRN>…</STMTTRN>` |
-| Bank CSV | `.csv` whose header has no Account column |
+| File | How it is recognised | What imports |
+| --- | --- | --- |
+| OFX 1.x (SGML) | `.ofx`, with `<STMTTRN>` blocks whose values have no closing tags | Cash lines from a bank, card, loan or investment statement |
+| OFX 2.x / QFX (XML) | `.ofx` or `.qfx`, with `<STMTTRN>…</STMTTRN>` | The same |
+| QIF | `.qif`, records of one-letter codes ended by `^` | One account's cash, bank or card history |
+| Bank CSV | `.csv` whose header has no Account column | One account's rows |
 
-All three produce the same `CsvEntry` rows as an entries file, so insertion, sign rules and duplicate handling are identical. What differs is where the account comes from and what the wizard can say about the file.
+All four produce the same `CsvEntry` rows as an entries file, so insertion, sign rules and duplicate handling are identical. What differs is where the account comes from and what the wizard can say about the file.
 
 ### What is read from OFX
 
@@ -602,12 +603,35 @@ All three produce the same `CsvEntry` rows as an entries file, so insertion, sig
 | `TRNAMT` | The signed amount. Positive is money in (`income`), negative is money out (`expense`) |
 | `TRNTYPE` | Only `XFER` matters: a transfer is refused, because one leg cannot become a paired movement |
 | `NAME` / `MEMO` | The description, joined with ` — ` when both differ |
-| `BANKACCTFROM` / `CCACCTFROM` | The bank and the account's last four digits, shown in the wizard |
+| `BANKACCTFROM` / `CCACCTFROM` / `LOANACCTFROM` / `INVACCTFROM` | The institution and the account's last four digits, shown in the wizard. `BROKERID` stands in for `BANKID` on an investment statement |
 | `CURDEF` | The currency of the closing balance shown in the wizard |
-| `LEDGERBAL` | The closing balance and its date: shown in the wizard, and the figure the post-import check compares against |
+| `LEDGERBAL` | The closing balance and its date: shown in the wizard, and the figure the post-import check compares against. Read for a bank, card or loan statement; an investment statement's `INVBAL` is cash plus holdings, not a balance, so it is never used |
 | `FITID` | The bank's stable id for the line, stored as `transactions.external_id` (first 120 characters) so a re-import recognises it |
 
 `CHECKNUM`, `SIC` and the sign-on block are ignored. XML entities (`&amp;`, `&#39;`) are decoded; OFX 1.x's header lines before `<OFX>` do not affect parsing.
+
+### Loan and investment statements
+
+`LOANSTMTRS` and `INVSTMTRS` are read for their cash movements: a loan payment or fee, and an investment account's contributions, withdrawals and fees inside `INVBANKTRAN`. Three things are deliberately left out, and the wizard lists them under **Left out while reading** rather than dropping them silently:
+
+- **Securities activity** (`BUY`, `SELL`, `INCOME`, `REINVEST` and the fund/option variants) is not imported. WageRoute records cash; a trade that moves no cash until settlement would otherwise double-count the movement.
+- **Holdings** in `INVPOSLIST` are not imported. A position is not a transaction, and the ledger has nowhere to put units or prices. The account's value belongs in its opening balance.
+- **A loan's outstanding principal** (`LOANBAL`, `PRINCIPALBAL`) is not treated as a balance. It is what is still owed on the loan, not what the tracked account holds, so it never drives the closing-balance check. A loan statement that also carries a real `LEDGERBAL` is compared like any other.
+
+### What is read from QIF
+
+| QIF field | Used as |
+| --- | --- |
+| `D` | The entry date. Slashed dates follow the same file-level order rule as CSV: one day above 12 proves the order for every row; a file whose dates are all 12 or under is read month-first and says so |
+| `T` | The signed amount, with thousands separators accepted |
+| `P` / `M` | The description, joined with ` — ` when both differ |
+| `L` | The category. A category in square brackets (`[Savings]`) is a transfer and is refused, because one leg cannot become a paired movement |
+| `S` | A split's category. The record still imports once, for its total; a single category shared by every split is kept, otherwise the row is `Uncategorized` |
+| `!Account` → `N` | The account name, printed in the wizard. A file naming **more than one account is refused** — export one account at a time, because every line would otherwise land in a single account chosen by a guess |
+
+`!Type:` sections for categories, classes, memorized transactions, prices, payees, budgets and securities are skipped. A file whose only section is `!Type:Invst` is refused with the reason, because none of its records is a cash movement; a file that mixes bank and investment records imports the bank rows and reports the investment records it left out.
+
+QIF carries no institution, no account number and no closing date, so the wizard prints no bank and no closing balance, and nothing is compared with the ledger. The wizard heading reads **QIF file**, not **Bank statement**.
 
 ### The account is always asked for
 
@@ -619,7 +643,7 @@ No local account is inferred from `ACCTID`, `BANKID` or a CSV's file name. The a
 
 ### What the wizard shows
 
-Above the questions, the wizard prints what the file claims about itself: bank, masked account number, the range covered by the transactions that will import, and the statement's closing balance and date when it states one. This is context for checking against the paper statement; no balance changes until the closing-balance check below asks.
+Above the questions, the wizard prints what the file claims about itself: bank, masked account number (or a QIF's account name), the range covered by the transactions that will import, and the statement's closing balance and date when it states one. Lines the file cannot give the ledger — an investment statement's holdings, a QIF's missing closing balance — are printed beneath it before anything is imported. This is context for checking against the paper statement; no balance changes until the closing-balance check below asks.
 
 ### The closing-balance check
 
@@ -641,8 +665,9 @@ The bank's `FITID` is the primary marker: a line whose id is already stored for 
 
 - **Automatic reconciliation**: the closing balance is compared and offered as one adjustment, never applied on its own. Existing rows are never changed, and a refused transfer line stays out, so the adjustment is the only way the two figures meet.
 - **Per-line credit-card sign flipping**: the sign of each `TRNAMT` is taken as the bank wrote it. A file that reports purchases as positive amounts will import them as `income`; edit those rows after import rather than having the app guess from the account type. The closing balance is the one figure that is converted for a card account, because it is a single number with a known meaning.
-- **Investment and loan OFX dialects** (`INVSTMTRS`, `LOANSTMTRS`) are not read; only bank and credit-card statement aggregates are.
-- **QIF** is not read.
+- **Securities, positions and split detail**: an investment statement's trades and holdings and a QIF's split categories are not stored; only the cash row and, where every split agrees, one category.
+- **A multi-account QIF** is refused rather than split across accounts.
+- **QIF closing balances** do not exist in the format, so a QIF is never reconciled. The `B` field in an `!Account` block carries no date and is ignored.
 
 ---
 

@@ -67,7 +67,8 @@ test('an SGML statement reads its signed lines and refuses the transfer', () => 
     from: '2026-01-05',
     to: '2026-01-07',
     balanceCents: 199_575,
-    balanceOn: '2026-01-31'
+    balanceOn: '2026-01-31',
+    notes: []
   })
 })
 
@@ -128,4 +129,72 @@ test('a CSV with no Account column is described by its own lines', () => {
   assert.equal(info.from, '2026-03-02')
   assert.equal(info.to, '2026-03-09')
   assert.equal(info.balanceCents, null)
+})
+
+const LOAN = `<OFX>
+<LOANMSGSRSV1><LOANSTMTTRNRS><LOANSTMTRS><CURDEF>USD</CURDEF>
+<LOANACCTFROM><BANKID>021000021</BANKID><ACCTID>987654321</ACCTID><ACCTTYPE>MORTGAGE</ACCTTYPE></LOANACCTFROM>
+<BANKTRANLIST><DTSTART>20260101</DTSTART><DTEND>20260131</DTEND>
+<STMTTRN><TRNTYPE>PAYMENT</TRNTYPE><DTPOSTED>20260115</DTPOSTED><TRNAMT>-1200.00</TRNAMT><FITID>loan-1</FITID><NAME>MONTHLY PAYMENT</NAME></STMTTRN>
+</BANKTRANLIST>
+</LOANSTMTRS></LOANSTMTTRNRS></LOANMSGSRSV1>
+</OFX>
+`
+
+test('a loan statement reads its payments and does not pretend the principal is a balance', () => {
+  const { entries, statement } = parseOfxStatement(LOAN)
+
+  assert.equal(entries.length, 1)
+  assert.equal(entries[0]?.amountCents, -120_000)
+  assert.equal(statement.accountLabel, '••••4321')
+  assert.equal(statement.bank, '021000021')
+  assert.equal(statement.balanceCents, null, 'LOANBAL/principal is not a ledger balance')
+  assert.match(statement.notes[0] ?? '', /outstanding principal is not an account balance/)
+})
+
+test('a loan statement still reconciles when it carries a real closing balance', () => {
+  const withLedger = LOAN.replace(
+    '</BANKTRANLIST>',
+    '</BANKTRANLIST><LEDGERBAL><BALAMT>-248000.00</BALAMT><DTASOF>20260131</DTASOF></LEDGERBAL>'
+  )
+  const { statement } = parseOfxStatement(withLedger)
+  assert.equal(statement.balanceCents, -24_800_000)
+  assert.equal(statement.balanceOn, '2026-01-31')
+  assert.deepEqual(statement.notes, [])
+})
+
+const INVESTMENT = `<OFX>
+<INVSTMTMSGSRSV1><INVSTMTTRNRS><INVSTMTRS><CURDEF>USD</CURDEF>
+<INVACCTFROM><BROKERID>broker.example</BROKERID><ACCTID>123456</ACCTID></INVACCTFROM>
+<INVTRANLIST><DTSTART>20260101</DTSTART><DTEND>20260131</DTEND>
+<INVBANKTRAN><STMTTRN><TRNTYPE>DIRECTDEP</TRNTYPE><DTPOSTED>20260105</DTPOSTED><TRNAMT>250.00</TRNAMT><FITID>cash-1</FITID><NAME>CONTRIBUTION</NAME></STMTTRN></INVBANKTRAN>
+<BUYMF><INVBUY><INVTRAN><FITID>buy-1</FITID><DTTRADE>20260106</DTTRADE><MEMO>BUY FUND</MEMO></INVTRAN><SECID><UNIQUEID>FUNDX</UNIQUEID></SECID><UNITS>10</UNITS><UNITPRICE>25.00</UNITPRICE><TOTAL>-250.00</TOTAL></INVBUY></BUYMF>
+<SELLSTOCK><INVSELL><INVTRAN><FITID>sell-1</FITID><DTTRADE>20260120</DTTRADE></INVTRAN><SECID><UNIQUEID>STOCKY</UNIQUEID></SECID><UNITS>1</UNITS><UNITPRICE>300.00</UNITPRICE><TOTAL>300.00</TOTAL></INVSELL></SELLSTOCK>
+</INVTRANLIST>
+<INVPOSLIST>
+<POSMF><INVPOS><SECID><UNIQUEID>FUNDX</UNIQUEID></SECID><UNITS>10</UNITS></INVPOS></POSMF>
+<POSSTOCK><INVPOS><SECID><UNIQUEID>STOCKY</UNIQUEID></SECID><UNITS>1</UNITS></INVPOS></POSSTOCK>
+</INVPOSLIST>
+<INVBAL><AVAILCASH>250.00</AVAILCASH></INVBAL>
+</INVSTMTRS></INVSTMTTRNRS></INVSTMTMSGSRSV1>
+</OFX>
+`
+
+test('an investment statement imports its cash and reports the securities it leaves out', () => {
+  const { entries, issues, statement } = parseOfxStatement(INVESTMENT)
+
+  assert.equal(entries.length, 1)
+  assert.equal(entries[0]?.amountCents, 25_000, 'only the cash contribution lands')
+  assert.equal(statement.accountLabel, '••••3456')
+  assert.equal(statement.bank, 'broker.example')
+  assert.equal(statement.balanceCents, null, 'INVBAL cash is not the account balance')
+  assert.match(statement.notes[0] ?? '', /Only cash movements import/)
+
+  assert.deepEqual(
+    issues.map((issue) => issue.message),
+    [
+      '2 securities entries were not imported — WageRoute records cash movements, not securities',
+      '2 holdings in the file were not imported — only cash movements land in the ledger'
+    ]
+  )
 })

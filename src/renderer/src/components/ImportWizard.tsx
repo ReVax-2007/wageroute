@@ -3,7 +3,7 @@ import { Download } from 'lucide-react'
 import type { ImportCounts } from '@shared/api'
 import type { ImportAnswer, ImportProblem, ImportTable } from '@shared/importRepair'
 import { formatMoney } from '@shared/money'
-import type { StatementInfo } from '@shared/statements'
+import { statementLabel, type StatementInfo } from '@shared/statements'
 import { useFinanceStore } from '../store/useFinanceStore'
 import { Button, Field, Modal } from './ui'
 
@@ -317,9 +317,17 @@ export function ImportWizard() {
 
       <div className="wizard-step" key={currentStep}>
         {preview.statement && (
-          <p className="wizard-hint">
-            <strong>Bank statement</strong> · {statementSummary(preview.statement)}
-          </p>
+          <>
+            <p className="wizard-hint">
+              <strong>{statementLabel(preview.statement)}</strong> ·{' '}
+              {statementSummary(preview.statement)}
+            </p>
+            {preview.statement.notes.map((note) => (
+              <p className="field-hint" key={note}>
+                {note}
+              </p>
+            ))}
+          </>
         )}
         {parseIssues.length > 0 && (
           <div className="import-review-list">

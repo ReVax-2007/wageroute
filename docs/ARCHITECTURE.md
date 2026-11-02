@@ -371,9 +371,10 @@ Both round-up legs share a new `transfer_group_id`. Imported CSV entries call th
 
 ```text
 data:preview
-  ├─ open dialog (JSON, CSV, OFX/QFX) → null when cancelled
+  ├─ open dialog (JSON, CSV, OFX/QFX, QIF) → null when cancelled
   ├─ read file, reject > 64 MiB
-  ├─ .ofx/.qfx ──► parseOfxStatement ──► one statement question ──► problems
+  ├─ .ofx/.qfx ──► parseOfxStatement ─┐
+  ├─ .qif ──────► parseQif ───────────┴─► one statement question ──► problems
   ├─ .csv  ──► parseEntriesCsv
   │             ├─ with Account column ──► findUnmappedAccounts ──► problems
   │             └─ without one ─────────► describeCsvStatement ──► one statement question
@@ -395,7 +396,7 @@ Problem detection is shared, pure code in `src/shared/importRepair.ts`, so the m
 
 JSON import preserves IDs for cross-table links. CSV import creates new UUIDs and resolves accounts by name — or by your mapping in the wizard — because a CSV has no IDs to preserve.
 
-A bank statement (OFX/QFX, or a CSV with no Account column) is an entries file in which every row's account name is blank. The main process builds one synthetic mapping keyed on `accountName: ''` with no pre-selected answer; `buildAccountMap` turns the wizard's choice into `{ '': accountId }`, and `mergeEntries` resolves every line through `Object.hasOwn`. An unanswered statement therefore writes nothing and is reported once, not once per line.
+A statement (OFX/QFX, QIF, or a CSV with no Account column) is an entries file in which every row's account name is blank. The main process builds one synthetic mapping keyed on `accountName: ''` with no pre-selected answer; `buildAccountMap` turns the wizard's choice into `{ '': accountId }`, and `mergeEntries` resolves every line through `Object.hasOwn`. An unanswered statement therefore writes nothing and is reported once, not once per line.
 
 ### Delete an account
 

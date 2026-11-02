@@ -174,7 +174,7 @@ function findColumns(row: readonly string[]): Partial<Record<EntryColumn, number
   return columns
 }
 
-type SlashedOrder = 'mdy' | 'dmy'
+export type SlashedOrder = 'mdy' | 'dmy'
 
 function slashedParts(raw: string): { first: number; second: number } | null {
   const match = /^(\d{1,2})\/(\d{1,2})\/\d{4}$/.exec(raw.trim())
@@ -187,7 +187,7 @@ function slashedParts(raw: string): { first: number; second: number } | null {
  * file that also holds `31/12` is the silent month-shift the audit found.
  * Ambiguous-only or mixed evidence falls back to the per-row rule below.
  */
-function detectDateOrder(values: readonly string[]): SlashedOrder | null {
+export function detectDateOrder(values: readonly string[]): SlashedOrder | null {
   let dayFirst = false
   let monthFirst = false
   for (const value of values) {
@@ -201,7 +201,7 @@ function detectDateOrder(values: readonly string[]): SlashedOrder | null {
   return null
 }
 
-function normalizeDate(raw: string, order: SlashedOrder | null): string | null {
+export function normalizeDate(raw: string, order: SlashedOrder | null): string | null {
   const text = raw.trim()
   let year: number
   let month: number
