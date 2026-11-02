@@ -101,7 +101,7 @@ Run this before building anything you intend to distribute. It is intentionally 
 - [ ] `package.json` version is the intended release version.
 - [ ] `package-lock.json` was updated by the same version change.
 - [ ] `productName`, `appId`, shortcut name and icon paths in `electron-builder.yml` are unchanged unless the rename is intentional.
-- [ ] `build/icon.icns`, `build/icon.png` and the iconset exist and are current.
+- [ ] `build/icon.icns`, `build/icon.png`, `build/icon.ico` and the iconset exist and are current.
 - [ ] No database, backup, exported CSV, `.env` or credential file is staged or inside the source tree.
 - [ ] The backup format marker was not changed.
 - [ ] `SCHEMA_VERSION` matches the latest migration entry.

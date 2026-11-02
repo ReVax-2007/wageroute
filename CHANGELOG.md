@@ -208,6 +208,7 @@ Nothing has merged since 1.2.0.
 - **An overpaid card keeps its credit.** The Adjust Balance dialog started from `Math.max(0, owed)`, so a card carrying a credit silently began at zero and the first save wiped the credit; a shared `cardOwedCents` keeps the sign and the hint reads *"Credit on the card: $X"*. **Pay card** says *"The card is overpaid by $X"* and, with no spendable account, disables the button and names the kinds to add instead of offering a dead end.
 - **A rejected grid edit snaps back.** A save the repository refused left the edited cell showing a value that was never stored; the grid now re-reads on failure, as the confirmed-edit path already did.
 - **Sorting the ledger clears the row selection.** The ticks survived a sort, so a bulk delete after reordering could remove rows the user had never chosen; a sort change and a page clamp both clear the selection.
+- **The Windows installer builds again.** NSIS reads `installerIcon` itself and does not convert a PNG, so `build/icon.png` failed `makensis` with *invalid icon file* and the tag build stopped before the MSI smoke test. `build/icon.ico` now carries the same artwork at 16–256 px and NSIS loads that.
 
 ### Removed
 
