@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { RepositoryError } from '@shared/errors'
 import { normalizeSignedCents, signedAmountError } from '@shared/kinds'
 import { parseSettings } from '@shared/settings'
+import { ledgerStatementCents } from '@shared/statements'
 import { roundUpRemainderCents, transferLegs } from '@shared/transfers'
 import type {
   AccountKind,
@@ -27,6 +28,7 @@ import {
 } from './common'
 import { ensureCategory } from './categories'
 import { setBillReserveState } from './bills'
+import { accountBalanceOn } from './accounts'
 import { readSettings } from './settings'
 
 const TRANSACTION_KINDS: readonly TransactionKind[] = [
@@ -696,4 +698,35 @@ export function deleteTransactions(db: Db, userId: string, ids: readonly string[
     }
     return removed
   })()
+}
+
+/**
+ * Brings an account's balance on `onDate` to a statement's closing figure with
+ * one adjustment dated that day. Entries recorded after the statement closed
+ * are untouched, so reconciling an older statement cannot undo newer spending.
+ * Returns the amount posted; zero means the ledger already agreed.
+ */
+export function reconcileAccountOn(
+  db: Db,
+  userId: string,
+  accountId: string,
+  statementCents: number,
+  onDate: string
+): number {
+  const held = accountBalanceOn(db, userId, accountId, onDate)
+  if (!held) throw new RepositoryError('NOT_FOUND', 'That account no longer exists')
+  // A card statement prints what is owed as a positive number while the ledger
+  // stores debt as negative, so the target is expressed in the ledger's sign.
+  const target = ledgerStatementCents(statementCents, held.kind)
+  const difference = target - held.balanceCents
+  if (difference === 0) return 0
+  createTransaction(db, userId, {
+    accountId,
+    kind: 'adjustment',
+    amountCents: difference,
+    occurredOn: onDate,
+    memo: 'Statement reconciliation',
+    category: 'Adjustment'
+  })
+  return difference
 }

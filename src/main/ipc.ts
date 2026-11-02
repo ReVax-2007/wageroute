@@ -19,7 +19,7 @@ import {
   type ChannelResult
 } from '@shared/channels'
 import { parseEntriesCsv, transactionsToCsv, type CsvEntry } from '@shared/csv'
-import { todayISO } from '@shared/dates'
+import { isISODate, todayISO } from '@shared/dates'
 import { encodeError, RepositoryError } from '@shared/errors'
 import {
   applyImportAnswers,
@@ -37,7 +37,13 @@ import {
   type ImportTable
 } from '@shared/importRepair'
 import { parseSettings, settingsToRecord } from '@shared/settings'
-import { describeCsvStatement, parseOfxStatement, type StatementInfo } from '@shared/statements'
+import {
+  describeCsvStatement,
+  parseOfxStatement,
+  reconcileStatement,
+  type StatementInfo,
+  type StatementReconciliation
+} from '@shared/statements'
 import type {
   AccountInput,
   AppSettings,
@@ -73,6 +79,22 @@ const MAX_IMPORT_BYTES = 64 * 1024 * 1024
 
 function requireId(value: unknown): string {
   if (typeof value !== 'string' || value.length === 0) throw new Error('Invalid id')
+  return value
+}
+
+/** A signed whole number of cents; a float here would silently round an adjustment. */
+function requireCents(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
+    throw new RepositoryError('VALIDATION', 'Balance must be a whole number of cents')
+  }
+  return value
+}
+
+/** An ISO calendar date; the statement's own `DTASOF` is already read this way. */
+function requireDate(value: unknown): string {
+  if (typeof value !== 'string' || !isISODate(value)) {
+    throw new RepositoryError('VALIDATION', 'Date must be in YYYY-MM-DD form')
+  }
   return value
 }
 
@@ -652,6 +674,22 @@ export function registerIpcHandlers(db: Database.Database): void {
     return result.filePath
   })
 
+  handle(
+    'statement:reconcile',
+    (_event, accountId: unknown, statementCents: unknown, balanceOn: unknown) =>
+      write(db, userId, ['accounts', 'transactions', 'categories'], () =>
+        // The repository owns the sign rules and the "already agrees" case, so
+        // the handler only checks what arrived on the wire.
+        repo.reconcileAccountOn(
+          db,
+          userId(),
+          requireId(accountId),
+          requireCents(statementCents),
+          requireDate(balanceOn)
+        )
+      )
+  )
+
   handle('data:preview', async (event) => {
     const path = await pickImportFile(ownerWindow(event))
     if (!path) return null
@@ -758,6 +796,28 @@ export function registerIpcHandlers(db: Database.Database): void {
       })
       added.transactions = merged.added
       skipped.transactions = merged.skipped
+      // The statement's own lines are what should make the two figures agree,
+      // so the comparison is made after the merge, against the real ledger.
+      const statement = pending.statement
+      const statementAccountId = Object.hasOwn(accountMap, '') ? accountMap[''] : undefined
+      let reconciliation: StatementReconciliation | undefined
+      if (
+        statement?.balanceCents != null &&
+        statement.balanceOn &&
+        statementAccountId
+      ) {
+        const held = repo.accountBalanceOn(db, userId(), statementAccountId, statement.balanceOn)
+        if (held) {
+          reconciliation = reconcileStatement({
+            accountId: statementAccountId,
+            accountName: held.name,
+            accountKind: held.kind,
+            statementCents: statement.balanceCents,
+            ledgerCents: held.balanceCents,
+            balanceOn: statement.balanceOn
+          })
+        }
+      }
       return {
         path: pending.path,
         format: 'entries',
@@ -767,7 +827,8 @@ export function registerIpcHandlers(db: Database.Database): void {
         dropped: unmapped.map((mapping) =>
           pending.statement ? statementDropped(mapping) : entryDropped(mapping)
         ),
-        issues: [...(pending.parseIssues ?? []), ...merged.issues]
+        issues: [...(pending.parseIssues ?? []), ...merged.issues],
+        ...(reconciliation ? { reconciliation } : {})
       } satisfies ImportResult
     }
 

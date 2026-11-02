@@ -604,9 +604,10 @@ All three produce the same `CsvEntry` rows as an entries file, so insertion, sig
 | `NAME` / `MEMO` | The description, joined with ` — ` when both differ |
 | `BANKACCTFROM` / `CCACCTFROM` | The bank and the account's last four digits, shown in the wizard |
 | `CURDEF` | The currency of the closing balance shown in the wizard |
-| `LEDGERBAL` | The closing balance and its date, shown for comparison and never written |
+| `LEDGERBAL` | The closing balance and its date: shown in the wizard, and the figure the post-import check compares against |
+| `FITID` | The bank's stable id for the line, stored as `transactions.external_id` (first 120 characters) so a re-import recognises it |
 
-`FITID`, `CHECKNUM`, `SIC` and the sign-on block are ignored. XML entities (`&amp;`, `&#39;`) are decoded; OFX 1.x's header lines before `<OFX>` do not affect parsing.
+`CHECKNUM`, `SIC` and the sign-on block are ignored. XML entities (`&amp;`, `&#39;`) are decoded; OFX 1.x's header lines before `<OFX>` do not affect parsing.
 
 ### The account is always asked for
 
@@ -618,18 +619,28 @@ No local account is inferred from `ACCTID`, `BANKID` or a CSV's file name. The a
 
 ### What the wizard shows
 
-Above the questions, the wizard prints what the file claims about itself: bank, masked account number, the range covered by the transactions that will import, and the statement's closing balance and date when it states one. This is context for checking against the paper statement; it is not reconciled and never changes a balance.
+Above the questions, the wizard prints what the file claims about itself: bank, masked account number, the range covered by the transactions that will import, and the statement's closing balance and date when it states one. This is context for checking against the paper statement; no balance changes until the closing-balance check below asks.
+
+### The closing-balance check
+
+When the statement states both a closing balance and a closing date, the import compares them with the account after the lines land. The comparison is made on the closing day, not today, and it uses the account's opening balance plus every entry dated up to and including that day.
+
+- **They agree** — the toast says *the closing balance matches*, and nothing is asked.
+- **They differ** — a dialog names the statement's figure, the ledger's figure and the gap, and offers one **adjustment** dated on the closing day. **Leave it** writes nothing. The adjustment is a normal ledger row (`kind: 'adjustment'`, memo *Statement reconciliation*), so it is visible and editable like any other, and entries recorded after the closing day are untouched.
+- **A card statement** normally prints what is owed as a positive number while the ledger stores debt as negative. The check converts the bank's figure to the ledger's sign before comparing, so a card that agrees is not reported as double the debt.
+- **No closing date** — nothing is compared; a figure without a date cannot be placed in the ledger.
+- **The account was left unmapped** — nothing imported, so nothing is compared.
 
 Rows the parser could not read — an unreadable `DTPOSTED`, a zero amount, a transfer — are listed under **Left out while reading** with `statement line N` or `row N`, before the wizard asks about the rest. The other lines still import.
 
 ### Re-importing a statement
 
-Identical to an entries CSV: the fingerprint `[accountId, kind, amountCents, occurredOn, memo, category]` is matched against rows already on disk and each file occurrence claims at most one existing row. Overlapping monthly statements therefore add only the days that are new, and importing the same file twice adds nothing. `FITID` is not stored, so two genuinely identical transactions in the same statement both land, exactly like two identical coffees in one CSV.
+The bank's `FITID` is the primary marker: a line whose id is already stored for that account is skipped, so a reworded description does not duplicate. Where a file carries no `FITID`, the fingerprint `[accountId, kind, amountCents, occurredOn, memo, category]` is matched instead, and each file occurrence claims at most one existing row. Overlapping monthly statements therefore add only the days that are new, and importing the same file twice adds nothing. Two genuinely identical transactions in one statement both land because they carry different ids, exactly like two identical coffees in one CSV.
 
 ### What is not supported
 
-- **Balance reconciliation**: the closing balance is displayed, not enforced. The imported total will not necessarily equal it, because existing rows are never changed and transfers are refused.
-- **Credit-card sign flipping**: the sign is taken as the bank wrote it. A file that reports purchases as positive amounts will import them as `income`; edit those rows after import rather than having the app guess from the account type.
+- **Automatic reconciliation**: the closing balance is compared and offered as one adjustment, never applied on its own. Existing rows are never changed, and a refused transfer line stays out, so the adjustment is the only way the two figures meet.
+- **Per-line credit-card sign flipping**: the sign of each `TRNAMT` is taken as the bank wrote it. A file that reports purchases as positive amounts will import them as `income`; edit those rows after import rather than having the app guess from the account type. The closing balance is the one figure that is converted for a card account, because it is a single number with a known meaning.
 - **Investment and loan OFX dialects** (`INVSTMTRS`, `LOANSTMTRS`) are not read; only bank and credit-card statement aggregates are.
 - **QIF** is not read.
 
@@ -783,7 +794,7 @@ Cautions:
 - Backups contain your complete financial history in plain text. Store them somewhere you would store a bank statement.
 - Imported JSON preserves IDs. Importing two installations into one database creates duplicate accounts and goals with the same names but different IDs.
 - CSV import does not create missing accounts, link bills or goals, or reconstruct transfers.
-- Bank statement import does not reconcile the closing balance, store `FITID`, or flip the sign from the account type; the statement's sign wins. See [what is not supported](#what-is-not-supported).
+- Bank statement import stores `FITID` for dedupe and compares the closing balance on its closing day, offering one adjustment; the sign of each line is taken as the statement wrote it. Only the closing balance is converted for a card account. See [what is not supported](#what-is-not-supported).
 - A whole-file rejection leaves the database untouched. A per-row rejection leaves the *other* rows imported — read the review step and the toast rather than assuming all-or-nothing, and re-import the same file after fixing it: rows that already landed are recognised by ID (or by fingerprint for CSV) and skipped.
 - Leaving a row out is not a rollback. Nothing local is deleted by an import, but a row you skipped stays missing until you import it again.
 - The import is not a restore. It will not delete local rows, reset settings, or roll back to an earlier state.

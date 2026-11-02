@@ -200,13 +200,15 @@ Every write resolves with `WriteResult<T>` — `{ value, patch, refreshError? }`
 | `settings:save` | `AppSettings` | `WriteResult<void>` |
 | `backup:export` | — | saved path or `null` |
 | `csv:export` | — | saved path or `null` |
+| `statement:reconcile` | `accountId`, `statementCents`, `balanceOn` | `WriteResult<number>` (adjustment posted; `0` when the ledger already agreed) |
 | `data:preview` | — | `ImportPreview` or `null` (cancelled) |
 | `data:confirm` | `token`, `ImportAnswer[]` | `ImportResult` |
 | `data:reset` | — | `WriteResult<void>` (wipes every table, re-seeds a blank profile) |
 
 Notes:
 
-- The types describe the wire; the main process still validates every id and option at runtime, because a type is not a guarantee. `requireId` rejects empty or non-string IDs at the boundary, `requireMonth` refuses anything but a real `YYYY-MM` month, and full payload validation happens in the repository helpers.
+- The types describe the wire; the main process still validates every id and option at runtime, because a type is not a guarantee. `requireId` rejects empty or non-string IDs at the boundary, `requireMonth` refuses anything but a real `YYYY-MM` month, `requireDate` and `requireCents` guard the reconciliation call, and full payload validation happens in the repository helpers.
+- `data:confirm` returns a `reconciliation` when a statement carried a closing balance and its account was mapped. The comparison is made after the merge against `accountBalanceOn`, so the dialog describes the ledger as it stands; `statement:reconcile` then posts one `adjustment` dated on the closing day. `reconcileAccountOn` in the repository owns the credit-card sign conversion and the "already agrees" case.
 - File dialogs are owned by the invoking window, so they are modal to WageRoute.
 - Export and import use native save/open dialogs. The main process reads and writes the chosen file.
 - The import reader rejects files larger than **64 MiB** before parsing.

@@ -68,6 +68,37 @@ export function listAccounts(db: Db, userId: string): AccountWithBalance[] {
   return rows.map(mapAccount)
 }
 
+export interface AccountOnDate {
+  name: string
+  kind: AccountKind
+  balanceCents: number
+}
+
+/**
+ * What one account held at the close of a day, and what kind of account it is.
+ * A statement is compared against this rather than today's balance, because a
+ * statement usually closes days or weeks before it is imported.
+ */
+export function accountBalanceOn(
+  db: Db,
+  userId: string,
+  accountId: string,
+  onDate: string
+): AccountOnDate | null {
+  const row = db
+    .prepare(
+      `SELECT a.name, a.kind,
+              a.starting_balance_cents + COALESCE((
+                SELECT SUM(t.amount_cents) FROM transactions t
+                WHERE t.account_id = a.id AND t.deleted_at IS NULL AND t.occurred_on <= ?
+              ), 0) AS balanceCents
+         FROM accounts a
+        WHERE a.id = ? AND a.user_id = ? AND a.deleted_at IS NULL`
+    )
+    .get(onDate, accountId, userId) as AccountOnDate | undefined
+  return row ?? null
+}
+
 export function createAccount(db: Db, userId: string, input: AccountInput): string {
   const id = randomUUID()
   const ts = nowISO()

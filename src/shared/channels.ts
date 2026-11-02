@@ -72,6 +72,7 @@ export interface IpcContract {
 
   'backup:export': { args: []; result: string | null }
   'csv:export': { args: []; result: string | null }
+  'statement:reconcile': { args: [string, number, string]; result: WriteResult<number> }
   'data:preview': { args: []; result: ImportPreview | null }
   'data:confirm': { args: [string, ImportAnswer[]]; result: ImportResult }
   'data:reset': { args: []; result: WriteResult<void> }
@@ -120,6 +121,7 @@ export const CHANNELS = [
   'settings:save',
   'backup:export',
   'csv:export',
+  'statement:reconcile',
   'data:preview',
   'data:confirm',
   'data:reset'

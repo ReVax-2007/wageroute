@@ -671,6 +671,7 @@ The wizard has three steps — choose file, missing info, review — and the sam
 
 - **Missing info** shows one card per row that cannot import as it stands, with an editor per question: text, amount, whole number, date, an enum dropdown, or a dropdown of local rows for a foreign key (with **Leave unlinked** where the column allows NULL). CSV account names that match nothing are grouped into one question per name covering every line that shares it.
 - **Bank statements** (OFX 1.x/2.x, QFX, and any CSV without an Account column) are read as one account's history: the wizard prints the bank, masked account number, covered date range and closing balance, lists lines it left out (bad dates, zero amounts, transfers), and asks a single question — which local account these lines belong to. Nothing is pre-selected and **Import** stays disabled until you answer, because a statement's account number is not a local account name and a guess would post money into the wrong balance.
+- **Closing-balance check.** When the statement carries a closing balance and a closing date, the import compares the bank's figure with the account's balance on that day *after* the lines land. If they agree, the toast says so and nothing else happens. If they differ, a dialog names both figures and the gap and offers one adjustment dated on the closing day; **Leave it** writes nothing. A card statement prints what is owed as a positive number while the ledger holds debt as negative, so the comparison converts it first. Entries recorded after the closing day are never touched.
 - Each card offers **Leave this row out** (or **Leave these lines out** for CSV). Filling an answer in patches the row; leaving it blank drops the row instead of failing the import.
 - **Review** names what is being imported, echoes the values you supplied, and lists everything not imported with every reason on that row plus how to fix the source file. A warning counts rows still incomplete before you confirm.
 - A file with nothing missing skips straight to review, so a clean WageRoute backup is still one click.
@@ -795,7 +796,7 @@ All domain dates are constructed as UTC dates from `YYYY-MM-DD` strings. “Toda
 | Dark/light/system themes | Implemented | Tri-state, follows `prefers-color-scheme` live |
 | JSON backup, partial JSON import | Implemented | Additive |
 | CSV export and entries import | Implemented | Export covers the whole ledger; Debit/Credit columns are read |
-| Bank statement import (OFX/QFX, account-less CSV) | Implemented | Destinations chosen in the wizard; `FITID`/reference dedupe; balance shown, not reconciled |
+| Bank statement import (OFX/QFX, account-less CSV) | Implemented | Destinations chosen in the wizard; `FITID`/reference dedupe; closing balance compared and optionally reconciled with one adjustment |
 | Keyboard dialogs and focus management | Implemented | Trap, Escape, focus restore, skip link, named headings |
 | Multi-currency display | Implemented | Selector in Settings → Money; display only, no conversion or exchange rates |
 | Bank connections / statement sync | Not implemented | Manual entry and file import only |
