@@ -2,7 +2,7 @@
 
 WageRoute is a three-process Electron application with a deliberately small surface: a sandboxed React renderer, a typed preload bridge, and a main process that owns SQLite and the filesystem. All financial rules live in a pure TypeScript layer shared by every process.
 
-There is no backend service. The application makes no network requests.
+There is no backend service. The desktop application makes no network requests. The optional Pocket build is a folder of static files served from one origin; it has no server-side code and makes no cross-origin request.
 
 ---
 
@@ -14,6 +14,7 @@ There is no backend service. The application makes no network requests.
 - [Renderer lifecycle and state](#renderer-lifecycle-and-state)
 - [IPC surface](#ipc-surface)
 - [The shared domain layer](#the-shared-domain-layer)
+- [Pocket (browser app)](#pocket-browser-app)
 - [The main/database layer](#the-maindatabase-layer)
 - [Request flows](#request-flows)
 - [Security boundary](#security-boundary)
@@ -268,6 +269,37 @@ If the wall exceeds income, the wall is partially funded, every other bucket is 
 - `addMonthsISO` clamps to the last valid day of the target month (`2026-01-31 + 1 month = 2026-02-28`).
 - `monthsUntil` uses `Math.ceil(days / 30.4375)` and never returns less than 1, so a goal due today still has a one-month pace.
 - `nextDueDateISO` returns today when the due day is today; `previousDueDateISO` also returns today. Bill prompts then apply a strict `dueOn < today` test, so a bill is never “late” on its due date.
+
+## Pocket (browser app)
+
+`src/pocket` is a second Vite root that builds to `dist-pocket/`. It has no Electron, no main process, no IPC and no server. It is not another write path to the desktop database; it is a read snapshot plus an append-only entry pad, and it exists because a backup is already the portable surface between devices.
+
+```text
+backup JSON ── parseBackup ──► ImportTables ── buildSnapshot ──► Snapshot
+                                                   │
+                                                   ├─ pocketView (shared finance functions)
+                                                   └─ screens: Home, Bills, Goals, Ledger
+indexedDB ◄── writeLedger ◄── store (zustand) ◄────┘
+                                   │
+                       addEntry ────┴──► new transaction row + localIds
+                                   │
+                       exportJson ─┴──► original tables + appended entries
+```
+
+| Module | Responsibility |
+| --- | --- |
+| `lib/backup.ts` | Validates the file, fills missing tables, keeps the schema version and serializes the export |
+| `lib/snapshot.ts` | The parity layer: derives balances, transaction caps, goal funding, bill payments, reserves, paychecks and settings from the same table rows the desktop exports. It reimplements reads, not arithmetic |
+| `lib/compute.ts` | Calls `safeToSpendPoolCents`, `unpaidMonthlyWallCents`, `poolEarmarkedGoalsCents`, `unsettledRoutingCents`, `monthlyWall` and `goalsSummary`; derives bill states and the due-soon horizon |
+| `lib/entry.ts` | Builds one expense/income transaction row with a new UUID, the right sign, a real date and an allowed account; returns a plain reason when it cannot |
+| `lib/store.ts` | Loads IndexedDB, imports/replaces, adds and removes local entries, exports, forgets, and surfaces storage failures |
+| `lib/idb.ts` | One IndexedDB database, one `ledger` store, one `current` key |
+| `lib/install.ts` | Captures `beforeinstallprompt` at module load, reports standalone mode and exposes the deferred prompt |
+| `public/sw.js` | Versioned shell cache, network-first navigation and cache-first hashed assets |
+
+The boundary is deliberate: the phone can add only rows the desktop's additive import can express. It does not edit or delete desktop rows, and it does not record bill payments, because the export has no way to carry an edit, a deletion or a claim settlement. A phone entry is a new UUID, so the desktop can always tell it apart and add it once.
+
+`src/pocket/lib/snapshot.test.ts` builds a migrated demo database, exports it through the desktop backup builder, opens it on the phone and asserts every displayed total against the desktop's own selectors. `backup.test.ts` proves the export merges into a desktop database exactly once. The pocket TypeScript project includes `src/shared` and `src/renderer/src/lib/finance.ts`, so a change to either must still satisfy all three type checks.
 
 ## The main/database layer
 

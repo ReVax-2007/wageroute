@@ -206,9 +206,15 @@ This is safe for appending history, but it is not a merge tool. If the two datab
 
 ### Cloud-synced folders
 
-Putting the live SQLite database in iCloud Drive, Dropbox, OneDrive or a network share is **not supported**. SQLite WAL mode assumes a local filesystem with working file locks; a sync client can copy a half-written database or conflicting WAL files. WageRoute has no detection or recovery for that state.
+Syncing the live SQLite directory yourself — copying the per-user folder, its WAL and its SHM into iCloud Drive, Dropbox or OneDrive — is **not supported**. WAL mode assumes a local filesystem with working file locks, and a sync client can copy a half-written database or conflicting WAL files.
 
-Use exported files in a synced folder if you want off-machine copies. Do not sync the live database directory.
+The supported way to use a synced or network location is **Settings → Where your data lives**: WageRoute validates the folder, switches it to rollback journaling with `synchronous = FULL`, takes a safety copy when moving, and uses `wageroute.lock` so one computer writes at a time. A sync client can still produce a conflicted copy, and the app cannot see or merge that copy; see [ADR 0022](decisions/0022-the-ledger-can-live-in-a-folder-you-choose.md).
+
+Use exported files in a synced folder if you want off-machine copies without pointing the app at the folder.
+
+### The phone
+
+Pocket is the fourth route, and it is one-way between devices: export on the desktop, open the file on the phone, add entries, export on the phone and import that file on the desktop. It is [additive](decisions/0023-the-phone-reads-a-backup-and-writes-only-entries.md), carries only plain expense and income entries, and has no automatic file transfer. Publishing the static build is a manual GitHub Pages workflow; enabling Pages and running it are owner actions.
 
 ## Sync status
 

@@ -32,6 +32,7 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
+      - run: npm run pocket:build
 
       # Packaging-only breaks (a bad electron-builder field, a missing resource)
       # must fail here rather than at tag time. --dir stops before installers.

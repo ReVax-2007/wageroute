@@ -5,6 +5,7 @@ node_modules/
 out/
 release/
 dist/
+dist-pocket/
 coverage/
 *.tsbuildinfo
 *.blockmap

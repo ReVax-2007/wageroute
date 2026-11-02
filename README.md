@@ -21,6 +21,7 @@ It is a planning and ledger tool, not a bank connection. There is no account lin
 - [Screens](#screens)
 - [Technology](#technology)
 - [Installing WageRoute](#installing-wageroute)
+- [WageRoute Pocket](#wageroute-pocket)
 - [Quick start](#quick-start)
 - [Where your data lives](#where-your-data-lives)
 - [Backup, export and import](#backup-export-and-import)
@@ -51,6 +52,7 @@ It is a planning and ledger tool, not a bank connection. There is no account lin
 | **Chronology prompts** | Active bills past their latest due date with no matching `bill_id` payment are surfaced on the dashboard as “Did this clear?” prompts with one-click logging. A bill marked **autopay** is recorded automatically at the next launch after its due date instead, so the wall clears itself. |
 | **Data portability** | Full or partial JSON backups, a whole-ledger CSV export, and additive imports of either format. Bank statements (OFX/QFX, QIF, or a CSV with no account column) import into the account you name; loan and investment statements are read for what they can offer. A bank line that carries a reference is never added twice, and a statement that carries a closing balance can be reconciled against the ledger. |
 | **Data folder** | Optionally keep the ledger in a folder you choose — a NAS share, an external disk, or a synced folder — so several computers read the same data. The default per-user folder is unchanged; a chosen folder is locked to one writer at a time, uses rollback journaling, and keeps a safety copy on every move. |
+| **Pocket (phone)** | An optional installable web app that opens a backup, shows Safe to Spend, bills, goals and the ledger, and adds expense or income entries offline. It stores the copy in the browser, reuses the desktop's money functions and exports only the entries it added; the desktop's Import merges them. No server, account or upload. |
 | **Appearance** | Dark, light or system theme. The resolved palette is cached locally to prevent a flash on launch. |
 
 ## Design rules
@@ -129,6 +131,19 @@ hdiutil detach /tmp/wageroute-dmg
 
 Full details, including the Gatekeeper behaviour on each macOS version, are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) and [docs/RELEASING.md](docs/RELEASING.md).
 
+## WageRoute Pocket
+
+Pocket is an optional second front end for a phone, built from `src/pocket` to static files. It is not a second copy of the desktop app: it opens a backup, keeps that copy in the browser's IndexedDB, and lets you add expenses and income while you are away from the computer.
+
+- **Install it.** Serve `dist-pocket/` from any static HTTPS origin (the repository contains a GitHub Pages workflow), open it on the phone, and use the browser's **Install app** or **Add to Home Screen**. It then opens offline like an app.
+- **First run.** Export a backup on the computer (Settings → Export a backup), send the file to the phone, and choose it on the welcome screen.
+- **What it shows.** Safe to Spend and its breakdown, cash, total wealth, bills still due, goal progress, recent entries and the full ledger, read with the desktop's own shared money functions.
+- **What it can change.** Plain expense and income entries only. Bills, goals, accounts, paychecks and settings are edited on the computer and arrive with the next backup. Bill payments are excluded because an additive import cannot carry the claim a payment settles.
+- **Getting entries back.** Data → **Export a backup** writes the original tables with the phone's entries appended. Import that file on the computer; existing rows are skipped and each phone entry lands once.
+- **Trust.** No account, no server, no analytics, no upload. The file never leaves the phone. Clearing the browser's site data, or using another browser, removes the phone copy — export first if it holds entries you need.
+
+Build and run it with `npm run pocket:dev`, `npm run pocket:build`, and `npm run pocket:preview`. Its limits and the additive boundary are recorded in [ADR 0023](docs/decisions/0023-the-phone-reads-a-backup-and-writes-only-entries.md).
+
 ## Quick start
 
 Requirements: **Node.js 22 or newer** (CI uses 24) and npm. macOS packaging expects Xcode Command Line Tools; Windows packaging is normally done on Windows or in CI, and the MSI target only builds on Windows because it needs WiX.
@@ -138,8 +153,10 @@ npm install          # also rebuilds better-sqlite3 for Electron
 npm run dev          # launch the app with hot reload
 npm test             # domain, accounts, import-repair, backup and repository tests
 npm run lint         # repository lint gate: no debugger, console logging, @ts-ignore or any
-npm run typecheck    # main/preload and renderer type checks
+npm run typecheck    # main/preload, renderer and Pocket type checks
 npm run build        # typecheck + production bundles in out/
+npm run pocket:dev   # Pocket in a phone-sized browser with hot reload
+npm run pocket:build # static Pocket files in dist-pocket/
 npm run dist:mac     # DMG for arm64 and x64
 npm run dist:win     # NSIS, MSI, portable exe and zip for x64 and arm64 (MSI needs Windows)
 npm run dist:linux   # AppImage, deb and rpm for the host architecture
@@ -163,7 +180,7 @@ The app was previously named **Cash Flow Routing**. On first launch, if the new 
 
 ## Backup, export and import
 
-- **Export full backup** writes every row of accounts, balance snapshots, categories, bills, goals, paychecks, allocations, bill reserves, transactions and settings as JSON, tagged with backup version 8. It includes tombstones and all linked IDs, and a 1.1.0 backup (version 7) still restores.
+- **Export full backup** writes every row of accounts, balance snapshots, categories, bills, goals, paychecks, allocations, bill reserves, transactions and settings as JSON, tagged with backup version 10. It includes tombstones and all linked IDs, and an older backup (version 2 or later) still restores.
 - **Export transactions CSV** writes the **whole** ledger — not the 500-row screen snapshot — with Date, Account, Institution, Kind, Category, Description, Amount and Currency. Both exports are written owner-only (`0600`).
 - **Import data** accepts a backup, an entries CSV, a bank statement (OFX/QFX or QIF) or a CSV with no account column, and walks you through a three-step wizard. JSON may contain only some tables. CSV is treated as entries and matched to local accounts by name (optionally narrowed by institution); a statement is imported into the one account you pick, and a transaction the bank identifies with a FITID (or a CSV reference) is never added twice. When the statement carries a closing balance it is compared with your ledger, and one adjustment is offered if the two disagree.
 - **The wizard asks instead of failing.** Anything a row is missing, mis-typed, out of range or pointing at — plus CSV account names that match nothing — is put to you as a question with a fix-or-leave-out choice. Rows you cannot fix are left out with an explanation of what was wrong and how to repair the file; the rest of the import still lands.
@@ -173,7 +190,9 @@ Full format rules, examples and failure modes are in [docs/IMPORT-EXPORT.md](doc
 
 ## Deployment status
 
-**WageRoute is local-only today.** There is no sync engine, no cloud backup, no server, no user account and no automatic updates. Multi-device use requires exporting and importing files manually. The schema is deliberately sync-ready, but no sync design has been agreed or implemented.
+**WageRoute is local-only today.** There is no sync engine, no cloud backup, no server, no user account and no automatic updates. The optional data folder can sit on a drive the user already syncs, but WageRoute itself does not coordinate that sync. Multi-device use otherwise requires exporting and importing files manually. The schema is deliberately sync-ready, but no sync design has been agreed or implemented.
+
+**Pocket is static.** Its build is a folder of files with no backend; deployment means publishing those files to a static host. The repository includes a manual GitHub Pages workflow, but enabling Pages and publishing the site are deliberate owner actions and are not part of a release.
 
 The CI workflow builds unsigned installers; on a tag it attaches them to a **draft** GitHub Release but never publishes it. Publishing the release is a manual step. Code signing and notarization are not configured.
 
@@ -185,8 +204,10 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full status matrix and the 
 .
 ├── build/                     App icon sources and generated .icns/.png
 ├── docs/                      Documentation (this set)
+├── examples/                  Example backup used by the importer tests
 ├── out/                       electron-vite build output (ignored)
 ├── release/                   electron-builder output (ignored)
+├── dist-pocket/               Pocket static build output (ignored)
 ├── src/
 │   ├── main/                  Electron main process
 │   │   ├── db/                connection, migrations, repositories, backup,
@@ -203,6 +224,10 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full status matrix and the 
 │   │       │                  Spreadsheet, Settings, Allocator
 │   │       ├── store/         Zustand slices, actions and selectors
 │   │       └── styles/        tokens, layered sheets, grid theme
+│   ├── pocket/                Static installable phone app
+│   │   ├── lib/               backup reader, snapshot, store, IndexedDB, install
+│   │   ├── screens/           Home, Bills, Goals, Ledger, Data, Welcome
+│   │   └── public/            manifest, service worker, icons
 │   └── shared/                Pure domain layer used by all processes
 │       ├── allocator.ts       Paycheck routing algorithm
 │       ├── accounts.ts        Safe-to-spend membership, total wealth, buckets

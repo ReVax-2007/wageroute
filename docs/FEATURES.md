@@ -17,6 +17,7 @@ Related references: [DATA-MODEL.md](DATA-MODEL.md) for formulas and storage, [IM
 - [Paycheck allocator](#paycheck-allocator)
 - [Spreadsheet](#spreadsheet)
 - [Settings](#settings)
+- [Pocket (phone)](#pocket-phone)
 - [Cross-cutting behaviour](#cross-cutting-behaviour)
 - [Status matrix](#status-matrix)
 - [Edge cases](#edge-cases)
@@ -758,6 +759,42 @@ When a build opens a database from an older schema, it writes a consistent copy 
 ### Emergency fund
 
 A pointer card to Sinking funds; the calculator itself lives there.
+
+---
+
+## Pocket (phone)
+
+Pocket is an optional, installable web app built from the same repository. It is not a second ledger and never syncs: it opens one backup, works from a copy in the browser, and hands entries back through an additive export.
+
+### First run and storage
+
+The welcome screen asks for a WageRoute backup file and explains where to get one (Settings → Export a backup on the computer). Nothing else is asked: there is no account, sign-in or server. A file must be JSON with `format: "cash-flow-routing-backup"`, a version of at least 2 and a `tables` object with at least one live account; larger than 24 MB is refused. A file from a newer schema opens with a warning and the Data screen says not to export it back until the desktop is updated. The imported tables, schema version, file name and the ids the phone created are stored in IndexedDB under one key. Closing the app, going offline or restarting the phone keeps them; clearing site data or using another browser does not.
+
+### What it shows
+
+| Tab | Content |
+| --- | --- |
+| **Home** | Safe to Spend with spendable accounts, bills still due, goals money and unsettled routing; cash on hand and total wealth; next payday; bills due in the next 14 days; the first three goals; every live account; entry count and import date |
+| **Bills** | Monthly bill total and per-paycheck reserve; each open bill with its next due date, account, amount and a **Due**, **Set aside** or **Paid** state |
+| **Goals** | Funded total, progress, each goal's target, remaining and target date |
+| **Entries** | The ledger grouped by date, with paired transfers shown as two legs; **Add** opens the entry sheet |
+| **Data** | File facts, replace, export, install, privacy and forget |
+
+Every figure is calculated with the desktop's shared functions: the snapshot derives balances from live entries, cash restricts them to today, the wall subtracts the month's unpaid claims, goals read allocation lines or their dedicated account balance, and Safe to Spend subtracts the same pool, wall, goal money and unsettled routing. A parity test compares the phone with a desktop snapshot of the same database.
+
+### Adding an entry
+
+**Add** offers expense or income, an amount, a live non-credit account, an existing category, a date up to today and an optional note. The amount uses the same money sanitiser as the desktop (digits, one period, two decimals). Expense rows receive a negative cents value and income rows a positive one. A new UUID is written with revision 1 and recorded as a local id. The entry appears in the ledger and lowers or raises the balance and Safe to Spend immediately. A local entry can be removed on the phone with a confirmation; removing it only affects the browser copy.
+
+The phone deliberately cannot record a bill payment, edit a desktop row or delete one. A bill payment has to settle the claim the desktop wrote, and an additive import cannot carry a settlement, an edit or a deletion. Offering those buttons would produce a file that either lies or loses the change.
+
+### Exporting back
+
+**Data → Export a backup** writes the original tables with the phone's entries appended, under `wageroute-pocket-<date>.json` at the imported schema version. Import that file on the computer with the normal Import wizard: ids already present are skipped, settings keep their local values, and each phone entry lands once. Exporting twice is safe; the second import adds nothing.
+
+### Installing and limits
+
+The built folder is static. On a browser that offers `beforeinstallprompt`, Data shows **Add WageRoute to this phone**; on iOS it explains Share → Add to Home Screen; otherwise it names the browser menu. The service worker caches the shell and hashed assets, so the app opens offline, and navigation is network-first so a release lands on the next open. Replacing the file and **Forget this phone** both confirm first and count the local entries that would be lost. Pocket has no analytics, remote font, third-party request or upload; the production page carries a same-origin CSP. The app cannot merge two phone copies, reconcile a conflict or read a file from the desktop automatically.
 
 ---
 

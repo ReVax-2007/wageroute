@@ -55,12 +55,16 @@ npm run postinstall
 | `npm run dev` | `electron-vite dev` | Dev server, main/preload rebuild, hot renderer reload |
 | `npm start` | `electron-vite preview` | Run the production bundles in `out/` |
 | `npm run lint` | `node scripts/lint.mjs` | Repository-local checks: no `debugger`, no `console.log`/`console.debug`, no `@ts-ignore`/`@ts-expect-error`, no `any` cast and no `: any` annotation |
-| `npm test` | `node --import tsx --test` (thirty-nine files listed explicitly) | Domain, cadence, categories, credit, payoff, history, accounts, importer, statements, QIF, backup-example, export round-trip, merge, migration, maintenance, entries, files, seed, product model, reconciliation, paycheck plan, allocator property, dashboard selectors, finance maths, dialog focus and save guard, reconciliation dialog, wall chips and next-check, preload bridge, window security and repository tests |
+| `npm test` | `node --import tsx --test` (forty-five files listed explicitly) | Domain, cadence, categories, credit, payoff, history, accounts, importer, statements, QIF, backup-example, export round-trip, merge, migration, maintenance, entries, files, seed, product model, reconciliation, paycheck plan, allocator property, dashboard selectors, finance maths, dialog focus and save guard, reconciliation dialog, wall chips and next-check, preload bridge, window security, repository tests and the Pocket snapshot/backup parity cases |
 | `npm run notices` | `node scripts/third-party-notices.mjs` | Regenerate `THIRD-PARTY-NOTICES.txt` from the production tree in `package-lock.json`; also runs as `prebuild` |
-| `npm run typecheck` | node + web type checks | Both TypeScript projects |
+| `npm run typecheck` | node + web + pocket type checks | All three TypeScript projects |
 | `npm run typecheck:node` | `tsc --noEmit -p tsconfig.node.json` | Main, preload, shared, config |
 | `npm run typecheck:web` | `tsc --noEmit -p tsconfig.json` | Renderer and shared |
+| `npm run typecheck:pocket` | `tsc --noEmit -p src/pocket/tsconfig.json` | Pocket and the shared modules it imports |
 | `npm run build` | notices + typecheck + `electron-vite build` | `out/main`, `out/preload`, `out/renderer` |
+| `npm run pocket:dev` | `vite --config src/pocket/vite.config.ts` | Pocket with hot reload, normally in a phone-sized browser window |
+| `npm run pocket:build` | `vite build --config src/pocket/vite.config.ts` | Static shell in `dist-pocket/` (manifest, service worker, icons, hashed assets) |
+| `npm run pocket:preview` | `vite preview --config src/pocket/vite.config.ts` | Serve the built Pocket shell locally; use `-- --port 4175` to pick a port |
 | `npm run dist` | build + `electron-builder --publish never` | Current platform |
 | `npm run dist:mac` | build + `electron-builder --mac --x64 --arm64 --publish never` | DMG, arm64 + x64 |
 | `npm run dist:win` | build + `electron-builder --win --x64 --arm64 --publish never` | NSIS + MSI + portable + zip (MSI needs Windows: WiX) |
@@ -106,6 +110,15 @@ src/
 │       ├── screens/          one file per screen
 │       ├── store/            session + data slices, selectors, useFinanceStore
 │       └── styles/           tokens, layered sheets, grid sheet
+├── pocket/
+│   ├── main.tsx              root and service-worker registration
+│   ├── App.tsx               tabs, toasts, welcome/ready switch
+│   ├── lib/                  backup reader, snapshot, compute, entry rules,
+│   │                         IndexedDB, zustand store, install prompt
+│   ├── screens/              Home, Bills, Goals, Ledger, Data, Welcome
+│   ├── components/           MoneyInput, Sheet, Nav, PickBackup
+│   ├── public/               manifest, service worker, icons
+│   └── vite.config.ts        separate root, alias, CSP injection, dist-pocket
 └── shared/
     ├── accounts.ts       Safe-to-spend pool, total wealth, wealth buckets
     ├── allocator.ts
@@ -221,7 +234,7 @@ When a test requires moving a database aside, move it to a dated quarantine fold
 
 ## Testing
 
-Thirty-nine files run by `npm test` through `node --test` with `tsx` as the loader — 339 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**; the `pretest` guard ([`scripts/check-test-list.mjs`](../scripts/check-test-list.mjs)) fails the run when a `*.test.ts` on disk is missing from that list, or when the list names a file that no longer exists.
+Forty-five files run by `npm test` through `node --test` with `tsx` as the loader — 389 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**; the `pretest` guard ([`scripts/check-test-list.mjs`](../scripts/check-test-list.mjs)) fails the run when a `*.test.ts` on disk is missing from that list, or when the list names a file that no longer exists.
 
 | File | Style | Covers |
 | --- | --- | --- |
@@ -260,6 +273,8 @@ Thirty-nine files run by `npm test` through `node --test` with `tsx` as the load
 | `ledger-guards.test.ts` | **real in-memory SQLite** | archived accounts are refused where they would be spent; a counter account on a non-transfer entry is refused; a round-up memo is clamped to 240 characters; a due day outside 1–31 or a funding slot no cadence offers is refused instead of clamped |
 | `files.test.ts` | temp directories | an atomic write replaces the file, leaves mode `0600` on POSIX and no temporary behind; a failed write leaves the previous file intact |
 | `dedicated-accounts.test.ts` | **real in-memory SQLite** | the two v4 columns round-trip through the repository; an unknown goal is refused; the account balance replaces the allocation total; an overdraft reads as zero; archiving releases the goal back to allocations; removing a goal detaches every account; a goal creates its funders in one call and their balances add; re-saving releases the ticks that were removed and `[]` is a choice, not a no-op; a tick that funded another goal moves and the old goal falls back; a missing account throws and rolls the whole save back; an archived account is refused without letting its valid sibling bind |
+| `pocket/snapshot.test.ts` | **real in-memory SQLite** | a backup exported from a migrated demo database produces the same accounts, bills, goals, transactions, reserves, paychecks and settings on the phone; the phone's Safe to Spend and unpaid wall equal the desktop selectors; bill lines agree with payments and due dates; a phone entry moves the same balances and Safe to Spend; future-dated money changes balance but not cash |
+| `pocket/backup.test.ts` | pure + **real in-memory SQLite** | the shipped example opens and round-trips; malformed JSON, the wrong format, a missing or version-1 file, a non-list table, a non-record row and a file with no accounts are refused; a newer version opens with its warning retained; a partial file fills the missing tables; expense and income signs are enforced; invalid drafts throw; a phone export merges into a desktop database once and a second import adds nothing |
 
 Conventions every new test follows:
 

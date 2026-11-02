@@ -18,6 +18,7 @@ This document describes what is actually implemented, what the trust boundaries 
 - [Data at rest](#data-at-rest)
 - [Network exposure](#network-exposure)
 - [Supply chain](#supply-chain)
+- [Pocket (web app)](#pocket-web-app)
 - [Import security](#import-security)
 - [Threat model](#threat-model)
 - [Known weaknesses](#known-weaknesses)
@@ -275,6 +276,20 @@ Known gaps:
 - an Electron major upgrade changes the native ABI and needs a full packaged-app test, not just a typecheck.
 
 A compromised dependency or action runs with the build's privileges. Because the app makes no outbound requests, a malicious package would have to add that capability itself; review diffs and lockfile changes rather than assuming the network policy protects the build. Recommendations are in [Hardening recommendations](#hardening-recommendations).
+
+---
+
+## Pocket (web app)
+
+Pocket is a separate static build in `src/pocket`. It has no main process, no SQLite, no IPC and no server; it is HTML, CSS, JavaScript, a manifest and icons served from one origin.
+
+- **No network path exists.** The production CSP is `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'`. There is no remote script, font, analytics or telemetry call. The only file read is the one the user picks; it is read with `File.text()` and never uploaded.
+- **The ledger is plaintext in IndexedDB**, just as the desktop database is plaintext on disk. Any script that runs on the same origin — including a malicious browser extension — can read it if it can reach the page, and anyone using the same unlocked browser profile can open the app. There is no app lock, matching [ADR 0020](decisions/0020-there-is-no-app-lock.md).
+- **The service worker only caches the app shell.** It skips non-GET and cross-origin requests; navigation is network-first with a cached `index.html` fallback; hashed assets are cache-first. It never stores the ledger, the backup file or an export.
+- **A backup cannot execute anything.** Pocket parses it with `JSON.parse`, reads a fixed table list and validates rows defensively; a malformed or oversized file is refused before it reaches the store. On export it writes the original tables with new entry rows, so a phone cannot rewrite what it read.
+- **Installing requires a secure origin.** Service workers and the install prompt work on HTTPS (or `localhost` for development). A static host that serves the folder over plain HTTP gives a view-only page with no offline shell. The deployment origin should be one the user already trusts, such as the project's GitHub Pages site.
+- **Site data is the phone's security boundary.** Clearing the browser's site data, using private browsing or switching browsers removes the copy. Export before replacing the file or forgetting the phone; the app says so in both confirmations.
+- **Framing protection is not available in a meta CSP.** `frame-ancestors` is ignored when delivered by a `<meta>` tag, so the page relies on the host's response headers against clickjacking. GitHub Pages does not send them; a deployment that needs this should add `Content-Security-Policy: frame-ancestors 'none'` at the host.
 
 ---
 
