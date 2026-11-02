@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { cardOwedCents } from '@shared/accounts'
 import { adjustmentPresetsFor, type AdjustmentReason } from '@shared/adjustments'
+import { owedCentsAtUtilization, parseUtilizationPercent } from '@shared/credit'
 import { todayISO } from '@shared/dates'
 import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
 import type { AccountWithBalance } from '@shared/types'
@@ -55,14 +56,17 @@ export function AdjustBalanceDialog({
     setError(null)
   }
 
-  // All three credit fields boil down to a target amount owed.
-  const typed = parseMoneyToCents(value)
+  // All three credit fields boil down to a target amount owed. Utilisation is
+  // percentage points, so it must not go through the money parser: `5` means
+  // five per cent of the limit, not 500 cents of it.
+  const typedMoney = mode === 'percent' ? null : parseMoneyToCents(value)
+  const typedPercent = mode === 'percent' ? parseUtilizationPercent(value) : null
   const targetOwedCents =
-    typed !== null && canUseCreditModes && mode === 'available'
-      ? limitCents! - typed
-      : typed !== null && canUseCreditModes && mode === 'percent'
-        ? Math.round((limitCents! * typed) / 100)
-        : typed
+    typedMoney !== null && canUseCreditModes && mode === 'available'
+      ? limitCents! - typedMoney
+      : typedPercent !== null && canUseCreditModes && mode === 'percent'
+        ? owedCentsAtUtilization(limitCents!, typedPercent)
+        : typedMoney
 
   const submit = async () => {
     if (targetOwedCents === null) {

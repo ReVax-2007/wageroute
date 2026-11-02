@@ -48,3 +48,19 @@ export function previousCloseDate(statementDay: number, fromISO: string): string
   // counted against the wrong statement.
   return previousDueDateISO(statementDay, fromISO)
 }
+
+/**
+ * A utilisation is percentage points, not money: `5` is five per cent. Parsing
+ * it as cents would turn a 5% entry into 500% of the limit.
+ */
+export function parseUtilizationPercent(raw: string): number | null {
+  const text = raw.trim()
+  if (!/^\d*(\.\d{0,2})?$/.test(text) || text === '' || text === '.') return null
+  return Number(text)
+}
+
+/** The amount owed a utilisation implies, rounded to the nearest cent. */
+export function owedCentsAtUtilization(limitCents: number, percent: number): number | null {
+  if (!Number.isFinite(percent) || percent < 0 || !Number.isFinite(limitCents)) return null
+  return Math.round((limitCents * percent) / 100)
+}

@@ -186,6 +186,13 @@ Work merged to `main` after `v1.2.0`. None of it is in an installer yet; the `[U
 - **The shipped example agrees with its own payment.** `examples/backup.example.json` now carries a closing `bill_payment` for its `paid` claim, and `backup-example.test.ts` merges the file into a migrated database and asserts no issue and the same state/settling payment.
 - **Verified locally.** `npm test` is **398 tests across forty-five files** (nine new cases across `backup-merge`, `importRepair` and `backup-example`); lint, typecheck, both builds and packaging re-run clean. IMPORT-EXPORT, DEPLOYMENT and README describe the empty-profile exception and the tombstone rules.
 
+### Batch 33 — utilisation points and autopay-paid bills
+
+- **A typed utilisation is percentage points.** `AdjustBalanceDialog` parsed the percent field with the money parser, so `5` meant 500 cents and the preview read 500% used ($25,000 owed on a $5,000 limit) while the saved target was wrong the same way. `parseUtilizationPercent` now accepts a bare number with at most two decimals and refuses a trailing period, a percent sign, three decimals and a negative; `owedCentsAtUtilization` resolves it to `round(limit × percent / 100)`. `credit.test.ts` covers both helpers.
+- **A bill autopay settled before any cheque reads paid.** Autopay posts on launch, so a bill due on the 1st can be paid before the month's first cheque has claimed it; the wall only knew paid from a settled claim, so Rent showed no chip and the full per-cheque average while the Allocator correctly skipped it as already covered. The wall now derives **Paid this month** from the month's cash payments as well, counts every bill payment in the summary's **paid** figure (a claim is not a prerequisite), and without a payday subtracts this month's payments from the per-cheque average, so a settled bill shows $0.00 and **Nothing more due**. `PriorityWall.test.ts` pins the no-claim paid case, its summary line, and the part-paid remainder.
+- **Verified locally** on a disposable dev profile over CDP: a 5% entry on a $5,000 card previewed and saved as $250.00 owed, and after the fix the autopay-paid Rent row read *Paid this month · $0.00 · Nothing more due* with the summary *$175.38 set aside this month · $1,850.00 paid* while the other five bills kept their set-aside figures.
+- `npm test` is **402 tests across forty-five files** (four new cases); lint is 158 files clean; typecheck, both builds and packaging re-run clean.
+
 ### Before the next build
 
 - [x] Run the four gates on the final tree: `npm run lint`, `npm test`, `npm run build` (includes both type checks), and `npx electron-builder --dir --publish never`. *(2026-11-02, Batch 27: lint 127 files clean, 345/345 tests, build clean; packaging re-run below.)*

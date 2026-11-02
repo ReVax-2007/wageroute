@@ -62,13 +62,32 @@ export function PriorityWall() {
   const reservesThisMonth = snapshot.billReserves.filter(
     (reserve) => reserve.cycle === monthlyKey && liveBillIds.has(reserve.billId)
   )
+  // A payment made from a credit account settles the bill but took nothing out
+  // of the pool, so it must not release the cash the card still has to be paid
+  // with; only the cash part counts here, exactly as the reserve maths does.
+  const paidThisMonth = new Map(
+    snapshot.billPaymentsThisMonth
+      .filter((total) => liveBillIds.has(total.billId))
+      .map((total) => [total.billId, Math.max(0, total.paidCents - total.creditCents)])
+  )
   const reserveStateOf = (billId: string): 'paid' | 'reserved' | null => {
     const rows = reservesThisMonth.filter((reserve) => reserve.billId === billId)
     // A payment can close one instalment while another stays open, so "paid"
     // is only true when nothing is still reserved for the month.
     if (rows.some((reserve) => reserve.state === 'reserved')) return 'reserved'
-    return rows.length > 0 ? 'paid' : null
+    // Autopay can settle a bill before any cheque has claimed it, so a month
+    // with payments and no claim still has to read paid.
+    if (rows.length > 0 || (paidThisMonth.get(billId) ?? 0) > 0) return 'paid'
+    return null
   }
+  // "Paid" counts every account, including a card: the bill is settled even
+  // when the money became debt instead of leaving the pool.
+  const paidBillsCents = Math.max(
+    0,
+    snapshot.billPaymentsThisMonth
+      .filter((total) => liveBillIds.has(total.billId))
+      .reduce((sum, total) => sum + total.paidCents, 0)
+  )
   const nextCheckMonth = nextCheck?.slice(0, 7) ?? null
   const nextCheckClaims = snapshot.billReserves.filter(
     (reserve) =>
@@ -76,15 +95,7 @@ export function PriorityWall() {
       reserve.state === 'reserved' &&
       liveBillIds.has(reserve.billId)
   )
-  const nextCheckPayments =
-    nextCheckMonth === monthlyKey
-      ? new Map(
-          snapshot.billPaymentsThisMonth.map((total) => [
-            total.billId,
-            Math.max(0, total.paidCents - total.creditCents)
-          ])
-        )
-      : new Map<string, number>()
+  const nextCheckPayments = nextCheckMonth === monthlyKey ? paidThisMonth : new Map<string, number>()
   const nextCheckReserve = (bill: Bill): number => {
     // Every claim this month already covers that much of the bill, whatever
     // strategy wrote it, so the next cheque funds only the remainder.
@@ -148,18 +159,13 @@ export function PriorityWall() {
             <Money cents={monthly} currency={currency} />
           </p>
           <span className="stat-hint">
-            {reservesThisMonth.length > 0
+            {reservesThisMonth.length > 0 || paidBillsCents > 0
               ? `${formatMoney(
                   reservesThisMonth
                     .filter((reserve) => reserve.state === 'reserved')
                     .reduce((total, reserve) => total + reserve.amountCents, 0),
                   currency
-                )} set aside this month · ${formatMoney(
-                  reservesThisMonth
-                    .filter((reserve) => reserve.state === 'paid')
-                    .reduce((total, reserve) => total + reserve.amountCents, 0),
-                  currency
-                )} paid`
+                )} set aside this month · ${formatMoney(paidBillsCents, currency)} paid`
               : 'Spread evenly across paychecks'}
           </span>
         </div>
@@ -225,20 +231,27 @@ export function PriorityWall() {
           >
             {bills.map((bill) => {
               const state = reserveStateOf(bill.id)
+              const monthlyCents = monthlyEquivalentCents(bill.amountCents, bill.frequency)
+              // Without a payday the column still names a per-cheque figure, so
+              // a bill already paid this month must stop asking for its share.
+              const openMonthCents = Math.max(
+                0,
+                monthlyCents - Math.min(monthlyCents, paidThisMonth.get(bill.id) ?? 0)
+              )
+              const perChequeCents =
+                bill.fundingStrategy === 'all_checks'
+                  ? reservePerPaycheckCents(bill.amountCents, bill.frequency, settings.payCadence)
+                  : monthlyCents
               const checkCents = !bill.isActive
                 ? 0
                 : nextCheck
                   ? nextCheckReserve(bill)
-                  : bill.fundingStrategy === 'all_checks'
-                    ? reservePerPaycheckCents(
-                        bill.amountCents,
-                        bill.frequency,
-                        settings.payCadence
-                      )
-                    : monthlyEquivalentCents(bill.amountCents, bill.frequency)
-              // A zero on the next check means the month is already covered:
-              // say that instead of naming a check that has nothing left to do.
-              const covered = nextCheck !== null && bill.isActive && checkCents === 0
+                  : monthlyCents === 0
+                    ? 0
+                    : Math.round((perChequeCents * openMonthCents) / monthlyCents)
+              // A zero means the month is already covered: say that instead of
+              // naming a check that has nothing left to do.
+              const covered = bill.isActive && checkCents === 0
               return (
                 <tr key={bill.id} className={bill.isActive ? undefined : 'inactive'}>
                   <td>
