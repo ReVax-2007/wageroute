@@ -295,6 +295,19 @@ function issueOf(error: unknown): string {
 }
 
 /**
+ * A file can carry a stamp from the future — a machine with a wrong clock, or a
+ * hand-edited file. Keeping it would make every later local edit look older
+ * than the imported row once a sync layer reads `updated_at`, which reverses
+ * last-write-wins. A future stamp is therefore read as the merge time; a genuine
+ * past stamp is preserved because it is the file's own history.
+ */
+function clampStamp(value: unknown, now: string): unknown {
+  if (typeof value !== 'string') return value
+  const at = Date.parse(value)
+  return Number.isFinite(at) && at > Date.parse(now) ? now : value
+}
+
+/**
  * Adds whatever the local database is missing and leaves existing rows alone.
  * Account/paycheck UUIDs are preserved so cross-table links hold, and re-importing
  * the same backup is a no-op. A row the database refuses is reported, not fatal:
@@ -386,7 +399,7 @@ export function mergeBackup(db: Db, userId: string, payload: BackupPayload): Mer
             return
           }
           const updatedAt =
-            typeof row.updated_at === 'string' ? row.updated_at : now
+            typeof row.updated_at === 'string' ? String(clampStamp(row.updated_at, now)) : now
           try {
             const value = toSqlValue(row.value, 'value')
             const text = String(value ?? '')
@@ -512,6 +525,9 @@ export function mergeBackup(db: Db, userId: string, payload: BackupPayload): Mer
               if (column === 'revision') return 1
               if (column in defaults) return defaults[column]
               return null
+            }
+            if (column === 'created_at' || column === 'updated_at' || column === 'deleted_at') {
+              return toSqlValue(clampStamp(value, now), column)
             }
             return toSqlValue(value, column)
           })

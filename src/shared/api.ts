@@ -1,5 +1,6 @@
 import type { AllocationPlan } from './allocator'
 import type {
+  DroppedRow,
   ImportAnswer,
   ImportChoice,
   ImportChoiceTable,
@@ -74,11 +75,7 @@ export interface ImportIssue {
 }
 
 /** A row the wizard left out, with the reason and how to repair the file. */
-export interface ImportDroppedRow {
-  rowLabel: string
-  reason: string
-  fixHint: string
-}
+export type ImportDroppedRow = DroppedRow
 
 export interface ImportPreview {
   /** Handle for the file held open in the main process until the import runs. */

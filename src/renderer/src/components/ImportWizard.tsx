@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import { Download } from 'lucide-react'
 import type { ImportCounts } from '@shared/api'
 import type { ImportAnswer, ImportProblem, ImportTable } from '@shared/importRepair'
+import { answerContext, validateFieldValue } from '@shared/importRepair'
 import { formatMoney } from '@shared/money'
 import { statementLabel, type StatementInfo } from '@shared/statements'
 import { useFinanceStore } from '../store/useFinanceStore'
@@ -52,6 +53,17 @@ function statementSummary(info: StatementInfo): string {
     parts.push(`closing balance ${formatMoney(info.balanceCents, info.currency ?? 'USD')}${on}`)
   }
   return parts.join(' · ')
+}
+
+/** When the file says it was written, or nothing when it does not say sensibly. */
+function madeOn(iso: string): string | null {
+  if (!iso) return null
+  const when = Date.parse(iso)
+  if (!Number.isFinite(when)) return null
+  const text = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(when)
+  // A future stamp usually means a wrong clock, and the merge clamps it; say so
+  // rather than printing a date the ledger will not keep.
+  return when > Date.now() ? `${text} (a future date, so it is read as today)` : text
 }
 
 /**
@@ -118,7 +130,31 @@ export function ImportWizard() {
   }, [token])
 
   const problems = preview?.problems ?? []
+  const choices = preview?.choices
   const decisions = useMemo(() => decisionsFor(problems, draft), [problems, draft])
+  // The wizard judges an answer with the same pure validator the confirm step
+  // uses, so the review cannot promise a row that main would then drop.
+  const context = useMemo(
+    () =>
+      answerContext(
+        choices ?? { accounts: [], categories: [], bills: [], goals: [], paychecks: [] }
+      ),
+    [choices]
+  )
+  const invalidAnswers = useMemo(() => {
+    const out = new Map<string, string>()
+    for (const problem of problems) {
+      const answer = draft[problem.key]
+      if (answer?.skip) continue
+      const raw = (answer?.value ?? problem.suggested).trim()
+      // A blank answer is already reported as an incomplete row and will be
+      // skipped; there is nothing to validate until something is typed.
+      if (raw === '') continue
+      const verdict = validateFieldValue(problem.field, raw, context)
+      if (!verdict.ok) out.set(problem.key, verdict.message)
+    }
+    return out
+  }, [problems, draft, context])
   const rows = [...decisions.values()]
   const repaired = rows.filter((row) => row.state === 'repaired')
   const skipped = rows.filter((row) => row.state === 'skipped')
@@ -136,6 +172,7 @@ export function ImportWizard() {
   const fillInLabel = isLines ? 'Fill these lines in instead' : 'Fill this row in instead'
   const leftOutNote = isLines ? 'you chose to leave them out' : 'you chose to leave it out'
   const parseIssues = preview.issues ?? []
+  const made = preview.format === 'backup' ? madeOn(preview.exportedAt) : null
   // A statement with no account chosen would write nothing, so the confirm
   // waits for an answer instead of producing an empty import.
   const statementNeedsAccount = preview.statement !== undefined && empty.length > 0
@@ -265,7 +302,7 @@ export function ImportWizard() {
           )}
           <Button
             variant="primary"
-            disabled={busy || statementNeedsAccount}
+            disabled={busy || statementNeedsAccount || invalidAnswers.size > 0}
             icon={<Download size={15} />}
             onClick={async () => {
               setImportError(null)
@@ -359,6 +396,7 @@ export function ImportWizard() {
                     <Field
                       key={problem.key}
                       label={problem.field.label}
+                      error={invalidAnswers.get(problem.key)}
                       hint={
                         problem.field.input === 'money'
                           ? `Enter 12.34 for ${formatMoney(1_234, currency)} — do not enter 1234`
@@ -383,8 +421,9 @@ export function ImportWizard() {
           <>
             <p className="wizard-hint">
               Importing <strong>{describeFiles(survivingRows)}</strong> from{' '}
-              {fileNameOf(preview.path)}. Everything already in this app stays exactly as it is —
-              the import only adds what is missing.
+              {fileNameOf(preview.path)}
+              {made ? `, made ${made}` : ''}. Everything already in this app stays exactly as it
+              is — the import only adds what is missing.
             </p>
             {busy && (
               <p className="wizard-hint" role="status">
@@ -424,6 +463,15 @@ export function ImportWizard() {
                   </p>
                 ))}
               </div>
+            )}
+            {invalidAnswers.size > 0 && (
+              <p className="form-error" role="alert">
+                {invalidAnswers.size === 1
+                  ? '1 answer is not valid yet.'
+                  : `${invalidAnswers.size} answers are not valid yet.`}{' '}
+                Go back to Missing info and correct{' '}
+                {invalidAnswers.size === 1 ? 'it' : 'them'} before importing.
+              </p>
             )}
             {empty.length > 0 && (
               <p className="form-error" role="alert">

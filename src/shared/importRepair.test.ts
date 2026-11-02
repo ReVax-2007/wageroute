@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { todayISO } from './dates'
 import {
+  answerContext,
   applyImportAnswers,
   buildAccountMap,
   findImportProblems,
@@ -45,6 +47,27 @@ function context(overrides: Partial<ImportContext> = {}): ImportContext {
   }
   return { knownIds, choices, today: '2026-03-01', ...overrides }
 }
+
+test('a wizard rebuilds its answer context from the choices it was handed', () => {
+  const choices: Record<ImportChoiceTable, ImportChoice[]> = {
+    accounts: ACCOUNT_CHOICES,
+    categories: [{ id: 'cat-food', label: 'Food' }],
+    bills: [],
+    goals: [],
+    paychecks: []
+  }
+
+  const built = answerContext(choices, '2026-04-02')
+
+  assert.equal(built.today, '2026-04-02')
+  assert.equal(built.choices, choices, 'the same choices are reused, not copied')
+  assert.ok(built.knownIds.accounts.has('acc-checking'))
+  assert.ok(built.knownIds.categories.has('cat-food'))
+  assert.equal(built.knownIds.bills.size, 0)
+  for (const table of IMPORT_TABLES) assert.ok(built.knownIds[table] instanceof Set)
+
+  assert.equal(answerContext(choices).today, todayISO(), 'the default is today')
+})
 
 test('a complete backup needs nothing from the wizard', () => {
   const tables = emptyTables()

@@ -338,6 +338,82 @@ test('rows that already carry values keep them; timestamps still fill in when mi
   assert.equal(account.sort_order, 7)
 })
 
+test('a stamp from the future is clamped to the merge time, a real past stamp survives', () => {
+  const db = freshDb()
+  const before = Date.now()
+  mergeBackup(
+    db,
+    USER_ID,
+    payload({
+      accounts: [
+        {
+          id: 'acc-future',
+          user_id: USER_ID,
+          name: 'Wrong clock',
+          kind: 'checking',
+          created_at: '2099-01-01T00:00:00.000Z',
+          updated_at: '2099-01-01T00:00:00.000Z'
+        },
+        {
+          id: 'acc-past',
+          user_id: USER_ID,
+          name: 'Real history',
+          kind: 'savings',
+          created_at: '2025-06-01T00:00:00.000Z',
+          updated_at: '2025-06-01T00:00:00.000Z'
+        }
+      ],
+      transactions: [
+        {
+          id: 'txn-future',
+          user_id: USER_ID,
+          account_id: 'acc-past',
+          kind: 'expense',
+          amount_cents: 500,
+          occurred_on: '2026-02-16',
+          created_at: '2026-02-16T00:00:00.000Z',
+          updated_at: '2026-02-16T00:00:00.000Z',
+          deleted_at: '2099-01-01T00:00:00.000Z'
+        }
+      ],
+      settings: [
+        {
+          user_id: USER_ID,
+          key: 'savingsPercent',
+          value: '15',
+          updated_at: '2099-01-01T00:00:00.000Z'
+        }
+      ]
+    })
+  )
+  const after = Date.now()
+
+  const future = db
+    .prepare('SELECT created_at, updated_at FROM accounts WHERE id = ?')
+    .get('acc-future') as { created_at: string; updated_at: string }
+  for (const stamp of [future.created_at, future.updated_at]) {
+    const at = Date.parse(stamp)
+    assert.ok(Number.isFinite(at))
+    assert.ok(at >= before && at <= after, `${stamp} is the merge time, not a 2099 date`)
+  }
+
+  const past = db
+    .prepare('SELECT created_at, updated_at FROM accounts WHERE id = ?')
+    .get('acc-past') as { created_at: string; updated_at: string }
+  assert.equal(past.created_at, '2025-06-01T00:00:00.000Z')
+  assert.equal(past.updated_at, '2025-06-01T00:00:00.000Z')
+
+  const tombstone = db
+    .prepare('SELECT deleted_at FROM transactions WHERE id = ?')
+    .get('txn-future') as { deleted_at: string }
+  assert.ok(Date.parse(tombstone.deleted_at) <= after, 'a future tombstone is clamped too')
+
+  const saved = db
+    .prepare("SELECT updated_at FROM settings WHERE user_id = ? AND key = 'savingsPercent'")
+    .get(USER_ID) as { updated_at: string }
+  assert.ok(Date.parse(saved.updated_at) <= after, 'a setting written in 2099 lands now')
+})
+
 const CSV = [
   'date,account,kind,category,description,amount',
   '2026-02-03,Coffee Shop,expense,Food,Latte,-5.40',

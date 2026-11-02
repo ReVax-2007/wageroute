@@ -57,7 +57,7 @@ The ledger's columns are `NOT NULL`, `STRICT` and `CHECK`-constrained, while a h
 
 1. **Choose file** — the picker in the main process. The renderer never sees or sends a path; it holds a token.
 2. **Missing info** — one card per row that cannot import as it stands, with an editor per problem and a **Leave this row out** toggle.
-3. **Review** — what will be imported, what you filled in (with the values), and what is being left out with why and how to fix the file.
+3. **Review** — what will be imported, what you filled in (with the values), and what is being left out with why and how to fix the file. A backup also names the date it was exported on, so the file you are about to merge can be checked against the one you meant to pick.
 
 Step 2 is skipped when nothing is missing, so a clean WageRoute backup is a one-click confirm.
 
@@ -83,7 +83,7 @@ Rows without an `id` are not a question either: a UUID is minted at import time.
 
 Each answer is `{ key, value, skip }`, keyed by `b:<table>:<rowIndex>:<column>` for backup rows and `e:<firstLine>` for CSV name groups.
 
-- **Fill it in** — the answer is validated by the same rules as the file (`validateFieldValue`). A valid answer patches the row before the merge.
+- **Fill it in** — the answer is validated by the same rules as the file (`validateFieldValue`). A valid answer patches the row before the merge. The wizard runs that validator on every typed or suggested answer as it goes, marks the offending field, and keeps **Import** disabled until each one passes, so the review cannot promise a row the confirm step would drop. A blank answer is not marked; it stays an incomplete row and is reported as one.
 - **Leave it out** — the whole row is dropped from this import, and the review step lists it with every reason on it plus how to fix the source file.
 - **Say nothing** — an unanswered question drops its row too. Nothing invalid ever reaches SQLite, so nothing can abort the rest of the file. There is one pre-filled suggestion: a missing or bad **date** starts at today, and the review step prints it, so it can be corrected before importing. Account questions start blank, including an unmapped CSV name group.
 - **Answer wrongly** — an answer that still fails validation drops that row and reports why (`… — must be one of checking, savings, …`), instead of throwing.
@@ -268,6 +268,10 @@ Preserving IDs is what keeps cross-table links intact: an imported transaction c
 ### Existing rows are never updated
 
 There is no upsert for financial rows. A row with the same ID is skipped even if its contents differ. This is why imports are additive rather than a restore: editing a local row and then importing an older backup will not overwrite the edit.
+
+### Timestamps
+
+A missing `created_at`, `updated_at` or settings `updated_at` becomes the merge time, and a missing `deleted_at` stays `NULL`. A stamp the file states is kept, because it is that ledger's own history — with one exception: a stamp later than the merge time (a machine with a wrong clock, or a hand-edited file) is written as the merge time instead. Keeping a future `updated_at` would make every later local edit look older than the imported row to a last-write-wins reader, reversing the order the person actually wrote things in. The review step says so when the backup's own `exportedAt` is in the future.
 
 ### Settings
 
