@@ -168,6 +168,12 @@ export interface TransactionRow extends Transaction {
   accountName: string
   /** Joined from the account, tombstoned or not, so an export keeps its bank. */
   accountInstitution: string | null
+  /**
+   * What the entry says it settled. The names are joined so the ledger can show
+   * the link without a second lookup; a deleted bill or goal keeps its name.
+   */
+  billName: string | null
+  goalName: string | null
 }
 
 /**

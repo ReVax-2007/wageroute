@@ -111,6 +111,11 @@ export function buildSnapshot(
   const liveAccounts = tables.accounts.filter(isLive)
   const accountById = new Map<string, Row>()
   for (const row of tables.accounts) accountById.set(text(row, 'id'), row)
+  // The ledger describes a link by name; the file is the only source on a phone.
+  const billNames = new Map<string, string>()
+  for (const row of tables.bills) billNames.set(text(row, 'id'), text(row, 'name', 'Bill'))
+  const goalNames = new Map<string, string>()
+  for (const row of tables.goals) goalNames.set(text(row, 'id'), text(row, 'name', 'Goal'))
 
   // Balances are derived exactly as the desktop derives them: starting money
   // plus every live entry, with cash stopping at today.
@@ -182,7 +187,9 @@ export function buildSnapshot(
         transferGroupId: nullableText(row, 'transfer_group_id'),
         ...sync(row),
         accountName: account ? text(account, 'name') : 'Unknown account',
-        accountInstitution: account ? nullableText(account, 'institution') : null
+        accountInstitution: account ? nullableText(account, 'institution') : null,
+        billName: billNames.get(text(row, 'bill_id')) ?? null,
+        goalName: goalNames.get(text(row, 'goal_id')) ?? null
       }
     })
     .sort(

@@ -8,12 +8,9 @@ import { TRANSACTION_KIND_LABEL } from '../../lib/finance'
 import { useFinanceStore } from '../../store/useFinanceStore'
 import { useDialogSave } from '../useDialogSave'
 
-// A manual entry carries no bill or goal, so the two kinds whose meaning is
-// "close that reservation" or "fund that goal" stay with the flows that know
-// which record is being paid — the Priority Wall prompt and the goal card.
-const KINDS = (Object.keys(TRANSACTION_KIND_LABEL) as TransactionKind[]).filter(
-  (kind) => kind !== 'bill_payment' && kind !== 'goal_funding'
-)
+// A bill payment or goal funding is only meaningful when it names the record it
+// settled, so those kinds carry a picker. Everything else is a plain movement.
+const KINDS = Object.keys(TRANSACTION_KIND_LABEL) as TransactionKind[]
 
 export function EntryDialog({ onClose }: { onClose: () => void }) {
   const snapshot = useFinanceStore((state) => state.snapshot)
@@ -21,6 +18,8 @@ export function EntryDialog({ onClose }: { onClose: () => void }) {
 
   const accounts = (snapshot?.accounts ?? []).filter((account) => !account.isArchived)
   const categories = snapshot?.categories ?? []
+  const bills = snapshot?.bills ?? []
+  const goals = (snapshot?.goals ?? []).filter((goal) => !goal.isArchived)
   const [form, setForm] = useState({
     occurredOn: todayISO(),
     accountId: accounts[0]?.id ?? '',
@@ -29,9 +28,17 @@ export function EntryDialog({ onClose }: { onClose: () => void }) {
     amount: '',
     category: 'Misc',
     categoryId: null as string | null,
+    billId: '',
+    goalId: '',
     memo: ''
   })
   const { saving, error, setError, run } = useDialogSave(onClose)
+
+  // Switching away from a bill or goal drops the link: the kind is what gives
+  // the reference its meaning, and a hidden stale id would be posted silently.
+  const setKind = (kind: TransactionKind) => {
+    setForm((current) => ({ ...current, kind, billId: '', goalId: '' }))
+  }
 
   const setCategory = (value: string) => {
     const match = categories.find((category) => categoryKey(category.name) === categoryKey(value))
@@ -46,6 +53,14 @@ export function EntryDialog({ onClose }: { onClose: () => void }) {
     }
     if (typed === null || typed === 0) {
       setError('Enter an amount')
+      return
+    }
+    if (form.kind === 'bill_payment' && !form.billId) {
+      setError('Choose the bill this payment covers')
+      return
+    }
+    if (form.kind === 'goal_funding' && !form.goalId) {
+      setError('Choose the goal this funds')
       return
     }
     if (form.kind === 'transfer') {
@@ -76,7 +91,9 @@ export function EntryDialog({ onClose }: { onClose: () => void }) {
       category: form.category.trim() || 'Misc',
       categoryId: form.category.trim() ? form.categoryId : null,
       memo: form.memo.trim(),
-      counterAccountId: form.kind === 'transfer' ? form.counterAccountId : null
+      counterAccountId: form.kind === 'transfer' ? form.counterAccountId : null,
+      billId: form.kind === 'bill_payment' ? form.billId : null,
+      goalId: form.kind === 'goal_funding' ? form.goalId : null
     }
 
     await run(() => createTransaction(input))
@@ -133,9 +150,7 @@ export function EntryDialog({ onClose }: { onClose: () => void }) {
           <select
             className="select"
             value={form.kind}
-            onChange={(event) =>
-              setForm({ ...form, kind: event.target.value as TransactionKind })
-            }
+            onChange={(event) => setKind(event.target.value as TransactionKind)}
           >
             {KINDS.map((kind) => (
               <option key={kind} value={kind}>
@@ -144,6 +159,45 @@ export function EntryDialog({ onClose }: { onClose: () => void }) {
             ))}
           </select>
         </Field>
+        {form.kind === 'bill_payment' && (
+          <Field
+            label="Bill"
+            hint="Closes this bill's reservation and stops its reminder"
+          >
+            <select
+              className="select"
+              value={form.billId}
+              onChange={(event) => setForm({ ...form, billId: event.target.value })}
+            >
+              <option value="">Choose a bill…</option>
+              {bills.map((bill) => (
+                <option key={bill.id} value={bill.id}>
+                  {bill.name}
+                  {bill.isActive ? '' : ' (inactive)'}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
+        {form.kind === 'goal_funding' && (
+          <Field
+            label="Goal"
+            hint="A label on the entry; progress still follows the goal's own accounts"
+          >
+            <select
+              className="select"
+              value={form.goalId}
+              onChange={(event) => setForm({ ...form, goalId: event.target.value })}
+            >
+              <option value="">Choose a goal…</option>
+              {goals.map((goal) => (
+                <option key={goal.id} value={goal.id}>
+                  {goal.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         {form.kind === 'transfer' && (
           <Field label="To account" hint="The other side of the transfer">
             <select

@@ -619,7 +619,7 @@ The ledger is queried, not filtered in the renderer: every filter, the sort and 
 - Click or double-click a cell to edit in place.
 - Date uses a native date input and accepts only `YYYY-MM-DD`.
 - Account and Kind use selects; both are read-only on a paired transfer row.
-- Category is a text editor with a `datalist` of existing category names; the typed or picked name is resolved back to its category id, so reports stay grouped. Description uses a plain text editor.
+- Category is a text editor with a `datalist` of existing category names; the typed or picked name is resolved back to its category id, so reports stay grouped. Description uses a plain text editor; a row whose entry names a bill or goal shows that name as a small tag after the text.
 - Amount parses through `parseMoneyToCents`; invalid input cancels the edit.
 - Each changed cell produces a patch containing only the fields that changed, then calls `updateTransaction`.
 - Delete asks for confirmation. For a paired transfer, the prompt says “Delete both legs” and the repository removes the whole group.
@@ -637,7 +637,7 @@ The ledger is queried, not filtered in the renderer: every filter, the sort and 
 
 ### Add entry dialog
 
-Fields: date, account, kind, destination account (transfers only), amount, category, description. Category offers the existing category names as a `datalist` and resolves the typed text to its id; a new name becomes a new category through `ensureCategory`.
+Fields: date, account, kind, destination account (transfers only), bill (bill payments only), goal (goal funding only), amount, category, description. Category offers the existing category names as a `datalist` and resolves the typed text to its id; a new name becomes a new category through `ensureCategory`.
 
 Amount direction:
 
@@ -651,9 +651,12 @@ Validation:
 
 - account required;
 - amount required and non-zero;
-- transfers require a different destination account.
+- transfers require a different destination account;
+- a bill payment requires a bill, and goal funding requires a goal.
 
-Transfers create both legs, and an expense may trigger a round-up. The dialog closes only once the store has confirmed the write; a rejected save keeps the dialog open with its error in place.
+A **bill payment** names the bill it settles: the repository checks that the bill exists and belongs to the user, writes `bill_id`, and closes the bill's reservation for that cycle, which also stops its reminder. An **expense** or **adjustment** may carry a bill id from an import, but only the first two kinds reconcile the claim — an adjustment is a note, not a payment. **Goal funding** records `goal_id` as a label on the entry; the goal's progress still follows its dedicated accounts. Changing the kind clears the picker, so a stale link cannot be posted silently.
+
+Transfers create both legs, and an expense may trigger a round-up. The dialog closes only once the store has confirmed the write; a rejected save keeps the dialog open with its error in place. In the ledger, an entry with a bill or goal shows a small tag with that name beside its description.
 
 ### Empty states
 

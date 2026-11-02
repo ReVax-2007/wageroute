@@ -564,6 +564,8 @@ test('CSV export quotes commas, quotes and newlines', () => {
       accountId: 'acc-1',
       accountName: 'Chequing',
       accountInstitution: 'Tangerine',
+      billName: null,
+      goalName: null,
       kind: 'expense',
       amountCents: -1240,
       occurredOn: '2026-10-27',
