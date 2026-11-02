@@ -23,12 +23,7 @@ import {
   requireAccount,
   type Db
 } from './common'
-import {
-  claimsThisMonthFor,
-  listBills,
-  recordBillReserves,
-  settleEarlierBillReserves
-} from './bills'
+import { claimsThisMonthFor, listBills, recordBillReserves, reconcileAllBillReserves } from './bills'
 import { listGoals } from './goals'
 import { readSettings } from './settings'
 import {
@@ -316,36 +311,14 @@ export function commitPaycheck(
       recordBillReserves(db, userId, paycheckId, cycle, plan.priorityReserves)
     }
     // Bills already paid this month were carried by an earlier cheque's claim,
-    // which belongs to the previous cycle. Close it so the history stops
-    // calling a settled bill "reserved". A payment written by this build has
-    // already done this at entry; the pass here is the backstop for imported
-    // ledgers, and names the latest payment so a later delete can undo it.
-    settleEarlierBillReserves(db, userId, cycle, thisCyclePayments(db, userId, cycle))
+    // which belongs to the previous cycle. Replay every bill so the history
+    // stops calling a settled bill "reserved" — and so a ledger this build did
+    // not write lands on the same state the entry path would have produced.
+    reconcileAllBillReserves(db, userId)
     return paycheckId
   })
 
   return { paycheckId: run(), plan }
-}
-
-/** One row per payment, so a carry can name the payment that closed it. */
-function thisCyclePayments(
-  db: Db,
-  userId: string,
-  cycle: string
-): { billId: string; transactionId: string; amountCents: number }[] {
-  return db
-    .prepare(
-      `SELECT id AS transactionId, bill_id AS billId, ABS(amount_cents) AS amountCents
-       FROM transactions
-       WHERE user_id = ? AND deleted_at IS NULL AND bill_id IS NOT NULL
-         AND kind IN ('bill_payment','expense') AND occurred_on LIKE ?
-       ORDER BY occurred_on ASC, created_at ASC`
-    )
-    .all(userId, `${cycle}-%`) as {
-    billId: string
-    transactionId: string
-    amountCents: number
-  }[]
 }
 
 interface MoveCandidate {

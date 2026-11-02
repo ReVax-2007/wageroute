@@ -28,11 +28,7 @@ import {
   type Db
 } from './common'
 import { ensureCategory } from './categories'
-import {
-  reopenBillReservesSettledBy,
-  reopenCycleClaim,
-  settleBillReserveForPayment
-} from './bills'
+import { reconcileBillReserve } from './bills'
 import { accountBalanceOn } from './accounts'
 import { readSettings } from './settings'
 
@@ -474,7 +470,7 @@ export function createTransaction(db: Db, userId: string, input: TransactionInpu
     // A bill payment closes the wall's reservation for that cycle — or, when
     // its month has no claim yet, the earlier claim whose cheque carried it.
     if (input.billId && (kind === 'bill_payment' || kind === 'expense')) {
-      settleBillReserveForPayment(db, userId, input.billId, id, occurredOn, Math.abs(amountCents))
+      reconcileBillReserve(db, userId, input.billId)
     }
     return id
   })()
@@ -637,27 +633,13 @@ export function updateTransaction(
       }
     }
 
-    // Editing a bill payment re-opens what it closed and closes what the new
-    // date pays, so the wall never shows a bill as paid on a date it no longer
-    // covers.
+    // Editing a bill payment replays the bill's claims, so the wall never
+    // shows a bill as paid on a date, amount or kind it no longer is.
     if (
       existing.billId &&
       (patchTouchesAmount || patch.kind !== undefined || patch.occurredOn !== undefined)
     ) {
-      reopenBillReservesSettledBy(db, userId, id)
-      if (patch.occurredOn !== undefined) {
-        reopenCycleClaim(db, userId, existing.billId, existing.occurredOn)
-      }
-      if (nextKind === 'bill_payment' || nextKind === 'expense') {
-        settleBillReserveForPayment(
-          db,
-          userId,
-          existing.billId,
-          id,
-          nextOccurredOn,
-          Math.abs(nextAmount)
-        )
-      }
+      reconcileBillReserve(db, userId, existing.billId)
     }
   })()
 }
@@ -709,10 +691,7 @@ export function deleteTransaction(db: Db, userId: string, id: string): void {
   db.transaction(() => {
     removeRoundUpFor(db, userId, id)
     softDelete(db, 'transactions', id, userId)
-    if (row.billId) {
-      reopenBillReservesSettledBy(db, userId, id)
-      reopenCycleClaim(db, userId, row.billId, row.occurredOn)
-    }
+    if (row.billId) reconcileBillReserve(db, userId, row.billId)
   })()
 }
 

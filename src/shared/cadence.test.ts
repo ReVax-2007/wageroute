@@ -341,3 +341,42 @@ test('a monthly cheque after a part payment carries the remainder', () => {
     90_000
   )
 })
+
+test('a fifth weekly cheque counts as a cheque still to come', () => {
+  const input = {
+    amountCents: 120_000,
+    frequency: 'monthly' as const,
+    cadence: 'weekly' as const,
+    dueDay: 15,
+    fundingStrategy: 'all_checks' as const,
+    payAnchorDate: '2026-07-01',
+    paidThisMonthCents: 30_000
+  }
+  assert.equal(
+    billFundingReserveCents({ ...input, paycheckDate: '2026-07-22' }),
+    45_000,
+    '22 July and 29 July are both still to come'
+  )
+  assert.equal(
+    billFundingReserveCents({ ...input, paycheckDate: '2026-07-29' }),
+    90_000,
+    'the last cheque carries whatever is left'
+  )
+})
+
+test('a third biweekly cheque counts as a cheque still to come', () => {
+  assert.equal(
+    billFundingReserveCents({
+      amountCents: 120_000,
+      frequency: 'monthly',
+      cadence: 'biweekly',
+      dueDay: 15,
+      fundingStrategy: 'all_checks',
+      payAnchorDate: '2026-03-02',
+      paycheckDate: '2026-03-02',
+      paidThisMonthCents: 30_000
+    }),
+    30_000,
+    '2, 16 and 30 March are all in the month'
+  )
+})
