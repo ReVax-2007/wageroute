@@ -89,7 +89,10 @@ nsis:
   uninstallDisplayName: WageRoute
   # Shown as a page in the installer, from the same licence the app ships with.
   license: LICENSE
-  installerIcon: build/icon.png
+  # NSIS loads this itself and does not convert a PNG, so it must be a real ICO
+  # with every size the shell asks for. A PNG here fails the Windows build with
+  # "invalid icon file".
+  installerIcon: build/icon.ico
 msi:
   # `${ext}` rather than a literal `.msi`: MsiTarget's constructor deep-assigns
   # this block into the shared `win` options, so a target without its own
