@@ -224,6 +224,7 @@ Notes:
 | `cadence.ts` | Frequency smoothing and which paycheck funds a bill | `monthlyEquivalentCents`, `reservePerPaycheckCents`, `billFundingReserveCents`, `fundingCheckIndex`, `paycheckIndexInMonth`, `reachableCheckIndexes`, labels |
 | `dates.ts` | Calendar-safe ISO helpers | `todayISO`, `addMonthsISO`, `nextDueDateISO`, `previousDueDateISO`, `advanceByFrequency` |
 | `money.ts` | Parsing, formatting, rounding | `parseMoneyToCents`, `centsToEditable`, `formatMoney`, `percentOf`, `floorToDollarCents` |
+| `adjustments.ts` | Adjustment reasons, their ledger memo and category | `ADJUSTMENT_PRESETS`, `adjustmentPresetsFor`, `adjustmentFor` |
 | `emergency.ts` | Emergency target and coverage | `averageMonthlyVariableCents`, `emergencyMonthlyEssentialsCents`, `recommendedEmergencyTargetCents`, `emergencyCoverageMonths` |
 | `accounts.ts` | Spendable pool and wealth rules | `countsInSafeToSpend`, `safeToSpendPoolCents`, `poolEarmarkedGoalsCents`, `unsettledRoutingCents`, `totalWealthCents`, `wealthBuckets` |
 | `importRepair.ts` | Import problem detection and repair rules | `findImportProblems`, `applyImportAnswers`, `validateFieldValue`, `findUnmappedAccounts`, `buildAccountMap` |
@@ -467,6 +468,7 @@ Both use `strict: true`, `verbatimModuleSyntax`, `isolatedModules` and no emit. 
 | `src/shared/billPrompts.ts` | Bill prompt chronology and early-payment window |
 | `src/shared/projections.ts` | Upcoming-month bill/goal projection rows |
 | `src/shared/transfers.ts` | Round-up remainders and paired transfer legs |
+| `src/shared/adjustments.ts` | Adjustment reasons, memo and category mapping |
 | `src/shared/emergency.ts` | Emergency-fund variables, essentials and coverage |
 | `src/shared/settings.ts` | Settings defaults, corrupt-input recovery, serialization |
 | `src/shared/importRepair.ts` | Import problem detection, repair questions and field validation |

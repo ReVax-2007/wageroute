@@ -425,7 +425,20 @@ Editing cannot change the starting balance. The subtitle explains that correctio
 
 ### Adjust balance
 
-The dialog takes a target balance and a date. On a credit card it also offers three ways to say the same thing:
+The dialog asks **What changed?** first. The answer decides the ledger memo and category, so reports can tell a gain from a typo fix:
+
+| Reason | Memo | Category | Offered on |
+| --- | --- | --- | --- |
+| Correct a mistake | Balance adjustment | Adjustment | Every account |
+| Rounding or small difference | Rounding adjustment | Adjustment | Every account |
+| Interest earned | Interest earned | Income | Checking, savings, cash, investment |
+| Interest charged | Interest charged | Adjustment | Credit |
+| Investment gain | Investment gain | Investing | Investment |
+| Investment loss | Investment loss | Investing | Investment |
+
+A gain or earned interest must raise the balance, and a loss or charged interest must lower it; the dialog refuses the opposite direction instead of mislabelling it.
+
+It also takes a target balance and a date. On a credit card there are three ways to say the same thing:
 
 | Mode | You type | Target owed becomes |
 | --- | --- | --- |
