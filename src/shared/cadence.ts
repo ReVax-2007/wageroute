@@ -293,14 +293,17 @@ export function billFundingReserveCents(input: {
   const openCents = Math.max(0, billedCents - paidCents - claimedCents)
   const spread = reservePerPaycheckCents(input.amountCents, input.frequency, input.cadence)
   // A claim is an instalment already set aside, so this cheque tops the month
-  // up to its normal share. A payment is only a partial settlement, so the
-  // remaining obligation is spread evenly over the month's cheques instead.
+  // up to its normal share. A payment already settled part of the month, so the
+  // remainder is split across the cheques still to come — not across the ones
+  // that already passed, which would leave the month short.
   const openSpread =
     claimedCents > 0
       ? Math.min(spread, openCents)
       : paidCents === 0
         ? spread
-        : Math.round((spread * openCents) / billedCents)
+        : input.paycheckDate
+          ? Math.round(openCents / remainingChecksInMonth(input.paycheckDate, input))
+          : Math.round((spread * openCents) / billedCents)
 
   if (strategy === 'all_checks') return openSpread
   if (!input.paycheckDate) return openSpread
@@ -327,6 +330,22 @@ export function billFundingReserveCents(input: {
   if (index > guaranteed) return openSpread
 
   return index === fundingIndex ? openCents : 0
+}
+
+/**
+ * How many guaranteed paydays remain in this cheque's month, counting the
+ * cheque itself. A payment that landed after an earlier cheque has to be
+ * recovered by the ones still to come.
+ */
+function remainingChecksInMonth(
+  paycheckDate: string,
+  input: { cadence: PayCadence; payAnchorDate?: string | null }
+): number {
+  const guaranteed = GUARANTEED_CHECKS_PER_MONTH[input.cadence]
+  const index = input.payAnchorDate
+    ? paydayIndexInMonth(paycheckDate, input.cadence, input.payAnchorDate)
+    : paycheckIndexInMonth(paycheckDate, input.cadence)
+  return Math.max(1, guaranteed - Math.min(index, guaranteed) + 1)
 }
 
 function dayOfMonth(dateISO: string): number {

@@ -563,7 +563,7 @@ test('a restored reserve takes its bill’s strategy unless the file states one'
           name: 'Rent',
           amount_cents: 120000,
           frequency: 'monthly',
-          due_day: 1,
+          due_day: 30,
           account_id: 'acc-1',
           funding_strategy: 'last_check'
         }
@@ -607,8 +607,8 @@ test('a restored reserve takes its bill’s strategy unless the file states one'
     .prepare('SELECT id, strategy, due_day, settled_by FROM bill_reserves ORDER BY id')
     .all()
   assert.deepEqual(rows, [
-    { id: 'res-1', strategy: 'last_check', due_day: 1, settled_by: null },
-    { id: 'res-2', strategy: 'first_check', due_day: 1, settled_by: null }
+    { id: 'res-1', strategy: 'last_check', due_day: 30, settled_by: null },
+    { id: 'res-2', strategy: 'first_check', due_day: 30, settled_by: null }
   ])
 })
 

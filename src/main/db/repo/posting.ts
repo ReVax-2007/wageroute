@@ -87,7 +87,7 @@ export function postDueAutopay(
       })
       // insertTransactionRow is the raw writer, so the posted bill settles its
       // claim here the same way a hand-entered payment does.
-      settleBillReserveForPayment(db, userId, bill.id, paymentId, prompt.dueOn)
+      settleBillReserveForPayment(db, userId, bill.id, paymentId, prompt.dueOn, remaining)
       posted += 1
     }
   })()

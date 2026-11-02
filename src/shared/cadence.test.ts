@@ -289,3 +289,55 @@ test('an overpayment cannot push a bill below zero, and an unknown bill is ignor
   assert.equal(unpaidMonthlyWallCents([bill], new Map([['rent', 150_000]])), 0)
   assert.equal(unpaidMonthlyWallCents([bill], new Map([['other', 500_000]])), 100_000)
 })
+
+test('a mid-month payment is recovered by the cheques still to come', () => {
+  const item = {
+    amountCents: 120_000,
+    frequency: 'monthly' as const,
+    cadence: 'semimonthly' as const,
+    dueDay: 15,
+    fundingStrategy: 'all_checks' as const
+  }
+  assert.equal(
+    billFundingReserveCents({
+      ...item,
+      paycheckDate: '2026-03-05',
+      paidThisMonthCents: 30_000
+    }),
+    45_000,
+    'two cheques are left, so the remainder is split evenly'
+  )
+  assert.equal(
+    billFundingReserveCents({
+      ...item,
+      paycheckDate: '2026-03-20',
+      paidThisMonthCents: 60_000
+    }),
+    60_000,
+    'the last cheque carries the whole remainder, not half of it'
+  )
+  assert.equal(
+    billFundingReserveCents({
+      ...item,
+      paycheckDate: '2026-03-20',
+      paidThisMonthCents: 30_000
+    }),
+    90_000,
+    'the month is still fully covered'
+  )
+})
+
+test('a monthly cheque after a part payment carries the remainder', () => {
+  assert.equal(
+    billFundingReserveCents({
+      amountCents: 120_000,
+      frequency: 'monthly',
+      cadence: 'monthly',
+      dueDay: 15,
+      fundingStrategy: 'all_checks',
+      paycheckDate: '2026-03-10',
+      paidThisMonthCents: 30_000
+    }),
+    90_000
+  )
+})

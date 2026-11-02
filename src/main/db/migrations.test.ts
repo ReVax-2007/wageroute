@@ -212,7 +212,7 @@ test('v9 remembers how each claim was written and refuses an unknown strategy', 
   db.prepare(
     `INSERT INTO bills
        (id, user_id, name, amount_cents, frequency, due_day, funding_strategy, created_at, updated_at)
-     VALUES (?, ?, 'Rent', 185000, 'monthly', 1, 'last_check', ?, ?)`
+     VALUES (?, ?, 'Rent', 185000, 'monthly', 28, 'last_check', ?, ?)`
   ).run(BILL_ID, USER_ID, TS, TS)
   db.prepare(
     `INSERT INTO paychecks (id, user_id, amount_cents, received_on, health, created_at, updated_at)
@@ -230,7 +230,7 @@ test('v9 remembers how each claim was written and refuses an unknown strategy', 
     .prepare('SELECT strategy, due_day, settled_by FROM bill_reserves WHERE id = ?')
     .get('r1') as { strategy: string; due_day: number; settled_by: string | null }
   assert.equal(row.strategy, 'last_check', 'the bill current strategy is the best record')
-  assert.equal(row.due_day, 1, 'the claim keeps the due day it was written against')
+  assert.equal(row.due_day, 28, 'the claim keeps the due day it was written against')
   assert.equal(row.settled_by, null, 'no cross-cycle payment has closed it')
   assert.throws(
     () => db.prepare(`UPDATE bill_reserves SET strategy = 'sometimes' WHERE id = ?`).run('r1'),
