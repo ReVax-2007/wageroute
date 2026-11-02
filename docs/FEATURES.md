@@ -731,7 +731,7 @@ The wizard has three steps — choose file, missing info, review — and the sam
 - **Closing-balance check.** When the statement carries a closing balance and a closing date, the import compares the bank's figure with the account's balance on that day *after* the lines land. If they agree, the toast says so and nothing else happens. If they differ, a dialog names both figures and the gap and offers one adjustment dated on the closing day; **Leave it** writes nothing. A card statement prints what is owed as a positive number while the ledger holds debt as negative, so the comparison converts it first. Entries recorded after the closing day are never touched.
 - Each card offers **Leave this row out** (or **Leave these lines out** for CSV). Filling an answer in patches the row; leaving it blank drops the row instead of failing the import.
 - An answer is checked as you type with the same rules the import will apply: a bad amount, date, choice or link is named on its field and keeps **Import** disabled, so the review cannot promise a row the confirm step would drop.
-- **Review** names what is being imported, echoes the values you supplied, and lists everything not imported with every reason on that row plus how to fix the source file. A backup also prints the date it was exported on; one from the future is labelled and read as today. A warning counts rows still incomplete before you confirm.
+- **Review** names what is being imported, echoes the values you supplied, lists only the rows you deliberately left out under **Not imported**, and names any row still incomplete in one alert (up to three names plus a count) that points back to **Missing info**. Each row is explained once. A backup also prints the date it was exported on; one from the future is labelled and read as today.
 - A file with nothing missing skips straight to review, so a clean WageRoute backup is still one click.
 - Rows that pass the wizard but break a database rule anyway are reported individually; the rest of the transaction commits.
 
@@ -760,6 +760,8 @@ The erase is physical, not a tombstone: every row is dropped and the file is com
 ### Safety copies
 
 When a build opens a database from an older schema, it writes a consistent copy to `backups/` in the app data folder before migrating, named `pre-upgrade-<from>-to-<to>-<timestamp>.db`. The newest three are kept. If the database fails SQLite's `quick_check` at launch, WageRoute refuses to open or change it and says so rather than migrating a damaged file.
+
+Once the schema is settled, every launch also keeps one copy per local calendar day, named `daily-YYYY-MM-DD.db`. An existing file for today is left alone — restarting the app does not write another — and the newest seven are kept, so a week of history survives without a manual export. The copy is written after the pre-upgrade copy and a failure is only logged: a full disk must not stop the app opening a ledger someone needs.
 
 ### Emergency fund
 
@@ -819,7 +821,8 @@ Matching is by `billId`, not category, so an unrelated “Housing” expense doe
 
 Actions:
 
-- **Yes, it cleared** posts a `bill_payment` for the bill amount on its linked account, or a fallback checking/first active account when no account is linked. If the linked account has been archived, the prompt is blocked instead: it says the account is archived and asks you to edit the bill, because a payment into an archived balance would leave every total unchanged. The date is the due date, the memo is the bill name and the category is copied from the bill. This does not advance `nextDueOn`; the next cycle is derived from the due day.
+- **Yes, it cleared** posts a `bill_payment` for the bill amount on its linked account, or a fallback checking/first active account when no account is linked. If the linked account has been archived, the prompt is blocked instead: it says the account is archived and asks you to edit the bill, because a payment into an archived balance would leave every total unchanged. The memo is the bill name and the category is copied from the bill. This does not advance `nextDueOn`; the next cycle is derived from the due day.
+  - A prompt whose due date falls in an earlier month shows **When did it leave your account?** with a date field: it starts on the due date, cannot be later than today, and prints the month the chosen date counts in. The chosen date is the entry's `occurredOn`, so a bill that was actually paid on the 2nd is no longer recorded in the previous month. A cleared or future date keeps the button disabled. A prompt due this month posts its due date with no field.
 - **Not yet** snoozes that occurrence, keyed by bill and due date, so next month's prompt still appears. Snoozed rows move to a **Snoozed** list under the open prompts with a **Bring back** button. Snoozes are session-only and reset on restart.
 
 Prompts are sorted by due date, then name. The count badge reflects visible prompts after snoozing.

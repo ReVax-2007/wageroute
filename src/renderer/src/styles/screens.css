@@ -1132,6 +1132,22 @@
   color: var(--warn-text);
 }
 
+/* Only a prompt from an earlier month shows this, so the row grows instead of
+   reserving space for a control most rows never need. */
+.prompt-date-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.prompt-date {
+  width: 150px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
 /* Snoozed rows stay visible so a dismissed prompt cannot quietly disappear. */
 .prompt-snoozed {
   border-top: 1px solid var(--border-row);

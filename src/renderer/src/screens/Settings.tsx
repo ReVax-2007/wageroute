@@ -583,6 +583,11 @@ export function Settings() {
             The app restarts to open the new location. Backups follow the ledger into the new
             folder.
           </p>
+          <p className="field-hint">
+            WageRoute also keeps one copy a day on its own, named with that date, and the newest
+            seven sit in the <code>backups</code> folder beside the ledger — a week of history
+            survives even if nothing was exported by hand.
+          </p>
           {storageNotice && (
             <p className="field-hint" role="status">
               {storageNotice}
@@ -854,9 +859,9 @@ export function Settings() {
           </p>
           <p className="field-hint">
             A last-resort copy of the database is written to the app&apos;s <code>backups</code>{' '}
-            folder before the erase (the newest three are kept). Exported backups and CSV files on
-            disk are not affected. If you will want this data back as a normal import, export a
-            backup first.
+            folder before the erase (the newest three are kept). Exported backups, CSV files and
+            older automatic copies in that folder are not affected. If you will want this data
+            back as a normal import, export a backup first.
           </p>
         </Modal>
       )}

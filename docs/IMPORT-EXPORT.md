@@ -57,7 +57,7 @@ The ledger's columns are `NOT NULL`, `STRICT` and `CHECK`-constrained, while a h
 
 1. **Choose file** — the picker in the main process. The renderer never sees or sends a path; it holds a token.
 2. **Missing info** — one card per row that cannot import as it stands, with an editor per problem and a **Leave this row out** toggle.
-3. **Review** — what will be imported, what you filled in (with the values), and what is being left out with why and how to fix the file. A backup also names the date it was exported on, so the file you are about to merge can be checked against the one you meant to pick.
+3. **Review** — what will be imported, what you filled in (with the values), and only the rows you chose to leave out. An incomplete row is named once (up to three, with a count) in an alert that points back to **Missing info**, rather than also appearing under **Not imported**. A backup also names the date it was exported on, so the file you are about to merge can be checked against the one you meant to pick.
 
 Step 2 is skipped when nothing is missing, so a clean WageRoute backup is a one-click confirm.
 

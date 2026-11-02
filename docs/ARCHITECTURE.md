@@ -80,7 +80,7 @@ The same `src/shared` modules are imported by both the main process and the rend
    - every permission request and permission check is denied except a sanitised clipboard write, which the copy buttons need (`setPermissionRequestHandler` plus `setPermissionCheckHandler`);
    - on macOS in development only, the dock icon is set from `build/icon.png`;
    - `adoptLegacyDatabase()` copies a pre-rename database if the new one is absent;
-   - `getDatabase()` opens `wageroute.db`, sets WAL/NORMAL/foreign keys/busy timeout, runs `PRAGMA quick_check`, writes a pre-upgrade copy when the file is older than the build, and runs migrations;
+   - `getDatabase()` opens `wageroute.db`, sets WAL/NORMAL/foreign keys/busy timeout, runs `PRAGMA quick_check`, writes a pre-upgrade copy when the file is older than the build, runs migrations, and then takes the day's `daily-YYYY-MM-DD.db` copy (skipped when today already has one; a failure goes to the crash log instead of blocking the open);
    - packaged builds run `seedIfEmpty()` (a blank local user plus default settings, only when no user row exists); development runs `seedDemoIfEmpty()` (the Alex demo profile);
    - `registerIpcHandlers(db)` binds every channel;
    - `runBootTasks(db)` posts autopay bills that fell due (`postDueAutopay`) and records one balance snapshot per live account per day (`recordDailySnapshots`), each in its own `try/catch` that reports to the crash log, so neither can prevent the window;

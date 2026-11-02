@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Check, Clock } from 'lucide-react'
 import { dueBillPrompts, type BillPrompt } from '@shared/billPrompts'
-import { formatDateLabel, todayISO } from '@shared/dates'
+import { formatDateLabel, formatMonthLong, isISODate, todayISO } from '@shared/dates'
 import { formatMoney } from '@shared/money'
 import { Button } from './ui'
 import { useFinanceStore } from '../store/useFinanceStore'
@@ -16,15 +16,20 @@ export function BillPrompts() {
   const unsnoozePrompt = useFinanceStore((state) => state.unsnoozePrompt)
   const createTransaction = useFinanceStore((state) => state.createTransaction)
   const [pendingKey, setPendingKey] = useState<string | null>(null)
+  // A bill that came due last month cannot be logged at its due date without
+  // reaching back a month, so those rows let the user say when it really left.
+  const [paidOn, setPaidOn] = useState<Record<string, string>>({})
 
   if (!snapshot) return null
+
+  const today = todayISO()
 
   // The ledger window is capped; the bill history is not, so an annual bill's
   // payment is still matchable when hundreds of newer rows have pushed it out.
   const prompts = dueBillPrompts({
     bills: snapshot.bills,
     payments: snapshot.billPayments,
-    todayISO: todayISO()
+    todayISO: today
   })
   const open = prompts.filter((prompt) => !snoozed.includes(promptKey(prompt)))
   const waiting = prompts.filter((prompt) => snoozed.includes(promptKey(prompt)))
@@ -45,18 +50,25 @@ export function BillPrompts() {
   const archivedPointer = (prompt: BillPrompt): boolean =>
     prompt.accountId !== null && !activeIds.has(prompt.accountId)
 
+  // A prompt only appears after its due date, so a different month means the
+  // payment would land in a month the user may not be looking at.
+  const lateMonth = (prompt: BillPrompt): boolean => prompt.dueOn.slice(0, 7) !== today.slice(0, 7)
+  const dateFor = (prompt: BillPrompt): string => paidOn[promptKey(prompt)] ?? prompt.dueOn
+
   const markPaid = async (prompt: BillPrompt) => {
     const accountId = accountFor(prompt)
     if (!accountId) return
     const remainingCents = Math.max(0, prompt.amountCents - prompt.paidCents)
     if (remainingCents === 0) return
     const key = promptKey(prompt)
+    const occurredOn = dateFor(prompt)
+    if (!isISODate(occurredOn) || occurredOn > today) return
     setPendingKey(key)
     await createTransaction({
       accountId,
       kind: 'bill_payment',
       amountCents: -remainingCents,
-      occurredOn: prompt.dueOn,
+      occurredOn,
       memo: prompt.name,
       category: prompt.category,
       billId: prompt.billId
@@ -81,6 +93,9 @@ export function BillPrompts() {
             const accountId = accountFor(prompt)
             const key = promptKey(prompt)
             const pending = pendingKey === key
+            const needsDate = lateMonth(prompt)
+            const paidDate = dateFor(prompt)
+            const dateOk = !needsDate || (isISODate(paidDate) && paidDate <= today)
             return (
               <li key={key} className="prompt-row">
                 <span className="prompt-icon">
@@ -108,6 +123,28 @@ export function BillPrompts() {
                         : 'Add an account before logging this payment.'}
                     </span>
                   )}
+                  {needsDate && (
+                    <label className="prompt-date-row">
+                      <span className="prompt-due">When did it leave your account?</span>
+                      <input
+                        className="input prompt-date"
+                        type="date"
+                        aria-label={`Date ${prompt.name} was paid`}
+                        value={paidDate}
+                        max={today}
+                        disabled={pending}
+                        onChange={(event) => {
+                          const value = event.target.value
+                          setPaidOn((state) => ({ ...state, [key]: value }))
+                        }}
+                      />
+                      <span className="prompt-due">
+                        {isISODate(paidDate) && paidDate <= today
+                          ? `Counts in ${formatMonthLong(paidDate)}.`
+                          : 'Choose a date up to today.'}
+                      </span>
+                    </label>
+                  )}
                 </div>
                 <span className="prompt-amount num">
                   {formatMoney(prompt.amountCents - prompt.paidCents, settings.currency)}
@@ -117,7 +154,7 @@ export function BillPrompts() {
                     variant="primary"
                     size="sm"
                     icon={<Check size={14} />}
-                    disabled={pending || !accountId}
+                    disabled={pending || !accountId || !dateOk}
                     title={accountId ? 'Log this bill as paid' : 'No account available'}
                     onClick={() => void markPaid(prompt)}
                   >

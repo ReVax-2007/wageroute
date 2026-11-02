@@ -8,6 +8,7 @@ import {
   assertHealthy,
   backupBeforeErase,
   backupBeforeUpgrade,
+  backupDaily,
   compact,
   DatabaseCorruptError,
   needsPreUpgradeBackup
@@ -107,6 +108,35 @@ test('an erase keeps a disclosed copy and prunes it separately from upgrades', (
   const kept = readdirSync(backups).sort()
   assert.equal(kept.filter((name) => name.startsWith('pre-erase-')).length, 3)
   assert.equal(kept.filter((name) => name.startsWith('pre-upgrade-')).length, 1)
+  db.close()
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('a daily copy is written once per local day and keeps the newest week', () => {
+  const dir = workspace()
+  const backups = join(dir, 'backups')
+  const db = seeded(join(dir, 'ledger.db'))
+
+  // 23:30 local time is already the next day in UTC, so a UTC-named file would
+  // prove this used the wrong clock.
+  const first = backupDaily(db, backups, new Date(2026, 9, 3, 23, 30))
+  assert.equal(first, join(backups, 'daily-2026-10-03.db'))
+  const copy = new Database(first, { readonly: true })
+  const counted = copy.prepare('SELECT COUNT(*) AS n FROM accounts').get() as { n: number }
+  assert.equal(counted.n, 1)
+  copy.close()
+
+  assert.equal(backupDaily(db, backups, new Date(2026, 9, 3, 8, 0)), null)
+  assert.equal(readdirSync(backups).length, 1, 'a restart does not write a second copy')
+
+  for (let day = 4; day <= 12; day += 1) {
+    backupDaily(db, backups, new Date(2026, 9, day, 12, 0))
+  }
+  const kept = readdirSync(backups).sort()
+  assert.equal(kept.length, 7)
+  assert.equal(kept[0], 'daily-2026-10-06.db')
+  assert.equal(kept[6], 'daily-2026-10-12.db')
+
   db.close()
   rmSync(dir, { recursive: true, force: true })
 })

@@ -112,6 +112,15 @@ function decisionsFor(
   return rows
 }
 
+/** Names the first few rows of a list; the review stays readable with a big file. */
+function nameRows(rows: readonly RowDecision[]): string {
+  const named = rows
+    .slice(0, 3)
+    .map((row) => `“${row.label}”`)
+    .join(', ')
+  return rows.length > 3 ? `${named} and ${rows.length - 3} more` : named
+}
+
 export function ImportWizard() {
   const preview = useFinanceStore((state) => state.importPreview)
   const step = useFinanceStore((state) => state.importStep)
@@ -452,13 +461,12 @@ export function ImportWizard() {
                 ))}
               </div>
             )}
-            {leftOut.length > 0 && (
+            {skipped.length > 0 && (
               <div className="import-review-list">
                 <strong>Not imported</strong>
-                {leftOut.map((row) => (
+                {skipped.map((row) => (
                   <p className="import-review-row" key={row.key}>
-                    <strong>{row.label}</strong> — {row.reasons.join(', ')}
-                    {row.state === 'skipped' ? ` — ${leftOutNote}` : ' — nothing was filled in'}.{' '}
+                    <strong>{row.label}</strong> — {row.reasons.join(', ')} — {leftOutNote}.{' '}
                     {row.fixHints.join(' ')}
                   </p>
                 ))}
@@ -473,11 +481,14 @@ export function ImportWizard() {
                 {invalidAnswers.size === 1 ? 'it' : 'them'} before importing.
               </p>
             )}
+            {/* An empty row is already explained once, here, by name. Listing it
+                again under "Not imported" would present a row the user never
+                chose to leave out as a decision they made. */}
             {empty.length > 0 && (
               <p className="form-error" role="alert">
                 {empty.length === 1
-                  ? `1 ${oneNoun} is still incomplete. Fill it in, or it will be skipped.`
-                  : `${empty.length} ${manyNoun} are still incomplete. Fill them in, or they will be skipped.`}
+                  ? `1 ${oneNoun} is still incomplete: ${nameRows(empty)}. Use Back to missing info to fill it in, or it will be skipped.`
+                  : `${empty.length} ${manyNoun} are still incomplete: ${nameRows(empty)}. Use Back to missing info to fill them in, or they will be skipped.`}
               </p>
             )}
             {leftOut.length > 0 && (
