@@ -55,7 +55,7 @@ npm run postinstall
 | `npm run dev` | `electron-vite dev` | Dev server, main/preload rebuild, hot renderer reload |
 | `npm start` | `electron-vite preview` | Run the production bundles in `out/` |
 | `npm run lint` | `node scripts/lint.mjs` | Repository-local checks: no `debugger`, no `console.log`/`console.debug`, no `@ts-ignore`/`@ts-expect-error`, no `any` cast and no `: any` annotation |
-| `npm test` | `node --import tsx --test` (thirty-eight files listed explicitly) | Domain, cadence, categories, credit, payoff, history, accounts, importer, statements, QIF, backup-example, export round-trip, merge, migration, maintenance, entries, files, seed, product model, reconciliation, paycheck plan, allocator property, dashboard selectors, finance maths, dialog focus and save guard, reconciliation dialog, preload bridge, window security and repository tests |
+| `npm test` | `node --import tsx --test` (thirty-nine files listed explicitly) | Domain, cadence, categories, credit, payoff, history, accounts, importer, statements, QIF, backup-example, export round-trip, merge, migration, maintenance, entries, files, seed, product model, reconciliation, paycheck plan, allocator property, dashboard selectors, finance maths, dialog focus and save guard, reconciliation dialog, wall chips and next-check, preload bridge, window security and repository tests |
 | `npm run notices` | `node scripts/third-party-notices.mjs` | Regenerate `THIRD-PARTY-NOTICES.txt` from the production tree in `package-lock.json`; also runs as `prebuild` |
 | `npm run typecheck` | node + web type checks | Both TypeScript projects |
 | `npm run typecheck:node` | `tsc --noEmit -p tsconfig.node.json` | Main, preload, shared, config |
@@ -221,7 +221,7 @@ When a test requires moving a database aside, move it to a dated quarantine fold
 
 ## Testing
 
-Thirty-eight files run by `npm test` through `node --test` with `tsx` as the loader — 330 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**; the `pretest` guard ([`scripts/check-test-list.mjs`](../scripts/check-test-list.mjs)) fails the run when a `*.test.ts` on disk is missing from that list, or when the list names a file that no longer exists.
+Thirty-nine files run by `npm test` through `node --test` with `tsx` as the loader — 333 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**; the `pretest` guard ([`scripts/check-test-list.mjs`](../scripts/check-test-list.mjs)) fails the run when a `*.test.ts` on disk is missing from that list, or when the list names a file that no longer exists.
 
 | File | Style | Covers |
 | --- | --- | --- |
@@ -253,6 +253,7 @@ Thirty-eight files run by `npm test` through `node --test` with `tsx` as the loa
 | `export-roundtrip.test.ts` | **real in-memory SQLite** | 505 entries survive an export and re-import whole (505 added, 0 skipped; a second import adds 0 and skips 505); the 500-row default is a grid cap, not an export cap, and an explicit limit is honoured |
 | `api.test.ts` | pure | every bridge method reaches one declared channel and the contract has no extras; the bridge exposes exactly the channels the contract declares |
 | `ui.dialog.test.ts` | **jsdom + React 19 `act`** | `useDialog` moves focus into the panel, wraps Tab last → first and Shift+Tab first → last, closes on Escape, returns focus to the trigger and restores the body’s overflow |
+| `PriorityWall.test.ts` | **jsdom + React 19 `act`** | a month with one paid and one open claim still reads **Reserved**, a fully closed month reads **Paid**, the summary prints the reserved and paid sums separately, the next-check cell keeps only what the month still owes after a cash payment and a claim, and the table has exactly one `<tbody>` |
 | `maintenance.test.ts` | real SQLite file | `quick_check` passes on a healthy file; a non-SQLite file raises `DatabaseCorruptError`; only a real version increase in an existing file gets a pre-upgrade copy (never a fresh or already-current one); an upgrade copy carries every row and prunes to the newest three; `VACUUM` + `secure_delete` leave a sentinel memo absent from the database file |
 | `window-security.test.ts` | pure functions | the packaged page is trusted by exact URL, not by `startsWith`, so a lookalike prefix is refused; the dev server is trusted by origin, so a lookalike host or wrong port fails; only the support page may open in the system browser |
 | `finance.test.ts` (renderer) | pure functions | cash on hand, credit owed/available with zero clamps, fundable accounts, the smoothed monthly and per-cheque wall, goal totals ignoring archived goals, the four-slice routing breakdown, the upcoming-payment horizon and day ordinals |
@@ -269,7 +270,7 @@ import assert from 'node:assert/strict'
 
 - Flat top-level `test('description', () => …)` calls — the suite does not use `describe`/`it`.
 - A database-backed test creates its own: `new Database(':memory:')` → `migrate(db)` → insert a `users` row with the fixed `USER_ID`, because every tenant query filters `user_id`. The `freshDb()` helper in `backup-merge.test.ts` is the pattern to copy; it is re-created per test.
-- Assertions are on plain values and integer cents, never on rendered output or snapshots. The one DOM test (`ui.dialog.test.ts`) drives the dialog hook through jsdom with React 19's `act`, and is the only place a component is mounted; there is no Testing Library and no coverage tool.
+- Assertions are on plain values and integer cents, never on rendered output or snapshots. The DOM tests (`ui.dialog.test.ts`, `Allocator.test.ts`, `ReconcileStatementDialog.test.ts`, `PriorityWall.test.ts`) drive components through jsdom with React 19's `act`, and are the only places a component is mounted; there is no Testing Library and no coverage tool.
 
 Run:
 
