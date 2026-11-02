@@ -245,6 +245,8 @@ export interface BillReserve extends SyncMeta {
   state: BillReserveState
   /** The strategy in force when the cheque wrote the claim. */
   strategy: BillFundingStrategy
+  /** The bill's due day when the claim was written; later edits must not move it. */
+  dueDay: number
   /** The transaction that closed this claim, if any. */
   settledBy: string | null
 }

@@ -155,7 +155,14 @@ export function Allocator() {
   // A bill already paid this month must not be withheld from this cheque; the
   // plan asks only for what the month still owes.
   const bills = useMemo(() => {
-    const paid = new Map(monthPayments.map((total) => [total.billId, total.paidCents]))
+    const paid = new Map(
+      monthPayments.map((total) => [
+        total.billId,
+        // A card charge settles the bill without taking cash out, so the preview
+        // must release the same amount the repository will withhold.
+        Math.max(0, total.paidCents - total.creditCents)
+      ])
+    )
     return activeBills(snapshot?.bills ?? []).map((bill) => ({
       ...bill,
       paidThisMonthCents: paid.get(bill.id) ?? 0

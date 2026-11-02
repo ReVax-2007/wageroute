@@ -85,12 +85,22 @@ Work merged to `main` after `v1.2.0`. None of it is in an installer yet; the `[U
 
 ### Batch 22 — the reserve lifecycle remembers how it was written
 
-- Schema 9 adds `bill_reserves.strategy` (the funding strategy in force when the cheque wrote the claim) and `bill_reserves.settled_by` (the transaction that closed it), with a partial index on the link. The migration backfills each live row from its bill; no amount, state or date changes, and a pre-v9 database upgrades on first launch.
-- The plan now receives the month's open claims (`monthClaims`) instead of a list of reserved bill ids. A single-check bill subtracts every claim; an `all_checks` bill subtracts only a whole-month claim. Switching a carried bill to every-check no longer reserves the month twice, and switching a spread bill to one check reserves only the remainder.
+- Schema 9 adds `bill_reserves.strategy` (the funding strategy in force when the cheque wrote the claim), `bill_reserves.due_day` (the due day it was written against) and `bill_reserves.settled_by` (the transaction that closed it), with a partial index on the link. The migration backfills each live row from its bill; no amount, state or date changes, and a pre-v9 database upgrades on first launch.
+- The plan now receives the month's open claims (`monthClaims`) instead of a list of reserved bill ids. Every claim reduces the month's need, and a spread cheque tops the month up to its normal share. Switching a carried bill to every-check no longer reserves the month twice, switching a spread bill to one check reserves only the remainder, and a third switch reserves nothing more.
 - A payment in a later month settles an earlier claim when that claim's funding cheque fell **after** the bill's due day in its own cycle — the real carry rule. It is no longer limited to `last_check`: a monthly `first_check` cheque on 31 January funds a 1 February due date. A payment dated before the new month's cheque settles the carry, not the new claim, because that cheque had not been received yet.
 - Deleting or moving a payment re-opens exactly the claim `settled_by` names, then falls back to the old cycle lookup for rows paid before v9.
-- A restored reserve row takes its bill's strategy when the file states none, and starts with no `settled_by` link. The example backup and both backup allowlists carry the two columns.
-- `src/main/db/reserves.test.ts` gains five lifecycle cases (carry under `first_check`, payment-before-cheque ordering, delete re-opening the carry, and both strategy switches), `migrations.test.ts` gains the v9 case, and `backup-merge.test.ts` proves a restored claim takes its bill's strategy unless the file states one. `npm test` is **316 tests across thirty-eight files**.
+- A restored reserve row takes its bill's strategy and due day when the file states neither, and starts with no `settled_by` link. The example backup and the backup allowlist carry the columns.
+- `src/main/db/reserves.test.ts` gains five lifecycle cases (carry under `first_check`, payment-before-cheque ordering, delete re-opening the carry, and both strategy switches), `migrations.test.ts` gains the v9 case, and `backup-merge.test.ts` proves a restored claim takes its bill's strategy unless the file states one.
+
+### Batch 23 — settle, reopen and display the same claim
+
+- The commit backstop now skips a payment already named by `settled_by`, so one payment can no longer close two months of carry. `reopenCycleClaim` touches only unlinked rows, so deleting or moving one payment leaves a claim another live payment closed paid.
+- Every claim reduces the month's remaining need, whatever strategy wrote it. `billFundingReserveCents` tops a spread bill up to its normal share when a claim exists (still smoothing a partly paid bill across cheques), and `recordBillReserves` caps a month's claims at the bill's monthly equivalent.
+- Each claim stores its own `due_day`; a later edit to the bill cannot change whether an old claim carries.
+- The Priority Wall passes this month's cash payments and open claims into the next-check projection, and reports reserved and paid claims as separate sums instead of counting paid money as reserved.
+- The Allocator preview subtracts `creditCents` from `paidCents`, matching `commitPaycheck` for a bill charged to a card.
+- Restore refuses a nameless category or one longer than 60 characters instead of writing a row the app cannot save, and relinks an entry that names its category only by spelling.
+- New cases: four in `reserves.test.ts` (one payment one carry, delete leaves another payment's claim paid, third switch reserves nothing, due-day edit), four in `backup-merge.test.ts` (stated due day, nameless category, long name, text-only relink), and the v9 migration asserts the due-day backfill. `npm test` is **324 tests across thirty-eight files**.
 
 ### Before the next build
 
@@ -98,7 +108,10 @@ Work merged to `main` after `v1.2.0`. None of it is in an installer yet; the `[U
 - [ ] Launch a packaged build on a disposable profile and confirm the Buy Me a Coffee link still opens and no other external URL does (no child window, no navigation).
 - [ ] Re-check the Priority Wall after a cross-month bill payment: the old month's row reads `paid`, not `reserved`; then move the payment to the next month and confirm the source month reads `reserved` again even after the next cheque commits.
 - [ ] Open a copy of a schema-8 database with the new build: it must migrate to 9, keep every reserve row and amount, and show the same wall on first launch.
-- [ ] Switch a bill from first-check to every-check between two cheques and confirm the second cheque reserves nothing for it; switch a spread bill to one check and confirm the second cheque reserves only the remainder.
+- [ ] Switch a bill from first-check to every-check between two cheques and confirm the second cheque reserves nothing for it; switch a spread bill to one check and confirm the second cheque reserves only the remainder; switch it back and confirm a third cheque reserves nothing.
+- [ ] Route two cheques across two months, pay the bill once, then commit a third cheque: only one month may read `paid`. Delete that payment and confirm the other month's paid claim is untouched.
+- [ ] Edit a bill's due day after a carry has been claimed and confirm the next payment still closes that carry.
+- [ ] Open the allocator for a month with a card-paid bill and confirm its preview priority matches the recorded paycheck; then check the wall's next-check figure subtracts the same cash payment.
 - [ ] Remove `settled_by` from one reserve row in a scratch copy and confirm the delete/move path still re-opens the claim by cycle.
 - [ ] Launch a packaged build and copy an entry id from Settings/About to the clipboard: the permission handlers allow only `clipboard-sanitized-write`, so a denied copy would now show up as a silent no-op.
 - [ ] Confirm the tag guard fires if `package.json` and the tag disagree (a scratch tag, deleted before push).

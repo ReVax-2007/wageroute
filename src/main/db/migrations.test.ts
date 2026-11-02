@@ -227,12 +227,17 @@ test('v9 remembers how each claim was written and refuses an unknown strategy', 
   migrate(db)
 
   const row = db
-    .prepare('SELECT strategy, settled_by FROM bill_reserves WHERE id = ?')
-    .get('r1') as { strategy: string; settled_by: string | null }
+    .prepare('SELECT strategy, due_day, settled_by FROM bill_reserves WHERE id = ?')
+    .get('r1') as { strategy: string; due_day: number; settled_by: string | null }
   assert.equal(row.strategy, 'last_check', 'the bill current strategy is the best record')
+  assert.equal(row.due_day, 1, 'the claim keeps the due day it was written against')
   assert.equal(row.settled_by, null, 'no cross-cycle payment has closed it')
   assert.throws(
     () => db.prepare(`UPDATE bill_reserves SET strategy = 'sometimes' WHERE id = ?`).run('r1'),
+    /CHECK/i
+  )
+  assert.throws(
+    () => db.prepare('UPDATE bill_reserves SET due_day = 32 WHERE id = ?').run('r1'),
     /CHECK/i
   )
   db.close()
