@@ -49,7 +49,7 @@ It is a planning and ledger tool, not a bank connection. There is no account lin
 | **Round-up** | Tangerine-style spare-change sweeps: when an expense is logged against a checking or cash account, the difference to the next $1, $2 or $5 is moved to a savings account as a paired transfer. |
 | **Paired transfers** | Account-to-account moves are written as two linked rows sharing a `transfer_group_id`. Editing an amount, date, memo or category updates both legs. Deleting either leg removes both. |
 | **Chronology prompts** | Active bills past their latest due date with no matching `bill_id` payment are surfaced on the dashboard as “Did this clear?” prompts with one-click logging. A bill marked **autopay** is recorded automatically at the next launch after its due date instead, so the wall clears itself. |
-| **Data portability** | Full or partial JSON backups, a whole-ledger CSV export, and additive imports of either format. Bank statements (OFX/QFX, or a CSV with no account column) import into the account you name, and a bank line that carries a reference is never added twice. Imports never delete local data. |
+| **Data portability** | Full or partial JSON backups, a whole-ledger CSV export, and additive imports of either format. Bank statements (OFX/QFX, QIF, or a CSV with no account column) import into the account you name; loan and investment statements are read for what they can offer. A bank line that carries a reference is never added twice, and a statement that carries a closing balance can be reconciled against the ledger. |
 | **Appearance** | Dark, light or system theme. The resolved palette is cached locally to prevent a flash on launch. |
 
 ## Design rules
@@ -163,7 +163,7 @@ The app was previously named **Cash Flow Routing**. On first launch, if the new 
 
 - **Export full backup** writes every row of accounts, balance snapshots, categories, bills, goals, paychecks, allocations, bill reserves, transactions and settings as JSON, tagged with backup version 8. It includes tombstones and all linked IDs, and a 1.1.0 backup (version 7) still restores.
 - **Export transactions CSV** writes the **whole** ledger — not the 500-row screen snapshot — with Date, Account, Institution, Kind, Category, Description, Amount and Currency. Both exports are written owner-only (`0600`).
-- **Import data** accepts a backup, an entries CSV or a bank statement (OFX/QFX, or a CSV with no account column) and walks you through a three-step wizard. JSON may contain only some tables. CSV is treated as entries and matched to local accounts by name (optionally narrowed by institution); a statement is imported into the one account you pick, and a transaction the bank identifies with a FITID (or a CSV reference) is never added twice.
+- **Import data** accepts a backup, an entries CSV, a bank statement (OFX/QFX or QIF) or a CSV with no account column, and walks you through a three-step wizard. JSON may contain only some tables. CSV is treated as entries and matched to local accounts by name (optionally narrowed by institution); a statement is imported into the one account you pick, and a transaction the bank identifies with a FITID (or a CSV reference) is never added twice. When the statement carries a closing balance it is compared with your ledger, and one adjustment is offered if the two disagree.
 - **The wizard asks instead of failing.** Anything a row is missing, mis-typed, out of range or pointing at — plus CSV account names that match nothing — is put to you as a question with a fix-or-leave-out choice. Rows you cannot fix are left out with an explanation of what was wrong and how to repair the file; the rest of the import still lands.
 - Imports are additive: existing IDs are skipped, existing settings keys win, and re-importing the same file changes nothing.
 
@@ -207,6 +207,8 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full status matrix and the 
 │       ├── cadence.ts         Bill/pay frequency smoothing
 │       ├── emergency.ts       Emergency fund calculator
 │       ├── csv.ts             CSV export and import parsing
+│       ├── qif.ts             QIF record reader
+│       ├── statements.ts      OFX/QFX and bank CSV statement readers
 │       └── types.ts           Shared TypeScript contracts
 ├── electron-builder.yml       Packaging targets
 ├── electron.vite.config.ts    Build config and aliases

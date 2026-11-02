@@ -55,7 +55,7 @@ npm run postinstall
 | `npm run dev` | `electron-vite dev` | Dev server, main/preload rebuild, hot renderer reload |
 | `npm start` | `electron-vite preview` | Run the production bundles in `out/` |
 | `npm run lint` | `node scripts/lint.mjs` | Repository-local checks: no `debugger`, no `console.log`/`console.debug`, no `@ts-ignore`/`@ts-expect-error`, no `any` cast and no `: any` annotation |
-| `npm test` | `node --import tsx --test` (thirty-three files listed explicitly) | Domain, cadence, categories, credit, payoff, history, accounts, importer, statements, backup-example, export round-trip, merge, migration, maintenance, entries, files, seed, product model, reconciliation, paycheck plan, allocator property, dialog focus, reconciliation dialog, preload bridge and repository tests |
+| `npm test` | `node --import tsx --test` (thirty-four files listed explicitly) | Domain, cadence, categories, credit, payoff, history, accounts, importer, statements, QIF, backup-example, export round-trip, merge, migration, maintenance, entries, files, seed, product model, reconciliation, paycheck plan, allocator property, dialog focus, reconciliation dialog, preload bridge and repository tests |
 | `npm run notices` | `node scripts/third-party-notices.mjs` | Regenerate `THIRD-PARTY-NOTICES.txt` from the production tree in `package-lock.json`; also runs as `prebuild` |
 | `npm run typecheck` | node + web type checks | Both TypeScript projects |
 | `npm run typecheck:node` | `tsc --noEmit -p tsconfig.node.json` | Main, preload, shared, config |
@@ -119,7 +119,9 @@ src/
     ├── importRepair.ts   import problem detection and repair
     ├── money.ts
     ├── projections.ts
+    ├── qif.ts
     ├── settings.ts
+    ├── statements.ts
     ├── transfers.ts
     ├── types.ts
     ├── domain.test.ts
@@ -132,6 +134,7 @@ src/
     ├── accounts.test.ts
     ├── backup-example.test.ts
     ├── backup-merge.test.ts
+    ├── qif.test.ts
     └── importRepair.test.ts
 ```
 
@@ -218,7 +221,7 @@ When a test requires moving a database aside, move it to a dated quarantine fold
 
 ## Testing
 
-Thirty-three files run by `npm test` through `node --test` with `tsx` as the loader — 249 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**; the `pretest` guard ([`scripts/check-test-list.mjs`](../scripts/check-test-list.mjs)) fails the run when a `*.test.ts` on disk is missing from that list, or when the list names a file that no longer exists.
+Thirty-four files run by `npm test` through `node --test` with `tsx` as the loader — 260 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**; the `pretest` guard ([`scripts/check-test-list.mjs`](../scripts/check-test-list.mjs)) fails the run when a `*.test.ts` on disk is missing from that list, or when the list names a file that no longer exists.
 
 | File | Style | Covers |
 | --- | --- | --- |
@@ -231,7 +234,8 @@ Thirty-three files run by `npm test` through `node --test` with `tsx` as the loa
 | `csv.test.ts` | pure functions | export round-trip; text cells beginning `=`, `+`, `-`, `@`, tab or CR are prefixed with an apostrophe and stripped again on import; amount cells stay numeric; one day above 12 settles the date order for the whole file; a file that cannot prove its order is read month-first and says so; an unknown kind that collides with an object member falls back to the amount's sign |
 | `cadence.test.ts` | pure functions | which paycheck slot a date falls in for each pay cadence; the check closest to a due day, ties going earlier; which slots a month is certain to contain; an unreachable target is clamped rather than dropped; `last_check` lands on the last guaranteed slot and nowhere else; `all_checks` has no single funding check; a single-check bill carries the **month** ($50 weekly → $216.67) on one check and nothing on the other; every strategy's monthly total equals the obligation it owes; no paycheck date means the spread, never the clock |
 | `importRepair.test.ts` | pure functions | a clean backup needs nothing; each missing, invalid or dangling value becomes exactly one question; nullable versus required references; answers repair rows, unanswered rows are dropped rather than thrown; a still-invalid answer drops with the validation message; clearing a nullable reference is a valid answer; rows inside one file can satisfy each other's references; the accounts↔goals cycle is answerable in one pass; unmatched CSV account names collapse to one question each |
-| `statements.test.ts` | pure functions | SGML and XML OFX/QFX statements read signed lines without a timezone shift; an impossible OFX date is reported rather than rolled forward; a statement with no transaction block is refused; a bank CSV without an Account column names its own problem line |
+| `statements.test.ts` | pure functions | SGML and XML OFX/QFX statements read signed lines without a timezone shift; an impossible OFX date is reported rather than rolled forward; a statement with no transaction block is refused; a bank CSV without an Account column names its own problem line; a loan statement's principal is not treated as a closing balance and a loan ledger balance still reconciles; an investment statement imports only its cash movements and says what it left out |
+| `qif.test.ts` | pure functions | a bank QIF keeps category precedence and reports file line numbers for its problems; a split record keeps its money and a shared category; a day-first file settles its own date order; a card QIF reads Quicken's `10/09'2026` form; an account name becomes the statement label; a two-account file, an investment-only file and an empty file are each refused with a message that says what to do instead, and a mixed file imports its cash while naming the investment records it left out |
 | `accounts.test.ts` | pure functions | the explicit Safe-to-spend choice versus the kind default; a dedicated account staying out of the spendable pool; archived accounts counting for nothing; credit subtracting from total wealth; wealth buckets partitioning the total exactly; the allocator skipping an account-funded goal and the leftover falling to savings; routed debt and investing leaving Safe to Spend until the plan's own transfers land, and an unrelated deposit not counting as settlement |
 | `categories.test.ts` | pure functions | name normalisation and the case/space-insensitive key; the seed list; spending for a month groups by linked id, falls back to stored text, ignores non-spending kinds and sorts largest first |
 | `credit.test.ts` | pure functions | the close date walked first, then the first due day after it (both orderings); amount due never below zero; the previous close date of a date |
@@ -569,7 +573,7 @@ Before treating a change as complete, manually verify the paths that automated t
 - theme switching, including system mode;
 - JSON export → fresh-profile import;
 - CSV export → fresh-profile import, and CSV import through the wizard (its native file picker cannot be automated);
-- a bank statement (OFX/QFX or bank CSV) through the wizard;
+- a bank statement (OFX/QFX, QIF, or bank CSV) through the wizard, including one loan or investment statement;
 - partial JSON imports (settings only, transactions only);
 - migration from the previous schema version on a database copy.
 

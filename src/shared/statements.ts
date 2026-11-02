@@ -9,10 +9,10 @@ import type { AccountKind } from './types'
  * writes any of it: only the transactions land.
  */
 export interface StatementInfo {
-  kind: 'ofx' | 'csv'
+  kind: 'ofx' | 'csv' | 'qif'
   /** Institution or bank name, when the file names one. */
   bank: string | null
-  /** Last four digits of the account number, masked; null when unknown. */
+  /** Last four digits of the account number, masked, or a QIF's account name. */
   accountLabel: string | null
   currency: string | null
   /** Range actually covered by the transactions that will import. */
@@ -21,6 +21,8 @@ export interface StatementInfo {
   /** Closing balance the statement claims, shown for comparison only. */
   balanceCents: number | null
   balanceOn: string | null
+  /** What the file does not give the ledger, said before the lines are read. */
+  notes: string[]
 }
 
 export interface StatementParse {
@@ -137,16 +139,35 @@ function maskAccount(id: string | null): string | null {
 }
 
 function transactionBlocks(text: string): string[] {
-  const pattern = /<STMTTRN>([\s\S]*?)(?=<STMTTRN>|<\/STMTTRN>|<\/BANKTRANLIST>|$)/gi
+  const pattern =
+    /<STMTTRN>([\s\S]*?)(?=<STMTTRN>|<\/STMTTRN>|<\/BANKTRANLIST>|<\/INVBANKTRAN>|<\/INVTRANLIST>|<\/STMTRS>|<BUY|<SELL|<INCOME|<REINVEST|<JRNLSEC|<TRANSFER|<MARGININTEREST|$)/gi
   return [...text.matchAll(pattern)].map((match) => match[1])
 }
 
+function lineOf(text: string, index: number | undefined): number {
+  if (index === undefined || index < 0) return 1
+  return text.slice(0, index).split('\n').length
+}
+
+const SECURITY_AGGREGATES =
+  /<(BUYMF|BUYOPT|BUYOTHER|BUYDEBT|BUYSTOCK|BUY|SELLMF|SELLOPT|SELLOTHER|SELLDEBT|SELLSTOCK|SELL|REINVEST|INCOME|JRNLSEC|JRNLFUND|TRANSFER|MARGININTEREST|CLOSUREOPT|RETOFCAP|SPLIT)>/gi
+
+/** What kind of statement the file holds decides where its closing figure lives. */
+function ofxFlavour(text: string): 'bank' | 'loan' | 'investment' {
+  if (/<INVSTMTRS>/i.test(text)) return 'investment'
+  if (/<LOANSTMTRS>/i.test(text)) return 'loan'
+  return 'bank'
+}
+
 /**
- * Reads an OFX 1.x (SGML) or OFX 2.x/QFX (XML) bank or credit-card statement.
+ * Reads an OFX 1.x (SGML) or OFX 2.x/QFX (XML) bank, credit-card, loan or
+ * investment statement.
  *
  * The sign is taken from the file, because a statement is the bank's own record
  * of direction. Transfers are refused like a CSV transfer: one leg cannot be
- * reconstructed into a paired movement inside the ledger.
+ * reconstructed into a paired movement inside the ledger. An investment
+ * statement's cash movements import; its securities activity and holdings do
+ * not, and the wizard says so instead of losing them silently.
  */
 export function parseOfxStatement(text: string): StatementParse {
   const blocks = transactionBlocks(text)
@@ -154,14 +175,31 @@ export function parseOfxStatement(text: string): StatementParse {
     throw new Error('That file has no transactions — is it an OFX or QFX statement?')
   }
 
-  const accountBlock = aggregateBlock(text, 'BANKACCTFROM') || aggregateBlock(text, 'CCACCTFROM')
+  const flavour = ofxFlavour(text)
+  const accountBlock =
+    aggregateBlock(text, 'BANKACCTFROM') ||
+    aggregateBlock(text, 'CCACCTFROM') ||
+    aggregateBlock(text, 'LOANACCTFROM') ||
+    aggregateBlock(text, 'INVACCTFROM')
   const accountId = tagValue(accountBlock, 'ACCTID')
-  const bankId = tagValue(accountBlock, 'BANKID')
+  const bankId = tagValue(accountBlock, 'BANKID') ?? tagValue(accountBlock, 'BROKERID')
   const bank = tagValue(aggregateBlock(text, 'FI'), 'ORG') ?? bankId
   const currency = tagValue(text, 'CURDEF')
-  const ledger = aggregateBlock(text, 'LEDGERBAL')
+  // A loan's `LOANBAL` is outstanding principal and an investment's `INVBAL`
+  // is cash plus holdings; neither is the account's balance, so only a
+  // `LEDGERBAL` is ever compared with the ledger.
+  const ledger = flavour === 'investment' ? '' : aggregateBlock(text, 'LEDGERBAL')
   const balanceCents = parseMoneyToCents(tagValue(ledger, 'BALAMT') ?? '')
   const balanceOn = ofxDate(tagValue(ledger, 'DTASOF'))
+
+  const notes: string[] = []
+  if (flavour === 'investment') {
+    notes.push('Only cash movements import from an investment statement.')
+  } else if (flavour === 'loan' && balanceCents === null) {
+    notes.push(
+      "This loan statement's outstanding principal is not an account balance, so no closing figure is compared."
+    )
+  }
 
   const entries: CsvEntry[] = []
   const issues: CsvIssue[] = []
@@ -214,6 +252,29 @@ export function parseOfxStatement(text: string): StatementParse {
     })
   })
 
+  if (flavour === 'investment') {
+    const securities = [...text.matchAll(SECURITY_AGGREGATES)]
+    if (securities.length > 0) {
+      issues.push({
+        line: lineOf(text, securities[0]?.index),
+        message:
+          securities.length === 1
+            ? '1 securities entry was not imported — WageRoute records cash movements, not securities'
+            : `${securities.length} securities entries were not imported — WageRoute records cash movements, not securities`
+      })
+    }
+    const holdings = [...text.matchAll(/<(POSMF|POSSTOCK|POSDEBT|POSOPT|POSOTHER)>/gi)]
+    if (holdings.length > 0) {
+      issues.push({
+        line: lineOf(text, holdings[0]?.index),
+        message:
+          holdings.length === 1
+            ? '1 holding in the file was not imported — only cash movements land in the ledger'
+            : `${holdings.length} holdings in the file were not imported — only cash movements land in the ledger`
+      })
+    }
+  }
+
   const dates = entries.map((entry) => entry.occurredOn).sort()
   return {
     entries,
@@ -226,7 +287,8 @@ export function parseOfxStatement(text: string): StatementParse {
       from: dates[0] ?? null,
       to: dates.at(-1) ?? null,
       balanceCents,
-      balanceOn
+      balanceOn,
+      notes
     }
   }
 }
@@ -243,6 +305,15 @@ export function describeCsvStatement(entries: readonly CsvEntry[]): StatementInf
     from: dates[0] ?? null,
     to: dates.at(-1) ?? null,
     balanceCents: null,
-    balanceOn: null
+    balanceOn: null,
+    notes: []
   }
+}
+
+/**
+ * The heading the wizard puts above the file's own claims. A QIF is not a bank
+ * statement and should not be described as one.
+ */
+export function statementLabel(info: StatementInfo): string {
+  return info.kind === 'qif' ? 'QIF file' : 'Bank statement'
 }
