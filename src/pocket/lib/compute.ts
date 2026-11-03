@@ -89,10 +89,10 @@ export interface BillLine {
 }
 
 /**
- * A bill is settled for the month when a matching payment closed its claim, or
- * when cash actually left the pool for it. A card payment is netted out, so
- * "Paid" here agrees with Safe to spend, which still holds the cash that will
- * pay the card.
+ * A bill is settled for the month when a matching payment closed its claim or
+ * when this month's payments cover its amount — whichever account paid. A card
+ * payment settles the bill even though the cash stayed in the pool; Safe to
+ * spend still holds that cash because the card itself now has to be paid.
  */
 export function billLines(snapshot: Snapshot, today: string = todayISO()): BillLine[] {
   const settings = parseSettings(snapshot.settings)
@@ -102,10 +102,7 @@ export function billLines(snapshot: Snapshot, today: string = todayISO()): BillL
     (reserve) => reserve.cycle === cycle && liveBillIds.has(reserve.billId)
   )
   const paid = new Map(
-    snapshot.billPaymentsThisMonth.map((row) => [
-      row.billId,
-      Math.max(0, row.paidCents - row.creditCents)
-    ])
+    snapshot.billPaymentsThisMonth.map((row) => [row.billId, Math.max(0, row.paidCents)])
   )
   const accounts = new Map(snapshot.accounts.map((account) => [account.id, account.name]))
 
@@ -116,7 +113,7 @@ export function billLines(snapshot: Snapshot, today: string = todayISO()): BillL
       const state: BillState =
         claims.some((claim) => claim.state === 'reserved')
           ? 'reserved'
-          : claims.length > 0 || paidCents > 0
+          : claims.length > 0 || paidCents >= bill.amountCents
             ? 'paid'
             : 'open'
       // The same recurrence engine the desktop uses: a weekly bill is due in a

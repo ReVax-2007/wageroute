@@ -21,10 +21,8 @@ import type {
   TransactionPatch,
   TransactionRow
 } from '@shared/types'
-import { TRANSACTION_KIND_LABEL } from '../lib/finance'
+import { retypeChoices, TRANSACTION_KIND_LABEL } from '../lib/finance'
 import { useFinanceStore } from '../store/useFinanceStore'
-
-const KINDS = Object.keys(TRANSACTION_KIND_LABEL) as TransactionKind[]
 
 export function TransactionsGrid({
   rows,
@@ -151,7 +149,7 @@ export function TransactionsGrid({
               onRowChange({ ...row, kind: event.target.value as TransactionKind }, true)
             }
           >
-            {KINDS.map((kind) => (
+            {retypeChoices(row.kind).map((kind) => (
               <option key={kind} value={kind}>
                 {TRANSACTION_KIND_LABEL[kind]}
               </option>

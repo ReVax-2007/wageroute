@@ -117,7 +117,10 @@ test('the wall marks paid and open bills from the same claims the desktop wrote'
 
   assert.equal(lines.length, snapshot.bills.filter((bill) => bill.isActive).length)
   for (const line of lines) {
-    if (line.paidCents > 0) assert.notEqual(line.state, 'open', `${line.bill.name} was paid`)
+    const paid = paidToday.find((total) => total.billId === line.bill.id)?.paidCents ?? 0
+    if (paid >= line.bill.amountCents) {
+      assert.notEqual(line.state, 'open', `${line.bill.name} was paid`)
+    }
     if (line.daysUntil < 0) assert.equal(dueSoon([line]).length, 0, 'past bills are not due soon')
   }
   assert.equal(
@@ -127,28 +130,99 @@ test('the wall marks paid and open bills from the same claims the desktop wrote'
   )
 })
 
-test('a bill paid by card still needs cash on the phone too', () => {
+test('a bill paid by card is settled while the cash it freed stays held', () => {
   const { json } = demo()
   const snapshot = buildSnapshot(parseBackup(json).tables, todayISO())
   const bill = { ...snapshot.bills[0]!, isActive: true }
   const amount = bill.amountCents
   const base = { ...snapshot, bills: [bill], billReserves: [] }
-
+  const unpaid = {
+    ...base,
+    billPaymentsThisMonth: []
+  }
   const byCard = {
     ...base,
     billPaymentsThisMonth: [{ billId: bill.id, paidCents: amount, creditCents: amount }]
   }
+
   assert.equal(
     billLines(byCard)[0]?.state,
-    'open',
-    'the cash that pays the card is still held, matching Safe to spend'
+    'paid',
+    'the card payment settled the bill, as it does on the desktop prompt'
   )
+  // Paying by card did not take cash out, so the same money is still held for
+  // the card itself; the phone must not release it.
+  assert.equal(pocketView(byCard).unpaidWallCents, pocketView(unpaid).unpaidWallCents)
+  assert.equal(pocketView(byCard).safeToSpendCents, pocketView(unpaid).safeToSpendCents)
 
   const inCash = {
     ...base,
     billPaymentsThisMonth: [{ billId: bill.id, paidCents: amount, creditCents: 0 }]
   }
   assert.equal(billLines(inCash)[0]?.state, 'paid')
+  assert.ok(pocketView(inCash).safeToSpendCents > pocketView(unpaid).safeToSpendCents)
+})
+
+test('a part payment leaves the bill open with the money it already took', () => {
+  const { json } = demo()
+  const snapshot = buildSnapshot(parseBackup(json).tables, todayISO())
+  const bill = { ...snapshot.bills[0]!, isActive: true }
+  const half = Math.floor(bill.amountCents / 2)
+  const partial = {
+    ...snapshot,
+    bills: [bill],
+    billReserves: [],
+    billPaymentsThisMonth: [{ billId: bill.id, paidCents: half, creditCents: 0 }]
+  }
+
+  const [line] = billLines(partial)
+  assert.equal(line?.state, 'open', 'the bill still needs the rest')
+  assert.equal(line?.paidCents, half, 'the part already paid is not lost')
+})
+
+test('a bill-linked adjustment is not part of the phone’s payment history', () => {
+  const { json } = demo()
+  const tables = parseBackup(json).tables
+  const billRow = tables.bills.find((row) => isLive(row))
+  const accountRow = tables.accounts.find((row) => isLive(row))
+  assert.ok(billRow)
+  assert.ok(accountRow)
+  const today = todayISO()
+  const tablesWithNote = {
+    ...tables,
+    transactions: [
+      ...tables.transactions,
+      {
+        id: 'bill-note',
+        user_id: text(accountRow, 'user_id'),
+        account_id: text(accountRow, 'id'),
+        kind: 'adjustment',
+        amount_cents: -1000,
+        occurred_on: today,
+        memo: 'Corrected the bill',
+        category: 'Bills',
+        category_id: null,
+        external_id: null,
+        bill_id: text(billRow, 'id'),
+        goal_id: null,
+        paycheck_id: null,
+        counter_account_id: null,
+        transfer_group_id: null,
+        round_up_source_id: null,
+        created_at: today,
+        updated_at: today,
+        deleted_at: null,
+        revision: 1
+      }
+    ]
+  }
+
+  const snapshot = buildSnapshot(tablesWithNote, today)
+  assert.equal(
+    snapshot.billPayments.some((row) => row.billId === text(billRow, 'id') && row.amountCents === -1000),
+    false,
+    'the note is not read back as a payment'
+  )
 })
 
 test('bills due on the same day keep the desktop’s byte order', () => {
