@@ -723,6 +723,15 @@ export function registerIpcHandlers(db: Database.Database): void {
       )
     )
   )
+  // A confirmation has to name the rows that go, and only the database can see
+  // the twin a transfer hides or the sweep legs a purchase owns.
+  handle('transaction:count-deletion', (_event, ids: unknown) =>
+    repo.doomedDeletionIds(
+      db,
+      userId(),
+      Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []
+    ).length
+  )
   handle('transaction:query', (_event, query: unknown) =>
     repo.queryTransactions(db, userId(), ledgerQueryOf(query))
   )

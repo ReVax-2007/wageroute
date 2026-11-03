@@ -775,6 +775,35 @@ export function deleteTransaction(db: Db, userId: string, id: string): void {
 }
 
 /**
+ * Every live row a delete of `ids` retires: the rows themselves, the twin a
+ * transfer hides, and the sweep legs a rounded-up purchase owns. A screen asks
+ * this before the write so its question can name the number of rows leaving the
+ * ledger instead of the number of rows the person picked.
+ */
+export function doomedDeletionIds(db: Db, userId: string, ids: readonly string[]): string[] {
+  const unique = [...new Set(ids)]
+  if (unique.length === 0) return []
+
+  const statement = db.prepare(
+    'SELECT 1 AS present FROM transactions WHERE id = ? AND user_id = ? AND deleted_at IS NULL'
+  )
+  const isLive = (id: string): boolean => statement.get(id, userId) !== undefined
+  const groupOf = db.prepare(
+    'SELECT transfer_group_id AS groupId FROM transactions WHERE id = ? AND user_id = ? AND deleted_at IS NULL'
+  )
+
+  const candidates = new Set<string>(unique.filter(isLive))
+  for (const id of [...candidates]) {
+    const group = groupOf.get(id, userId) as { groupId: string | null } | undefined
+    if (group?.groupId) {
+      for (const leg of transferGroupRows(db, userId, group.groupId)) candidates.add(leg.id)
+    }
+    for (const sweepId of roundUpSweepIds(db, userId, id)) candidates.add(sweepId)
+  }
+  return [...candidates]
+}
+
+/**
  * Deletes every selected entry as one movement. Transfer legs are deleted in
  * pairs, so a selection that contains one leg also removes its twin; the twin
  * is then skipped instead of aborting the batch with "not found". The whole
@@ -793,19 +822,8 @@ export function deleteTransactions(db: Db, userId: string, ids: readonly string[
     // A transfer hides its twin, and a purchase hides its round-up sweep, so
     // the rows that will disappear are more than the ones selected. Gather
     // every row the batch can touch, then count how many actually left.
-    const candidates = new Set<string>(unique.filter(isLive))
-    const groupOf = db.prepare(
-      'SELECT transfer_group_id AS groupId FROM transactions WHERE id = ? AND user_id = ? AND deleted_at IS NULL'
-    )
-    for (const id of [...candidates]) {
-      const group = groupOf.get(id, userId) as { groupId: string | null } | undefined
-      if (group?.groupId) {
-        for (const leg of transferGroupRows(db, userId, group.groupId)) candidates.add(leg.id)
-      }
-      for (const sweepId of roundUpSweepIds(db, userId, id)) candidates.add(sweepId)
-    }
-
-    const countLive = (): number => [...candidates].filter(isLive).length
+    const candidates = doomedDeletionIds(db, userId, unique)
+    const countLive = (): number => candidates.filter(isLive).length
     const before = countLive()
     for (const id of unique) {
       // A paired leg may already have been removed by its twin earlier in the loop.

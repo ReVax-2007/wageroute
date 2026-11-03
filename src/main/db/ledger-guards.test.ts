@@ -18,6 +18,7 @@ import {
   deleteBill,
   deleteTransaction,
   deleteTransactions,
+  doomedDeletionIds,
   getSnapshot,
   listAccounts,
   listBillPaymentsSince,
@@ -719,6 +720,61 @@ test('a bulk delete counts the round-up sweep a purchase owns', () => {
     'the purchase and both sweep legs are gone'
   )
   assert.equal(listTransactions(db, USER_ID).length, 0)
+})
+
+test('the doomed count is the number the delete then reports', () => {
+  const db = freshDb()
+  const checking = account(db, 'Chequing')
+  const savings = account(db, 'Savings', 'savings')
+  writeSettings(db, USER_ID, {
+    roundUpEnabled: '1',
+    roundUpAccountId: savings,
+    roundUpToCents: '100'
+  })
+  const purchaseId = entry(db, checking, { amountCents: -1_040 })
+  const sweepIds = roundUpSweepIds(db, USER_ID, purchaseId)
+  const rentId = entry(db, checking, { amountCents: -9_000 })
+  const transferId = entry(db, checking, {
+    kind: 'transfer',
+    amountCents: -5_000,
+    counterAccountId: savings
+  })
+
+  assert.deepEqual(
+    doomedDeletionIds(db, USER_ID, [purchaseId]).sort(),
+    [purchaseId, ...sweepIds].sort(),
+    'a purchase owns both sweep legs'
+  )
+  assert.deepEqual(
+    doomedDeletionIds(db, USER_ID, [purchaseId, ...sweepIds]).sort(),
+    [purchaseId, ...sweepIds].sort(),
+    'naming a sweep as well does not count it twice'
+  )
+  assert.deepEqual(
+    doomedDeletionIds(db, USER_ID, [sweepIds[0]]).sort(),
+    sweepIds.sort(),
+    'a sweep takes its own twin and leaves the purchase'
+  )
+  assert.equal(doomedDeletionIds(db, USER_ID, [rentId]).length, 1, 'an ordinary row stands alone')
+  assert.equal(
+    doomedDeletionIds(db, USER_ID, [transferId]).length,
+    2,
+    'one named leg counts the pair'
+  )
+  assert.deepEqual(doomedDeletionIds(db, USER_ID, []), [], 'nothing selected retires nothing')
+  assert.deepEqual(
+    doomedDeletionIds(db, USER_ID, ['no-such-entry', rentId]),
+    [rentId],
+    'a row that already left is not promised'
+  )
+
+  const mixed = [purchaseId, transferId]
+  const promised = doomedDeletionIds(db, USER_ID, mixed).length
+  assert.equal(
+    deleteTransactions(db, USER_ID, mixed),
+    promised,
+    'and the question asked of the user is the number that went'
+  )
 })
 
 test('deleting a bill turns its live payments into ordinary expenses', () => {

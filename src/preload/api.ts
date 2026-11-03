@@ -44,6 +44,7 @@ export function createFinanceApi(call: IpcCaller): FinanceApi {
     updateTransaction: (id, input) => call('transaction:update', id, input),
     deleteTransaction: (id) => call('transaction:delete', id),
     deleteTransactions: (ids) => call('transaction:delete-many', ids),
+    countEntryDeletion: (ids) => call('transaction:count-deletion', ids),
     queryTransactions: (query) => call('transaction:query', query),
 
     commitPaycheck: (input) => call('paycheck:commit', input),
