@@ -234,7 +234,7 @@ When a test requires moving a database aside, move it to a dated quarantine fold
 
 ## Testing
 
-Fifty files run by `npm test` through `node --test` with `tsx` as the loader — 446 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**; the `pretest` guard ([`scripts/check-test-list.mjs`](../scripts/check-test-list.mjs)) fails the run when a `*.test.ts` on disk is missing from that list, or when the list names a file that no longer exists.
+Fifty files run by `npm test` through `node --test` with `tsx` as the loader — 449 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**; the `pretest` guard ([`scripts/check-test-list.mjs`](../scripts/check-test-list.mjs)) fails the run when a `*.test.ts` on disk is missing from that list, or when the list names a file that no longer exists.
 
 | File | Style | Covers |
 | --- | --- | --- |

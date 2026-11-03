@@ -279,9 +279,14 @@ export function buildSnapshot(
 
   const since = addDaysISO(today, -BILL_PAYMENT_HISTORY_DAYS)
   const billPayments: BillPaymentEntry[] = entries
-    .filter(
-      (entry) => nullableText(entry, 'bill_id') !== null && text(entry, 'occurred_on') >= since
-    )
+    .filter((entry) => {
+      const kind = text(entry, 'kind')
+      return (
+        nullableText(entry, 'bill_id') !== null &&
+        (kind === 'bill_payment' || kind === 'expense') &&
+        text(entry, 'occurred_on') >= since
+      )
+    })
     .map((entry) => ({
       billId: text(entry, 'bill_id'),
       occurredOn: text(entry, 'occurred_on'),

@@ -48,11 +48,14 @@ export function Bills() {
                   <span className="muted small">
                     {formatDateLabel(line.dueOn)}
                     {line.accountName ? ` · ${line.accountName}` : ''}
+                    {line.paidCents > 0 ? ` · ${formatMoney(line.paidCents, currency)} paid` : ''}
                   </span>
                 </div>
                 <div className="row-end">
                   <span className="amount">{formatMoney(line.bill.amountCents, currency)}</span>
-                  <span className={`pill ${line.state}`}>{STATE_LABEL[line.state]}</span>
+                  <span className={`pill ${line.state}`}>
+                    {line.state === 'open' && line.paidCents > 0 ? 'Part paid' : STATE_LABEL[line.state]}
+                  </span>
                 </div>
               </li>
             ))}

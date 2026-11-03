@@ -57,7 +57,25 @@ function offlineShell(): Plugin {
             .sort()
             .map((file) => `./assets/${file}`)
         : []
-      const buildId = createHash('sha1').update(assets.join('\n')).digest('hex').slice(0, 8)
+      // Hash the whole shell, not only the asset names: an edited manifest or
+      // icon must earn a new cache name even when no JavaScript changed.
+      const shellFiles = [
+        'index.html',
+        'manifest.webmanifest',
+        'favicon.svg',
+        'icon-192.png',
+        'icon-512.png',
+        'icon-maskable-512.png',
+        'apple-touch-icon.png'
+      ]
+      const digest = createHash('sha1')
+      for (const file of [...shellFiles, ...assets]) {
+        const path = join(outDir, file)
+        if (!existsSync(path)) continue
+        digest.update(file)
+        digest.update(readFileSync(path))
+      }
+      const buildId = digest.digest('hex').slice(0, 8)
       const output = template
         .replace('__SHELL_VERSION__', `${pkg.version}-${buildId}`)
         .replace('/* __PRECACHE__ */ []', JSON.stringify(assets))

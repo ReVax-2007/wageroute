@@ -35,6 +35,23 @@ export const TRANSACTION_KIND_LABEL: Record<TransactionKind, string> = {
   adjustment: 'Adjustment'
 }
 
+/**
+ * Kinds the spreadsheet may retype a row to. A transfer needs a second account
+ * and a bill or goal link needs a picker the grid does not have, so those are
+ * recorded through Add entry instead. The row's current kind stays in the list
+ * so an existing bill payment can still be changed away from it.
+ */
+const RETYPEABLE_KINDS: readonly TransactionKind[] = [
+  'income',
+  'expense',
+  'investment',
+  'adjustment'
+]
+
+export function retypeChoices(kind: TransactionKind): TransactionKind[] {
+  return RETYPEABLE_KINDS.includes(kind) ? [...RETYPEABLE_KINDS] : [kind, ...RETYPEABLE_KINDS]
+}
+
 export function cashOnHand(accounts: readonly AccountWithBalance[]): number {
   return accounts
     .filter((account) => CASH_KINDS.has(account.kind) && !account.isArchived)

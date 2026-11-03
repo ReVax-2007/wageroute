@@ -477,7 +477,7 @@ Not every picker lists every account, and the difference is deliberate:
 - **Deposit and routing destinations** (paycheck deposit, plan moves, the account a goal's money is spent from) offer live checking, savings and cash accounts. Money has to land somewhere spendable; a credit card or brokerage account is a different instrument, not a place a paycheck is deposited, so `fundableAccounts` excludes both.
 - **“Paid from” on a bill, and the account select in the entry dialog, stay wider.** A bill can legitimately be charged to a credit card, and an entry can be a transfer onto that card (paying it) or into an investment account. Restricting those lists would make real ledgers impossible to record, so every live account remains selectable there.
 - **Money hints use the one currency from Settings.** Every money field formats its example with that currency (`Enter 12.34 for $12.34`) instead of a hard-coded symbol, so a EUR ledger is never explained in dollars.
-- **Every money field is typed as money.** Bill, entry, goal, account, card and adjustment amounts accept digits, one decimal point and at most two decimals, and show a decimal keypad on touch devices. Letters, currency symbols and stray separators never reach the field; a ledger entry additionally accepts a leading minus for an expense.
+- **Every money field is typed as money.** Bill, entry, goal, account, card and adjustment amounts accept digits and separators, show a decimal keypad on touch devices, and settle on one exact form when the field is left (`1,850` → `1850.00`, `12,50` → `12.50`). Typing keeps the commas and periods already entered, so a grouped figure survives keystroke by keystroke; letters and currency symbols never reach the field, at most two decimals are kept, and a string the parser cannot read is left as typed rather than rewritten. A ledger entry additionally accepts a leading minus for an expense.
 
 ### Remove an account
 
@@ -785,7 +785,7 @@ The welcome screen asks for a WageRoute backup file and explains where to get on
 | Tab | Content |
 | --- | --- |
 | **Home** | Safe to Spend with spendable accounts, bills still due, goals money and unsettled routing; cash on hand and total wealth; next payday; bills due in the next 14 days; the first three goals; every live account; entry count and import date |
-| **Bills** | Monthly bill total and per-paycheck reserve; each open bill with its next due date (from the same recurrence engine the desktop uses), account, amount and a **Due**, **Set aside** or **Paid** state |
+| **Bills** | Monthly bill total and per-paycheck reserve; each open bill with its next due date (from the same recurrence engine the desktop uses), account, amount and a **Due**, **Set aside** or **Paid** state; a part payment reads **Part paid** with the amount already taken, and a card payment settles the bill while Safe to Spend still holds the cash for the card |
 | **Goals** | Funded total, progress, each goal's target, remaining and target date |
 | **Entries** | The ledger grouped by date, with paired transfers shown as two legs; **Add** opens the entry sheet |
 | **Data** | File facts, replace, export, install, privacy and forget |
@@ -794,7 +794,7 @@ Every figure is calculated with the desktop's shared functions: the snapshot der
 
 ### Adding an entry
 
-**Add** offers expense or income, an amount, a live non-credit account, an existing category, a date up to today and an optional note. The amount uses the same money sanitiser as the desktop (digits, one period, two decimals). Expense rows receive a negative cents value and income rows a positive one. A new UUID is written with revision 1 and recorded as a local id. The entry appears in the ledger and lowers or raises the balance and Safe to Spend immediately. A local entry can be removed on the phone with a confirmation; removing it only affects the browser copy. A row that came from the desktop cannot be removed here: the additive export has no way to carry a deletion, so the app says to remove it on the computer and open a new backup.
+**Add** offers expense or income, an amount, a live non-credit account, an existing category, a date up to today and an optional note. The amount uses the same money sanitiser as the desktop: separators survive typing and the field settles on one exact form when it is left. Expense rows receive a negative cents value and income rows a positive one. A new UUID is written with revision 1 and recorded as a local id. The entry appears in the ledger and lowers or raises the balance and Safe to Spend immediately. A local entry can be removed on the phone with a confirmation; removing it only affects the browser copy. A row that came from the desktop cannot be removed here: the additive export has no way to carry a deletion, so the app says to remove it on the computer and open a new backup.
 
 The phone deliberately cannot record a bill payment, edit a desktop row or delete one. A bill payment has to settle the claim the desktop wrote, and an additive import cannot carry a settlement, an edit or a deletion. Offering those buttons would produce a file that either lies or loses the change.
 

@@ -18,6 +18,7 @@ import {
   monthlyWall,
   ordinal,
   perPaycheckWall,
+  retypeChoices,
   upcomingPayments
 } from './finance'
 
@@ -217,4 +218,20 @@ test('day ordinals read the way a calendar writes them', () => {
     [1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 31].map(ordinal),
     ['1st', '2nd', '3rd', '4th', '11th', '12th', '13th', '21st', '22nd', '23rd', '31st']
   )
+})
+
+test('the spreadsheet cannot retype a row into a kind that needs its own dialog', () => {
+  assert.deepEqual(retypeChoices('expense'), ['income', 'expense', 'investment', 'adjustment'])
+  // An existing bill payment keeps its own kind in the list so it can be
+  // changed away, but no row can be retyped into a bill or goal payment.
+  assert.deepEqual(retypeChoices('bill_payment'), [
+    'bill_payment',
+    'income',
+    'expense',
+    'investment',
+    'adjustment'
+  ])
+  assert.equal(retypeChoices('expense').includes('transfer'), false)
+  assert.equal(retypeChoices('expense').includes('goal_funding'), false)
+  assert.equal(retypeChoices('goal_funding').includes('goal_funding'), true)
 })
