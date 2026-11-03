@@ -19,6 +19,7 @@ import {
   deleteCategory,
   deleteEntries,
   deleteGoal,
+  insertedEntryIds,
   ledgerUserId,
   patchAccount,
   patchBill,
@@ -575,4 +576,93 @@ test('a lone leg from an old backup stays a transfer until it is re-entered', ()
 
   const removed = deleteEntries(renamed, ['lone'])
   assert.equal(removed.removed.length, 1, 'with no twin to take, only the row goes')
+})
+
+test('a transfer leaves both of its legs on this phone', () => {
+  const tables = ledger()
+  const moved = createEntry(tables, {
+    accountId: 'chk',
+    kind: 'transfer',
+    amountCents: 30_000,
+    occurredOn: todayISO(),
+    memo: 'To savings',
+    category: 'Transfer',
+    counterAccountId: 'sav'
+  })
+  const created = insertedEntryIds(tables, moved.tables)
+  assert.equal(created.length, 2, 'the leg out and the leg in')
+  assert.ok(created.includes(moved.id), 'the writer still hands back one of them')
+  assert.deepEqual(
+    created.slice().sort(),
+    entries(moved.tables).map((row) => text(row, 'id')).sort(),
+    'and the phone owns every row the form posted'
+  )
+})
+
+test('a purchase that rounds up brings its sweep with it', () => {
+  const tables = ledger()
+  tables.settings = [
+    lifecycle({ id: 'roundUpEnabled', key: 'roundUpEnabled', value: 'true' }),
+    lifecycle({ id: 'roundUpAccountId', key: 'roundUpAccountId', value: 'sav' }),
+    lifecycle({ id: 'roundUpToCents', key: 'roundUpToCents', value: '100' })
+  ]
+  const purchase = createEntry(tables, {
+    accountId: 'chk',
+    kind: 'expense',
+    amountCents: 4_530,
+    occurredOn: todayISO(),
+    memo: 'Coffee beans',
+    category: 'Food'
+  })
+  assert.equal(insertedEntryIds(tables, purchase.tables).length, 3)
+})
+
+test('an edit or a delete claims no new row', () => {
+  const tables = ledger()
+  const spent = createEntry(tables, {
+    accountId: 'card',
+    kind: 'expense',
+    amountCents: 5_000,
+    occurredOn: todayISO(),
+    memo: 'Fuel',
+    category: 'Travel'
+  })
+  assert.equal(insertedEntryIds(tables, spent.tables).length, 1)
+
+  const renamed = patchEntry(spent.tables, spent.id, { memo: 'Fuel top-up' })
+  assert.deepEqual(insertedEntryIds(spent.tables, renamed), [], 'a row that was here stays somebody else\'s')
+
+  const gone = deleteEntries(renamed, [spent.id]).tables
+  assert.deepEqual(insertedEntryIds(renamed, gone), [])
+})
+
+test('a bill or a goal added here is not counted as an entry', () => {
+  const tables = ledger()
+  const bill = createBill(tables, {
+    name: 'Internet',
+    amountCents: 6_900,
+    frequency: 'monthly',
+    dueDay: 15,
+    category: '',
+    accountId: 'chk',
+    autopay: true,
+    isActive: true,
+    nextDueOn: null,
+    fundingStrategy: 'all_checks',
+    fundingPaycheckIndex: null
+  })
+  assert.deepEqual(insertedEntryIds(tables, bill.tables), [], 'the screens count these against the ledger')
+
+  const goal = createGoal(bill.tables, {
+    name: 'Holiday',
+    targetCents: 250_000,
+    targetDate: '2027-06-01',
+    priority: 3,
+    color: 'var(--leisure)',
+    accountId: 'sav',
+    isEmergency: false,
+    fundingPace: 'asap',
+    fundingAccountIds: []
+  })
+  assert.deepEqual(insertedEntryIds(bill.tables, goal.tables), [])
 })

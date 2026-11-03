@@ -14,7 +14,7 @@ import { categoryMatch, entryAccounts, entryBills, entryCategories, entryGoals }
 import { flag, text } from '../lib/rows'
 import { usePocket, useSnapshot } from '../lib/store'
 import type { EntryPatch } from '../lib/write'
-import { createEntry, patchEntry } from '../lib/write'
+import { createEntry, expandDeletion, patchEntry } from '../lib/write'
 
 const KINDS = Object.keys(TRANSACTION_KIND_LABEL) as TransactionKind[]
 
@@ -364,6 +364,7 @@ function EntrySheet({ row, onClose }: { row: TransactionRow | null; onClose: () 
 
 export function Ledger() {
   const snapshot = useSnapshot()
+  const tables = usePocket((state) => state.tables)
   const localIds = usePocket((state) => state.localIds)
   const deleteEntry = usePocket((state) => state.deleteEntry)
   const [editing, setEditing] = useState<TransactionRow | 'new' | null>(null)
@@ -373,6 +374,11 @@ export function Ledger() {
 
   if (!snapshot) return null
   const groups = groupByDate(snapshot.transactions)
+
+  // Removing one row can retire more than it: the matching leg of a transfer,
+  // and the two sweep rows a rounded-up purchase caused. The question has to
+  // name every row that goes, the way the desktop's delete counts them.
+  const doomed = pendingDelete && tables ? expandDeletion(tables, [pendingDelete.id]).size : 1
 
   return (
     <div className="screen">
@@ -457,11 +463,19 @@ export function Ledger() {
 
       {pendingDelete ? (
         <DeleteConfirm
-          title={pendingDelete.transferGroupId ? 'Delete both legs of this transfer?' : 'Delete this entry?'}
+          title={
+            pendingDelete.transferGroupId
+              ? 'Delete both legs of this transfer?'
+              : doomed > 1
+                ? `Delete ${doomed} entries?`
+                : 'Delete this entry?'
+          }
           hint={
             pendingDelete.transferGroupId
               ? `“${pendingDelete.memo || 'This transfer'}” is one movement of money; removing it also removes the matching leg.`
-              : `“${pendingDelete.memo || 'This entry'}” disappears from the ledger and every balance it touches.`
+              : doomed > 1
+                ? `${doomed} entries disappear from the ledger and every balance they touch. A purchase takes the round-up it caused, and a transfer takes its matching leg.`
+                : `“${pendingDelete.memo || 'This entry'}” disappears from the ledger and every balance it touches.`
           }
           detail={`${formatMoney(pendingDelete.amountCents, currency)} on ${formatDateLabel(
             pendingDelete.occurredOn
