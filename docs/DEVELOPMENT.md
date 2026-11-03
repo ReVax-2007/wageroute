@@ -116,8 +116,8 @@ src/
 │   ├── lib/                  backup reader, snapshot, compute, entry rules,
 │   │                         writers (bills, goals, accounts, categories, entries),
 │   │                         IndexedDB, zustand store, install prompt
-│   ├── screens/              Home, Bills, Goals, Ledger, Data, Welcome
-│   ├── components/           MoneyInput, Field, Sheet, DeleteConfirm, Nav, PickBackup
+│   ├── screens/              Home, Bills, Goals, Accounts, Ledger, Data, Welcome
+│   ├── components/           MoneyInput (money and percent), Field, Sheet, DeleteConfirm, Nav, PickBackup
 │   ├── public/               manifest, service worker, icons
 │   └── vite.config.ts        separate root, alias, CSP injection, dist-pocket
 └── shared/
@@ -240,7 +240,7 @@ When a test requires moving a database aside, move it to a dated quarantine fold
 
 ## Testing
 
-Fifty-four files run by `npm test` through `node --test` with `tsx` as the loader — 510 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**; the `pretest` guard ([`scripts/check-test-list.mjs`](../scripts/check-test-list.mjs)) fails the run when a `*.test.ts` on disk is missing from that list, or when the list names a file that no longer exists.
+Fifty-four files run by `npm test` through `node --test` with `tsx` as the loader — 516 tests today. The script lists every file path explicitly, so **a new test file must be added to the `test` script in `package.json` or it never runs**; the `pretest` guard ([`scripts/check-test-list.mjs`](../scripts/check-test-list.mjs)) fails the run when a `*.test.ts` on disk is missing from that list, or when the list names a file that no longer exists.
 
 | File | Style | Covers |
 | --- | --- | --- |

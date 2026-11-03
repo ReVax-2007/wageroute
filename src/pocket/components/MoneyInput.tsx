@@ -1,5 +1,5 @@
 import type { InputHTMLAttributes } from 'react'
-import { canonicalMoneyInput, sanitizeMoneyInput } from '@shared/money'
+import { canonicalMoneyInput, sanitizeMoneyInput, sanitizePercentInput } from '@shared/money'
 
 type Props = Omit<InputHTMLAttributes<HTMLInputElement>, 'type' | 'value' | 'onChange' | 'inputMode'> & {
   value: string
@@ -32,6 +32,26 @@ export function MoneyInput({
         onValueChange(canonicalMoneyInput(event.target.value, { allowNegative }))
         onBlur?.(event)
       }}
+    />
+  )
+}
+
+/** A percent field: percentage points, two decimals at most, never a sign. */
+export function PercentInput({
+  value,
+  onValueChange,
+  className = 'input',
+  ...rest
+}: Omit<Props, 'allowNegative'>) {
+  return (
+    <input
+      {...rest}
+      type="text"
+      inputMode="decimal"
+      autoComplete="off"
+      className={className}
+      value={value}
+      onChange={(event) => onValueChange(sanitizePercentInput(event.target.value))}
     />
   )
 }

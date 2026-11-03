@@ -4,7 +4,7 @@
 
 ## Context
 
-[ADR 0024](0024-two-copies-merge-by-time.md) made a backup merge in both directions, so an edit made anywhere could finally reach the other copy. It did not give the phone anything to edit: Bills, Goals and Entries were read-only, and the only write the PWA had was an entry pad that added or removed a row. The request behind it was explicit — the phone should work "exactly and in tandem with" the desktop.
+[ADR 0024](0024-two-copies-merge-by-time.md) made a backup merge in both directions, so an edit made anywhere could finally reach the other copy. It did not give the phone much to edit: bills, goals and accounts were read-only, and the only write the PWA had was an entry pad that added or removed a row. The request behind it was explicit — the phone should work "exactly and in tandem with" the desktop.
 
 The desktop's guards sit in its repositories, next to the SQL: `assertText`, `signedAmountCents`, `requireAccount`, the archived-account refusal, the round-up sweep that must not be edited, the paired transfer whose accounts may not move, the claim a payment settles. Duplicating those sentences in `src/pocket` would produce two lists that drift apart within a batch — and the drift is invisible, because the phone's own tests would pass against its own copy. A wrong amount on the phone is still money on the computer after the next import.
 
@@ -19,14 +19,14 @@ There is also a browser limit worth stating. The phone has no transaction: it re
 3. **A field the form does not send is not a column in the patch.** The desktop builds its `UPDATE` from the keys present, so `undefined` leaves a column alone and only `null` clears it. Pocket's `patchRow` filters `undefined` out for the same reason; without that filter every partial save blanked the columns the sheet did not show. A blank text field still means "clear it", which is why a whitespace-only value counts as absent.
 4. **Refusals land before anything is written.** Each writer takes the current tables and returns new ones, so a rule violated halfway through throws while the phone still holds the ledger it had. The store commits only after the writer returns.
 5. **Stamps follow the desktop's arithmetic.** `stampAfter` never moves a timestamp backwards and always bumps `revision`, so a merge on either side sees a genuinely newer row (ADR 0024) rather than a tie.
-6. **Destructive taps ask first, in the desktop's words.** Deleting a bill, a goal or an entry on the phone opens the same question the desktop's confirm dialog shows for the same row — including the sentences about payment history, the month's set-aside and the other leg of a transfer — with *Keep it* as the default action.
+6. **Destructive taps ask first, in the desktop's words.** Deleting a bill, a goal, an account or an entry on the phone opens the same question the desktop's confirm dialog shows for the same row — including the sentences about payment history, the month's set-aside, the other leg of a transfer, and the offer to archive an account instead of deleting it — with *Keep it* as the default action.
 7. **What the phone will not do stays out of reach.** Paychecks, allocations, reserves, the routing plan and settings are desktop actions; the phone has no writer for them, so it cannot half-write one.
 
 ## Consequences
 
 - A rule change is one edit, and both devices get it. Two defects surfaced while writing the tests for this: a partial patch that blanked every untouched column, and a text field of spaces that refused the whole save instead of clearing the column. Both were in the shared layer, so the desktop was fixed by the same change.
-- The phone is a peer for the records a person actually corrects away from the computer: bills, goals, entries, and — through the goal sheet — which accounts fund a goal and where its money lands.
-- The writers cover accounts and categories too, but the phone's Accounts and Categories screens do not yet expose editors for them. The writers are tested; the UI is the next batch.
+- The phone is a peer for the records a person actually corrects away from the computer: bills, goals, accounts and entries, and — through the goal sheet — which accounts fund a goal and where its money lands.
+- The account form is read by one shared function, `validateAccountForm`, so the desktop dialog and the phone sheet parse the same text into the same cents, basis points and day numbers and name the same field when it is wrong. Categories need no screen on either device: a new one is created by typing its name into an entry, which is what both writers already do.
 - Parity is asserted by tests that name the desktop's sentences: `src/shared/writeRules.test.ts` pins every refusal message, and `src/pocket/lib/write.test.ts` pins the row each writer leaves behind. A divergence fails a test rather than surprising a user.
 - The phone can now corrupt its own copy the way the desktop can corrupt its database — a wrong edit is stored, not refused by a human. The merge gives no undo, so the two-step confirm and the fact that the desktop still holds the export remain the safety net.
 - More of the desktop's semantics are duplicated than the shared module alone covers: each Pocket writer restates its repository's cascade in row-set terms. The tests are what keep the two honest.

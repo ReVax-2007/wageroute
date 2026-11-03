@@ -774,7 +774,7 @@ A pointer card to Sinking funds; the calculator itself lives there.
 
 ## Pocket (phone)
 
-Pocket is an optional, installable web app built from the same repository. It is not a second ledger and never syncs: it opens one backup, works from a copy in the browser, and merges with the desktop through the same backup file in both directions. A record changed on either side is carried across by the next file, with the newer copy winning. The phone is an editing peer of the desktop for bills, goals and entries, and it writes through the same validation the desktop dialogs use.
+Pocket is an optional, installable web app built from the same repository. It is not a second ledger and never syncs: it opens one backup, works from a copy in the browser, and merges with the desktop through the same backup file in both directions. A record changed on either side is carried across by the next file, with the newer copy winning. The phone is an editing peer of the desktop for bills, goals, accounts and entries, and it writes through the same validation the desktop dialogs use.
 
 ### First run and storage
 
@@ -787,6 +787,7 @@ The welcome screen asks for a WageRoute backup file and explains where to get on
 | **Home** | Safe to Spend with spendable accounts, bills still due, goals money and unsettled routing; cash on hand and total wealth; next payday; bills due in the next 14 days; the first three goals; every live account; entry count and import date |
 | **Bills** | Monthly bill total and per-paycheck reserve; each open bill with its next due date (from the same recurrence engine the desktop uses), account, amount and a **Due**, **Set aside** or **Paid** state; a part payment reads **Part paid** with the amount already taken, and a card payment settles the bill while Safe to Spend still holds the cash for the card. A bill opens a sheet with **Mark paid**, **Pause**, **Edit** and **Delete**, and **Add** sits above the list |
 | **Goals** | Funded total, progress, each goal's target, remaining and target date; a goal opens a sheet with **Edit**, **Archive** and **Delete**, and archived goals stay listed under their own heading until they are brought back |
+| **Accounts** | Total wealth, cash on hand, card debt and the room left on the cards, with a utilisation meter on each card row; an account opens a sheet with its balance, opening balance, limit, available, used, APR, minimum payment, statement close and due days, what is due now and the payoff at the minimum, plus **Edit**, **Archive** / **Bring back** and **Remove**; archived accounts keep their own heading until brought back |
 | **Entries** | The ledger grouped by date, with paired transfers shown as two legs; **Add** opens the entry sheet and a row opens it again for editing or removal |
 | **Data** | File facts, last merge notes, open a newer backup, export, install, privacy and forget |
 
@@ -794,17 +795,19 @@ Every figure is calculated with the desktop's shared functions: the snapshot der
 
 ### Editing
 
-Bills, goals and entries have real editors on the phone, and they write through the desktop's own rules: the same shared validator (`src/shared/writeRules.ts`) produces the same refusal sentence on either device, so a typo is answered identically whether it was typed into a dialog or a phone sheet.
+Bills, goals, accounts and entries have real editors on the phone, and they write through the desktop's own rules: the same shared validator (`src/shared/writeRules.ts`) produces the same refusal sentence on either device, so a typo is answered identically whether it was typed into a dialog or a phone sheet.
 
 **Bills.** Add or edit a bill's name, amount, frequency, due day, category, paying account, funding strategy and — for *Choose specific paycheck to fund* — which paycheck; flip autopay and the active switch. **Mark paid** posts the month's bill payment the way the desktop's prompt would, into the bill's account or the first live checking account if that one is archived, and refuses a second payment for a month already settled. Pause, resume and delete a bill; a paused or deleted bill hands its payments back to plain expenses.
 
 **Goals.** Add or edit a goal's name, target, remaining date, priority, pace, funding accounts and deposit account; archive and restore it. Deleting a goal releases the accounts dedicated to it.
 
+**Accounts.** Add or edit an account's name, bank, type, starting balance, the purpose choices (mine only for one goal, and whether it counts as spending money) and its colour. A credit card also takes its limit, APR, minimum payment, last statement balance and the two cycle days, and the sheet reads them back as the facts the desktop shows: what is owed, what is still available, the percentage used, when the statement closes and the payment is due, what is due now, and how long the balance takes to clear at the minimum. The type is locked once the account exists, on either device — the entries behind it were written as a different instrument. What you owe is never edited in place: the sheet says to record an adjustment entry instead, so the opening balance stays the figure the account started with. Archive keeps every entry and can be undone; **Remove** asks first and offers *Archive instead*, and deleting an account that has entries deletes them with it, counting them in the button the way the desktop does.
+
 **Entries.** **Add** offers every kind the desktop has — expense, income, transfer, bill payment, goal funding, investment, adjustment — with an amount, a live account, a date up to today and an optional note. The category field takes one you already use or a new name, and a new name creates the category exactly as the desktop's entry dialog does. The amount uses the same money sanitiser as the desktop: separators survive typing and the field settles on one exact form when it is left. A transfer writes both legs with a shared group and crossed counterpart accounts; a purchase that rounds up writes its sweep. Editing an entry changes what the sheet offers: a transfer leg or a round-up sweep keeps its account and kind locked and says why, because those rows are half of a pair the ledger only reads together.
 
 Any live entry can be removed, whether it was added on the phone or arrived from the computer. The removal is written as a tombstone (`deleted_at` set, `updated_at` and `revision` bumped) rather than dropping the row, so the next export carries the deletion to the desktop. A transfer takes its other leg with it and a purchase takes its round-up, matching the desktop's delete, so a half-pair cannot be left behind.
 
-Deleting a bill, a goal or an entry asks first, in the desktop's own words, and *Keep it* is the safe answer. Accounts and categories have writers on the phone but no editors on screen yet; paychecks, allocations, bill reserves and settings stay on the computer and arrive with the next backup.
+Deleting a bill, a goal, an account or an entry asks first, in the desktop's own words, and *Keep it* is the safe answer. Categories need no screen on either device: a new one is typed into an entry, which creates it. Paychecks, allocations, bill reserves and settings stay on the computer and arrive with the next backup.
 
 ### Exporting back
 

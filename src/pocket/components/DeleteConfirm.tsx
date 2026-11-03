@@ -13,6 +13,8 @@ interface DeleteConfirmProps {
   onDone: () => void
   /** The writer that retires the row. A refusal lands on this sheet, not the one behind it. */
   remove: () => Promise<unknown>
+  /** An account can be kept out of the totals without losing its entries, so the desktop offers it here. */
+  altAction?: { label: string; run: () => Promise<unknown> }
 }
 
 /**
@@ -26,7 +28,8 @@ export function DeleteConfirm({
   confirmLabel,
   onCancel,
   onDone,
-  remove
+  remove,
+  altAction
 }: DeleteConfirmProps) {
   const { saving, error, run } = useSheetSave(onDone)
 
@@ -38,10 +41,20 @@ export function DeleteConfirm({
           {error}
         </p>
       ) : null}
-      <div className="sheet-actions">
+      <div className={altAction ? 'sheet-actions stacked' : 'sheet-actions'}>
         <button type="button" className="button" disabled={saving} onClick={onCancel}>
           Keep it
         </button>
+        {altAction ? (
+          <button
+            type="button"
+            className="button primary"
+            disabled={saving}
+            onClick={() => void run(altAction.run)}
+          >
+            {altAction.label}
+          </button>
+        ) : null}
         <button type="button" className="button danger" disabled={saving} onClick={() => void run(remove)}>
           {saving ? 'Removing…' : confirmLabel}
         </button>

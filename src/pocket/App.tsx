@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ShieldCheck, X } from 'lucide-react'
 import { Nav, type Tab } from './components/Nav'
 import { usePocket } from './lib/store'
+import { Accounts } from './screens/Accounts'
 import { Bills } from './screens/Bills'
 import { Data } from './screens/Data'
 import { Goals } from './screens/Goals'
@@ -49,6 +50,7 @@ export function App() {
             {tab === 'home' ? <Home go={setTab} /> : null}
             {tab === 'bills' ? <Bills /> : null}
             {tab === 'goals' ? <Goals /> : null}
+            {tab === 'accounts' ? <Accounts /> : null}
             {tab === 'ledger' ? <Ledger /> : null}
             {tab === 'data' ? <Data /> : null}
           </>

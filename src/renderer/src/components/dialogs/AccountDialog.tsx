@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
-import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
+import { centsToEditable, formatMoney } from '@shared/money'
 import type { AccountKind, AccountInput, AccountWithBalance } from '@shared/types'
+import { validateAccountForm } from '@shared/writeRules'
+import type { AccountFormProblems } from '@shared/writeRules'
 import { Button, Field, Modal, MoneyInput, PercentInput } from '../ui'
 import { ACCOUNT_KIND_LABEL, accountDisplayBalanceCents } from '../../lib/finance'
 import { useFinanceStore } from '../../store/useFinanceStore'
@@ -24,15 +26,6 @@ type SafeToSpendChoice = 'auto' | 'in' | 'out'
 function safeToSpendChoice(account: AccountWithBalance | null): SafeToSpendChoice {
   if (!account || account.inSafeToSpend === null) return 'auto'
   return account.inSafeToSpend ? 'in' : 'out'
-}
-
-/** A day-of-month field: blank stays null, anything else must be 1–31. */
-function parseDay(raw: string): number | null {
-  const text = raw.trim()
-  if (!text) return null
-  if (!/^\d{1,2}$/.test(text)) return null
-  const day = Number(text)
-  return day >= 1 && day <= 31 ? day : null
 }
 
 export function AccountDialog({
@@ -85,16 +78,7 @@ export function AccountDialog({
     safeToSpend: safeToSpendChoice(account),
     color: account?.color ?? ''
   })
-  const [fieldErrors, setFieldErrors] = useState<{
-    name?: string
-    creditLimit?: string
-    startingBalance?: string
-    apr?: string
-    minimumPayment?: string
-    statementDay?: string
-    paymentDueDay?: string
-    lastStatementBalance?: string
-  }>({})
+  const [fieldErrors, setFieldErrors] = useState<AccountFormProblems>({})
   const { saving, error, run } = useDialogSave(onClose)
 
   const clearField = (field: keyof typeof fieldErrors) =>
@@ -112,51 +96,9 @@ export function AccountDialog({
       : null
 
   const submit = async () => {
-    const limitTyped = form.creditLimit.trim() ? parseMoneyToCents(form.creditLimit) : null
-    const startingTyped = form.startingBalance.trim()
-      ? parseMoneyToCents(form.startingBalance)
-      : 0
-    const aprTyped = form.apr.trim() ? Number(form.apr.trim().replace(/%$/, '')) : null
-    const minimumTyped = form.minimumPayment.trim()
-      ? parseMoneyToCents(form.minimumPayment)
-      : null
-    const lastStatementTyped = form.lastStatementBalance.trim()
-      ? parseMoneyToCents(form.lastStatementBalance)
-      : null
-    const statementDayTyped = parseDay(form.statementDay)
-    const paymentDueDayTyped = parseDay(form.paymentDueDay)
-
-    const problems: typeof fieldErrors = {}
-    if (!form.name.trim()) problems.name = 'Give the account a name'
-    if (form.creditLimit.trim() && limitTyped === null) {
-      problems.creditLimit = 'Credit limit must be a number'
-    }
-    if (limitTyped !== null && limitTyped < 0) {
-      problems.creditLimit = 'Credit limit cannot be negative'
-    }
-    if (!account && startingTyped === null) {
-      problems.startingBalance = 'Starting balance must be a number'
-    }
-    if (aprTyped !== null && (!Number.isFinite(aprTyped) || aprTyped < 0 || aprTyped > 100)) {
-      problems.apr = 'APR must be a percentage between 0 and 100'
-    }
-    if (form.minimumPayment.trim() && minimumTyped === null) {
-      problems.minimumPayment = 'Minimum payment must be a number'
-    }
-    if (form.statementDay.trim() && statementDayTyped === null) {
-      problems.statementDay = 'Statement day must be a whole number from 1 to 31'
-    }
-    if (form.paymentDueDay.trim() && paymentDueDayTyped === null) {
-      problems.paymentDueDay = 'Due day must be a whole number from 1 to 31'
-    }
-    if (form.lastStatementBalance.trim() && lastStatementTyped === null) {
-      problems.lastStatementBalance = 'Last statement balance must be a number'
-    }
-    if (lastStatementTyped !== null && lastStatementTyped < 0) {
-      problems.lastStatementBalance = 'Last statement balance cannot be negative'
-    }
+    const { problems, parsed } = validateAccountForm(form)
     setFieldErrors(problems)
-    if (Object.keys(problems).length > 0 || startingTyped === null) return
+    if (!parsed) return
 
     const dedicatedGoalId = form.dedicatedGoalId || null
     const inSafeToSpend = form.safeToSpend === 'auto' ? null : form.safeToSpend === 'in'
@@ -166,12 +108,11 @@ export function AccountDialog({
     // must not leave the old numbers behind.
     const terms = isCredit
       ? {
-          aprBps: aprTyped === null ? null : Math.round(aprTyped * 100),
-          minimumPaymentCents: minimumTyped === null ? null : Math.abs(minimumTyped),
-          statementDay: statementDayTyped,
-          paymentDueDay: paymentDueDayTyped,
-          lastStatementBalanceCents:
-            lastStatementTyped === null ? null : Math.abs(lastStatementTyped)
+          aprBps: parsed.aprBps,
+          minimumPaymentCents: parsed.minimumPaymentCents,
+          statementDay: parsed.statementDay,
+          paymentDueDay: parsed.paymentDueDay,
+          lastStatementBalanceCents: parsed.lastStatementBalanceCents
         }
       : {
           aprBps: null,
@@ -184,21 +125,23 @@ export function AccountDialog({
     await run(() => {
       if (account) {
         return updateAccount(account.id, {
-          name: form.name.trim(),
+          name: parsed.name,
           kind: form.kind,
           institution: form.institution.trim(),
-          creditLimitCents: isCredit ? limitTyped : null,
+          creditLimitCents: isCredit ? parsed.creditLimitCents : null,
           ...terms,
           ...purposeFields
         })
       }
       const input: AccountInput = {
-        name: form.name.trim(),
+        name: parsed.name,
         kind: form.kind,
         institution: form.institution.trim(),
         // A credit card's opening balance is money owed, stored as a negative balance.
-        startingBalanceCents: isCredit ? -Math.abs(startingTyped) : startingTyped,
-        creditLimitCents: isCredit ? limitTyped : null,
+        startingBalanceCents: isCredit
+          ? -Math.abs(parsed.startingBalanceCents)
+          : parsed.startingBalanceCents,
+        creditLimitCents: isCredit ? parsed.creditLimitCents : null,
         ...terms,
         ...purposeFields
       }
