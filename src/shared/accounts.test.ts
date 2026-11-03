@@ -3,6 +3,7 @@ import test from 'node:test'
 import { buildAllocationPlan } from './allocator'
 import {
   cardOwedCents,
+  cardPaymentSources,
   countsInSafeToSpend,
   poolEarmarkedGoalsCents,
   safeToSpendPoolCents,
@@ -394,4 +395,18 @@ test('a card reads as owed money, and an overpaid card keeps its sign', () => {
     'a credit on the card is negative, not clamped to zero'
   )
   assert.equal(cardOwedCents(account({ kind: 'checking', balanceCents: 12_000 })), 12_000)
+})
+
+test('a card payment may only leave a real spendable balance', () => {
+  const sources = cardPaymentSources([
+    account({ id: 'chequing', name: 'Chequing', kind: 'checking' }),
+    account({ id: 'visa', name: 'Loftel Visa', kind: 'credit', balanceCents: -42_00 }),
+    account({ id: 'hsa', name: 'Index fund', kind: 'investment' }),
+    account({ id: 'old', name: 'Old Chequing', kind: 'checking', isArchived: true }),
+    account({ id: 'wallet', name: 'Cash', kind: 'cash' })
+  ])
+  assert.deepEqual(
+    sources.map((source) => source.id),
+    ['chequing', 'wallet']
+  )
 })

@@ -53,6 +53,19 @@ export function cardOwedCents(account: AccountWithBalance): number {
   return account.kind === 'credit' ? -account.balanceCents : account.balanceCents
 }
 
+/**
+ * The accounts a card payment can leave from. Another card cannot pay this one
+ * — that is a balance transfer, not a payment — and a holding is money the user
+ * has committed elsewhere, so only real spendable balances are offered.
+ */
+export function cardPaymentSources(
+  accounts: readonly AccountWithBalance[]
+): AccountWithBalance[] {
+  return accounts.filter(
+    (account) => !account.isArchived && account.kind !== 'credit' && account.kind !== 'investment'
+  )
+}
+
 /** Everything owned minus everything owed, across every live account kind. */
 export function totalWealthCents(accounts: readonly AccountWithBalance[]): number {
   return accounts.reduce(

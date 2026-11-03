@@ -1,8 +1,19 @@
 import { useMemo, useState } from 'react'
 import { Pencil, Plus } from 'lucide-react'
-import { countsInSafeToSpend } from '@shared/accounts'
+import {
+  cardOwedCents,
+  cardPaymentSources,
+  countsInSafeToSpend
+} from '@shared/accounts'
+import {
+  ADJUST_MODES,
+  adjustmentPresetsFor,
+  resolveAdjustBalance,
+  type AdjustMode,
+  type AdjustmentReason
+} from '@shared/adjustments'
 import { formatDateLabel, todayISO } from '@shared/dates'
-import { centsToEditable, formatMoney } from '@shared/money'
+import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
 import type { AccountKind, AccountWithBalance } from '@shared/types'
 import { validateAccountForm, type AccountFormProblems } from '@shared/writeRules'
 import {
@@ -23,6 +34,7 @@ import { usePocket, useSnapshot } from '../lib/store'
 import {
   accountEntryCount,
   createAccount,
+  createEntry,
   deleteAccount,
   patchAccount,
   setAccountArchived
@@ -470,16 +482,332 @@ function AccountFormSheet({
   )
 }
 
+/**
+ * What a card balance should read, entered the way the bank states it. The three
+ * answers — amount owed, room left, share of the limit in use — are resolved by
+ * the same shared function the desktop dialog uses, so both devices post the
+ * one adjustment entry that reaches the same target.
+ */
+function AdjustBalanceSheet({
+  account,
+  currency,
+  onClose
+}: {
+  account: AccountWithBalance
+  currency: string
+  onClose: () => void
+}) {
+  const add = usePocket((state) => state.add)
+  const edit = usePocket((state) => state.edit)
+  const { saving, error, setError, run } = useSheetSave(onClose)
+  const isCredit = account.kind === 'credit'
+  const owedCents = cardOwedCents(account)
+  const limitCents = account.creditLimitCents
+  const availableCents = limitCents === null ? null : limitCents - owedCents
+  const usedPercent =
+    limitCents !== null && limitCents > 0
+      ? Math.round((owedCents / limitCents) * 1000) / 10
+      : null
+  const canUseCreditModes = isCredit && limitCents !== null && limitCents > 0
+  const presets = adjustmentPresetsFor(account.kind)
+  const [mode, setMode] = useState<AdjustMode>('owed')
+  const [reason, setReason] = useState<AdjustmentReason>('correction')
+  const [value, setValue] = useState(centsToEditable(owedCents))
+  const [occurredOn, setOccurredOn] = useState(todayISO())
+
+  const resolved = resolveAdjustBalance(
+    { kind: account.kind, balanceCents: account.balanceCents, creditLimitCents: limitCents },
+    { mode, value, reason }
+  )
+  const preset = resolved.preset
+
+  const seedFor = (next: AdjustMode): string => {
+    if (next === 'available') return centsToEditable(availableCents ?? 0)
+    if (next === 'percent') return usedPercent === null ? '' : String(usedPercent)
+    return centsToEditable(owedCents)
+  }
+
+  const submit = () => {
+    const { problem, targetBalanceCents, deltaCents } = resolved
+    if (problem !== null || targetBalanceCents === null || deltaCents === null) {
+      setError(problem ?? 'Enter a balance')
+      return
+    }
+    if (deltaCents === 0) {
+      void run(() => edit((current) => current, 'That balance is already correct.'))
+      return
+    }
+    void run(() =>
+      add(
+        (current) =>
+          createEntry(current, {
+            accountId: account.id,
+            kind: 'adjustment',
+            amountCents: deltaCents,
+            occurredOn,
+            memo: preset.memo,
+            category: preset.category
+          }),
+        reason === 'correction' ? 'Balance adjusted.' : `${preset.memo} recorded.`
+      )
+    )
+  }
+
+  return (
+    <Sheet
+      title={`Adjust ${account.name}`}
+      hint="Posts one adjustment entry, so the change stays visible in the ledger."
+      onClose={onClose}
+    >
+      {canUseCreditModes ? (
+        <Field label="Adjust by" hint="Three ways to say the same thing about a card">
+          <select
+            className="input"
+            value={mode}
+            onChange={(event) => {
+              const next = event.target.value as AdjustMode
+              setMode(next)
+              setValue(seedFor(next))
+              setError(null)
+            }}
+          >
+            {ADJUST_MODES.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+      ) : null}
+
+      <Field label="What changed?" hint={preset.hint}>
+        <select
+          className="input"
+          value={reason}
+          onChange={(event) => {
+            setReason(event.target.value as AdjustmentReason)
+            setError(null)
+          }}
+        >
+          {presets.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </Field>
+
+      <Field
+        label={
+          mode === 'available'
+            ? 'Available credit now'
+            : mode === 'percent'
+              ? 'Utilization now'
+              : isCredit
+                ? 'Amount owed now'
+                : 'Balance now'
+        }
+        hint={
+          mode === 'percent'
+            ? 'Share of the limit in use, for example 42.5'
+            : isCredit && mode === 'owed'
+              ? 'Enter a negative amount if the card is overpaid'
+              : undefined
+        }
+      >
+        {mode === 'percent' ? (
+          <PercentInput value={value} onValueChange={setValue} />
+        ) : (
+          <MoneyInput allowNegative={mode === 'owed'} value={value} onValueChange={setValue} />
+        )}
+      </Field>
+
+      <Field label="Date">
+        <input
+          className="input"
+          type="date"
+          value={occurredOn}
+          onChange={(event) => setOccurredOn(event.target.value)}
+        />
+      </Field>
+
+      {resolved.owedAfterCents !== null &&
+      resolved.availableAfterCents !== null &&
+      resolved.usedPercentAfter !== null ? (
+        <p className="fine">
+          After saving: {formatMoney(resolved.owedAfterCents, currency)} owed ·{' '}
+          {formatMoney(resolved.availableAfterCents, currency)} available ·{' '}
+          {resolved.usedPercentAfter}% used
+        </p>
+      ) : null}
+      <p className="fine">
+        Recorded as “{preset.memo}” · {preset.category}
+      </p>
+      <p className="fine">
+        {isCredit
+          ? owedCents < 0
+            ? `Credit on the card: ${formatMoney(-owedCents, currency)}`
+            : `Current owed: ${formatMoney(owedCents, currency)}${
+                limitCents !== null ? ` · limit ${formatMoney(limitCents, currency)}` : ''
+              }`
+          : `Current balance: ${formatMoney(owedCents, currency)}`}
+        {isCredit && limitCents === null
+          ? ' · add a credit limit to adjust by available credit or utilization'
+          : ''}
+      </p>
+
+      {error ? (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+
+      <div className="sheet-actions">
+        <button type="button" className="button" disabled={saving} onClick={onClose}>
+          Cancel
+        </button>
+        <button type="button" className="button primary" disabled={saving} onClick={submit}>
+          {saving ? 'Posting…' : 'Post adjustment'}
+        </button>
+      </div>
+    </Sheet>
+  )
+}
+
+/**
+ * Paying a card is a transfer, not an expense: cash leaves one account and the
+ * debt drops in the other, so neither device double-counts the payment.
+ */
+function PayCardSheet({
+  card,
+  currency,
+  onClose
+}: {
+  card: AccountWithBalance
+  currency: string
+  onClose: () => void
+}) {
+  const snapshot = useSnapshot()
+  const add = usePocket((state) => state.add)
+  const { saving, error, setError, run } = useSheetSave(onClose)
+  const sources = cardPaymentSources(snapshot?.accounts ?? [])
+  const owed = accountDisplayBalanceCents(card)
+  const creditCents = Math.max(0, -cardOwedCents(card))
+  const [fromId, setFromId] = useState(sources[0]?.id ?? '')
+  const [amount, setAmount] = useState(centsToEditable(owed))
+  const [occurredOn, setOccurredOn] = useState(todayISO())
+
+  const submit = () => {
+    if (!fromId) {
+      setError('Choose the account the money leaves from')
+      return
+    }
+    const typed = parseMoneyToCents(amount)
+    if (typed === null || typed <= 0) {
+      setError('Enter a payment amount')
+      return
+    }
+    void run(() =>
+      add(
+        (current) =>
+          createEntry(current, {
+            accountId: fromId,
+            counterAccountId: card.id,
+            kind: 'transfer',
+            amountCents: typed,
+            occurredOn,
+            memo: `Payment · ${card.name}`,
+            category: 'Credit payment'
+          }),
+        'Card payment recorded.'
+      )
+    )
+  }
+
+  return (
+    <Sheet
+      title={`Pay ${card.name}`}
+      hint="Recorded as a transfer: cash leaves one account and the card balance falls."
+      onClose={onClose}
+    >
+      {sources.length > 0 ? (
+        <Field label="Pay from">
+          <select
+            className="input"
+            value={fromId}
+            onChange={(event) => {
+              setFromId(event.target.value)
+              setError(null)
+            }}
+          >
+            {sources.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+      ) : null}
+      <Field label="Amount">
+        <MoneyInput value={amount} onValueChange={setAmount} />
+      </Field>
+      <Field label="Date">
+        <input
+          className="input"
+          type="date"
+          value={occurredOn}
+          onChange={(event) => setOccurredOn(event.target.value)}
+        />
+      </Field>
+
+      <p className="fine">
+        {creditCents > 0
+          ? `The card is overpaid by ${formatMoney(creditCents, currency)}.`
+          : `Owed today: ${formatMoney(owed, currency)}`}
+      </p>
+      {sources.length === 0 ? (
+        <p className="form-error" role="alert">
+          No spendable account is available. Add or restore a checking, savings or cash account
+          before paying this card.
+        </p>
+      ) : null}
+      {error ? (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+
+      <div className="sheet-actions">
+        <button type="button" className="button" disabled={saving} onClick={onClose}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="button primary"
+          disabled={saving || sources.length === 0}
+          onClick={submit}
+        >
+          {saving ? 'Recording…' : 'Record payment'}
+        </button>
+      </div>
+    </Sheet>
+  )
+}
+
 function AccountSheet({
   account,
   currency,
   onEdit,
+  onAdjust,
+  onPayCard,
   onRequestDelete,
   onClose
 }: {
   account: AccountWithBalance
   currency: string
   onEdit: () => void
+  onAdjust: () => void
+  onPayCard: () => void
   onRequestDelete: () => void
   onClose: () => void
 }) {
@@ -602,6 +930,18 @@ function AccountSheet({
       ) : null}
 
       <div className="card-actions">
+        {!account.isArchived ? (
+          <>
+            <button type="button" className="button compact" disabled={saving} onClick={onAdjust}>
+              Adjust balance
+            </button>
+            {account.kind === 'credit' ? (
+              <button type="button" className="button compact" disabled={saving} onClick={onPayCard}>
+                Pay this card
+              </button>
+            ) : null}
+          </>
+        ) : null}
         <button type="button" className="button compact" disabled={saving} onClick={onEdit}>
           <Pencil size={15} aria-hidden="true" /> Edit
         </button>
@@ -643,6 +983,8 @@ export function Accounts() {
   const edit = usePocket((state) => state.edit)
   const [opened, setOpened] = useState<AccountWithBalance | null>(null)
   const [form, setForm] = useState<AccountWithBalance | 'new' | null>(null)
+  const [adjusting, setAdjusting] = useState<AccountWithBalance | null>(null)
+  const [paying, setPaying] = useState<AccountWithBalance | null>(null)
   const [pendingDelete, setPendingDelete] = useState<AccountWithBalance | null>(null)
   if (!snapshot) return null
 
@@ -791,8 +1133,34 @@ export function Accounts() {
             setForm(openedAccount)
             setOpened(null)
           }}
+          onAdjust={() => {
+            setAdjusting(openedAccount)
+            setOpened(null)
+          }}
+          onPayCard={() => {
+            setPaying(openedAccount)
+            setOpened(null)
+          }}
           onRequestDelete={() => setPendingDelete(openedAccount)}
           onClose={() => setOpened(null)}
+        />
+      ) : null}
+
+      {adjusting ? (
+        <AdjustBalanceSheet
+          account={
+            snapshot.accounts.find((account) => account.id === adjusting.id) ?? adjusting
+          }
+          currency={currency}
+          onClose={() => setAdjusting(null)}
+        />
+      ) : null}
+
+      {paying ? (
+        <PayCardSheet
+          card={snapshot.accounts.find((account) => account.id === paying.id) ?? paying}
+          currency={currency}
+          onClose={() => setPaying(null)}
         />
       ) : null}
 

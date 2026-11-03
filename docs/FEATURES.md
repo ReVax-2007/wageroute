@@ -439,17 +439,19 @@ The dialog asks **What changed?** first. The answer decides the ledger memo and 
 | Investment gain | Investment gain | Investing | Investment |
 | Investment loss | Investment loss | Investing | Investment |
 
-A gain or earned interest must raise the balance, and a loss or charged interest must lower it; the dialog refuses the opposite direction instead of mislabelling it.
+A gain or earned interest must raise the balance, and a loss or charged interest must lower it; the form refuses the opposite direction instead of mislabelling it.
 
 It also takes a target balance and a date. On a credit card there are three ways to say the same thing:
 
 | Mode | You type | Target owed becomes |
 | --- | --- | --- |
-| Balance owed | The amount owed | The typed amount |
+| Amount owed | The amount owed | The typed amount |
 | Available credit | The unused part of the limit | `limit − typed` |
-| Utilisation percent | How full the card is (0–100); typing `5` means five per cent | `round(limit × typed / 100)` |
+| Utilization | How full the card is (0–100); typing `5` means five per cent | `round(limit × typed / 100)` |
 
-Available credit and percent need a credit limit; without one the dialog stays in balance mode. Every mode previews the resulting balance, available credit and utilisation before saving, and clamps available credit and percent at zero.
+Available credit and utilization need a credit limit; without one the form only offers the amount itself. Every mode previews the resulting owed, available and utilisation figures before saving, and clamps available credit and percent at zero.
+
+All of that lives in one shared function, `resolveAdjustBalance` in `src/shared/adjustments.ts`, which the desktop dialog and the phone sheet call alike: it returns the target in the ledger's signed cents, the delta, the one-sentence refusal, and the figures for the preview, so neither device can read the same typing differently.
 
 It then computes:
 
@@ -457,17 +459,17 @@ It then computes:
 delta = target − current derived balance
 ```
 
-If the delta is zero, it reports “That balance is already correct” and writes nothing. Otherwise it posts one `adjustment` transaction for the delta with memo “Balance adjustment” and category “Adjustment”. For a credit card, the typed amount owed is negated before comparison — a negative “owed” entry records a credit balance in the card's favour.
+If the delta is zero, it reports “That balance is already correct” and writes nothing. Otherwise it posts one `adjustment` transaction for the delta, carrying the chosen reason's memo and category — “Interest earned” as Income, “Investment loss” as Investing, and a plain fix as “Balance adjustment” under Adjustment. For a credit card, the typed amount owed is negated before comparison — a negative “owed” entry records a credit balance in the card's favour.
 
 This keeps every correction visible in the spreadsheet.
 
 ### Pay a credit card
 
-Available on credit accounts only.
+Available on live credit accounts only, on either device.
 
-- Source accounts are active, non-credit, non-investment accounts.
+- Source accounts come from `cardPaymentSources` in `src/shared/accounts.ts`: active, non-credit, non-investment accounts. With none of them, the form names the problem and the button stays off.
 - The default amount is the current amount owed.
-- The action posts a paired `transfer`: negative leg on the source, positive leg on the card, memo `Payment · <card name>`, category `Credit payment`.
+- The action posts a paired `transfer`: negative leg on the source, positive leg on the card, memo `Payment · <card name>`, category `Credit payment` (which both writers fold into the internal **Debt** category).
 - Paying more than owed is allowed; the card balance becomes positive and displays as zero owed.
 
 ### Which accounts a picker offers
@@ -787,7 +789,7 @@ The welcome screen asks for a WageRoute backup file and explains where to get on
 | **Home** | Safe to Spend with spendable accounts, bills still due, goals money and unsettled routing; cash on hand and total wealth; next payday; bills due in the next 14 days; the first three goals; every live account; entry count and import date |
 | **Bills** | Monthly bill total and per-paycheck reserve; each open bill with its next due date (from the same recurrence engine the desktop uses), account, amount and a **Due**, **Set aside** or **Paid** state; a part payment reads **Part paid** with the amount already taken, and a card payment settles the bill while Safe to Spend still holds the cash for the card. A bill opens a sheet with **Mark paid**, **Pause**, **Edit** and **Delete**, and **Add** sits above the list |
 | **Goals** | Funded total, progress, each goal's target, remaining and target date; a goal opens a sheet with **Edit**, **Archive** and **Delete**, and archived goals stay listed under their own heading until they are brought back |
-| **Accounts** | Total wealth, cash on hand, card debt and the room left on the cards, with a utilisation meter on each card row; an account opens a sheet with its balance, opening balance, limit, available, used, APR, minimum payment, statement close and due days, what is due now and the payoff at the minimum, plus **Edit**, **Archive** / **Bring back** and **Remove**; archived accounts keep their own heading until brought back |
+| **Accounts** | Total wealth, cash on hand, card debt and the room left on the cards, with a utilisation meter on each card row; an account opens a sheet with its balance, opening balance, limit, available, used, APR, minimum payment, statement close and due days, what is due now and the payoff at the minimum, plus **Adjust balance** and — on a card — **Pay this card**, then **Edit**, **Archive** / **Bring back** and **Remove**; archived accounts keep their own heading until brought back |
 | **Entries** | The ledger grouped by date, with paired transfers shown as two legs; **Add** opens the entry sheet and a row opens it again for editing or removal |
 | **Data** | File facts, last merge notes, open a newer backup, export, install, privacy and forget |
 
@@ -801,7 +803,7 @@ Bills, goals, accounts and entries have real editors on the phone, and they writ
 
 **Goals.** Add or edit a goal's name, target, remaining date, priority, pace, funding accounts and deposit account; archive and restore it. Deleting a goal releases the accounts dedicated to it.
 
-**Accounts.** Add or edit an account's name, bank, type, starting balance, the purpose choices (mine only for one goal, and whether it counts as spending money) and its colour. A credit card also takes its limit, APR, minimum payment, last statement balance and the two cycle days, and the sheet reads them back as the facts the desktop shows: what is owed, what is still available, the percentage used, when the statement closes and the payment is due, what is due now, and how long the balance takes to clear at the minimum. The type is locked once the account exists, on either device — the entries behind it were written as a different instrument. What you owe is never edited in place: the sheet says to record an adjustment entry instead, so the opening balance stays the figure the account started with. Archive keeps every entry and can be undone; **Remove** asks first and offers *Archive instead*, and deleting an account that has entries deletes them with it, counting them in the button the way the desktop does.
+**Accounts.** Add or edit an account's name, bank, type, starting balance, the purpose choices (mine only for one goal, and whether it counts as spending money) and its colour. A credit card also takes its limit, APR, minimum payment, last statement balance and the two cycle days, and the sheet reads them back as the facts the desktop shows: what is owed, what is still available, the percentage used, when the statement closes and the payment is due, what is due now, and how long the balance takes to clear at the minimum. The type is locked once the account exists, on either device — the entries behind it were written as a different instrument. What you owe is never edited in place either: **Adjust balance** posts an adjustment entry instead, so the opening balance stays the figure the account started with. It asks **What changed?** from the reasons that account type can honestly carry, then takes the new figure and a date; on a card with a limit it also lets the figure be typed as available credit or as a utilization percentage, and previews the owed, available and used figures before saving. **Pay this card** sits beside it on a card and records a real payment — a transfer out of a spendable account and onto the card, both legs in the ledger, cash down and the debt down by the same amount, total wealth unmoved. Both sheets answer a bad typing with the desktop's own sentence, and both hide themselves on an archived account, which the desktop does too. Archive keeps every entry and can be undone; **Remove** asks first and offers *Archive instead*, and deleting an account that has entries deletes them with it, counting them in the button the way the desktop does.
 
 **Entries.** **Add** offers every kind the desktop has — expense, income, transfer, bill payment, goal funding, investment, adjustment — with an amount, a live account, a date up to today and an optional note. The category field takes one you already use or a new name, and a new name creates the category exactly as the desktop's entry dialog does. The amount uses the same money sanitiser as the desktop: separators survive typing and the field settles on one exact form when it is left. A transfer writes both legs with a shared group and crossed counterpart accounts; a purchase that rounds up writes its sweep. Editing an entry changes what the sheet offers: a transfer leg or a round-up sweep keeps its account and kind locked and says why, because those rows are half of a pair the ledger only reads together.
 

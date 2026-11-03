@@ -1,3 +1,5 @@
+import { owedCentsAtUtilization, parseUtilizationPercent } from './credit'
+import { parseMoneyToCents } from './money'
 import type { AccountKind } from './types'
 
 export type AdjustmentReason =
@@ -81,4 +83,115 @@ export function adjustmentFor(reason: AdjustmentReason): { memo: string; categor
   return preset
     ? { memo: preset.memo, category: preset.category }
     : { memo: 'Balance adjustment', category: 'Adjustment' }
+}
+
+/** Which of a card's three figures the person is typing into. */
+export type AdjustMode = 'owed' | 'available' | 'percent'
+
+export const ADJUST_MODES: readonly { value: AdjustMode; label: string }[] = [
+  { value: 'owed', label: 'Amount owed' },
+  { value: 'available', label: 'Available credit' },
+  { value: 'percent', label: 'Utilization' }
+]
+
+export interface AdjustBalanceContext {
+  kind: AccountKind
+  balanceCents: number
+  creditLimitCents: number | null
+}
+
+export interface AdjustBalanceForm {
+  mode: AdjustMode
+  /** Raw text from the money or the percentage field, exactly as typed. */
+  value: string
+  reason: AdjustmentReason
+}
+
+export interface AdjustBalanceResult {
+  /** One sentence, in the desktop's own words, when the answer cannot be used. */
+  problem: string | null
+  preset: AdjustmentPreset
+  /** The mode the form can actually offer — a card without a limit has one. */
+  mode: AdjustMode
+  /** What the account balance becomes, in the ledger's signed cents. */
+  targetBalanceCents: number | null
+  deltaCents: number | null
+  owedAfterCents: number | null
+  availableAfterCents: number | null
+  usedPercentAfter: number | null
+}
+
+/**
+ * One reading of the adjust-balance form, used by the desktop dialog and the
+ * phone sheet alike.
+ *
+ * A card is stored as a negative balance and shown as money owed, and a bank
+ * answers "what do you want the card to say" three different ways — the amount
+ * owed, the room left under the limit, or the percentage of it in use. Every
+ * answer is resolved to an owed figure first and flipped into the ledger's sign
+ * last, so the same target is reached whichever box was typed into. Utilisation
+ * is percentage points, never money: `5` means five per cent of the limit, and
+ * reading it as cents would ask for fifty times the card.
+ */
+export function resolveAdjustBalance(
+  context: AdjustBalanceContext,
+  form: AdjustBalanceForm
+): AdjustBalanceResult {
+  const presets = adjustmentPresetsFor(context.kind)
+  const preset = presets.find((candidate) => candidate.value === form.reason) ?? presets[0]
+  const isCredit = context.kind === 'credit'
+  const limit = context.creditLimitCents
+  // Room left and utilisation both describe a limit. Without one the form only
+  // has the amount itself, on either device.
+  const canUseCreditModes = isCredit && limit !== null && limit > 0
+  const mode: AdjustMode = canUseCreditModes ? form.mode : 'owed'
+
+  const refused = (problem: string): AdjustBalanceResult => ({
+    problem,
+    preset,
+    mode,
+    targetBalanceCents: null,
+    deltaCents: null,
+    owedAfterCents: null,
+    availableAfterCents: null,
+    usedPercentAfter: null
+  })
+
+  let owedCents: number
+  if (mode === 'percent') {
+    const percent = parseUtilizationPercent(form.value)
+    const derived = percent === null || limit === null ? null : owedCentsAtUtilization(limit, percent)
+    if (derived === null) return refused('Enter a utilization percentage')
+    owedCents = derived
+  } else {
+    const typed = parseMoneyToCents(form.value)
+    if (typed === null) return refused('Enter a balance')
+    owedCents = mode === 'available' && limit !== null ? limit - typed : typed
+  }
+
+  const targetBalanceCents = Math.round(isCredit ? -owedCents : owedCents)
+  const deltaCents = targetBalanceCents - context.balanceCents
+  const raises = form.reason === 'investment_gain' || form.reason === 'interest_earned'
+  const lowers = form.reason === 'investment_loss' || form.reason === 'interest_charged'
+  if (raises && deltaCents < 0) {
+    return refused(`${preset.label} should raise the balance. Pick a loss or interest charged instead.`)
+  }
+  if (lowers && deltaCents > 0) {
+    return refused(`${preset.label} should lower the balance. Pick a gain or interest earned instead.`)
+  }
+
+  return {
+    problem: null,
+    preset,
+    mode,
+    targetBalanceCents,
+    deltaCents,
+    owedAfterCents: canUseCreditModes ? owedCents : null,
+    availableAfterCents:
+      canUseCreditModes && limit !== null ? Math.max(0, limit - owedCents) : null,
+    usedPercentAfter:
+      canUseCreditModes && limit !== null
+        ? Math.max(0, Math.round((owedCents / limit) * 1000) / 10)
+        : null
+  }
 }
