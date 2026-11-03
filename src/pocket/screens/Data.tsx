@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Download, FolderInput, ShieldCheck, Smartphone, Trash2 } from 'lucide-react'
-import { formatDateLabel, todayISO } from '@shared/dates'
+import { formatDateLabel, localDateISO, todayISO } from '@shared/dates'
 import { PickBackup } from '../components/PickBackup'
 import { Sheet } from '../components/Sheet'
 import { isAppleTouch, useInstallPrompt } from '../lib/install'
@@ -51,11 +51,11 @@ export function Data() {
           </div>
           <div>
             <dt>Imported</dt>
-            <dd>{importedAt ? formatDateLabel(importedAt.slice(0, 10)) : 'Unknown'}</dd>
+            <dd>{importedAt ? formatDateLabel(localDateISO(importedAt)) : 'Unknown'}</dd>
           </div>
           <div>
             <dt>Backup from</dt>
-            <dd>{exportedAt ? formatDateLabel(exportedAt.slice(0, 10)) : 'Unknown'}</dd>
+            <dd>{exportedAt ? formatDateLabel(localDateISO(exportedAt)) : 'Unknown'}</dd>
           </div>
           <div>
             <dt>Entries</dt>

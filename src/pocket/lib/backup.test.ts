@@ -66,7 +66,10 @@ test('a same-version file with an unknown kind is refused instead of coerced', (
 test('dollars pasted into a cents column are refused, not rounded', () => {
   const raw = JSON.parse(example) as { tables: { transactions: Record<string, unknown>[] } }
   raw.tables.transactions[0].amount_cents = -12.5
-  assert.throws(() => parseBackup(JSON.stringify(raw)), /amount that is not a whole number/)
+  assert.throws(
+    () => parseBackup(JSON.stringify(raw)),
+    /an amount that is not a whole number/
+  )
 })
 
 test('whole numbers spelled as strings still open', () => {

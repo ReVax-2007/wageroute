@@ -288,8 +288,9 @@ function planMoveTargetsOf(raw: unknown): PlanMoveTarget[] {
 }
 
 function defaultFile(name: string): string {
-  const stamp = new Date().toISOString().slice(0, 10)
-  return join(app.getPath('documents'), name.replace('DATE', stamp))
+  // The filename names the owner's day, not the UTC day: an evening export in
+  // New York used to be stamped with tomorrow's date.
+  return join(app.getPath('documents'), name.replace('DATE', todayISO()))
 }
 
 /**

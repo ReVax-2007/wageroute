@@ -13,7 +13,7 @@ import {
 } from 'react-data-grid'
 import { categoryKey } from '@shared/categories'
 import { formatDateLabel } from '@shared/dates'
-import { formatMoney, centsToEditable, parseMoneyToCents, sanitizeMoneyInput } from '@shared/money'
+import { formatMoney, centsToEditable, canonicalMoneyInput, parseMoneyToCents, sanitizeMoneyInput } from '@shared/money'
 import type {
   AccountWithBalance,
   Category,
@@ -318,7 +318,9 @@ function MoneyEditor({ row, onRowChange, onClose }: RenderEditCellContentProps<T
   const commit = (close: boolean) => {
     if (settled.current) return
     settled.current = true
-    const cents = parseMoneyToCents(value)
+    // The field keeps separators while it is typed, so the last keystroke may
+    // still be `12,`; settle it the way the dialogs do before reading it.
+    const cents = parseMoneyToCents(canonicalMoneyInput(value, { allowNegative: true }))
     if (cents === null) {
       onClose(false)
       return
