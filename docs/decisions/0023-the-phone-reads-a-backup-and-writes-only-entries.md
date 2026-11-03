@@ -1,6 +1,8 @@
 # 0023 — The phone reads a backup and writes only entries
 
-**Status:** Accepted (2026-11-02)
+**Status:** Superseded by [ADR 0024](0024-two-copies-merge-by-time.md) (2026-11-02)
+
+> *Historical record.* This ADR describes the additive-only phone as it was decided. [ADR 0024](0024-two-copies-merge-by-time.md) replaces the write model: Pocket merges a backup in both directions and deletes rows that came from the desktop. The points below are kept as they were written; do not read them as current behaviour.
 
 ## Context
 

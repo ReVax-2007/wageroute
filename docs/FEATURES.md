@@ -774,7 +774,7 @@ A pointer card to Sinking funds; the calculator itself lives there.
 
 ## Pocket (phone)
 
-Pocket is an optional, installable web app built from the same repository. It is not a second ledger and never syncs: it opens one backup, works from a copy in the browser, and hands entries back through an additive export.
+Pocket is an optional, installable web app built from the same repository. It is not a second ledger and never syncs: it opens one backup, works from a copy in the browser, and merges with the desktop through the same backup file in both directions. A record changed on either side is carried across by the next file, with the newer copy winning.
 
 ### First run and storage
 
@@ -788,23 +788,27 @@ The welcome screen asks for a WageRoute backup file and explains where to get on
 | **Bills** | Monthly bill total and per-paycheck reserve; each open bill with its next due date (from the same recurrence engine the desktop uses), account, amount and a **Due**, **Set aside** or **Paid** state; a part payment reads **Part paid** with the amount already taken, and a card payment settles the bill while Safe to Spend still holds the cash for the card |
 | **Goals** | Funded total, progress, each goal's target, remaining and target date |
 | **Entries** | The ledger grouped by date, with paired transfers shown as two legs; **Add** opens the entry sheet |
-| **Data** | File facts, replace, export, install, privacy and forget |
+| **Data** | File facts, last merge notes, open a newer backup, export, install, privacy and forget |
 
 Every figure is calculated with the desktop's shared functions: the snapshot derives balances from live entries, cash restricts them to today, the wall subtracts the month's unpaid claims, goals read allocation lines or their dedicated account balance, and Safe to Spend subtracts the same pool, wall, goal money and unsettled routing. A parity test compares the phone with a desktop snapshot of the same database.
 
 ### Adding an entry
 
-**Add** offers expense or income, an amount, a live non-credit account, an existing category, a date up to today and an optional note. The amount uses the same money sanitiser as the desktop: separators survive typing and the field settles on one exact form when it is left. Expense rows receive a negative cents value and income rows a positive one. A new UUID is written with revision 1 and recorded as a local id. The entry appears in the ledger and lowers or raises the balance and Safe to Spend immediately. A local entry can be removed on the phone with a confirmation; removing it only affects the browser copy. A row that came from the desktop cannot be removed here: the additive export has no way to carry a deletion, so the app says to remove it on the computer and open a new backup.
+**Add** offers expense or income, an amount, a live non-credit account, an existing category, a date up to today and an optional note. The amount uses the same money sanitiser as the desktop: separators survive typing and the field settles on one exact form when it is left. Expense rows receive a negative cents value and income rows a positive one. A new UUID is written with revision 1 and recorded as a local id. The entry appears in the ledger and lowers or raises the balance and Safe to Spend immediately.
 
-The phone deliberately cannot record a bill payment, edit a desktop row or delete one. A bill payment has to settle the claim the desktop wrote, and an additive import cannot carry a settlement, an edit or a deletion. Offering those buttons would produce a file that either lies or loses the change.
+Any live entry can be removed here, whether it was added on the phone or arrived from the computer. The removal is written as a tombstone (`deleted_at` set, `updated_at` and `revision` bumped) rather than dropping the row, so the next export carries the deletion to the desktop. A transfer takes its other leg with it and a purchase takes its round-up, matching the desktop's delete, so a half-pair cannot be left behind.
+
+The phone still cannot record a bill payment: a payment has to settle the claim the desktop wrote, and that settlement is not a plain entry. That remains an edit on the computer.
 
 ### Exporting back
 
-**Data → Export a backup** writes the original tables with the phone's entries appended, under `wageroute-pocket-<date>.json` at the imported schema version. Import that file on the computer with the normal Import wizard: ids already present are skipped, settings keep their local values, and each phone entry lands once. Exporting twice is safe; the second import adds nothing.
+**Data → Export a backup** writes every table as the phone now holds it, including tombstones, under `wageroute-pocket-<date>.json` at the highest schema version the phone has seen. Import that file on the computer with the normal Import wizard. The merge adds rows the computer does not have, replaces a row when the phone's copy is newer, and applies a newer deletion; a row the computer changed more recently stays as it is. Settings merge per key under the same rule. The toast reports how many rows were added, updated and removed. Importing the same file twice is safe: the second pass has nothing newer to apply.
+
+Opening a second backup on the phone merges the same way, so a desktop export does not overwrite entries added on the phone since the last import. The Data screen shows **Imported** and **Backup from** separately, and lists any notes from the last merge, such as a category name that already existed under another id.
 
 ### Installing and limits
 
-The built folder is static. On a browser that offers `beforeinstallprompt`, Data shows **Add WageRoute to this phone**; on iOS it explains Share → Add to Home Screen; otherwise it names the browser menu. The service worker caches the shell and its hashed bundles, so the app opens offline, and navigation is network-first so a release lands on the next open. Replacing the file and **Forget this phone** both confirm first and count the local entries that would be lost; if storage refuses the erase, the screen clears but the app says the stored copy may remain. Pocket has no analytics, remote font, third-party request or upload; the production page carries a same-origin CSP. The app cannot merge two phone copies, reconcile a conflict or read a file from the desktop automatically.
+The built folder is static. On a browser that offers `beforeinstallprompt`, Data shows **Add WageRoute to this phone**; on iOS it explains Share → Add to Home Screen; otherwise it names the browser menu. The service worker caches the shell and its hashed bundles, so the app opens offline, and navigation is network-first so a release lands on the next open. Opening another backup and **Forget this phone** both confirm first; the merge confirmation names the entries added here that could still be replaced by a newer copy in the file, and the forget confirmation counts what would be lost. If storage refuses the erase, the screen clears but the app says the stored copy may remain. Pocket has no analytics, remote font, third-party request or upload; the production page carries a same-origin CSP. The app cannot merge two phone copies, show which side won a conflict, or read a file from the desktop automatically: the person carries the file. It keeps no field-level history, so editing the same record on both devices keeps the newer edit and silently drops the other; that rule is recorded in [ADR 0024](decisions/0024-two-copies-merge-by-time.md).
 
 ---
 
@@ -894,7 +898,7 @@ All domain dates are constructed as UTC dates from `YYYY-MM-DD` strings. “Toda
 | Bill payment prompts | Implemented | Session-only, per-occurrence snooze |
 | 90-day projections | Implemented | Bills and goal deadlines |
 | Dark/light/system themes | Implemented | Tri-state, follows `prefers-color-scheme` live |
-| JSON backup, partial JSON import | Implemented | Additive |
+| JSON backup, partial JSON import | Implemented | Merged by record: newer copy wins, newer deletes apply, omitted rows are untouched |
 | CSV export and entries import | Implemented | Export covers the whole ledger; Debit/Credit columns are read |
 | Statement import (OFX/QFX bank, card and loan, QIF, account-less CSV) | Implemented | Destinations chosen in the wizard; `FITID`/reference dedupe; closing balance compared and optionally reconciled with one adjustment; investment cash lines import while trades and holdings are reported |
 | Keyboard dialogs and focus management | Implemented | Trap, Escape, focus restore, skip link, named headings |

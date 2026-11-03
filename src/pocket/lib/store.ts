@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { ImportTables } from '@shared/importRepair'
 import { todayISO, isISODate } from '@shared/dates'
+import { describeMerge, mergeTables } from '@shared/tableMerge'
 import type { Snapshot } from '@shared/types'
 import {
   BackupFileError,
@@ -26,6 +27,8 @@ interface PocketState {
   localIds: string[]
   notice: string | null
   error: string | null
+  /** Reasons the last merge could not take a row exactly as the file sent it. */
+  warnings: string[]
   /** True when the imported file came from a newer desktop schema. */
   newerSchema: boolean
   load: () => Promise<void>
@@ -40,6 +43,35 @@ interface PocketState {
 
 function summarise(message: string): string {
   return message.endsWith('.') ? message : `${message}.`
+}
+
+function isLiveRow(row: Record<string, unknown>): boolean {
+  const deleted = row.deleted_at
+  return deleted === undefined || deleted === null || deleted === ''
+}
+
+/**
+ * A delete that travels: the row stays in the table with `deleted_at` set, so
+ * the next export carries the removal to the computer. Like a desktop edit,
+ * the stamp is never older than the row it replaces; the revision decides a
+ * tie when two clocks land on the same instant.
+ */
+function tombstoneRow(row: Record<string, unknown>, nowISO: string): Record<string, unknown> {
+  const previous = typeof row.updated_at === 'string' ? Date.parse(row.updated_at) : Number.NaN
+  const now = Date.parse(nowISO)
+  const stamp =
+    Number.isFinite(previous) && previous >= now ? new Date(previous + 1).toISOString() : nowISO
+  const revision =
+    typeof row.revision === 'number' && Number.isFinite(row.revision) ? row.revision : 0
+  return { ...row, deleted_at: stamp, updated_at: stamp, revision: revision + 1 }
+}
+
+function liveIdsOf(tables: ImportTables): Set<string> {
+  const ids = new Set<string>()
+  for (const row of tables.transactions) {
+    if (isLiveRow(row) && typeof row.id === 'string') ids.add(row.id)
+  }
+  return ids
 }
 
 function storageMessage(error: unknown, prefix = 'Saved on this screen only'): string {
@@ -91,6 +123,7 @@ export const usePocket = create<PocketState>((set, get) => {
     localIds: [],
     notice: null,
     error: null,
+    warnings: [],
     newerSchema: false,
 
     load: async () => {
@@ -137,27 +170,68 @@ export const usePocket = create<PocketState>((set, get) => {
       const importedAt = new Date().toISOString()
       const exportedAt =
         isISODate(backup.exportedAt.slice(0, 10)) ? backup.exportedAt : importedAt
+      const current = get()
+      if (!current.tables) {
+        set({
+          status: 'ready',
+          tables: backup.tables,
+          version: backup.version,
+          importedAt,
+          exportedAt,
+          sourceName: name,
+          localIds: [],
+          warnings: [],
+          newerSchema: backup.version > KNOWN_BACKUP_VERSION,
+          error: null,
+          notice: null
+        })
+        try {
+          await persist(get())
+          set({ notice: 'Your ledger is on this phone now. It stays here.' })
+        } catch (error) {
+          // The file opened and its numbers are on screen, but it will not
+          // survive a reload. Say that rather than claiming it was stored.
+          set({
+            error: storageMessage(error, 'Opened, but this phone could not store it')
+          })
+        }
+        return
+      }
+
+      // A second file is merged, not swapped in: edits made here and edits made
+      // on the computer both survive, with the newer version of a row winning.
+      // Replacing the copy would silently undo everything typed on this phone
+      // since the last import. The file's own export time caps its stamps, so
+      // this device and the computer judge the same row the same way.
+      const merged = mergeTables(current.tables, backup.tables, importedAt, backup.exportedAt)
+      const version = Math.max(current.version, backup.version)
+      const live = liveIdsOf(merged.tables)
+      const summary = describeMerge(merged.counts)
       set({
         status: 'ready',
-        tables: backup.tables,
-        version: backup.version,
+        tables: merged.tables,
+        version,
         importedAt,
         exportedAt,
         sourceName: name,
-        localIds: [],
-        newerSchema: backup.version > KNOWN_BACKUP_VERSION,
+        localIds: current.localIds.filter((id) => live.has(id)),
+        warnings: merged.warnings,
+        newerSchema: version > KNOWN_BACKUP_VERSION,
         error: null,
         notice: null
       })
       try {
         await persist(get())
-        set({ notice: 'Your ledger is on this phone now. It stays here.' })
-      } catch (error) {
-        // The file opened and its numbers are on screen, but it will not
-        // survive a reload. Say that rather than claiming it was stored.
+        const notes = merged.warnings.length
         set({
-          error: storageMessage(error, 'Opened, but this phone could not store it')
+          notice: summarise(
+            notes === 0
+              ? `Merged: ${summary}`
+              : `Merged: ${summary} · ${notes} ${notes === 1 ? 'note' : 'notes'} on Data`
+          )
         })
+      } catch (error) {
+        set({ error: storageMessage(error, 'Merged on screen, but this phone could not store it') })
       }
     },
 
@@ -176,23 +250,32 @@ export const usePocket = create<PocketState>((set, get) => {
     deleteEntry: async (id) => {
       const current = get()
       if (!current.tables) return
-      // Only entries this phone added may be removed. Desktop rows cannot be
-      // expressed as a deletion in the additive export, so deleting one here
-      // would only hide it until the next backup replaces the copy.
-      if (!current.localIds.includes(id)) {
-        set({
-          error: 'That entry came from your computer. Remove it there, then open a new backup here.'
-        })
-        return
+      const live = current.tables.transactions.filter(isLiveRow)
+      const target = live.find((row) => row.id === id)
+      if (!target) return
+      // The ledger hides the other side of a transfer and the sweep a purchase
+      // rounded up, so removing one row has to retire its partners too. A
+      // half-pair left behind would read as money that moved on its own.
+      const targets = new Set<string>([id])
+      const group =
+        typeof target.transfer_group_id === 'string' ? target.transfer_group_id : ''
+      for (const row of live) {
+        if (typeof row.id !== 'string') continue
+        if (group && row.transfer_group_id === group) targets.add(row.id)
+        if (row.round_up_source_id === id) targets.add(row.id)
       }
-      const tables: ImportTables = {
-        ...current.tables,
-        transactions: current.tables.transactions.filter((row) => row.id !== id)
-      }
+      const now = new Date().toISOString()
+      const transactions = current.tables.transactions.map((row) =>
+        typeof row.id === 'string' && targets.has(row.id) && isLiveRow(row)
+          ? tombstoneRow(row, now)
+          : row
+      )
+      const tables: ImportTables = { ...current.tables, transactions }
+      const remaining = liveIdsOf(tables)
       await commit(
         tables,
-        current.localIds.filter((entryId) => entryId !== id),
-        'Entry removed.'
+        current.localIds.filter((entryId) => remaining.has(entryId)),
+        targets.size === 1 ? 'Entry removed.' : `${targets.size} entries removed.`
       )
     },
 
@@ -215,6 +298,7 @@ export const usePocket = create<PocketState>((set, get) => {
         localIds: [],
         notice: failure ? null : 'This phone no longer holds your ledger.',
         error: failure,
+        warnings: [],
         newerSchema: false
       })
     },

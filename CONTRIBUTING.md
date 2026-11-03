@@ -53,7 +53,7 @@ For migration or import tests, work on a **copy** of a database, never the live 
 - **Do not weaken security controls** — renderer sandbox, context isolation, CSP, import size/row caps, column allowlists, navigation denial or permission denial — to make a feature work. Discuss the need first.
 - **SQL is parameterised.** Never interpolate user input into SQL, including identifiers.
 - **Migrations are append-only.** Never edit an existing migration. Add a new version, preserve existing rows, test on a previous-schema database copy, and keep backup compatibility honest.
-- **Imports stay additive.** Do not turn them into destructive restores or silent overwrites without an accepted ADR.
+- **Imports merge; they never replace the ledger.** A file may add a row or replace one only when its copy is newer, but it must never wipe or truncate unrelated data. No destructive restore and no silent overwrite without an accepted ADR ([ADR 0003](docs/decisions/0003-additive-imports.md), [ADR 0024](docs/decisions/0024-two-copies-merge-by-time.md)).
 - **Delete means soft delete.** Preserve tombstones unless a change explicitly addresses purge/compaction.
 - **No new network calls, telemetry, analytics or crash reporting.** WageRoute is local-only by design.
 - **UI changes are tested manually.** Check dark and light, the empty state, the failure path, and the 1060×700 minimum window. Include a screenshot in the pull request when appearance changes.

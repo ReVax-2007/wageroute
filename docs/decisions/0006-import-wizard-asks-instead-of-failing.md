@@ -27,7 +27,7 @@ Keep the additive merge of ADR 0003 unchanged in intent. Change *how* a defectiv
 
 ### Per-row failure, not per-file
 
-Each row is inserted inside its own `try/catch`. A row SQLite refuses becomes an entry in `issues`; every other row still lands. The `INSERT OR IGNORE`-style skip-by-ID, the preserved UUIDs, `TABLE_DEFAULTS` for absent columns and `TABLE_COLUMNS` allowlists all stay as ADR 0003 defined them.
+Each row is inserted inside its own `try/catch`. A row SQLite refuses becomes an entry in `issues`; every other row still lands. The merge by id (a newer copy replaces an older one, [ADR 0024](0024-two-copies-merge-by-time.md)), the preserved UUIDs, `TABLE_DEFAULTS` for absent columns and `TABLE_COLUMNS` allowlists all stay as ADR 0003 defined them.
 
 ### Detection is pure and shared
 
@@ -43,12 +43,12 @@ Pending imports live in a module-scope map, capped at 8 with FIFO eviction, sing
 
 ## What changes relative to ADR 0003
 
-ADR 0003's additive principles all stand. Two of its mechanical claims are superseded:
+ADR 0003's merge principles all stand, as amended by [ADR 0024](0024-two-copies-merge-by-time.md). Two of its mechanical claims were superseded here:
 
 - "Links to rows that are absent locally fail the foreign-key check and abort the transaction" — such a link is now **a question**, answered by picking a local row, clearing the reference where the column is nullable, or leaving the row out.
 - "The whole merge runs in one transaction. Any failure rolls back every row from that import" and "Import errors are shown without partially applying the file" — the merge still runs in one transaction, but a row-level failure no longer aborts the file: it becomes an issue entry and the rest of the import commits.
 
-The ADR 0003 text is kept as written because it records the decision at the time it was made; this record is the change.
+ADR 0003 now carries the amended wording for these two points; this section records what this decision changed at the time.
 
 ## Consequences
 

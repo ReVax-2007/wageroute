@@ -1,6 +1,6 @@
 # 0003. Imports add data; they never replace it
 
-- **Status:** Accepted
+- **Status:** Accepted; amended by [ADR 0024](0024-two-copies-merge-by-time.md), which applies a newer copy of an existing row
 - **Date:** 2026-10-27
 - **Deciders:** Project owner
 - **Supersedes:** none
@@ -23,18 +23,19 @@ The owner explicitly framed the operation as an **add**, not a **RESTORE**. The 
 
 ## Decision
 
-An import **merges** data into the existing ledger. It never deletes, truncates or replaces unrelated rows.
+An import **merges** data into the existing ledger. It never deletes, truncates or replaces unrelated rows, and there is still no replace-the-database mode ([ADR 0010](0010-there-is-no-replace-mode.md)). [ADR 0024](0024-two-copies-merge-by-time.md) amends one point: a copy of an existing row from the file does replace the local row when it is newer.
 
 ### JSON backups
 
 - The file may contain any subset of the ten tables (`accounts`, `balance_snapshots`, `categories`, `bills`, `goals`, `paychecks`, `allocations`, `bill_reserves`, `transactions`, `settings`). An absent table is treated as empty and leaves the local table untouched.
-- Rows are inserted only if their UUID does not already exist for the local user. Existing IDs are skipped, not updated.
-- Account and paycheck UUIDs are preserved so cross-table links remain valid. Links to rows that are absent locally fail the foreign-key check and abort the transaction.
-- Insert order is `accounts → bills → goals → paychecks → allocations → transactions → settings`, so references exist before they are used.
-- Settings use `INSERT OR IGNORE`: if a key already exists locally, the local value wins. Unknown keys are stored but ignored by the UI.
-- Missing sync metadata on hand-written rows gets a safe default: `created_at`/`updated_at` become now, `revision` becomes 1, and known v2-era missing columns get documented fallbacks.
-- The whole merge runs in one transaction. Any failure rolls back every row from that import.
-- Re-importing the same file is a no-op: every row is skipped by ID.
+- Rows are merged by UUID. An id the local ledger does not hold is added — including a tombstone, so the id is taken and a later file cannot bring that row back under it. An id it does hold is replaced only when the file's copy is newer: `updated_at` decides, `revision` breaks a tie, and an older or equal copy is left alone.
+- Account and paycheck UUIDs are preserved so cross-table links remain valid. A claim for a bill that is not live locally is reported and left out rather than inserted dangling; any other database refusal is recorded as an issue and the rest of the file still imports.
+- Insert order is `accounts → balance_snapshots → categories → bills → goals → paychecks → allocations → bill_reserves → transactions → settings`, so references exist before they are used.
+- Settings merge per key with the same newer rule. A key this build does not know, or a currency it cannot use, is refused with a reason. Into a profile with no history — a fresh install or the erase-then-restore path — the file's settings are adopted, because seeded defaults are not a choice the person made.
+- Missing sync metadata on hand-written rows gets a safe default: `created_at` becomes the file's export time, `updated_at` falls back to `created_at`, `revision` becomes 1, and known v2-era missing columns get documented fallbacks. A stamp later than the file's export time is read as that export time, not as this device's clock.
+- Categories are matched by name, so a file row whose name this profile already uses is linked to the local row instead of being added as a twin; a rename onto another live name is refused with a reason.
+- The whole merge runs in one transaction. A refused row or a caught per-row error leaves the rest of the file in place; an unexpected failure rolls the whole import back.
+- Re-importing a file that has already been merged is a no-op: every row is left as it is.
 
 ### CSV entries
 
@@ -48,8 +49,8 @@ An import **merges** data into the existing ledger. It never deletes, truncates 
 ### UI and reporting
 
 - The action is called **Import data**, not “Restore”.
-- The result reports per-table `added` and `skipped` counts, plus CSV issues (line number and reason).
-- Import errors are shown without partially applying the file.
+- The result reports per-table `added`, `updated`, `removed` and `skipped` counts, plus issues (line number and reason).
+- A refused row is reported; the rest of the file still imports. An unexpected failure applies none of it.
 
 ## Consequences
 
@@ -58,18 +59,18 @@ An import **merges** data into the existing ledger. It never deletes, truncates 
 - **Safe by default.** Importing the wrong file, or importing twice, does not wipe the ledger.
 - **Partial files work.** A transactions-only export, a settings-only file and a hand-built entries file are all valid.
 - **Idempotent for backups.** The same UUID set can be replayed without duplicates.
-- **Composable.** A user can consolidate two machines by importing one ledger into the other; the result is the union.
-- **No destructive confirmation dialog.** The operation is additive, so the risk of a mis-click is lower.
+- **Composable.** A user can consolidate two machines by importing either ledger into the other; the result is the union, with the newer copy of any shared row winning.
+- **No destructive confirmation dialog.** Nothing is ever deleted wholesale, so the risk of a mis-click is lower.
 - **CSV path is useful for real bank exports**, which are entry lists rather than app backups.
 
 ### Negative
 
-- **It is not a restore.** Importing an old backup into a ledger that has diverged will not remove newer rows, undo deletions, or revert edits. The result is a union, not a point-in-time snapshot.
-- **Existing rows cannot be corrected by import.** There is no upsert. To change an imported row, edit it in the UI or delete it locally (soft delete) before importing a replacement with a new ID.
-- **Divergent ledgers never converge.** If both machines edited the same account, import keeps both versions of the affected rows under different IDs or skips one version entirely. There is no conflict resolution.
-- **Tombstones are imported.** A row deleted on the source is inserted with `deleted_at` set, so it stays hidden. “Deleted” data can therefore travel in backups.
+- **It is not a restore.** Importing an old backup into a ledger that has diverged will not undo newer local edits or a newer local delete. Missing rows are added, but older copies are left alone. The result is not a point-in-time snapshot.
+- **An older file cannot correct a newer edit.** The newer copy of a row wins on either side, so to change a row, edit it here or import a file whose copy is newer.
+- **Conflicting edits are silent.** If both machines edited the same row, one version wins by stamp and the other is not shown; there is no conflict dialog.
+- **Tombstones are imported.** A row deleted on the source — including one this ledger never held — is stored with `deleted_at` set, so it stays hidden and its id is taken. “Deleted” data can therefore travel in backups.
 - **Duplicate accounts are possible.** IDs are authoritative, not names; two accounts with the same name and institution can coexist if their IDs differ.
-- **Foreign-key strictness cuts both ways.** A partial file that references a bill or paycheck not present locally aborts the entire import. That is safer than dangling links but less forgiving.
+- **A refused link costs the row, not the file.** A claim whose bill is not present locally is left out with a reason; a dangling link is never written.
 - **CSV dedupe is heuristic.** A genuinely new purchase that is identical to an existing row (same account, kind, amount, date, memo and category) can be skipped as if it were a re-import, while editing a memo or category makes the same economic event look new.
 - **No provenance.** There is no signature, checksum or source marker per row. Imported data is indistinguishable from locally entered data after the fact.
 - **Large imports still cost time and disk.** The caps bound the damage but do not make a 200,000-row table instant.
@@ -88,7 +89,7 @@ Rejected. It is a different operation with a much higher blast radius, and it br
 
 ### Upsert by ID (insert or update)
 
-Rejected for now. It would let an old file overwrite newer local edits and would make “import” silently destructive in a different way. It also complicates conflict semantics without solving divergence. A future sync layer may need revision-based conflict handling; that is a separate decision ([ADR 0004](0004-sync-ready-schema.md)).
+Rejected here, later adopted with a guard. Plain upsert would let an old file overwrite newer local edits. [ADR 0024](0024-two-copies-merge-by-time.md) keeps the insert-or-update shape but applies the file's row only when its own stamp is newer, so an older file still cannot revert an edit. Conflict semantics remain "the newer copy wins", with no per-field merge.
 
 ### Replace-by-table (clear the table, then insert)
 
@@ -104,7 +105,8 @@ Not adopted. It would change the trust model, require an identity and conflict p
 
 ## References
 
-- [src/main/db/backup.ts](../../src/main/db/backup.ts) — allowlists, fallbacks, merge order, skip-by-ID, settings insert-or-ignore
+- [src/main/db/backup.ts](../../src/main/db/backup.ts) — allowlists, fallbacks, merge order, newer-wins by id, settings merge, category relink
+- [src/shared/tableMerge.ts](../../src/shared/tableMerge.ts) — the shared newer-wins comparison and the phone's merge
 - [src/main/db/entries.ts](../../src/main/db/entries.ts) — CSV entry merge, new UUIDs, fingerprint dedupe
 - [src/shared/csv.ts](../../src/shared/csv.ts) — parser, aliases, dates, kinds, export
 - [src/main/ipc.ts](../../src/main/ipc.ts) — import dialog, size cap, result shape

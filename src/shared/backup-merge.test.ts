@@ -24,11 +24,15 @@ function freshDb(): Database.Database {
   return db
 }
 
-function payload(tables: Partial<BackupPayload['tables']>): BackupPayload {
+/** `exportedAt` is when the file was written; rows stamped later are read as this. */
+function payload(
+  tables: Partial<BackupPayload['tables']>,
+  exportedAt = '2026-01-01T00:00:00.000Z'
+): BackupPayload {
   return {
     format: 'cash-flow-routing-backup',
     version: SCHEMA_VERSION,
-    exportedAt: '2026-01-01T00:00:00.000Z',
+    exportedAt,
     tables: {
       accounts: [],
       balance_snapshots: [],
@@ -338,9 +342,8 @@ test('rows that already carry values keep them; timestamps still fill in when mi
   assert.equal(account.sort_order, 7)
 })
 
-test('a stamp from the future is clamped to the merge time, a real past stamp survives', () => {
+test('a stamp from the future is clamped to the file’s export time, a real past stamp survives', () => {
   const db = freshDb()
-  const before = Date.now()
   mergeBackup(
     db,
     USER_ID,
@@ -386,15 +389,13 @@ test('a stamp from the future is clamped to the merge time, a real past stamp su
       ]
     })
   )
-  const after = Date.now()
-
+  // Every device that opens this file reads the 2099 row as the same instant,
+  // so two imports cannot disagree about which copy is newer.
   const future = db
     .prepare('SELECT created_at, updated_at FROM accounts WHERE id = ?')
     .get('acc-future') as { created_at: string; updated_at: string }
   for (const stamp of [future.created_at, future.updated_at]) {
-    const at = Date.parse(stamp)
-    assert.ok(Number.isFinite(at))
-    assert.ok(at >= before && at <= after, `${stamp} is the merge time, not a 2099 date`)
+    assert.equal(stamp, '2026-01-01T00:00:00.000Z', `${stamp} is the file's export time, not 2099`)
   }
 
   const past = db
@@ -406,12 +407,12 @@ test('a stamp from the future is clamped to the merge time, a real past stamp su
   const tombstone = db
     .prepare('SELECT deleted_at FROM transactions WHERE id = ?')
     .get('txn-future') as { deleted_at: string }
-  assert.ok(Date.parse(tombstone.deleted_at) <= after, 'a future tombstone is clamped too')
+  assert.equal(tombstone.deleted_at, '2026-01-01T00:00:00.000Z', 'a future tombstone is clamped too')
 
   const saved = db
     .prepare("SELECT updated_at FROM settings WHERE user_id = ? AND key = 'savingsPercent'")
     .get(USER_ID) as { updated_at: string }
-  assert.ok(Date.parse(saved.updated_at) <= after, 'a setting written in 2099 lands now')
+  assert.equal(saved.updated_at, '2026-01-01T00:00:00.000Z', 'a setting written in 2099 lands at export')
 })
 
 const CSV = [
@@ -1105,4 +1106,292 @@ test('a replay failure rolls the whole import back', () => {
   assert.equal(count('bills'), 0, 'the rows are not left behind without their replayed claims')
   assert.equal(count('paychecks'), 0)
   assert.equal(count('bill_reserves'), 0)
+})
+
+function accountRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: 'acc-1',
+    user_id: USER_ID,
+    name: 'Chequing',
+    kind: 'checking',
+    created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-01T00:00:00.000Z',
+    revision: 1,
+    ...overrides
+  }
+}
+
+test('a newer row from the file replaces the local copy and is counted as updated', () => {
+  const db = freshDb()
+  mergeBackup(db, USER_ID, payload({ accounts: [accountRow()] }))
+
+  const result = mergeBackup(
+    db,
+    USER_ID,
+    payload(
+      {
+        accounts: [
+          accountRow({
+            name: 'Everyday Cheque',
+            starting_balance_cents: 25000,
+            updated_at: '2026-02-01T00:00:00.000Z',
+            revision: 2
+          })
+        ]
+      },
+      '2026-02-15T00:00:00.000Z'
+    )
+  )
+
+  assert.equal(result.added.accounts, 0)
+  assert.equal(result.updated.accounts, 1)
+  assert.equal(result.skipped.accounts, 0)
+  const saved = db.prepare('SELECT name, starting_balance_cents FROM accounts WHERE id = ?').get('acc-1') as {
+    name: string
+    starting_balance_cents: number
+  }
+  assert.equal(saved.name, 'Everyday Cheque')
+  assert.equal(saved.starting_balance_cents, 25000)
+})
+
+test('an older row from the file leaves a newer local edit alone', () => {
+  const db = freshDb()
+  mergeBackup(
+    db,
+    USER_ID,
+    payload(
+      { accounts: [accountRow({ name: 'Edited here', updated_at: '2026-03-01T00:00:00.000Z' })] },
+      '2026-03-05T00:00:00.000Z'
+    )
+  )
+
+  const result = mergeBackup(
+    db,
+    USER_ID,
+    payload(
+      {
+        accounts: [accountRow({ name: 'From the file', updated_at: '2026-02-01T00:00:00.000Z' })]
+      },
+      '2026-02-05T00:00:00.000Z'
+    )
+  )
+
+  assert.equal(result.updated.accounts, 0)
+  assert.equal(result.skipped.accounts, 1)
+  const saved = db.prepare('SELECT name, updated_at FROM accounts WHERE id = ?').get('acc-1') as {
+    name: string
+    updated_at: string
+  }
+  assert.equal(saved.name, 'Edited here')
+  assert.equal(saved.updated_at, '2026-03-01T00:00:00.000Z')
+})
+
+test('a newer tombstone deletes the row, and an older copy cannot bring it back', () => {
+  const db = freshDb()
+  mergeBackup(db, USER_ID, payload({ accounts: [accountRow()] }))
+
+  const removed = mergeBackup(
+    db,
+    USER_ID,
+    payload(
+      {
+        accounts: [
+          accountRow({
+            deleted_at: '2026-02-01T00:00:00.000Z',
+            updated_at: '2026-02-01T00:00:00.000Z',
+            revision: 2
+          })
+        ]
+      },
+      '2026-02-05T00:00:00.000Z'
+    )
+  )
+
+  assert.equal(removed.removed.accounts, 1)
+  assert.equal(removed.updated.accounts, 0)
+  const tombstone = db.prepare('SELECT deleted_at FROM accounts WHERE id = ?').get('acc-1') as {
+    deleted_at: string | null
+  }
+  assert.equal(tombstone.deleted_at, '2026-02-01T00:00:00.000Z')
+
+  const older = mergeBackup(db, USER_ID, payload({ accounts: [accountRow()] }))
+  assert.equal(older.skipped.accounts, 1)
+  const still = db.prepare('SELECT deleted_at FROM accounts WHERE id = ?').get('acc-1') as {
+    deleted_at: string | null
+  }
+  assert.equal(still.deleted_at, '2026-02-01T00:00:00.000Z')
+})
+
+test('a newer setting from the file replaces the local value', () => {
+  const db = freshDb()
+  mergeBackup(db, USER_ID, payload({ accounts: [accountRow()] }))
+  db.prepare(
+    `INSERT INTO settings (user_id, key, value, updated_at)
+     VALUES (?, 'savingsPercent', '20', '2026-01-01T00:00:00.000Z')`
+  ).run(USER_ID)
+
+  const result = mergeBackup(
+    db,
+    USER_ID,
+    payload(
+      {
+        settings: [
+          {
+            user_id: USER_ID,
+            key: 'savingsPercent',
+            value: '35',
+            updated_at: '2026-02-01T00:00:00.000Z'
+          }
+        ]
+      },
+      '2026-02-05T00:00:00.000Z'
+    )
+  )
+
+  assert.equal(result.updated.settings, 1)
+  assert.equal(setting(db, 'savingsPercent'), '35')
+})
+
+test('a rename onto another live category name is refused instead of splitting reports', () => {
+  const db = freshDb()
+  db.prepare(
+    `INSERT INTO categories (id, user_id, name, kind, created_at, updated_at)
+     VALUES ('cat-food', ?, 'Food', 'expense', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`
+  ).run(USER_ID)
+  db.prepare(
+    `INSERT INTO categories (id, user_id, name, kind, created_at, updated_at)
+     VALUES ('cat-travel', ?, 'Travel', 'expense', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`
+  ).run(USER_ID)
+
+  const result = mergeBackup(
+    db,
+    USER_ID,
+    payload(
+      {
+        categories: [
+          {
+            id: 'cat-travel',
+            user_id: USER_ID,
+            name: 'Food',
+            kind: 'expense',
+            created_at: '2026-01-01T00:00:00.000Z',
+            updated_at: '2026-02-01T00:00:00.000Z'
+          }
+        ]
+      },
+      '2026-02-05T00:00:00.000Z'
+    )
+  )
+
+  assert.equal(result.updated.categories, 0)
+  assert.equal(result.skipped.categories, 1)
+  assert.match(result.issues[0].message, /already used by another category/)
+  const saved = db.prepare('SELECT name FROM categories WHERE id = ?').get('cat-travel') as {
+    name: string
+  }
+  assert.equal(saved.name, 'Travel')
+})
+
+test('a newer edit keeps the day this ledger first saw the row', () => {
+  const db = freshDb()
+  mergeBackup(
+    db,
+    USER_ID,
+    payload(
+      { accounts: [accountRow({ created_at: '2025-03-01T00:00:00.000Z' })] },
+      '2025-04-01T00:00:00.000Z'
+    )
+  )
+
+  mergeBackup(
+    db,
+    USER_ID,
+    payload(
+      {
+        accounts: [
+          accountRow({
+            name: 'Renamed here',
+            created_at: '2026-01-01T00:00:00.000Z',
+            updated_at: '2026-02-01T00:00:00.000Z',
+            revision: 2
+          })
+        ]
+      },
+      '2026-02-10T00:00:00.000Z'
+    )
+  )
+
+  const saved = db
+    .prepare('SELECT name, created_at FROM accounts WHERE id = ?')
+    .get('acc-1') as { name: string; created_at: string }
+  assert.equal(saved.name, 'Renamed here')
+  assert.equal(saved.created_at, '2025-03-01T00:00:00.000Z', 'an edit does not rewrite the creation day')
+})
+
+test('a row with no edit stamp takes its creation day, not the import time', () => {
+  const db = freshDb()
+  mergeBackup(
+    db,
+    USER_ID,
+    payload({
+      accounts: [
+        {
+          id: 'acc-old',
+          user_id: USER_ID,
+          name: 'Old account',
+          kind: 'savings',
+          created_at: '2025-06-01T00:00:00.000Z'
+        }
+      ]
+    })
+  )
+
+  const saved = db
+    .prepare('SELECT created_at, updated_at, revision FROM accounts WHERE id = ?')
+    .get('acc-old') as { created_at: string; updated_at: string; revision: number }
+  assert.equal(saved.created_at, '2025-06-01T00:00:00.000Z')
+  assert.equal(saved.updated_at, '2025-06-01T00:00:00.000Z')
+  assert.equal(saved.revision, 1)
+})
+
+test('a bill takes the local spelling of its category', () => {
+  const db = freshDb()
+  mergeBackup(
+    db,
+    USER_ID,
+    payload({
+      accounts: [accountRow()],
+      categories: [
+        { id: 'cat-housing', user_id: USER_ID, name: 'Housing', kind: 'expense' }
+      ]
+    })
+  )
+
+  mergeBackup(
+    db,
+    USER_ID,
+    payload({
+      categories: [
+        { id: 'cat-remote', user_id: USER_ID, name: 'housing', kind: 'expense' }
+      ],
+      bills: [
+        {
+          id: 'bill-1',
+          user_id: USER_ID,
+          name: 'Rent',
+          amount_cents: 120000,
+          frequency: 'monthly',
+          due_day: 1,
+          account_id: 'acc-1',
+          category: 'housing',
+          next_due_on: '2026-03-01'
+        }
+      ]
+    })
+  )
+
+  const bill = db.prepare('SELECT category FROM bills WHERE id = ?').get('bill-1') as {
+    category: string
+  }
+  assert.equal(bill.category, 'Housing', 'one category must not read as two spellings')
 })

@@ -504,7 +504,7 @@ Stored in `settings.value` as text. Defaults and validation live in `src/shared/
 | `emergencyManualTargetCents` | number | `0` | Positive integer, else 0 |
 | `emergencyActive` | boolean | `true` | When false the allocator stops routing surplus into the emergency fund; the fund's target and progress stay visible |
 
-A settings key this build does not know is reported as an import issue and skipped rather than stored, so an old backup cannot resurrect a retired key. Settings imported from a backup never overwrite existing local keys (`INSERT OR IGNORE`), and a key the file omits is left at its local value.
+A settings key this build does not know is reported as an import issue and skipped rather than stored, so an old backup cannot resurrect a retired key. Settings merge per key by the same newer-wins rule as rows: a file value replaces the local one only when its `updated_at` is newer (or equal with a higher `revision`), a value with no usable stamp cannot replace an established one, and a key the file omits is left at its local value. Into a profile with no history, the file's values replace the seeded defaults.
 
 The development demo seed overrides the default splits to `20 / 15 / 15 / 5` and leaves 45% as leisure. Packaged builds keep `DEFAULT_SETTINGS`.
 
