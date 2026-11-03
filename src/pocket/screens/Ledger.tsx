@@ -1,14 +1,22 @@
 import { useState } from 'react'
-import { Plus, Trash2 } from 'lucide-react'
+import { Pencil, Plus, Trash2 } from 'lucide-react'
+import { SNAPSHOT_TRANSACTION_LIMIT } from '@shared/api'
 import { formatDateLabel, todayISO } from '@shared/dates'
-import { formatMoney, parseMoneyToCents } from '@shared/money'
-import type { TransactionRow } from '@shared/types'
+import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
+import type { TransactionInput, TransactionKind, TransactionRow } from '@shared/types'
+import { TRANSACTION_KIND_LABEL } from '../../renderer/src/lib/finance'
+import { Field } from '../components/Field'
+import { DeleteConfirm } from '../components/DeleteConfirm'
 import { MoneyInput } from '../components/MoneyInput'
 import { Sheet } from '../components/Sheet'
-import { entryAccounts, entryCategories, EntryError, type EntryKind } from '../lib/entry'
-import { SNAPSHOT_TRANSACTION_LIMIT } from '@shared/api'
-import { text } from '../lib/rows'
+import { useSheetSave } from '../components/useSheetSave'
+import { categoryMatch, entryAccounts, entryBills, entryCategories, entryGoals } from '../lib/entry'
+import { flag, text } from '../lib/rows'
 import { usePocket, useSnapshot } from '../lib/store'
+import type { EntryPatch } from '../lib/write'
+import { createEntry, patchEntry } from '../lib/write'
+
+const KINDS = Object.keys(TRANSACTION_KIND_LABEL) as TransactionKind[]
 
 function groupByDate(rows: readonly TransactionRow[]): [string, TransactionRow[]][] {
   const groups = new Map<string, TransactionRow[]>()
@@ -20,137 +28,321 @@ function groupByDate(rows: readonly TransactionRow[]): [string, TransactionRow[]
   return [...groups.entries()].sort((a, b) => b[0].localeCompare(a[0]))
 }
 
-function AddEntrySheet({ onClose }: { onClose: () => void }) {
-  const tables = usePocket((state) => state.tables)
-  const addEntry = usePocket((state) => state.addEntry)
-  const accounts = tables ? entryAccounts(tables) : []
-  const [kind, setKind] = useState<EntryKind>('expense')
-  const [amount, setAmount] = useState('')
-  const [accountId, setAccountId] = useState(accounts[0] ? text(accounts[0], 'id') : '')
-  const [categoryId, setCategoryId] = useState('')
-  const [occurredOn, setOccurredOn] = useState(todayISO())
-  const [memo, setMemo] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
-  const categories = tables ? entryCategories(tables, kind) : []
+interface EntryForm {
+  occurredOn: string
+  accountId: string
+  kind: TransactionKind
+  amount: string
+  category: string
+  categoryId: string | null
+  billId: string
+  goalId: string
+  counterAccountId: string
+  memo: string
+}
 
-  const save = async () => {
-    const cents = parseMoneyToCents(amount)
-    if (cents === null || cents <= 0) {
-      setError('Enter an amount greater than zero.')
-      return
-    }
-    if (!accountId) {
-      setError('Pick the account this came from.')
-      return
-    }
-    setSaving(true)
-    setError(null)
-    try {
-      await addEntry({
-        accountId,
-        kind,
-        amountCents: cents,
-        occurredOn,
-        memo,
-        categoryId: categoryId || null,
-        categoryName: categoryId ? (categories.find((row) => text(row, 'id') === categoryId)?.name as string ?? '') : ''
-      })
-      onClose()
-    } catch (caught) {
-      setError(caught instanceof EntryError ? caught.message : 'The entry could not be saved.')
-    } finally {
-      setSaving(false)
+function formFor(row: TransactionRow | null, fallbackAccount: string): EntryForm {
+  if (!row) {
+    return {
+      occurredOn: todayISO(),
+      accountId: fallbackAccount,
+      kind: 'expense',
+      amount: '',
+      category: 'Misc',
+      categoryId: null,
+      billId: '',
+      goalId: '',
+      counterAccountId: '',
+      memo: ''
     }
   }
+  return {
+    occurredOn: row.occurredOn,
+    accountId: row.accountId,
+    kind: row.kind,
+    // Only an adjustment may read back with its own sign; every other kind is
+    // typed as a positive figure and gets its direction from the kind.
+    amount: centsToEditable(row.kind === 'adjustment' ? row.amountCents : Math.abs(row.amountCents)),
+    category: row.category,
+    categoryId: row.categoryId,
+    billId: row.billId ?? '',
+    goalId: row.goalId ?? '',
+    counterAccountId: row.counterAccountId ?? '',
+    memo: row.memo
+  }
+}
+
+/**
+ * Add or edit an entry with the desktop's own fields, defaults and refusals.
+ * A row the computer wrote is edited here exactly as one typed on the phone is,
+ * because both are the same row in the same ledger.
+ */
+function EntrySheet({ row, onClose }: { row: TransactionRow | null; onClose: () => void }) {
+  const tables = usePocket((state) => state.tables)
+  const add = usePocket((state) => state.add)
+  const editEntry = usePocket((state) => state.edit)
+  const accounts = tables ? entryAccounts(tables) : []
+  const categories = tables ? entryCategories(tables) : []
+  const bills = tables ? entryBills(tables) : []
+  const goals = tables ? entryGoals(tables) : []
+  const [form, setForm] = useState<EntryForm>(() =>
+    formFor(row, accounts[0] ? text(accounts[0], 'id') : '')
+  )
+  const { saving, error, setError, run } = useSheetSave(onClose)
+
+  // A transfer only exists as a pair and a sweep only exists as a rounding of
+  // its purchase, so those rows keep the columns their twin or source owns.
+  const isTransferLeg = Boolean(row?.transferGroupId)
+  const isSweep = Boolean(
+    row && tables?.transactions.some((candidate) => text(candidate, 'id') === row.id && text(candidate, 'round_up_source_id'))
+  )
+  const lockedFields = isTransferLeg || isSweep
+
+  const setKind = (kind: TransactionKind) => {
+    // The link is what the kind means, so switching kinds drops a reference the
+    // new kind could not have been created with.
+    setForm((current) => ({ ...current, kind, billId: '', goalId: '' }))
+  }
+
+  const setCategory = (value: string) => {
+    const match = categoryMatch(tables, value)
+    setForm((current) => ({ ...current, category: value, categoryId: match ? text(match, 'id') : null }))
+  }
+
+  const submit = async () => {
+    const typed = parseMoneyToCents(form.amount)
+    if (!form.accountId) {
+      setError('Pick an account')
+      return
+    }
+    if (typed === null || typed === 0) {
+      setError('Enter an amount')
+      return
+    }
+    if (form.kind === 'bill_payment' && !form.billId) {
+      setError('Choose the bill this payment covers')
+      return
+    }
+    if (form.kind === 'goal_funding' && !form.goalId) {
+      setError('Choose the goal this funds')
+      return
+    }
+    if (form.kind === 'transfer') {
+      if (!form.counterAccountId) {
+        setError('Choose the destination account')
+        return
+      }
+      if (form.counterAccountId === form.accountId) {
+        setError('Choose two different accounts')
+        return
+      }
+    }
+
+    // The kind decides the direction, exactly as the desktop's dialog sends it.
+    const magnitude = Math.abs(typed)
+    const amountCents =
+      form.kind === 'income'
+        ? magnitude
+        : form.kind === 'adjustment'
+          ? typed
+          : form.kind === 'transfer'
+            ? magnitude
+            : -magnitude
+
+    if (row) {
+      const patch: EntryPatch = {
+        amountCents: isSweep ? undefined : amountCents,
+        occurredOn: isSweep ? undefined : form.occurredOn,
+        accountId: lockedFields ? undefined : form.accountId,
+        kind: lockedFields ? undefined : form.kind,
+        memo: form.memo.trim(),
+        category: form.category.trim() || 'Misc',
+        categoryId: form.category.trim() ? form.categoryId : null
+      }
+      await run(() =>
+        editEntry((current) => patchEntry(current, row.id, patch), 'Entry saved on this phone.')
+      )
+      return
+    }
+
+    const input: TransactionInput = {
+      accountId: form.accountId,
+      kind: form.kind,
+      amountCents,
+      occurredOn: form.occurredOn,
+      category: form.category.trim() || 'Misc',
+      categoryId: form.category.trim() ? form.categoryId : null,
+      memo: form.memo.trim(),
+      counterAccountId: form.kind === 'transfer' ? form.counterAccountId : null,
+      billId: form.kind === 'bill_payment' ? form.billId : null,
+      goalId: form.kind === 'goal_funding' ? form.goalId : null
+    }
+    await run(() => add((current) => createEntry(current, input), 'Entry saved on this phone.'))
+  }
+
+  const signHint =
+    form.kind === 'income'
+      ? 'Recorded as money in, even if you type a minus sign.'
+      : form.kind === 'adjustment'
+        ? 'Keeps the sign you type: negative lowers the balance.'
+        : form.kind === 'transfer'
+          ? 'Moves the amount from this account to the one below.'
+          : 'Recorded as money out, even if you type a minus sign.'
 
   return (
     <Sheet
-      title="Add an entry"
-      hint="It stays on this phone until you export and import it on your computer."
+      title={row ? 'Edit this entry' : 'Add a ledger entry'}
+      hint={
+        row
+          ? 'Manual edit only — it updates this row and travels back to your computer on your next export.'
+          : 'Manual entry only — nothing is imported from a bank.'
+      }
       onClose={onClose}
     >
-      <div className="segmented" role="group" aria-label="Kind of entry">
-        <button
-          type="button"
-          className={kind === 'expense' ? 'segment active' : 'segment'}
-          aria-pressed={kind === 'expense'}
-          onClick={() => {
-            setKind('expense')
-            setCategoryId('')
-          }}
-        >
-          Expense
-        </button>
-        <button
-          type="button"
-          className={kind === 'income' ? 'segment active' : 'segment'}
-          aria-pressed={kind === 'income'}
-          onClick={() => {
-            setKind('income')
-            setCategoryId('')
-          }}
-        >
-          Income
-        </button>
-      </div>
+      {isTransferLeg ? (
+        <p className="fine">
+          A transfer is two rows. Changing the amount, date, note or category updates both sides; the
+          accounts and the kind stay paired.
+        </p>
+      ) : null}
+      {isSweep ? (
+        <p className="fine">
+          This is a round-up sweep. Its amount and date follow the purchase it came from; only the
+          note and category can change here.
+        </p>
+      ) : null}
 
-      <label className="field">
-        <span>Amount</span>
-        <MoneyInput
-          value={amount}
-          onValueChange={setAmount}
-          className="input money large"
-          placeholder="0.00"
-          autoFocus
+      <Field label="Date">
+        <input
+          className="input"
+          type="date"
+          value={form.occurredOn}
+          disabled={isSweep}
+          onChange={(event) => setForm({ ...form, occurredOn: event.target.value })}
         />
-      </label>
+      </Field>
 
-      <label className="field">
-        <span>{kind === 'expense' ? 'Paid from' : 'Paid into'}</span>
-        <select className="input" value={accountId} onChange={(event) => setAccountId(event.target.value)}>
+      <Field label="Account">
+        <select
+          className="input"
+          value={form.accountId}
+          disabled={lockedFields}
+          onChange={(event) => setForm({ ...form, accountId: event.target.value })}
+        >
           {accounts.map((account) => (
             <option key={text(account, 'id')} value={text(account, 'id')}>
               {text(account, 'name')}
             </option>
           ))}
         </select>
-      </label>
+      </Field>
 
-      <label className="field">
-        <span>Category</span>
-        <select className="input" value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
-          <option value="">Uncategorized</option>
-          {categories.map((category) => (
-            <option key={text(category, 'id')} value={text(category, 'id')}>
-              {text(category, 'name')}
+      <Field
+        label="Kind"
+        hint={lockedFields ? 'Paired and rounded rows keep the kind they were written with' : undefined}
+      >
+        <select
+          className="input"
+          value={form.kind}
+          disabled={lockedFields}
+          onChange={(event) => setKind(event.target.value as TransactionKind)}
+        >
+          {KINDS.map((kind) => (
+            <option key={kind} value={kind}>
+              {TRANSACTION_KIND_LABEL[kind]}
             </option>
           ))}
         </select>
-      </label>
+      </Field>
 
-      <label className="field">
-        <span>Date</span>
+      {form.kind === 'bill_payment' && (
+        <Field label="Bill" hint="Closes this bill’s reservation and stops its reminder">
+          <select
+            className="input"
+            value={form.billId}
+            onChange={(event) => setForm({ ...form, billId: event.target.value })}
+          >
+            <option value="">Choose a bill…</option>
+            {bills.map((bill) => (
+              <option key={text(bill, 'id')} value={text(bill, 'id')}>
+                {text(bill, 'name')}
+                {flag(bill, 'is_active') ? '' : ' (paused)'}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+
+      {form.kind === 'goal_funding' && (
+        <Field label="Goal" hint="A label on the entry; progress still follows the goal’s own accounts">
+          <select
+            className="input"
+            value={form.goalId}
+            onChange={(event) => setForm({ ...form, goalId: event.target.value })}
+          >
+            <option value="">Choose a goal…</option>
+            {goals.map((goal) => (
+              <option key={text(goal, 'id')} value={text(goal, 'id')}>
+                {text(goal, 'name')}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+
+      {form.kind === 'transfer' && (
+        <Field label="To account" hint="The other side of the transfer">
+          <select
+            className="input"
+            value={form.counterAccountId}
+            onChange={(event) => setForm({ ...form, counterAccountId: event.target.value })}
+          >
+            <option value="">Choose an account…</option>
+            {accounts
+              .filter((account) => text(account, 'id') !== form.accountId)
+              .map((account) => (
+                <option key={text(account, 'id')} value={text(account, 'id')}>
+                  {text(account, 'name')}
+                </option>
+              ))}
+          </select>
+        </Field>
+      )}
+
+      <Field label="Amount" hint={signHint}>
+        <MoneyInput
+          autoFocus
+          allowNegative={form.kind === 'adjustment'}
+          value={form.amount}
+          disabled={isSweep}
+          placeholder="42.50"
+          onValueChange={(amount) => setForm({ ...form, amount })}
+        />
+      </Field>
+
+      <Field label="Category" hint="Pick one you already use, or name a new one">
         <input
           className="input"
-          type="date"
-          value={occurredOn}
-          max={todayISO()}
-          onChange={(event) => setOccurredOn(event.target.value)}
+          list="entry-category-options"
+          value={form.category}
+          onChange={(event) => setCategory(event.target.value)}
         />
-      </label>
+        <datalist id="entry-category-options">
+          {categories.map((category) => (
+            <option key={text(category, 'id')} value={text(category, 'name')} />
+          ))}
+        </datalist>
+      </Field>
 
-      <label className="field">
-        <span>Note</span>
+      <Field label="Description" hint="Shown in the ledger and the dashboard feed">
         <input
           className="input"
-          type="text"
-          value={memo}
-          maxLength={120}
-          placeholder="What was it for?"
-          onChange={(event) => setMemo(event.target.value)}
+          value={form.memo}
+          maxLength={240}
+          placeholder="Groceries"
+          onChange={(event) => setForm({ ...form, memo: event.target.value })}
         />
-      </label>
+      </Field>
 
       {error ? (
         <p className="form-error" role="alert">
@@ -162,8 +354,8 @@ function AddEntrySheet({ onClose }: { onClose: () => void }) {
         <button type="button" className="button" onClick={onClose}>
           Cancel
         </button>
-        <button type="button" className="button primary" disabled={saving} onClick={save}>
-          {saving ? 'Saving…' : 'Save entry'}
+        <button type="button" className="button primary" disabled={saving} onClick={submit}>
+          {saving ? 'Saving…' : row ? 'Save entry' : 'Add entry'}
         </button>
       </div>
     </Sheet>
@@ -174,7 +366,7 @@ export function Ledger() {
   const snapshot = useSnapshot()
   const localIds = usePocket((state) => state.localIds)
   const deleteEntry = usePocket((state) => state.deleteEntry)
-  const [adding, setAdding] = useState(false)
+  const [editing, setEditing] = useState<TransactionRow | 'new' | null>(null)
   const [pendingDelete, setPendingDelete] = useState<TransactionRow | null>(null)
   const currency = snapshot?.user.currency ?? 'USD'
   const local = new Set(localIds)
@@ -191,7 +383,7 @@ export function Ledger() {
             {snapshot.transactionTotal.toLocaleString()} in the ledger
           </p>
         </div>
-        <button type="button" className="button primary compact" onClick={() => setAdding(true)}>
+        <button type="button" className="button primary compact" onClick={() => setEditing('new')}>
           <Plus size={17} aria-hidden="true" /> Add
         </button>
       </header>
@@ -216,7 +408,7 @@ export function Ledger() {
                   <div className="row-main">
                     <span className="row-title">{row.memo || row.category}</span>
                     <span className="muted small">
-                      {row.category} · {row.accountName}
+                      {TRANSACTION_KIND_LABEL[row.kind]} · {row.category} · {row.accountName}
                       {local.has(row.id) ? ' · on this phone' : ''}
                     </span>
                   </div>
@@ -228,7 +420,15 @@ export function Ledger() {
                     <button
                       type="button"
                       className="icon-button tiny"
-                      aria-label={`Remove ${row.memo || row.category}`}
+                      aria-label={`Edit ${row.memo || row.category}`}
+                      onClick={() => setEditing(row)}
+                    >
+                      <Pencil size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-button tiny"
+                      aria-label={`Delete ${row.memo || 'entry'}`}
                       onClick={() => setPendingDelete(row)}
                     >
                       <Trash2 size={15} />
@@ -248,35 +448,29 @@ export function Ledger() {
         </p>
       ) : null}
 
-      {adding ? <AddEntrySheet onClose={() => setAdding(false)} /> : null}
+      {editing ? (
+        <EntrySheet
+          row={editing === 'new' ? null : editing}
+          onClose={() => setEditing(null)}
+        />
+      ) : null}
 
       {pendingDelete ? (
-        <Sheet
-          title="Remove this entry?"
-          hint="It leaves this phone now, and the removal travels with your next export. A transfer also takes its other leg; a purchase takes its round-up."
-          onClose={() => setPendingDelete(null)}
-        >
-          <p className="confirm-text">
-            {pendingDelete.memo || pendingDelete.category} ·{' '}
-            {formatMoney(pendingDelete.amountCents, currency)} on{' '}
-            {formatDateLabel(pendingDelete.occurredOn)}
-          </p>
-          <div className="sheet-actions">
-            <button type="button" className="button" onClick={() => setPendingDelete(null)}>
-              Keep it
-            </button>
-            <button
-              type="button"
-              className="button danger"
-              onClick={() => {
-                void deleteEntry(pendingDelete.id)
-                setPendingDelete(null)
-              }}
-            >
-              Remove
-            </button>
-          </div>
-        </Sheet>
+        <DeleteConfirm
+          title={pendingDelete.transferGroupId ? 'Delete both legs of this transfer?' : 'Delete this entry?'}
+          hint={
+            pendingDelete.transferGroupId
+              ? `“${pendingDelete.memo || 'This transfer'}” is one movement of money; removing it also removes the matching leg.`
+              : `“${pendingDelete.memo || 'This entry'}” disappears from the ledger and every balance it touches.`
+          }
+          detail={`${formatMoney(pendingDelete.amountCents, currency)} on ${formatDateLabel(
+            pendingDelete.occurredOn
+          )}. It leaves this phone now, and the removal travels with your next export.`}
+          confirmLabel="Delete"
+          onCancel={() => setPendingDelete(null)}
+          onDone={() => setPendingDelete(null)}
+          remove={() => deleteEntry(pendingDelete.id)}
+        />
       ) : null}
     </div>
   )

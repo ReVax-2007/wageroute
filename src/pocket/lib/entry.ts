@@ -1,92 +1,36 @@
+import { categoryKey } from '@shared/categories'
 import type { ImportTables } from '@shared/importRepair'
-import { isISODate, todayISO } from '@shared/dates'
-import { normalizeSignedCents } from '@shared/kinds'
 import { flag, isLive, text, type Row } from './rows'
 
-export type EntryKind = 'expense' | 'income'
+/**
+ * The pickers every Pocket form offers. They list the same rows the desktop's
+ * dialogs do — every live account, every bill, every un-archived goal — because
+ * a phone form that hides a credit card cannot pay a card bill.
+ */
 
-export interface EntryDraft {
-  accountId: string
-  kind: EntryKind
-  /** Always a positive amount; the kind decides the sign on the row. */
-  amountCents: number
-  occurredOn: string
-  memo: string
-  categoryId: string | null
-  categoryName: string
+export function entryAccounts(tables: ImportTables): Row[] {
+  return tables.accounts.filter((row) => isLive(row) && !flag(row, 'is_archived'))
 }
 
-export class EntryError extends Error {
-  readonly code = 'ENTRY'
+export function entryCategories(tables: ImportTables): Row[] {
+  return tables.categories.filter(isLive)
+}
 
-  constructor(message: string) {
-    super(message)
-    this.name = 'EntryError'
-  }
+/** A paused bill is still payable by hand, so the picker lists every live one. */
+export function entryBills(tables: ImportTables): Row[] {
+  return tables.bills.filter(isLive)
+}
+
+export function entryGoals(tables: ImportTables): Row[] {
+  return tables.goals.filter((row) => isLive(row) && !flag(row, 'is_archived'))
 }
 
 /**
- * One entry, in the same columns the desktop writes. Pocket only appends plain
- * expenses and income: a bill payment would need a claim settled beside it, and
- * a merge cannot see a delete, so this stays the one kind that survives a trip
- * back to the desktop honestly.
+ * A typed category name that matches one already used adopts it rather than
+ * minting a near-duplicate, which is what the desktop does with its datalist.
  */
-export function createEntryRow(tables: ImportTables, draft: EntryDraft): Row {
-  const account = tables.accounts.find(
-    (row) => isLive(row) && text(row, 'id') === draft.accountId
-  )
-  if (!account) throw new EntryError('Pick an account for this entry')
-  if (!Number.isFinite(draft.amountCents) || draft.amountCents <= 0) {
-    throw new EntryError('Enter an amount greater than zero')
-  }
-  if (draft.amountCents > 10_000_000_000) {
-    throw new EntryError('That amount is too large to record')
-  }
-  if (!isISODate(draft.occurredOn)) throw new EntryError('Pick a real date')
-  if (draft.occurredOn > todayISO()) throw new EntryError('That date is in the future')
-
-  const category = draft.categoryId
-    ? tables.categories.find(
-        (row) => isLive(row) && text(row, 'id') === draft.categoryId
-      )
-    : undefined
-  const categoryName =
-    (category ? text(category, 'name') : '') || draft.categoryName.trim() || 'Uncategorized'
-  const now = new Date().toISOString()
-
-  return {
-    id: crypto.randomUUID(),
-    user_id: text(account, 'user_id'),
-    account_id: draft.accountId,
-    kind: draft.kind,
-    amount_cents: normalizeSignedCents(draft.kind, draft.amountCents),
-    occurred_on: draft.occurredOn,
-    memo: draft.memo.trim() || categoryName,
-    category: categoryName,
-    category_id: category ? text(category, 'id') : null,
-    external_id: null,
-    bill_id: null,
-    goal_id: null,
-    paycheck_id: null,
-    counter_account_id: null,
-    transfer_group_id: null,
-    round_up_source_id: null,
-    created_at: now,
-    updated_at: now,
-    deleted_at: null,
-    revision: 1
-  }
-}
-
-/** Accounts a new entry may land in, newest sort order first is not useful here. */
-export function entryAccounts(tables: ImportTables): Row[] {
-  return tables.accounts.filter(
-    (row) => isLive(row) && text(row, 'kind') !== 'credit' && !flag(row, 'is_archived')
-  )
-}
-
-export function entryCategories(tables: ImportTables, kind: EntryKind): Row[] {
-  return tables.categories.filter(
-    (row) => isLive(row) && (text(row, 'kind') === kind || text(row, 'kind') === 'other')
-  )
+export function categoryMatch(tables: ImportTables | null, typed: string): Row | undefined {
+  const key = categoryKey(typed)
+  if (!tables || !key) return undefined
+  return tables.categories.find((row) => isLive(row) && categoryKey(text(row, 'name')) === key)
 }

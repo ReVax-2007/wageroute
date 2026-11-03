@@ -282,9 +282,8 @@ backup JSON ── parseBackup ──► ImportTables ── buildSnapshot ─�
 indexedDB ◄── writeLedger ◄── store (zustand) ◄────┘
                                    │
                     importFile ────┼──► mergeTables (shared last-write-wins)
-                       addEntry ───┴──► new transaction row + localIds
-                     deleteEntry ───┴──► tombstone (+ transfer twin, round-up)
-                       exportJson ─┴──► every table as the phone holds it
+             add / edit / delete ──┴──► lib/write.ts ──► shared/writeRules.ts
+                       exportJson ────► every table as the phone holds it
 ```
 
 | Module | Responsibility |
@@ -293,17 +292,18 @@ indexedDB ◄── writeLedger ◄── store (zustand) ◄────┘
 | `lib/enums.ts` | The one set of allowed values for account kinds, transaction kinds, frequencies, funding strategies, allocation buckets, category kinds, plan health, reserve states and goal paces, shared by validation and the snapshot |
 | `lib/snapshot.ts` | The parity layer: derives balances, transaction caps, goal funding, bill payments, reserves, paychecks and settings from the same table rows the desktop exports. It reimplements reads, not arithmetic, and sorts rows by code unit so the order matches SQLite's binary collation |
 | `lib/compute.ts` | Calls `safeToSpendPoolCents`, `unpaidMonthlyWallCents`, `poolEarmarkedGoalsCents`, `unsettledRoutingCents`, `monthlyWall` and `goalsSummary`; derives bill states from `nextBillOccurrence` and the due-soon horizon |
+| `lib/write.ts` | Every write the phone can make — bills, categories, goals, accounts and entries — as pure functions over the same `ImportTables` it displays. Each mirrors one desktop repository: the same columns, the same linked rows (a transfer's second leg, a purchase's round-up, a goal's dedicated accounts, a bill's payments), the same cascades on pause and delete, and the same refusal sentence, which it gets from `src/shared/writeRules.ts` rather than from its own copy. Stamps go through `stampAfter`, so a written row is always newer than it was and the merge can see the edit |
 | `lib/entry.ts` | Builds one expense/income transaction row with a new UUID, the right sign, a real date and an allowed account; returns a plain reason when it cannot |
-| `lib/store.ts` | Loads IndexedDB, merges an opened backup into the local copy, adds entries, tombstones a delete, exports, forgets, and surfaces storage failures |
+| `lib/store.ts` | Loads IndexedDB, merges an opened backup into the local copy, runs a writer and commits its tables, tombstones a delete, exports, forgets, and surfaces storage failures |
 | `lib/idb.ts` | One IndexedDB database, one `ledger` store, one `current` key; a failed open is not cached and a version change closes the connection |
 | `lib/install.ts` | Captures `beforeinstallprompt` at module load, reports standalone mode and exposes the deferred prompt |
 | `public/sw.js` | Versioned shell cache, network-first navigation and cache-first hashed assets; the build injects the release stamp and the precache list |
 
-The boundary is deliberate: the phone edits a copy of the same tables the desktop writes, and the two copies meet through the shared merge rule in `src/shared/tableMerge.ts`. An opened file adds rows the phone lacks, replaces a row whose `updated_at` (then `revision`) is newer, and applies a newer tombstone; an older file copy never overwrites a local edit. A delete on the phone writes a tombstone and bumps `revision` instead of dropping the row, so the removal survives into the next export. Transfer twins and round-up sweeps are tombstoned with the row that was selected, matching the desktop's delete. The phone still does not record a bill payment, because a payment has to settle the claim the desktop wrote; that remains a desktop action. The rule and its trade-offs are recorded in [ADR 0024](decisions/0024-two-copies-merge-by-time.md).
+The boundary is deliberate: the phone edits a copy of the same tables the desktop writes, and the two copies meet through the shared merge rule in `src/shared/tableMerge.ts`. An opened file adds rows the phone lacks, replaces a row whose `updated_at` (then `revision`) is newer, and applies a newer tombstone; an older file copy never overwrites a local edit. A delete on the phone writes a tombstone and bumps `revision` instead of dropping the row, so the removal survives into the next export. Transfer twins and round-up sweeps are tombstoned with the row that was selected, matching the desktop's delete. A bill marked paid on the phone arrives as an ordinary `bill_payment` row, and the desktop's merge re-derives that bill's claims from the payments the ledger now holds (`reconcileAllBillReserves`, inside the same transaction), so the wall reads paid without a second step. The rules and their trade-offs are recorded in [ADR 0024](decisions/0024-two-copies-merge-by-time.md) and [ADR 0025](decisions/0025-the-phone-writes-through-the-desktops-own-rules.md).
 
 The offline shell is generated, not hand-listed: a Vite `closeBundle` plugin fills `SHELL_VERSION` and `__PRECACHE__` in `public/sw.js` with the package version, a build hash and the sorted hashed assets, so a cold offline open does not request a bundle the cache never held. A row that does not match the schema it claims — an unknown enum for a version the build knows, or money that is not a whole number — is refused at parse time rather than coerced into a value the user never wrote.
 
-`src/pocket/lib/snapshot.test.ts` builds a migrated demo database, exports it through the desktop backup builder, opens it on the phone and asserts every displayed total against the desktop's own selectors. `backup.test.ts` proves the export merges into a desktop database exactly once. `src/shared/tableMerge.test.ts` pins the merge rule itself (add, newer-wins, revision tiebreak, tombstone, no-stamp and future-stamp cases, settings by key and category-name collisions), and `backup-merge.test.ts` proves the desktop applies the same decisions with SQL, including an update and a deletion arriving from the phone. The pocket TypeScript project includes `src/shared` and `src/renderer/src/lib/finance.ts`, so a change to either must still satisfy all three type checks.
+`src/pocket/lib/snapshot.test.ts` builds a migrated demo database, exports it through the desktop backup builder, opens it on the phone and asserts every displayed total against the desktop's own selectors. `backup.test.ts` proves the export merges into a desktop database exactly once. `src/shared/tableMerge.test.ts` pins the merge rule itself (add, newer-wins, revision tiebreak, tombstone, no-stamp and future-stamp cases, settings by key and category-name collisions), and `backup-merge.test.ts` proves the desktop applies the same decisions with SQL, including an update and a deletion arriving from the phone. `src/main/db/device-round-trip.test.ts` closes the loop the other tests leave open: it hands a real desktop export to the phone's writers, wraps the phone's tables back into a backup and imports it with `mergeBackup`, then reads the desktop database and asserts the bill, the payment, the transfer pair, the goal link and the deletion all landed as the desktop would have written them. The pocket TypeScript project includes `src/shared` and `src/renderer/src/lib/finance.ts`, so a change to either must still satisfy all three type checks.
 
 ## The main/database layer
 
@@ -508,6 +508,8 @@ Both use `strict: true`, `verbatimModuleSyntax`, `isolatedModules` and no emit. 
 | `src/shared/emergency.ts` | Emergency-fund variables, essentials and coverage |
 | `src/shared/settings.ts` | Settings defaults, corrupt-input recovery, serialization |
 | `src/shared/importRepair.ts` | Import problem detection, repair questions and field validation |
+| `src/shared/tableMerge.ts` | The last-write-wins decision (`incomingWins`) and the phone's `mergeTables`, used by both copies of the ledger |
+| `src/shared/writeRules.ts` | The sentences and ranges every write is checked against — enums, text, cents, APR, dates, due days, signs, flags — shared by the desktop repositories and the phone's writers |
 | `src/shared/csv.ts` | CSV encoding/parsing and entry-row validation |
 | `src/shared/categories.ts`, `credit.ts`, `payoff.ts`, `history.ts` | Category seeds and spending, card cycles, debt payoff, net-worth series |
 | `src/shared/api.ts` | The `FinanceApi` contract the preload implements, plus `WriteResult` |

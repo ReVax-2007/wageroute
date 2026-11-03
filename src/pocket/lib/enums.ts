@@ -9,38 +9,27 @@ import type {
   PlanHealth,
   TransactionKind
 } from '@shared/types'
+import * as rules from '@shared/writeRules'
 
-export const ACCOUNT_KINDS: ReadonlySet<string> = new Set<AccountKind>([
-  'checking',
-  'savings',
-  'cash',
-  'investment',
-  'credit'
-])
-export const TRANSACTION_KINDS: ReadonlySet<string> = new Set<TransactionKind>([
-  'income',
-  'expense',
-  'bill_payment',
-  'transfer',
-  'goal_funding',
-  'investment',
-  'adjustment'
-])
-export const FREQUENCIES: ReadonlySet<string> = new Set<Frequency>([
-  'weekly',
-  'biweekly',
-  'semimonthly',
-  'monthly',
-  'quarterly',
-  'annual'
-])
-export const FUNDING_STRATEGIES: ReadonlySet<string> = new Set<BillFundingStrategy>([
-  'all_checks',
-  'closest_due_date',
-  'specific_check',
-  'first_check',
-  'last_check'
-])
+/**
+ * The same value sets the desktop's write paths check against, read as sets
+ * because an import asks "is this one of the allowed values" rather than
+ * "return the narrow type". `@shared/writeRules` owns the lists, so a value the
+ * phone accepts is a value the computer can store — and the reverse.
+ */
+export const ACCOUNT_KINDS: ReadonlySet<string> = new Set<AccountKind>(rules.ACCOUNT_KINDS)
+export const TRANSACTION_KINDS: ReadonlySet<string> = new Set<TransactionKind>(
+  rules.TRANSACTION_KINDS
+)
+export const FREQUENCIES: ReadonlySet<string> = new Set<Frequency>(rules.FREQUENCIES)
+export const FUNDING_STRATEGIES: ReadonlySet<string> = new Set<BillFundingStrategy>(
+  rules.BILL_FUNDING_STRATEGIES
+)
+export const CATEGORY_KINDS: ReadonlySet<string> = new Set<CategoryKind>(rules.CATEGORY_KINDS)
+export const GOAL_FUNDING_PACES: ReadonlySet<string> = new Set<GoalFundingPace>(
+  rules.GOAL_FUNDING_PACES
+)
+
 export const ALLOCATION_BUCKETS: ReadonlySet<string> = new Set<AllocationBucket>([
   'priority',
   'savings',
@@ -48,12 +37,6 @@ export const ALLOCATION_BUCKETS: ReadonlySet<string> = new Set<AllocationBucket>
   'goal',
   'debt',
   'leisure'
-])
-export const CATEGORY_KINDS: ReadonlySet<string> = new Set<CategoryKind>([
-  'expense',
-  'income',
-  'transfer',
-  'other'
 ])
 export const PLAN_HEALTH: ReadonlySet<string> = new Set<PlanHealth>([
   'covered',
@@ -63,11 +46,6 @@ export const PLAN_HEALTH: ReadonlySet<string> = new Set<PlanHealth>([
 export const BILL_RESERVE_STATES: ReadonlySet<string> = new Set<BillReserveState>([
   'reserved',
   'paid'
-])
-export const GOAL_FUNDING_PACES: ReadonlySet<string> = new Set<GoalFundingPace>([
-  'asap',
-  'by_date',
-  'paused'
 ])
 
 /**

@@ -12,7 +12,7 @@ import {
 } from '../../renderer/src/store/selectors'
 import { emptyTables, parseBackup } from './backup'
 import { billLines, dueSoon, pocketView } from './compute'
-import { createEntryRow } from './entry'
+import { createEntry } from './write'
 import { buildSnapshot } from './snapshot'
 import { flag, isLive, text } from './rows'
 
@@ -256,26 +256,23 @@ test('an entry added on the phone moves the same balances and agrees on Safe to 
   assert.ok(account)
 
   const before = buildSnapshot(tables, todayISO())
-  const row = createEntryRow(tables, {
+  const written = createEntry(tables, {
     accountId: text(account, 'id'),
     kind: 'expense',
     amountCents: 1250,
     occurredOn: todayISO(),
     memo: 'Coffee',
     categoryId: null,
-    categoryName: ''
+    category: ''
   })
-  const after = buildSnapshot(
-    { ...tables, transactions: [...tables.transactions, row] },
-    todayISO()
-  )
+  const after = buildSnapshot(written.tables, todayISO())
   const accountId = text(account, 'id')
   const beforeBalance = before.accounts.find((item) => item.id === accountId)?.balanceCents ?? 0
   const afterBalance = after.accounts.find((item) => item.id === accountId)?.balanceCents ?? 0
 
   assert.equal(afterBalance, beforeBalance - 1250)
   assert.equal(after.transactionTotal, before.transactionTotal + 1)
-  assert.equal(after.transactions[0]?.id, text(row, 'id'))
+  assert.equal(after.transactions[0]?.id, written.id)
   assert.equal(after.transactions[0]?.amountCents, -1250)
   assert.equal(after.transactions[0]?.memo, 'Coffee')
 

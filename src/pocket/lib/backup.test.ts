@@ -5,12 +5,14 @@ import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
 import test from 'node:test'
 import { todayISO } from '@shared/dates'
+import { RepositoryError } from '@shared/errors'
 import { buildBackup, backupToJson, mergeBackup, parseBackupJson } from '../../main/db/backup'
 import { migrate } from '../../main/db/migrations'
 import { seedDemoIfEmpty, seedIfEmpty } from '../../main/db/seed'
 import { parseBackup, BackupFileError, backupToJson as pocketToJson } from './backup'
-import { createEntryRow, EntryError, entryAccounts } from './entry'
-import { text } from './rows'
+import { entryAccounts } from './entry'
+import { isLive, text } from './rows'
+import { createEntry } from './write'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const example = readFileSync(join(here, '../../../examples/backup.example.json'), 'utf8')
@@ -21,6 +23,13 @@ function demoJson(): { db: Database.Database; userId: string; json: string } {
   migrate(db)
   const userId = seedDemoIfEmpty(db)
   return { db, userId, json: backupToJson(buildBackup(db, userId)) }
+}
+
+/** The row a writer returned, read back out of the tables it produced. */
+function rowOf(tables: { transactions: Record<string, unknown>[] }, id: string): Record<string, unknown> {
+  const row = tables.transactions.find((candidate) => text(candidate, 'id') === id)
+  assert.ok(row, `the writer left no row with id ${id}`)
+  return row
 }
 
 test('the example backup opens on the phone', () => {
@@ -111,31 +120,39 @@ test('an entry gets the sign its kind requires', () => {
   const account = entryAccounts(tables)[0]
   assert.ok(account)
   const accountId = text(account, 'id')
-
-  const expense = createEntryRow(tables, {
+  const draft = {
     accountId,
-    kind: 'expense',
     amountCents: 1250,
     occurredOn: todayISO(),
     memo: 'Coffee',
+    category: 'Food',
     categoryId: null,
-    categoryName: 'Food'
-  })
-  const income = createEntryRow(tables, {
-    accountId,
+    billId: null,
+    goalId: null,
+    counterAccountId: null
+  }
+
+  const expense = createEntry(tables, { ...draft, kind: 'expense' })
+  const expenseRow = rowOf(expense.tables, expense.id)
+  const income = createEntry(expense.tables, {
+    ...draft,
     kind: 'income',
     amountCents: 2500,
-    occurredOn: todayISO(),
     memo: 'Refund',
-    categoryId: null,
-    categoryName: 'Income'
+    category: 'Income'
   })
-  assert.equal(expense.amount_cents, -1250)
-  assert.equal(expense.category, 'Food')
-  assert.equal(income.amount_cents, 2500)
-  assert.equal(expense.kind, 'expense')
-  assert.equal(expense.bill_id, null)
-  assert.equal(expense.revision, 1)
+  assert.equal(expenseRow.amount_cents, -1250)
+  assert.equal(expenseRow.category, 'Food')
+  assert.equal(rowOf(income.tables, income.id).amount_cents, 2500)
+  assert.equal(expenseRow.kind, 'expense')
+  assert.equal(expenseRow.bill_id, null)
+  assert.equal(expenseRow.revision, 1)
+  // A name this ledger has never used becomes a category row, the way the
+  // desktop's `ensureCategory` makes one.
+  assert.ok(
+    income.tables.categories.some((row) => isLive(row) && text(row, 'name') === 'Food'),
+    'the typed category was written as a row'
+  )
 })
 
 test('an entry that cannot be honest about itself is refused', () => {
@@ -148,20 +165,26 @@ test('an entry that cannot be honest about itself is refused', () => {
     amountCents: 100,
     occurredOn: todayISO(),
     memo: '',
-    categoryId: null,
-    categoryName: ''
+    category: 'Misc',
+    categoryId: null
   }
 
-  const cases: [Parameters<typeof createEntryRow>[1], RegExp][] = [
-    [{ ...base, accountId: 'missing' }, /Pick an account/],
-    [{ ...base, amountCents: 0 }, /greater than zero/],
-    [{ ...base, amountCents: -5 }, /greater than zero/],
-    [{ ...base, occurredOn: '2999-01-01' }, /in the future/],
-    [{ ...base, occurredOn: 'not-a-date' }, /real date/]
+  // Every sentence here is the one the desktop's ledger gives for the same typo.
+  const cases: [Parameters<typeof createEntry>[1], RegExp][] = [
+    [{ ...base, accountId: 'missing' }, /Account not found/],
+    [{ ...base, amountCents: 0 }, /cannot be zero/],
+    [{ ...base, kind: 'loan' as never }, /Invalid transaction kind/],
+    [{ ...base, occurredOn: 'not-a-date' }, /must be a date in YYYY-MM-DD form/],
+    [{ ...base, memo: 'm'.repeat(241) }, /Memo is too long/],
+    [{ ...base, billId: 'gone' }, /That bill no longer exists/],
+    [{ ...base, kind: 'goal_funding', goalId: 'gone' }, /That goal no longer exists/],
+    [{ ...base, billId: 'gone', goalId: 'gone' }, /a bill or a goal, not both/],
+    [{ ...base, kind: 'transfer' }, /Transfers need a destination account/],
+    [{ ...base, kind: 'expense', counterAccountId: accountId }, /Only a transfer has a destination account/]
   ]
   for (const [draft, expected] of cases) {
-    assert.throws(() => createEntryRow(tables, draft), (error: unknown) => {
-      assert.ok(error instanceof EntryError)
+    assert.throws(() => createEntry(tables, draft), (error: unknown) => {
+      assert.ok(error instanceof RepositoryError)
       assert.match(error.message, expected)
       return true
     })
@@ -172,19 +195,20 @@ test('a backup exported from the phone merges into the desktop without touching 
   const { json } = demoJson()
   const backup = parseBackup(json)
   const account = entryAccounts(backup.tables)[0]!
-  const entry = createEntryRow(backup.tables, {
+  const written = createEntry(backup.tables, {
     accountId: text(account, 'id'),
     kind: 'expense',
     amountCents: 750,
     occurredOn: todayISO(),
     memo: 'Pharmacy',
     categoryId: null,
-    categoryName: 'Health'
+    category: 'Health'
   })
+  const entry = rowOf(written.tables, written.id)
   const exported = pocketToJson({
     ...backup,
     exportedAt: new Date().toISOString(),
-    tables: { ...backup.tables, transactions: [...backup.tables.transactions, entry] }
+    tables: written.tables
   })
 
   const desktop = new Database(':memory:')

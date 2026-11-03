@@ -22,6 +22,15 @@
   --danger: #ff6b7a;
   --danger-soft: rgba(255, 107, 122, 0.12);
 
+  /* A goal or account can be coloured with one of these tokens, which is what
+     the desktop stores in the row. Naming them here lets the phone paint the
+     same swatch instead of reading an unknown var(). */
+  --savings: #4cc2ff;
+  --investment: #a78bfa;
+  --goal: #f5bd4a;
+  --debt: #fb923c;
+  --leisure: #f472b6;
+
   --radius-sm: 10px;
   --radius: 16px;
   --radius-lg: 22px;
@@ -57,6 +66,12 @@
     --warn-soft: rgba(154, 100, 0, 0.1);
     --danger: #d03a4c;
     --danger-soft: rgba(208, 58, 76, 0.09);
+
+    --savings: #0a6ea8;
+    --investment: #5f43bc;
+    --goal: #8a5f00;
+    --debt: #b04d0c;
+    --leisure: #a92e6f;
 
     --shadow: 0 18px 40px rgba(30, 45, 70, 0.14);
     --backdrop: rgba(20, 32, 50, 0.38);
@@ -936,4 +951,56 @@ a {
 .welcome .form-error {
   width: 100%;
   text-align: left;
+}
+
+/* ------------------------------------------------------------------ forms */
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 38px;
+  font-size: 14px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.check input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--accent);
+}
+
+/* A bill or goal row that opens its own actions sheet is a button, not a div. */
+button.row-main.tap {
+  width: 100%;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+button.row-main.tap:active .row-title,
+button.goal-head.tap:active .row-title {
+  color: var(--accent);
+}
+
+button.goal-head.tap {
+  width: 100%;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 13px;
 }

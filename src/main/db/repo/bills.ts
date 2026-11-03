@@ -7,6 +7,7 @@ import type {
   BillReserve,
   Frequency
 } from '@shared/types'
+import { BILL_FUNDING_STRATEGIES, FREQUENCIES } from '@shared/writeRules'
 import {
   assertCents,
   assertDate,
@@ -21,22 +22,6 @@ import {
   updateRow,
   type Db
 } from './common'
-
-const BILL_FUNDING_STRATEGIES: readonly BillFundingStrategy[] = [
-  'all_checks',
-  'closest_due_date',
-  'specific_check',
-  'first_check',
-  'last_check'
-]
-const FREQUENCIES: readonly Frequency[] = [
-  'weekly',
-  'biweekly',
-  'semimonthly',
-  'monthly',
-  'quarterly',
-  'annual'
-]
 
 type BillRow = Omit<Bill, 'autopay' | 'isActive'> & { autopay: number; isActive: number }
 
