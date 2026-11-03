@@ -1,6 +1,6 @@
 # Import and export
 
-WageRoute has one data-movement principle: **imports add, they never restore over what is already there.** A JSON backup can be complete or partial, and a CSV file can be a full export or a handful of rows from a bank. Existing rows and existing settings always win — with one deliberate exception: a backup imported into a profile that has no accounts, bills, goals, paychecks or entries yet is that profile's first data, so it also supplies the settings. This is the documented erase-then-restore path, and it keeps the restored ledger's currency, pay cadence and splits.
+WageRoute has one data-movement principle: **an import merges, it never replaces the ledger.** A JSON backup can be complete or partial, and a CSV file can be a full export or a handful of rows from a bank. A row the ledger does not have is added; a row the file holds a newer version of is replaced; an older copy of a row leaves the local edit alone. Deletes travel as tombstones, so a deletion made on another device is applied when its stamp is newer. The same rule runs on the desktop and in Pocket ([ADR 0024](decisions/0024-two-copies-merge-by-time.md)). Settings merge per key under the same newer-wins rule — with one deliberate exception: a backup imported into a profile that has no accounts, bills, goals, paychecks or entries yet is that profile's first data, so it adopts the file's settings. This is the documented erase-then-restore path, and it keeps the restored ledger's currency, pay cadence and splits.
 
 The second principle is **a file is never rejected because of one bad row.** Anything the app cannot work out on its own is asked about in an import wizard, and anything you cannot answer is left out with an explanation while the rest of the file lands.
 
@@ -201,8 +201,8 @@ Omitted metadata is filled as follows:
 
 | Missing column | Fill |
 | --- | --- |
-| `created_at` | Import time |
-| `updated_at` | Import time |
+| `created_at` | The file's export time (never later than the merge) |
+| `updated_at` | The row's `created_at` when it has one, else the file's export time |
 | `revision` | `1` |
 | `id` | A freshly generated UUID |
 | `credit_limit_cents` | `null` |
@@ -259,34 +259,39 @@ accounts → balance_snapshots → categories → bills → goals → paychecks 
 ### Row identity
 
 - For all financial tables, the primary key is `id`.
-- If a row with the same `id` **and the local `user_id`** already exists, the row is counted as **skipped**.
-- Otherwise it is inserted, preserving its imported UUID.
+- If a row with the same `id` **and the local `user_id`** already exists, the two copies are compared.
+- The file's copy wins when its `updated_at` is later, or when the stamps are equal and its `revision` is higher. It then replaces every column except `id`, `user_id` and the local `created_at`.
+- When the file's copy is older (or has no usable stamp), the row is counted as **skipped** and the local copy stays.
+- Otherwise the row is inserted, preserving its imported UUID. That includes a tombstone whose ID this ledger has never seen: it is stored as a tombstone so the ID is taken.
 - `user_id` from the file is ignored and replaced with the local user ID.
 
-Preserving IDs is what keeps cross-table links intact: an imported transaction can point at an imported account, bill, goal or paycheck.
+Preserving IDs is what keeps cross-table links intact: an imported transaction can point at an imported account, bill, goal or paycheck, and an update lands on the same row rather than a twin.
 
-### Existing rows are never updated
+### A newer row is an edit, not a second row
 
-There is no upsert for financial rows. A row with the same ID is skipped even if its contents differ. This is why imports are additive rather than a restore: editing a local row and then importing an older backup will not overwrite the edit.
+A file row with the same ID and a newer stamp replaces the local row. This is what carries an edit made in Pocket into the desktop ledger. The comparison is `updated_at` first and `revision` second; a row whose stamps are equal and whose revision is not higher is counted as skipped, so importing the same file twice changes nothing. The local `created_at` is kept on an update, so an edit does not rewrite when the row was made.
+
+Editing a row locally and then importing an older backup still leaves the local edit alone: that backup's copy is older and loses the comparison. Use `git`-style thinking only as a metaphor — there is no merge wizard, no conflict dialog and no per-field history. The newer copy wins and the other is not shown.
 
 ### Timestamps
 
-A missing `created_at`, `updated_at` or settings `updated_at` becomes the merge time, and a missing `deleted_at` stays `NULL`. A stamp the file states is kept, because it is that ledger's own history — with one exception: a stamp later than the merge time (a machine with a wrong clock, or a hand-edited file) is written as the merge time instead. Keeping a future `updated_at` would make every later local edit look older than the imported row to a last-write-wins reader, reversing the order the person actually wrote things in. The review step says so when the backup's own `exportedAt` is in the future.
+A missing `created_at` becomes the file's export time, and a missing `updated_at` becomes the row's `created_at` when it has one, else the export time. A missing `deleted_at` stays `NULL`, and a missing `revision` becomes `1`. A stamp the file states is kept, because it is that ledger's own history — with one exception: a stamp later than the file's own `exportedAt` (a machine with a wrong clock, or a hand-edited file) is written as that export time instead, never as a later moment. Clamping to the export time rather than to this device's clock matters when two devices open the same file: they reach the same answer about which copy is newer. Keeping a future `updated_at` would make every later local edit look older than the imported row to a last-write-wins reader, reversing the order the person actually wrote things in. A file whose `exportedAt` is itself in the future is capped at the merge time, and the review step says so.
 
 ### Settings
 
-On a ledger that already has history, settings use `INSERT OR IGNORE` against `PRIMARY KEY (user_id, key)`:
+On a ledger that already has history, settings merge per key against `PRIMARY KEY (user_id, key)`:
 
 - missing keys are added;
-- existing keys are skipped, so local preferences always win;
+- an existing key is replaced when the file's `updated_at` is later (or equal with a higher `revision` for stores that carry one); otherwise it is skipped and the local value stays;
+- a file value with no usable `updated_at` cannot replace an existing value, so an old hand-written file still cannot change established preferences;
 - a key this build no longer defines is reported (`“leisurePercent” is not a setting this build knows`) and skipped, so an old backup cannot resurrect a retired setting and copy it forward again;
 - a key the file does not carry is left untouched at its local value;
 - a row with no usable `key` or `value` is asked about in the wizard, and left out with an explanation if it stays blank — it never fails the import;
-- a missing `updated_at` becomes import time.
+- a missing `updated_at` becomes the file's export time, capped at the merge time.
 
 **Restore into an empty ledger.** When the target has no accounts, bills, goals, paychecks, allocations, reserves, entries or balance snapshots — a fresh install, or the erase-then-import recovery flow — the file's settings replace the seeded defaults instead. The profile has no user-chosen preferences to protect, and keeping the defaults would silently change the restored ledger's currency, pay cadence and splits. Seeded default rows that the file carries unchanged are still counted as skipped.
 
-Any account, bill, goal, cheque or entry — including a tombstone — makes the ledger "in use", and local settings win again. Importing an old backup never changes an established profile's preferences.
+Any account, bill, goal, cheque or entry — including a tombstone — makes the ledger "in use", and settings go back to the newer-wins rule. A backup that is older than the local profile changes no preference; one exported after a preference was changed on another device does.
 
 ### Duplicate names are not merged
 
@@ -294,11 +299,19 @@ Identity is the UUID, not the name. Importing a full backup from a different ins
 
 This is deliberate: automatically merging by name would risk attaching transactions to the wrong account. If you want to combine installations, import into an empty database or accept that duplicate-named rows will appear and clean up manually.
 
-Categories are the exception. They are compared by case-insensitive name because the database refuses two live categories with the same name; a restored category with a local twin is counted as skipped, and every imported transaction that pointed at the file's category is relinked to the local row, whether it carried the id or only the spelling, so the link is never left dangling. A category row with no name, or a name longer than the 60 characters the ledger allows, is reported instead of written as a row the app could never save again.
+Categories are the exception. They are compared by case-insensitive name because the database refuses two live categories with the same name; a restored category with a local twin is counted as skipped, and every imported transaction that pointed at the file's category is relinked to the local row, whether it carried the id or only the spelling, so the link is never left dangling. A newer copy of an existing category is applied as a rename, unless the new name already belongs to another live category: that rename is refused with `the name is already used by another category`, because applying it would split every report across two rows with one spelling. A category row with no name, or a name longer than the 60 characters the ledger allows, is reported instead of written as a row the app could never save again.
 
 ### Tombstones
 
-Because full exports include `deleted_at` rows, an import can add a tombstone for a row that does not exist locally. It will not appear in the UI, but its ID is now taken. Re-importing a backup taken before a local delete will not resurrect the row: the local tombstone has the same ID and is skipped.
+Because full exports include `deleted_at` rows, a tombstone travels like any other row:
+
+- a tombstone for a row this ledger never had is stored as a tombstone and counted as **added**, so its ID is taken and a later file cannot bring that row back under the same ID;
+- a tombstone newer than the local live row deletes it, and the import reports it as **removed** rather than skipped;
+- a tombstone older than the local row loses the comparison, so a backup taken before a local edit cannot delete that edit;
+- a live row newer than a local tombstone brings it back. That is how an undo travels between devices;
+- a tombstone is applied as `deleted_at` on the existing row; the row is never physically removed, so the next export can carry the deletion again.
+
+Pocket writes its own tombstones when an entry is removed. A transfer takes its twin leg and a purchase takes its round-up, so a phone delete cannot leave half a pair behind.
 
 A row can be live while the parent it names is a tombstone. Two rules keep the wall honest:
 
@@ -350,7 +363,7 @@ Everything below is per row: the row is left out, described in `issues`, and the
 
 Values may be strings, numbers, booleans or `null`. Booleans are converted to 0/1. Numbers are passed through as-is; SQLite `STRICT` rejects a non-integer in an INTEGER column, and that rejection is reported per row.
 
-The import result carries `added` and `skipped` counts per table, `dropped` rows (label, every reason, how to fix the file) and `issues` for rows the database itself refused. Both JSON and CSV imports use them.
+The import result carries `added`, `updated`, `removed` and `skipped` counts per table, `dropped` rows (label, every reason, how to fix the file) and `issues` for rows the database itself refused. Both JSON and CSV imports use them; a CSV/statement import never updates or removes, so those two counts stay at zero there. The success toast names each non-zero count, so "nothing new" is visibly different from "two rows updated from the file".
 
 ---
 
@@ -844,5 +857,5 @@ Cautions:
 - CSV import does not create missing accounts, link bills or goals, or reconstruct transfers.
 - Bank statement import stores `FITID` for dedupe and compares the closing balance on its closing day, offering one adjustment; the sign of each line is taken as the statement wrote it. Only the closing balance is converted for a card account. See [what is not supported](#what-is-not-supported).
 - A whole-file rejection leaves the database untouched. A per-row rejection leaves the *other* rows imported — read the review step and the toast rather than assuming all-or-nothing, and re-import the same file after fixing it: rows that already landed are recognised by ID (or by fingerprint for CSV) and skipped.
-- Leaving a row out is not a rollback. Nothing local is deleted by an import, but a row you skipped stays missing until you import it again.
-- The import is not a restore. It will not delete local rows, reset settings, or roll back to an earlier state.
+- Leaving a row out is not a rollback. A row the file omits is never deleted, but a row you skipped stays missing until you import it again.
+- The import is not a restore. It applies the file's newer edits and deletes per row, but it will not roll the whole ledger back to an earlier state, and a row the file does not mention is untouched.

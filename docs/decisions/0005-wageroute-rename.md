@@ -84,7 +84,7 @@ Properties of this decision:
 - **Two application folders can coexist**, each with a database. Users may edit the wrong one. The sidebar footer shows the live path as its tooltip and Settings → Data prints it in full, which is the mitigation.
 - **The first launch copies the entire database.** A large ledger means a longer first start and double disk usage until the old folder is cleaned up.
 - **The old folder is never deleted.** That is intentional, but it means deleted data may persist there indefinitely. Cleaning it up is a user decision, not an app action.
-- **The copy is not a merge.** If the user continues using the old app after the rename, those newer changes are invisible to WageRoute. Consolidation requires an export/import, which is additive ([ADR 0003](0003-additive-imports.md)).
+- **The copy is not a merge.** If the user continues using the old app after the rename, those newer changes are invisible to WageRoute. Consolidation requires an export/import, which merges row by row ([ADR 0003](0003-additive-imports.md), [ADR 0024](0024-two-copies-merge-by-time.md)).
 - **The bundle identifier changed**, so OS-level identity changes with it: notification permissions, firewall entries, saved window state and any future code-signing identity are per-bundle. There is no signing identity yet.
 - **Installer and shortcut names changed.** Users may end up with both old and new shortcuts.
 - **A stale installer exists** in `release/` under the old name; it must not be distributed as WageRoute. See [RELEASING.md](../RELEASING.md#what-the-build-produces).

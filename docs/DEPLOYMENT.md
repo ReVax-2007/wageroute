@@ -29,7 +29,7 @@ This document separates what exists from what has been discussed. It also record
 | --- | --- | --- |
 | Local desktop app (macOS, Windows, Linux) | **Implemented** | Electron + electron-builder DMG/NSIS/MSI/portable/zip/AppImage/deb/rpm |
 | Local SQLite persistence | **Implemented** | `wageroute.db` in Electron `userData` |
-| Manual JSON backup and additive import | **Implemented** | Settings → Data |
+| Manual JSON backup and two-way merge on import | **Implemented** | Settings → Data |
 | Manual CSV export and entries import | **Implemented** | Settings → Data |
 | Unsigned installer builds | **Implemented** | Local scripts and GitHub Actions artifacts |
 | CI build on demand / version tag | **Implemented** | `.github/workflows/build.yml` |
@@ -179,12 +179,12 @@ Notes:
 
 There is no sync. The only supported ways to move data are:
 
-1. **JSON backup** — full or partial, additive on import.
+1. **JSON backup** — full or partial, merged on import (newer row wins, tombstones delete).
 2. **CSV export/import** — entries only, matched by account name.
 
 ### Copying the same database
 
-Copying `wageroute.db` (plus WAL/SHM) to another machine preserves IDs and links. It is a snapshot, not a merge. Once both copies diverge, importing one into the other will skip rows with matching IDs but add rows with new IDs; edits to the same row are not reconciled.
+Copying `wageroute.db` (plus WAL/SHM) to another machine preserves IDs and links. It is a snapshot, not a merge. Once both copies diverge, importing one into the other adds rows with new IDs and replaces a shared row only when the file's copy is newer; the other edit is lost without a prompt ([ADR 0024](decisions/0024-two-copies-merge-by-time.md)).
 
 Recommended procedure:
 
@@ -195,14 +195,15 @@ Recommended procedure:
 
 ### Importing one device into another
 
-JSON import is additive:
+JSON import merges by row identity:
 
-- rows with IDs that already exist are skipped;
-- new rows are added;
+- a row the ledger does not have is added;
+- a row with the same ID is replaced when the file's `updated_at` (then `revision`) is newer, and left alone otherwise;
+- a newer tombstone deletes the local row; an older live copy cannot resurrect it;
 - duplicate account names with different IDs are **not** merged;
-- settings already present on a ledger with history win; a backup imported into an empty profile supplies the settings too.
+- settings merge per key by the same newer-wins rule; a backup imported into an empty profile supplies the settings too.
 
-This is safe for appending history, but it is not a merge tool. If the two databases contain separate accounts with the same names, expect duplicates.
+This is a real merge for records, but not a conflict wizard: the newer edit wins and the older one is not shown. If the two databases contain separate accounts with the same names, expect duplicates. For Pocket, see [FEATURES.md](FEATURES.md#pocket-phone).
 
 ### Cloud-synced folders
 
@@ -214,7 +215,7 @@ Use exported files in a synced folder if you want off-machine copies without poi
 
 ### The phone
 
-Pocket is the fourth route, and it is one-way between devices: export on the desktop, open the file on the phone, add entries, export on the phone and import that file on the desktop. It is [additive](decisions/0023-the-phone-reads-a-backup-and-writes-only-entries.md), carries only plain expense and income entries, and has no automatic file transfer. Publishing the static build is a manual GitHub Pages workflow; enabling Pages and running it are owner actions.
+Pocket is the fourth route, and it is two-way between devices: export on the desktop, open the file on the phone, add or delete entries, export on the phone and import that file on the desktop. The phone's copy merges the same way, so a desktop export does not overwrite what was changed on the phone since the last file. It carries the tables the desktop exported; bills, goals and accounts are still edited on the computer, and there is no automatic file transfer. Publishing the static build is a manual GitHub Pages workflow; enabling Pages and running it are owner actions.
 
 ## Sync status
 
@@ -394,7 +395,7 @@ If the app cannot open the database:
 3. Copy the backup database files into `WageRoute/`.
 4. Relaunch.
 
-If you only have a JSON backup, launch with an empty/new database and use Settings → Import data. The import is additive, so import into an empty database when you want an exact reconstruction.
+If you only have a JSON backup, launch with an empty/new database and use Settings → Import data. The import merges rather than replaces, so start from an empty database when you want an exact reconstruction.
 
 ## Decision log
 
@@ -402,7 +403,7 @@ If you only have a JSON backup, launch with an empty/new database and use Settin
 | --- | --- |
 | Local-first desktop architecture | **Decided** — see [ADR 0001](decisions/0001-local-first-desktop.md) |
 | Integer cents | **Decided** — see [ADR 0002](decisions/0002-integer-cents.md) |
-| Additive imports | **Decided** — see [ADR 0003](decisions/0003-additive-imports.md) |
+| Merged imports (newer row wins) | **Decided** — see [ADR 0003](decisions/0003-additive-imports.md) and [ADR 0024](decisions/0024-two-copies-merge-by-time.md) |
 | Sync-ready schema without sync | **Decided as preparation only** — see [ADR 0004](decisions/0004-sync-ready-schema.md) |
 | WageRoute rename and legacy data adoption | **Decided** — see [ADR 0005](decisions/0005-wageroute-rename.md) |
 | Sync provider, identity and conflict policy | **Not decided** |

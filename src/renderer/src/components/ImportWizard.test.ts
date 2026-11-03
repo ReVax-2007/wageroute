@@ -169,6 +169,31 @@ test('the review explains an empty row once, and a skipped row as a choice', asy
   }
 })
 
+test('the review tells a backup merge apart from an append-only import', async () => {
+  const backup = await mount(previewOf())
+  try {
+    const text = window.document.body.textContent ?? ''
+    assert.ok(
+      text.includes('A row already here is replaced only when the file holds a newer version of it'),
+      'a newer copy in the file does replace the local row, so the review must say so'
+    )
+    assert.doesNotMatch(text, /the import only adds what is missing/)
+  } finally {
+    backup.unmount()
+  }
+
+  const lines = await mount(previewOf({ format: 'entries' }))
+  try {
+    assert.match(
+      window.document.body.textContent ?? '',
+      /the import only adds what is missing/,
+      'statement lines are still added, never rewritten'
+    )
+  } finally {
+    lines.unmount()
+  }
+})
+
 test('the review names the file’s export date and flags one from the future', async () => {
   const format = (iso: string): string =>
     new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(Date.parse(iso))

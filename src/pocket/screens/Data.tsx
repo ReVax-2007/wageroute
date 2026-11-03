@@ -25,6 +25,7 @@ export function Data() {
   const version = usePocket((state) => state.version)
   const newerSchema = usePocket((state) => state.newerSchema)
   const localIds = usePocket((state) => state.localIds)
+  const warnings = usePocket((state) => state.warnings)
   const exportJson = usePocket((state) => state.exportJson)
   const forget = usePocket((state) => state.forget)
   const { canInstall, installed, install } = useInstallPrompt()
@@ -75,9 +76,19 @@ export function Data() {
             phone should not export it back until the desktop app is updated.
           </p>
         ) : null}
+        {warnings.length > 0 ? (
+          <div className="notice warn">
+            <p>The last merge took what it could:</p>
+            <ul className="checks">
+              {warnings.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         <div className="card-actions">
           <button type="button" className="button" onClick={() => setReplacing(true)}>
-            <FolderInput size={17} aria-hidden="true" /> Open another backup
+            <FolderInput size={17} aria-hidden="true" /> Open a newer backup
           </button>
           <button
             type="button"
@@ -91,8 +102,9 @@ export function Data() {
           </button>
         </div>
         <p className="hint">
-          Bring the exported file into WageRoute on your computer with Import. It adds entries this
-          phone made and leaves the rest alone.
+          Opening a backup merges it: what is newer on either side wins, and nothing recorded here
+          is thrown away. To bring this phone's entries to your computer, export and import the file
+          there with the normal Import step.
         </p>
       </section>
 
@@ -150,14 +162,16 @@ export function Data() {
 
       {replacing ? (
         <Sheet
-          title="Open another backup?"
-          hint="The copy on this phone is replaced. Export it first if it holds entries you want to keep."
+          title="Open a newer backup?"
+          hint="The file is merged into this phone's copy. A record that changed on your computer replaces the copy here; one that changed here stays, and a newer delete is applied."
           onClose={() => setReplacing(false)}
         >
           <p className="confirm-text">
-            {localIds.length > 0
-              ? `${localIds.length} entr${localIds.length === 1 ? 'y was' : 'ies were'} added on this phone and will be lost unless you export first.`
-              : 'Nothing added on this phone will be lost.'}
+            {localIds.length === 1
+              ? '1 entry was added on this phone. It stays unless the file holds a newer version of it or a delete for it.'
+              : localIds.length > 1
+                ? `${localIds.length} entries were added on this phone. They stay unless the file holds a newer version or a delete for one of them.`
+                : 'Nothing recorded here will be lost unless the file holds a newer version of it.'}
           </p>
           <div className="sheet-actions">
             <button type="button" className="button" onClick={() => setReplacing(false)}>

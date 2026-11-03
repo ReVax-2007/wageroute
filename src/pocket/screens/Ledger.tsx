@@ -225,16 +225,14 @@ export function Ledger() {
                       {row.amountCents > 0 ? '+' : ''}
                       {formatMoney(row.amountCents, currency)}
                     </span>
-                    {local.has(row.id) ? (
-                      <button
-                        type="button"
-                        className="icon-button tiny"
-                        aria-label={`Remove ${row.memo || row.category}`}
-                        onClick={() => setPendingDelete(row)}
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    ) : null}
+                    <button
+                      type="button"
+                      className="icon-button tiny"
+                      aria-label={`Remove ${row.memo || row.category}`}
+                      onClick={() => setPendingDelete(row)}
+                    >
+                      <Trash2 size={15} />
+                    </button>
                   </div>
                 </li>
               ))}
@@ -255,7 +253,7 @@ export function Ledger() {
       {pendingDelete ? (
         <Sheet
           title="Remove this entry?"
-          hint="It disappears from this phone only. Your computer's ledger is untouched."
+          hint="It leaves this phone now, and the removal travels with your next export. A transfer also takes its other leg; a purchase takes its round-up."
           onClose={() => setPendingDelete(null)}
         >
           <p className="confirm-text">

@@ -272,7 +272,7 @@ If the wall exceeds income, the wall is partially funded, every other bucket is 
 
 ## Pocket (browser app)
 
-`src/pocket` is a second Vite root that builds to `dist-pocket/`. It has no Electron, no main process, no IPC and no server. It is not another write path to the desktop database; it is a read snapshot plus an append-only entry pad, and it exists because a backup is already the portable surface between devices.
+`src/pocket` is a second Vite root that builds to `dist-pocket/`. It has no Electron, no main process, no IPC and no server. It is not another write path to the desktop database; it holds a peer copy of the same tables, merges a backup into it, and exports it back, so the two devices meet through a file and the shared merge rule.
 
 ```text
 backup JSON ── parseBackup ──► ImportTables ── buildSnapshot ──► Snapshot
@@ -281,9 +281,10 @@ backup JSON ── parseBackup ──► ImportTables ── buildSnapshot ─�
                                                    └─ screens: Home, Bills, Goals, Ledger
 indexedDB ◄── writeLedger ◄── store (zustand) ◄────┘
                                    │
-                       addEntry ────┴──► new transaction row + localIds
-                                   │
-                       exportJson ─┴──► original tables + appended entries
+                    importFile ────┼──► mergeTables (shared last-write-wins)
+                       addEntry ───┴──► new transaction row + localIds
+                     deleteEntry ───┴──► tombstone (+ transfer twin, round-up)
+                       exportJson ─┴──► every table as the phone holds it
 ```
 
 | Module | Responsibility |
@@ -293,16 +294,16 @@ indexedDB ◄── writeLedger ◄── store (zustand) ◄────┘
 | `lib/snapshot.ts` | The parity layer: derives balances, transaction caps, goal funding, bill payments, reserves, paychecks and settings from the same table rows the desktop exports. It reimplements reads, not arithmetic, and sorts rows by code unit so the order matches SQLite's binary collation |
 | `lib/compute.ts` | Calls `safeToSpendPoolCents`, `unpaidMonthlyWallCents`, `poolEarmarkedGoalsCents`, `unsettledRoutingCents`, `monthlyWall` and `goalsSummary`; derives bill states from `nextBillOccurrence` and the due-soon horizon |
 | `lib/entry.ts` | Builds one expense/income transaction row with a new UUID, the right sign, a real date and an allowed account; returns a plain reason when it cannot |
-| `lib/store.ts` | Loads IndexedDB, imports/replaces, adds and removes local entries, exports, forgets, and surfaces storage failures |
+| `lib/store.ts` | Loads IndexedDB, merges an opened backup into the local copy, adds entries, tombstones a delete, exports, forgets, and surfaces storage failures |
 | `lib/idb.ts` | One IndexedDB database, one `ledger` store, one `current` key; a failed open is not cached and a version change closes the connection |
 | `lib/install.ts` | Captures `beforeinstallprompt` at module load, reports standalone mode and exposes the deferred prompt |
 | `public/sw.js` | Versioned shell cache, network-first navigation and cache-first hashed assets; the build injects the release stamp and the precache list |
 
-The boundary is deliberate: the phone can add only rows the desktop's additive import can express. It does not edit or delete desktop rows, and it does not record bill payments, because the export has no way to carry an edit, a deletion or a claim settlement. A phone entry is a new UUID, so the desktop can always tell it apart and add it once.
+The boundary is deliberate: the phone edits a copy of the same tables the desktop writes, and the two copies meet through the shared merge rule in `src/shared/tableMerge.ts`. An opened file adds rows the phone lacks, replaces a row whose `updated_at` (then `revision`) is newer, and applies a newer tombstone; an older file copy never overwrites a local edit. A delete on the phone writes a tombstone and bumps `revision` instead of dropping the row, so the removal survives into the next export. Transfer twins and round-up sweeps are tombstoned with the row that was selected, matching the desktop's delete. The phone still does not record a bill payment, because a payment has to settle the claim the desktop wrote; that remains a desktop action. The rule and its trade-offs are recorded in [ADR 0024](decisions/0024-two-copies-merge-by-time.md).
 
 The offline shell is generated, not hand-listed: a Vite `closeBundle` plugin fills `SHELL_VERSION` and `__PRECACHE__` in `public/sw.js` with the package version, a build hash and the sorted hashed assets, so a cold offline open does not request a bundle the cache never held. A row that does not match the schema it claims — an unknown enum for a version the build knows, or money that is not a whole number — is refused at parse time rather than coerced into a value the user never wrote.
 
-`src/pocket/lib/snapshot.test.ts` builds a migrated demo database, exports it through the desktop backup builder, opens it on the phone and asserts every displayed total against the desktop's own selectors. `backup.test.ts` proves the export merges into a desktop database exactly once. The pocket TypeScript project includes `src/shared` and `src/renderer/src/lib/finance.ts`, so a change to either must still satisfy all three type checks.
+`src/pocket/lib/snapshot.test.ts` builds a migrated demo database, exports it through the desktop backup builder, opens it on the phone and asserts every displayed total against the desktop's own selectors. `backup.test.ts` proves the export merges into a desktop database exactly once. `src/shared/tableMerge.test.ts` pins the merge rule itself (add, newer-wins, revision tiebreak, tombstone, no-stamp and future-stamp cases, settings by key and category-name collisions), and `backup-merge.test.ts` proves the desktop applies the same decisions with SQL, including an update and a deletion arriving from the phone. The pocket TypeScript project includes `src/shared` and `src/renderer/src/lib/finance.ts`, so a change to either must still satisfy all three type checks.
 
 ## The main/database layer
 

@@ -3,12 +3,8 @@ import type Database from 'better-sqlite3'
 import type { ImportCounts, ImportIssue } from '@shared/api'
 import { CATEGORY_NAME_MAX, categoryKey, normalizeCategoryName } from '@shared/categories'
 import { IMPORT_TABLES, type ImportTable, type ImportTables } from '@shared/importRepair'
-import {
-  DEFAULT_SETTINGS,
-  isCurrencyCode,
-  parseSettings,
-  settingsToRecord
-} from '@shared/settings'
+import { DEFAULT_SETTINGS, isCurrencyCode, parseSettings, settingsToRecord } from '@shared/settings'
+import { incomingWins } from '@shared/tableMerge'
 import { SCHEMA_VERSION } from './migrations'
 import { reconcileAllBillReserves } from './repo/bills'
 
@@ -259,6 +255,8 @@ function toSqlValue(value: unknown, key: string): SqlValue {
 
 export interface MergeResult {
   added: ImportCounts
+  updated: ImportCounts
+  removed: ImportCounts
   skipped: ImportCounts
   /** Rows the database refused; every other row in the file still imports. */
   issues: ImportIssue[]
@@ -298,27 +296,45 @@ function issueOf(error: unknown): string {
  * A file can carry a stamp from the future — a machine with a wrong clock, or a
  * hand-edited file. Keeping it would make every later local edit look older
  * than the imported row once a sync layer reads `updated_at`, which reverses
- * last-write-wins. A future stamp is therefore read as the merge time; a genuine
- * past stamp is preserved because it is the file's own history.
+ * last-write-wins. A future stamp is therefore read as the file's own export
+ * time (never later than this merge), which both devices read the same way; a
+ * genuine past stamp is preserved because it is the file's own history.
  */
-function clampStamp(value: unknown, now: string): unknown {
+function clampStamp(value: unknown, ceiling: string): unknown {
   if (typeof value !== 'string') return value
   const at = Date.parse(value)
-  return Number.isFinite(at) && at > Date.parse(now) ? now : value
+  return Number.isFinite(at) && at > Date.parse(ceiling) ? ceiling : value
+}
+
+function isTombstone(row: Record<string, unknown>): boolean {
+  const value = row.deleted_at
+  return value !== undefined && value !== null && value !== ''
 }
 
 /**
- * Adds whatever the local database is missing and leaves existing rows alone.
- * Account/paycheck UUIDs are preserved so cross-table links hold, and re-importing
- * the same backup is a no-op. A row the database refuses is reported, not fatal:
- * the wizard has already offered to fix or drop it.
+ * Adds what the ledger is missing, replaces rows the file holds a newer version
+ * of, and applies a newer tombstone as a delete. The comparison is the shared
+ * one the phone uses, so an export made on either device lands the same way:
+ * `updated_at` decides, `revision` breaks a tie, and a row without a usable
+ * stamp cannot overwrite one that has one. Account/paycheck UUIDs are preserved
+ * so cross-table links hold, and re-importing the same backup is a no-op.
  */
 export function mergeBackup(db: Db, userId: string, payload: BackupPayload): MergeResult {
   const added = emptyCounts()
+  const updated = emptyCounts()
+  const removed = emptyCounts()
   const skipped = emptyCounts()
   const issues: ImportIssue[] = []
   let generatedIds = 0
   const now = new Date().toISOString()
+  const nowTime = Date.parse(now)
+  // Rows are capped at when the file was written, not at this import. Both
+  // devices read the same file the same way, so a wrong clock in the file
+  // cannot make an untouched row outrank a genuine edit on the other device.
+  const exportedTime = typeof payload.exportedAt === 'string' ? Date.parse(payload.exportedAt) : Number.NaN
+  const ceiling =
+    Number.isFinite(exportedTime) && exportedTime < nowTime ? payload.exportedAt : now
+  const ceilingTime = Date.parse(ceiling)
 
   /**
    * A category is identified by its name, not by the UUID the other file
@@ -365,17 +381,15 @@ export function mergeBackup(db: Db, userId: string, payload: BackupPayload): Mer
 
     for (const table of TABLE_ORDER) {
       if (table === 'settings') {
-        const insert = db.prepare(
-          `INSERT OR IGNORE INTO settings (user_id, key, value, updated_at)
-           VALUES (?, ?, ?, ?)`
-        )
         const upsert = db.prepare(
           `INSERT INTO settings (user_id, key, value, updated_at)
            VALUES (?, ?, ?, ?)
            ON CONFLICT(user_id, key) DO UPDATE SET
              value = excluded.value, updated_at = excluded.updated_at`
         )
-        const localValue = db.prepare('SELECT value FROM settings WHERE user_id = ? AND key = ?')
+        const localValue = db.prepare(
+          'SELECT value, updated_at FROM settings WHERE user_id = ? AND key = ?'
+        )
         payload.tables.settings.forEach((row, index) => {
           if (typeof row.key !== 'string' || row.key.trim().length === 0) {
             issues.push({ table, message: `${describeRow(table, row, index)}: no setting key` })
@@ -399,19 +413,36 @@ export function mergeBackup(db: Db, userId: string, payload: BackupPayload): Mer
             return
           }
           const updatedAt =
-            typeof row.updated_at === 'string' ? String(clampStamp(row.updated_at, now)) : now
+            typeof row.updated_at === 'string'
+              ? String(clampStamp(row.updated_at, ceiling))
+              : ceiling
           try {
             const value = toSqlValue(row.value, 'value')
             const text = String(value ?? '')
+            const current = localValue.get(userId, row.key) as
+              | { value: string; updated_at: string | null }
+              | undefined
+            // The erase-then-restore path adopts the file's settings because
+            // there is no local choice to keep. Anywhere else the newer value
+            // wins, so a setting changed on either device travels with it.
+            const take =
+              ledgerIsEmpty ||
+              current === undefined ||
+              incomingWins({ updated_at: current.updated_at ?? undefined }, row, nowTime, ceilingTime)
+            if (!take) {
+              skipped.settings += 1
+              return
+            }
             if (ledgerIsEmpty) {
-              const current = localValue.get(userId, row.key) as { value: string } | undefined
+              // Seeded defaults are not a choice the person made, so an adopted
+              // value reads as restored rather than as an edit on this device.
               upsert.run(userId, row.key, text, updatedAt)
               if (current?.value === text) skipped.settings += 1
               else added.settings += 1
             } else {
-              const result = insert.run(userId, row.key, text, updatedAt)
-              if (result.changes > 0) added.settings += 1
-              else skipped.settings += 1
+              upsert.run(userId, row.key, text, updatedAt)
+              if (current) updated.settings += 1
+              else added.settings += 1
             }
           } catch (error) {
             issues.push({ table, message: `${describeRow(table, row, index)}: ${issueOf(error)}` })
@@ -425,15 +456,26 @@ export function mergeBackup(db: Db, userId: string, payload: BackupPayload): Mer
         `INSERT INTO ${table} (${columns.join(', ')})
          VALUES (${columns.map(() => '?').join(', ')})`
       )
-      const exists = db.prepare(`SELECT 1 FROM ${table} WHERE id = ? AND user_id = ?`)
+      const updateColumns = columns.slice(2)
+      const update = db.prepare(
+        `UPDATE ${table} SET ${updateColumns.map((column) => `${column} = ?`).join(', ')}
+         WHERE id = ? AND user_id = ?`
+      )
+      const exists = db.prepare(`SELECT * FROM ${table} WHERE id = ? AND user_id = ?`)
       payload.tables[table].forEach((row, index) => {
         const existingId = typeof row.id === 'string' && row.id.length > 0 ? row.id : ''
         const id = existingId || randomUUID()
-        if (!existingId) generatedIds += 1
-        else if (exists.get(id, userId)) {
+        const existing = existingId
+          ? (exists.get(id, userId) as Record<string, unknown> | undefined)
+          : undefined
+        // A file holding an older copy of a row leaves the local edit alone.
+        // This is what lets a phone and a computer both be edited offline: the
+        // newer of the two wins instead of the later import.
+        if (existing && !incomingWins(existing, row, nowTime, ceilingTime)) {
           skipped[table] += 1
           return
         }
+        if (!existingId) generatedIds += 1
         let categoryName: string | null = null
         if (table === 'categories') {
           const stated = typeof row.name === 'string' ? normalizeCategoryName(row.name) : ''
@@ -453,7 +495,19 @@ export function mergeBackup(db: Db, userId: string, payload: BackupPayload): Mer
           }
           categoryName = stated
           const match = localCategories.get(categoryKey(categoryName))
-          if (match) {
+          if (existing) {
+            // A rename onto another live name would split reports across two
+            // rows with one spelling, so the local name stays and the file is
+            // told why. Deleting a category is not a rename and still applies.
+            if (!isTombstone(row) && match && match.id !== id) {
+              issues.push({
+                table,
+                message: `${describeRow(table, row, index)}: the name is already used by another category`
+              })
+              skipped.categories += 1
+              return
+            }
+          } else if (match) {
             if (existingId) remapCategory.set(existingId, match)
             skipped.categories += 1
             return
@@ -471,13 +525,19 @@ export function mergeBackup(db: Db, userId: string, payload: BackupPayload): Mer
                 ? localCategories.get(categoryKey(row.category))
                 : undefined)
             : undefined
+        // A bill only carries its category's spelling, so a case or accent
+        // difference would show two names for one category on two devices.
+        const remappedBillCategory =
+          table === 'bills' && typeof row.category === 'string'
+            ? localCategories.get(categoryKey(row.category))?.name
+            : undefined
         // A live claim needs a live bill. If the file's bill was skipped
         // because the local row is a tombstone (or the bill failed to import),
         // inserting the claim would leave reserved money under a bill no screen
         // can show and every later export would carry forward.
         if (
           table === 'bill_reserves' &&
-          (row.deleted_at === undefined || row.deleted_at === null) &&
+          !isTombstone(row) &&
           !liveBillIds.has(String(row.bill_id ?? ''))
         ) {
           issues.push({
@@ -517,29 +577,59 @@ export function mergeBackup(db: Db, userId: string, payload: BackupPayload): Mer
               if (column === 'category_id') return remappedCategory.id
               if (column === 'category') return remappedCategory.name
             }
+            if (column === 'category' && remappedBillCategory !== undefined) {
+              return remappedBillCategory
+            }
+            // An update keeps the day the row was made. Only a new row uses the
+            // file's stamp, so an edit on the phone does not rewrite history.
+            if (column === 'created_at' && existing?.created_at != null) {
+              return toSqlValue(existing.created_at, column)
+            }
             const value = row[column]
             // Hand-written entry files often omit sync metadata and position
             // columns; give every omitted key a sane value instead of NULL.
             if (value === undefined) {
-              if (column === 'created_at' || column === 'updated_at') return now
+              if (column === 'created_at') return ceiling
+              // A row with no edit stamp is as old as its creation, not as new
+              // as this import: the import time would outrank an edit the other
+              // device made before the file was written.
+              if (column === 'updated_at') {
+                return typeof row.created_at === 'string'
+                  ? clampStamp(row.created_at, ceiling)
+                  : ceiling
+              }
               if (column === 'revision') return 1
               if (column in defaults) return defaults[column]
               return null
             }
             if (column === 'created_at' || column === 'updated_at' || column === 'deleted_at') {
-              return toSqlValue(clampStamp(value, now), column)
+              return toSqlValue(clampStamp(value, ceiling), column)
             }
             return toSqlValue(value, column)
           })
-          insert.run(...values)
-          added[table] += 1
+          if (existing) {
+            update.run(...values.slice(2), id, userId)
+            if (isTombstone(row) && !isTombstone(existing)) removed[table] += 1
+            else updated[table] += 1
+          } else {
+            insert.run(...values)
+            added[table] += 1
+          }
           if (table === 'categories' && categoryName !== null) {
-            localCategories.set(categoryKey(categoryName), { id, name: categoryName })
+            const previous =
+              typeof existing?.name === 'string'
+                ? categoryKey(normalizeCategoryName(existing.name))
+                : null
+            if (previous) localCategories.delete(previous)
+            if (!isTombstone(row)) {
+              localCategories.set(categoryKey(categoryName), { id, name: categoryName })
+            }
           }
           if (table === 'bills') {
             billStrategies.set(id, row.funding_strategy ?? 'all_checks')
             billDueDays.set(id, row.due_day ?? 1)
-            if (row.deleted_at === undefined || row.deleted_at === null) liveBillIds.add(id)
+            if (isTombstone(row)) liveBillIds.delete(id)
+            else liveBillIds.add(id)
           }
         } catch (error) {
           issues.push({ table, message: `${describeRow(table, row, index)}: ${issueOf(error)}` })
@@ -554,5 +644,5 @@ export function mergeBackup(db: Db, userId: string, payload: BackupPayload): Mer
     reconcileAllBillReserves(db, userId)
   })()
 
-  return { added, skipped, issues, generatedIds }
+  return { added, updated, removed, skipped, issues, generatedIds }
 }

@@ -532,8 +532,8 @@ export function Settings() {
             for reviewing the ledger in a spreadsheet, not a backup: it writes a transfer as two
             rows and cannot rebuild them on import, and it carries neither the currency nor the
             links between records. Use the JSON backup to move data between profiles. Importing
-            only adds what this app is missing: nothing local is deleted, and settings you have
-            already changed stay as they are.
+            merges by record: what changed more recently on either side wins, a delete recorded
+            more recently is applied, and a record left alone in the file is left alone here.
           </p>
           <p className="db-path" title={dbPath}>
             {dbPath}

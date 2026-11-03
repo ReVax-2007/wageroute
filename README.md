@@ -50,9 +50,9 @@ It is a planning and ledger tool, not a bank connection. There is no account lin
 | **Round-up** | Tangerine-style spare-change sweeps: when an expense is logged against a checking or cash account, the difference to the next $1, $2 or $5 is moved to a savings account as a paired transfer. |
 | **Paired transfers** | Account-to-account moves are written as two linked rows sharing a `transfer_group_id`. Editing an amount, date, memo or category updates both legs. Deleting either leg removes both. |
 | **Chronology prompts** | Active bills past their latest due date with no matching `bill_id` payment are surfaced on the dashboard as “Did this clear?” prompts with one-click logging. A bill marked **autopay** is recorded automatically at the next launch after its due date instead, so the wall clears itself. |
-| **Data portability** | Full or partial JSON backups, a whole-ledger CSV export, and additive imports of either format. Bank statements (OFX/QFX, QIF, or a CSV with no account column) import into the account you name; loan and investment statements are read for what they can offer. A bank line that carries a reference is never added twice, and a statement that carries a closing balance can be reconciled against the ledger. |
+| **Data portability** | Full or partial JSON backups, a whole-ledger CSV export, and imports that merge either format by row identity. Bank statements (OFX/QFX, QIF, or a CSV with no account column) import into the account you name; loan and investment statements are read for what they can offer. A bank line that carries a reference is never added twice, and a statement that carries a closing balance can be reconciled against the ledger. |
 | **Data folder** | Optionally keep the ledger in a folder you choose — a NAS share, an external disk, or a synced folder — so several computers read the same data. The default per-user folder is unchanged; a chosen folder is locked to one writer at a time, uses rollback journaling, and keeps a safety copy on every move. |
-| **Pocket (phone)** | An optional installable web app that opens a backup, shows Safe to Spend, bills, goals and the ledger, and adds expense or income entries offline. It stores the copy in the browser, reuses the desktop's money functions and exports only the entries it added; the desktop's Import merges them. No server, account or upload. |
+| **Pocket (phone)** | An optional installable web app that opens a backup, shows Safe to Spend, bills, goals and the ledger, and adds or removes entries offline. It keeps a full copy of the tables in the browser, reuses the desktop's money functions, and merges with the desktop in both directions by exporting the tables it now holds. No server, account or upload. |
 | **Appearance** | Dark, light or system theme. The resolved palette is cached locally to prevent a flash on launch. |
 
 ## Design rules
@@ -133,16 +133,16 @@ Full details, including the Gatekeeper behaviour on each macOS version, are in [
 
 ## WageRoute Pocket
 
-Pocket is an optional second front end for a phone, built from `src/pocket` to static files. It is not a second copy of the desktop app: it opens a backup, keeps that copy in the browser's IndexedDB, and lets you add expenses and income while you are away from the computer.
+Pocket is an optional second front end for a phone, built from `src/pocket` to static files. It works from a full copy of the same tables in the browser's IndexedDB, merges a newer backup into it, adds and removes entries, and exports the result for the desktop to merge.
 
 - **Install it.** Serve `dist-pocket/` from any static HTTPS origin (the repository contains a GitHub Pages workflow), open it on the phone, and use the browser's **Install app** or **Add to Home Screen**. It then opens offline like an app.
 - **First run.** Export a backup on the computer (Settings → Export a backup), send the file to the phone, and choose it on the welcome screen. The file is checked before it opens: an unknown kind or frequency, or money that is not a whole number of cents, is refused rather than quietly replaced.
 - **What it shows.** Safe to Spend and its breakdown, cash, total wealth, bills still due, goal progress, recent entries and the full ledger, read with the desktop's own shared money functions.
-- **What it can change.** Plain expense and income entries only, and it can remove only the entries it added — a desktop row is removed on the computer. Bills, goals, accounts, paychecks and settings are edited on the computer and arrive with the next backup. Bill payments are excluded because an additive import cannot carry the claim a payment settles.
-- **Getting entries back.** Data → **Export a backup** writes the original tables with the phone's entries appended. Import that file on the computer; existing rows are skipped and each phone entry lands once.
+- **What it can change.** Plain expense and income entries, and the removal of any entry: a delete is written as a tombstone and travels with the next export, taking a transfer's other leg or a purchase's round-up with it. A record changed more recently on either device wins on the next merge. Bills, goals, accounts, paychecks and settings are still edited on the computer and arrive with the next backup. Bill payments are excluded because a payment has to settle the claim the desktop wrote.
+- **Getting changes back.** Data → **Export a backup** writes every table as the phone now holds it. Import that file on the computer: new rows are added, a row the phone changed more recently replaces the desktop's copy, and a deletion recorded on the phone is applied.
 - **Trust.** No account, no server, no analytics, no upload. The file never leaves the phone. Clearing the browser's site data, or using another browser, removes the phone copy — export first if it holds entries you need.
 
-Build and run it with `npm run pocket:dev`, `npm run pocket:build`, and `npm run pocket:preview`. Its limits and the additive boundary are recorded in [ADR 0023](docs/decisions/0023-the-phone-reads-a-backup-and-writes-only-entries.md).
+Build and run it with `npm run pocket:dev`, `npm run pocket:build`, and `npm run pocket:preview`. Its limits and the two-way merge rule are recorded in [ADR 0024](docs/decisions/0024-two-copies-merge-by-time.md).
 
 ## Quick start
 
@@ -184,7 +184,7 @@ The app was previously named **Cash Flow Routing**. On first launch, if the new 
 - **Export transactions CSV** writes the **whole** ledger — not the 500-row screen snapshot — with Date, Account, Institution, Kind, Category, Description, Amount and Currency. Both exports are written owner-only (`0600`).
 - **Import data** accepts a backup, an entries CSV, a bank statement (OFX/QFX or QIF) or a CSV with no account column, and walks you through a three-step wizard. JSON may contain only some tables. CSV is treated as entries and matched to local accounts by name (optionally narrowed by institution); a statement is imported into the one account you pick, and a transaction the bank identifies with a FITID (or a CSV reference) is never added twice. When the statement carries a closing balance it is compared with your ledger, and one adjustment is offered if the two disagree.
 - **The wizard asks instead of failing.** Anything a row is missing, mis-typed, out of range or pointing at — plus CSV account names that match nothing — is put to you as a question with a fix-or-leave-out choice. Rows you cannot fix are left out with an explanation of what was wrong and how to repair the file; the rest of the import still lands.
-- Imports are additive: existing IDs are skipped, existing settings keys win once the ledger has history, and re-importing the same file changes nothing. A backup restored into an empty profile also supplies its own settings.
+- Imports merge by row identity: a row the file holds a newer version of replaces the local copy, an older copy is skipped, and a newer tombstone deletes. Settings merge per key the same way once the ledger has history; a backup restored into an empty profile also supplies its settings. Re-importing the same file changes nothing.
 
 Full format rules, examples and failure modes are in [docs/IMPORT-EXPORT.md](docs/IMPORT-EXPORT.md).
 

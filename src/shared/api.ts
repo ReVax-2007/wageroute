@@ -100,6 +100,10 @@ export interface ImportResult {
   format: 'backup' | 'entries'
   exportedAt: string
   added: ImportCounts
+  /** Rows the file holds a newer version of; a second device's edits land here. */
+  updated: ImportCounts
+  /** Rows the file marks deleted with a tombstone newer than the local row. */
+  removed: ImportCounts
   skipped: ImportCounts
   dropped: ImportDroppedRow[]
   issues: ImportIssue[]

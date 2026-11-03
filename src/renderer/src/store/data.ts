@@ -413,6 +413,8 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
         }
 
         const added = totalCounts(result.added)
+        const changed = totalCounts(result.updated)
+        const removed = totalCounts(result.removed)
         const skipped = totalCounts(result.skipped)
         const dropped = result.dropped.length
         const refused = result.issues.length
@@ -427,7 +429,7 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
         const withStale = (text: string): string =>
           stale ? `${text} — reopen WageRoute to refresh the screen` : text
 
-        if (added === 0) {
+        if (added === 0 && changed === 0 && removed === 0) {
           if (dropped > 0 || refused > 0) {
             get().notify(
               withStale(
@@ -447,8 +449,15 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
           return null
         }
 
-        const parts = [`Imported ${added} new ${noun}`]
-        if (skipped > 0) parts.push(`${skipped} already present`)
+        const parts: string[] = []
+        if (added > 0) parts.push(`Imported ${added} new ${noun}`)
+        if (changed > 0) parts.push(`${changed} updated from the file`)
+        if (removed > 0) parts.push(`${removed} removed by a newer change`)
+        // `skipped` is every row the file did not change: an older copy, a
+        // tombstone for a row never held, and a category name this profile
+        // already uses. "Left as they are here" says that without claiming the
+        // row is identical to what the file carried.
+        if (skipped > 0) parts.push(`${skipped} left as they are here`)
         if (dropped > 0) parts.push(`${dropped} ${dropped === 1 ? 'row' : 'rows'} left out`)
         if (refused > 0)
           parts.push(`${refused} ${refused === 1 ? 'row' : 'rows'} could not be imported`)

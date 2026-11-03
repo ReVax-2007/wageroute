@@ -431,8 +431,10 @@ export function ImportWizard() {
             <p className="wizard-hint">
               Importing <strong>{describeFiles(survivingRows)}</strong> from{' '}
               {fileNameOf(preview.path)}
-              {made ? `, made ${made}` : ''}. Everything already in this app stays exactly as it
-              is — the import only adds what is missing.
+              {made ? `, made ${made}` : ''}.{' '}
+              {preview.format === 'backup'
+                ? 'A row already here is replaced only when the file holds a newer version of it, and a delete the file records as newer is applied. A row the file does not mention is left untouched.'
+                : 'Everything already in this app stays exactly as it is — the import only adds what is missing.'}
             </p>
             {busy && (
               <p className="wizard-hint" role="status">

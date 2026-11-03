@@ -84,7 +84,7 @@ Tags use the `v` prefix and match the app version exactly: `v1.0.0`. The CI work
 | `10` | Accepted; the newest format this app writes |
 | `> 10` | Rejected: `This backup came from a newer version` |
 
-Imports are additive and idempotent. Re-importing the same file skips rows that already exist by UUID. See [IMPORT-EXPORT.md](IMPORT-EXPORT.md).
+Imports merge by row identity and are idempotent. A row the file holds a newer version of replaces the local copy; an older copy is skipped; a newer tombstone deletes. Re-importing the same file changes nothing. See [IMPORT-EXPORT.md](IMPORT-EXPORT.md) and [ADR 0024](decisions/0024-two-copies-merge-by-time.md).
 
 A release that raises `SCHEMA_VERSION` must also decide whether the new backup shape is backward-compatible with the previous app version. The default answer is **no**: backups written by a newer app are not readable by an older app.
 
@@ -299,7 +299,7 @@ No database is bundled. On first launch the app seeds one blank local user with 
 
 WageRoute Pocket is the phone app: a static Vite/React build in `src/pocket/`, written to `dist-pocket/`, and installed from a browser. It is **not** part of a desktop release and not an electron-builder target.
 
-- **It has no version of its own.** It reads a desktop backup and writes append-only entries; the backup's format version is the only compatibility number that matters. A change to the backup shape belongs in the desktop schema procedure above.
+- **It has no version of its own.** It reads a desktop backup, merges it into its browser copy and merges its edits back through an export; the backup's format version is the only compatibility number that matters. A change to the backup shape belongs in the desktop schema procedure above.
 - **CI builds it, but never publishes it.** The `verify` job runs `npm run pocket:build` after `npm run build`, so a broken Pocket build fails the same gate as a broken desktop build. `dist-pocket/` is gitignored and is not uploaded as an artifact.
 - **Publishing is a separate, manual decision.** [`.github/workflows/pocket.yml`](../.github/workflows/pocket.yml) is `workflow_dispatch` only and deploys `dist-pocket/` to GitHub Pages. A normal push or tag never publishes the phone app, and the workflow has no effect on the desktop installers.
 - **A publish is a public deployment.** The static bundle is served from a public URL, so treat enabling Pages, running that workflow, or changing the published origin as owner actions, not release steps.
@@ -628,7 +628,7 @@ No data is lost because the schema did not change.
 4. Reinstall the previous app.
 5. Launch and confirm balances and recent entries.
 
-If you do not have a pre-upgrade copy, you cannot safely downgrade. Either stay on the newer app or reconstruct data from a JSON backup into a clean profile. Imports are additive, so import into an empty database when reconstructing.
+If you do not have a pre-upgrade copy, you cannot safely downgrade. Either stay on the newer app or reconstruct data from a JSON backup into a clean profile. Imports merge rather than replace, but an old backup describes an old state; import into an empty database when reconstructing.
 
 ### Bad release already distributed
 

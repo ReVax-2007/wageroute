@@ -920,6 +920,8 @@ export function registerIpcHandlers(db: Database.Database): void {
     }
     const list = Array.isArray(answers) ? (answers as ImportAnswer[]) : []
     const added = emptyImportCounts()
+    const updated = emptyImportCounts()
+    const removed = emptyImportCounts()
     const skipped = emptyImportCounts()
 
     if (pending.format === 'entries') {
@@ -959,6 +961,8 @@ export function registerIpcHandlers(db: Database.Database): void {
         format: 'entries',
         exportedAt: '',
         added,
+        updated,
+        removed,
         skipped,
         dropped: unmapped.map((mapping) =>
           pending.statement ? statementDropped(mapping) : entryDropped(mapping)
@@ -985,6 +989,8 @@ export function registerIpcHandlers(db: Database.Database): void {
       format: 'backup',
       exportedAt: payload.exportedAt,
       added: merged.added,
+      updated: merged.updated,
+      removed: merged.removed,
       skipped: merged.skipped,
       dropped: repaired.dropped,
       issues: merged.issues
