@@ -1,5 +1,6 @@
 import { isISODate } from './dates'
 import { RepositoryError } from './errors'
+import { parseMoneyToCents } from './money'
 import type {
   AccountKind,
   CategoryKind,
@@ -208,4 +209,104 @@ export function flagColumn(value: unknown): 0 | 1 | null {
   if (value === 0 || value === 1) return value
   // `"false"` is a truthy string; coercing it silently would turn a flag on.
   throw new RepositoryError('VALIDATION', 'Expected a true or false value')
+}
+
+/** The text an account form holds, before any of it is read as money or a day. */
+export interface AccountFormText {
+  name: string
+  startingBalance: string
+  creditLimit: string
+  apr: string
+  minimumPayment: string
+  lastStatementBalance: string
+  statementDay: string
+  paymentDueDay: string
+}
+
+export type AccountFormProblems = Partial<Record<keyof AccountFormText, string>>
+
+export interface AccountFormParsed {
+  name: string
+  startingBalanceCents: number
+  creditLimitCents: number | null
+  aprBps: number | null
+  minimumPaymentCents: number | null
+  lastStatementBalanceCents: number | null
+  statementDay: number | null
+  paymentDueDay: number | null
+}
+
+/** A day of the month typed into a box: blank is no answer, anything else has to be 1–31. */
+function typedDay(raw: string): number | null {
+  const text = raw.trim()
+  if (!/^\d{1,2}$/.test(text)) return null
+  const day = Number(text)
+  return day >= 1 && day <= 31 ? day : null
+}
+
+/**
+ * Reading an account form, and the sentences it is refused with.
+ *
+ * The desktop's dialog and the phone's sheet both call this, so the same typo
+ * costs the same words on either device — the promise ADR 0025 makes about the
+ * money fields extends to the card terms.
+ */
+export function validateAccountForm(
+  text: AccountFormText
+): { problems: AccountFormProblems; parsed: AccountFormParsed | null } {
+  const problems: AccountFormProblems = {}
+  const typedCents = (raw: string) => (raw.trim() ? parseMoneyToCents(raw) : null)
+
+  const limit = typedCents(text.creditLimit)
+  const starting = text.startingBalance.trim() ? parseMoneyToCents(text.startingBalance) : 0
+  const apr = text.apr.trim() ? Number(text.apr.trim().replace(/%$/, '')) : null
+  const minimum = typedCents(text.minimumPayment)
+  const statement = typedCents(text.lastStatementBalance)
+  const statementDay = typedDay(text.statementDay)
+  const paymentDueDay = typedDay(text.paymentDueDay)
+
+  if (!text.name.trim()) problems.name = 'Give the account a name'
+  if (text.creditLimit.trim() && limit === null) {
+    problems.creditLimit = 'Credit limit must be a number'
+  }
+  if (limit !== null && limit < 0) problems.creditLimit = 'Credit limit cannot be negative'
+  if (starting === null) problems.startingBalance = 'Starting balance must be a number'
+  if (apr !== null && (!Number.isFinite(apr) || apr < 0 || apr > 100)) {
+    problems.apr = 'APR must be a percentage between 0 and 100'
+  }
+  if (text.minimumPayment.trim() && minimum === null) {
+    problems.minimumPayment = 'Minimum payment must be a number'
+  }
+  if (text.statementDay.trim() && statementDay === null) {
+    problems.statementDay = 'Statement day must be a whole number from 1 to 31'
+  }
+  if (text.paymentDueDay.trim() && paymentDueDay === null) {
+    problems.paymentDueDay = 'Due day must be a whole number from 1 to 31'
+  }
+  if (text.lastStatementBalance.trim() && statement === null) {
+    problems.lastStatementBalance = 'Last statement balance must be a number'
+  }
+  if (statement !== null && statement < 0) {
+    problems.lastStatementBalance = 'Last statement balance cannot be negative'
+  }
+
+  if (starting === null || Object.keys(problems).length > 0) return { problems, parsed: null }
+
+  return {
+    problems,
+    parsed: {
+      name: text.name.trim(),
+      startingBalanceCents: starting,
+      creditLimitCents: limit,
+      // The form speaks percent because that is what a statement prints; the row
+      // stores basis points so a rate never carries a float.
+      aprBps: apr === null ? null : Math.round(apr * 100),
+      // A minimum payment typed with a sign is still a size; a statement
+      // balance below zero was refused above.
+      minimumPaymentCents: minimum === null ? null : Math.abs(minimum),
+      lastStatementBalanceCents: statement,
+      statementDay,
+      paymentDueDay
+    }
+  }
 }

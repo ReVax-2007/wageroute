@@ -278,7 +278,8 @@ If the wall exceeds income, the wall is partially funded, every other bucket is 
 backup JSON ── parseBackup ──► ImportTables ── buildSnapshot ──► Snapshot
                                                    │
                                                    ├─ pocketView (shared finance functions)
-                                                   └─ screens: Home, Bills, Goals, Ledger
+                                                   └─ screens: Home, Bills, Goals, Accounts,
+                                                              Ledger, Data, Welcome
 indexedDB ◄── writeLedger ◄── store (zustand) ◄────┘
                                    │
                     importFile ────┼──► mergeTables (shared last-write-wins)
@@ -509,7 +510,7 @@ Both use `strict: true`, `verbatimModuleSyntax`, `isolatedModules` and no emit. 
 | `src/shared/settings.ts` | Settings defaults, corrupt-input recovery, serialization |
 | `src/shared/importRepair.ts` | Import problem detection, repair questions and field validation |
 | `src/shared/tableMerge.ts` | The last-write-wins decision (`incomingWins`) and the phone's `mergeTables`, used by both copies of the ledger |
-| `src/shared/writeRules.ts` | The sentences and ranges every write is checked against — enums, text, cents, APR, dates, due days, signs, flags — shared by the desktop repositories and the phone's writers |
+| `src/shared/writeRules.ts` | The sentences and ranges every write is checked against — enums, text, cents, APR, dates, due days, signs, flags — shared by the desktop repositories and the phone's writers. `validateAccountForm` reads a whole account dialog (both devices) into cents, basis points and day numbers, and returns one message per field so a sheet can put each refusal under the box it belongs to |
 | `src/shared/csv.ts` | CSV encoding/parsing and entry-row validation |
 | `src/shared/categories.ts`, `credit.ts`, `payoff.ts`, `history.ts` | Category seeds and spending, card cycles, debt payoff, net-worth series |
 | `src/shared/api.ts` | The `FinanceApi` contract the preload implements, plus `WriteResult` |

@@ -141,6 +141,9 @@ export function Home({ go }: { go: (tab: Tab) => void }) {
       <section className="section">
         <header className="section-head">
           <h2>Accounts</h2>
+          <button type="button" className="link" onClick={() => go('accounts')}>
+            All accounts <ChevronRight size={15} aria-hidden="true" />
+          </button>
         </header>
         {accounts.length === 0 ? (
           <p className="empty-line">No accounts yet.</p>

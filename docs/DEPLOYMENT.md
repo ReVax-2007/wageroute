@@ -215,7 +215,7 @@ Use exported files in a synced folder if you want off-machine copies without poi
 
 ### The phone
 
-Pocket is the fourth route, and it is two-way between devices: export on the desktop, open the file on the phone, add or delete entries, export on the phone and import that file on the desktop. The phone's copy merges the same way, so a desktop export does not overwrite what was changed on the phone since the last file. It carries the tables the desktop exported; bills, goals and accounts are still edited on the computer, and there is no automatic file transfer. Publishing the static build is a manual GitHub Pages workflow; enabling Pages and running it are owner actions.
+Pocket is the fourth route, and it is two-way between devices: export on the desktop, open the file on the phone, change what you like, export on the phone and import that file on the desktop. The phone's copy merges the same way, so a desktop export does not overwrite what was changed on the phone since the last file. The phone edits bills, goals, accounts and entries through the desktop's own validation rules, and carries the tables the desktop exported; paychecks, allocations, reserves and settings are still edited on the computer, and there is no automatic file transfer. Publishing the static build is a manual GitHub Pages workflow; enabling Pages and running it are owner actions.
 
 ## Sync status
 

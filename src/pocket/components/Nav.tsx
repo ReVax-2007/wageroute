@@ -1,11 +1,12 @@
-import { Database, Home, ListOrdered, Receipt, Target } from 'lucide-react'
+import { Database, Home, Landmark, ListOrdered, Receipt, Target } from 'lucide-react'
 
-export type Tab = 'home' | 'bills' | 'goals' | 'ledger' | 'data'
+export type Tab = 'home' | 'bills' | 'goals' | 'accounts' | 'ledger' | 'data'
 
 const TABS: { id: Tab; label: string; Icon: typeof Home }[] = [
   { id: 'home', label: 'Home', Icon: Home },
   { id: 'bills', label: 'Bills', Icon: Receipt },
   { id: 'goals', label: 'Goals', Icon: Target },
+  { id: 'accounts', label: 'Accounts', Icon: Landmark },
   { id: 'ledger', label: 'Entries', Icon: ListOrdered },
   { id: 'data', label: 'Data', Icon: Database }
 ]

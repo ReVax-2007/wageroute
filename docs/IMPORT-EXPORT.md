@@ -311,7 +311,7 @@ Because full exports include `deleted_at` rows, a tombstone travels like any oth
 - a live row newer than a local tombstone brings it back. That is how an undo travels between devices;
 - a tombstone is applied as `deleted_at` on the existing row; the row is never physically removed, so the next export can carry the deletion again.
 
-Pocket writes its own tombstones when an entry, a bill or a goal is removed. A transfer takes its twin leg and a purchase takes its round-up, so a phone delete cannot leave half a pair behind. Everything else the phone changes is an ordinary row update: a bill edited on the phone arrives as the same `bills` row with a newer stamp, and a payment marked on the phone arrives as a `bill_payment` transaction the desktop's claim replay settles like any other.
+Pocket writes its own tombstones when an entry, a bill, a goal or an account is removed — and when a bill, goal or account is archived, because archiving is an update to the same row, not a deletion. A transfer takes its twin leg and a purchase takes its round-up, so a phone delete cannot leave half a pair behind. Everything else the phone changes is an ordinary row update: a bill edited on the phone arrives as the same `bills` row with a newer stamp, and a payment marked on the phone arrives as a `bill_payment` transaction the desktop's claim replay settles like any other.
 
 A row can be live while the parent it names is a tombstone. Two rules keep the wall honest:
 

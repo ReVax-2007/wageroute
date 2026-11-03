@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { RepositoryError } from './errors'
+import type { AccountFormText } from './writeRules'
 import {
   ACCOUNT_KINDS,
   BILL_FUNDING_STRATEGIES,
@@ -22,7 +23,8 @@ import {
   assertText,
   flagColumn,
   nowISO,
-  optionalText
+  optionalText,
+  validateAccountForm
 } from './writeRules'
 
 /** Run a rule and return the sentence it refuses with, or null when it accepted. */
@@ -191,4 +193,125 @@ test('stamps sort after the row they describe', () => {
   const first = nowISO()
   const second = nowISO()
   assert.ok(first <= second, 'two stamps from the same clock have to be comparable')
+})
+
+const BLANK_ACCOUNT_FORM: AccountFormText = {
+  name: '',
+  startingBalance: '',
+  creditLimit: '',
+  apr: '',
+  minimumPayment: '',
+  lastStatementBalance: '',
+  statementDay: '',
+  paymentDueDay: ''
+}
+
+function accountForm(overrides: Partial<AccountFormText> = {}): AccountFormText {
+  return { ...BLANK_ACCOUNT_FORM, name: 'Tangerine Chequing', ...overrides }
+}
+
+test('an account form reads to cents, basis points and days', () => {
+  const read = validateAccountForm(
+    accountForm({
+      startingBalance: ' 2,450.00 ',
+      creditLimit: '5,000.00',
+      apr: '19.99',
+      minimumPayment: '25.00',
+      lastStatementBalance: '420.00',
+      statementDay: '18',
+      paymentDueDay: '8'
+    })
+  )
+  assert.deepEqual(read.problems, {})
+  assert.ok(read.parsed, 'a well-typed form has to be readable')
+  assert.equal(read.parsed.name, 'Tangerine Chequing')
+  assert.equal(read.parsed.startingBalanceCents, 245_000)
+  assert.equal(read.parsed.creditLimitCents, 500_000)
+  assert.equal(read.parsed.aprBps, 1_999)
+  assert.equal(read.parsed.minimumPaymentCents, 2_500)
+  assert.equal(read.parsed.lastStatementBalanceCents, 42_000)
+  assert.equal(read.parsed.statementDay, 18)
+  assert.equal(read.parsed.paymentDueDay, 8)
+})
+
+test('a term left blank is no term, not a zero', () => {
+  const parsed = validateAccountForm(accountForm({ startingBalance: '' })).parsed
+  assert.ok(parsed)
+  assert.equal(parsed.startingBalanceCents, 0)
+  assert.equal(parsed.creditLimitCents, null)
+  assert.equal(parsed.aprBps, null)
+  assert.equal(parsed.minimumPaymentCents, null)
+  assert.equal(parsed.lastStatementBalanceCents, null)
+  assert.equal(parsed.statementDay, null)
+  assert.equal(parsed.paymentDueDay, null)
+})
+
+test('a term typed with a sign is read as its size, not its direction', () => {
+  const parsed = validateAccountForm(
+    accountForm({ startingBalance: '-420.00', minimumPayment: '-25.00' })
+  ).parsed
+  assert.ok(parsed)
+  // The dialog turns a card's opening balance into money owed itself; a minimum
+  // payment is stored as a size because it can never be a credit.
+  assert.equal(parsed.startingBalanceCents, -42_000)
+  assert.equal(parsed.minimumPaymentCents, 2_500)
+})
+
+test('every account form refusal names the field it refused', () => {
+  const cases: { form: Partial<AccountFormText>; field: keyof AccountFormText; words: string }[] = [
+    { form: { name: '   ' }, field: 'name', words: 'Give the account a name' },
+    { form: { startingBalance: 'lots' }, field: 'startingBalance', words: 'Starting balance must be a number' },
+    { form: { creditLimit: 'lots' }, field: 'creditLimit', words: 'Credit limit must be a number' },
+    { form: { creditLimit: '-50.00' }, field: 'creditLimit', words: 'Credit limit cannot be negative' },
+    { form: { apr: '200' }, field: 'apr', words: 'APR must be a percentage between 0 and 100' },
+    { form: { apr: '-1' }, field: 'apr', words: 'APR must be a percentage between 0 and 100' },
+    {
+      form: { minimumPayment: 'lots' },
+      field: 'minimumPayment',
+      words: 'Minimum payment must be a number'
+    },
+    {
+      form: { lastStatementBalance: 'lots' },
+      field: 'lastStatementBalance',
+      words: 'Last statement balance must be a number'
+    },
+    {
+      form: { lastStatementBalance: '-1.00' },
+      field: 'lastStatementBalance',
+      words: 'Last statement balance cannot be negative'
+    },
+    {
+      form: { statementDay: 'lots' },
+      field: 'statementDay',
+      words: 'Statement day must be a whole number from 1 to 31'
+    },
+    {
+      form: { statementDay: '32' },
+      field: 'statementDay',
+      words: 'Statement day must be a whole number from 1 to 31'
+    },
+    {
+      form: { paymentDueDay: '0' },
+      field: 'paymentDueDay',
+      words: 'Due day must be a whole number from 1 to 31'
+    }
+  ]
+  for (const testCase of cases) {
+    const read = validateAccountForm(accountForm({ startingBalance: '10.00', ...testCase.form }))
+    assert.equal(read.parsed, null, `${testCase.field} has to stop the write`)
+    assert.equal(read.problems[testCase.field], testCase.words)
+  }
+})
+
+test('a day of the month is whole, in range, and 31 stays allowed', () => {
+  const parsed = validateAccountForm(accountForm({ statementDay: '31', paymentDueDay: ' 1 ' })).parsed
+  assert.ok(parsed)
+  assert.equal(parsed.statementDay, 31)
+  assert.equal(parsed.paymentDueDay, 1)
+})
+
+test('several bad fields are all reported at once', () => {
+  const read = validateAccountForm(accountForm({ name: '', creditLimit: 'lots', statementDay: '99' }))
+  assert.equal(Object.keys(read.problems).length, 3)
+  assert.equal(read.parsed, null)
 })
