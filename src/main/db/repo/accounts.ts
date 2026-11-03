@@ -2,14 +2,17 @@ import { randomUUID } from 'node:crypto'
 import { todayISO } from '@shared/dates'
 import { RepositoryError } from '@shared/errors'
 import type { AccountInput, AccountKind, AccountWithBalance } from '@shared/types'
+import { ACCOUNT_KINDS } from '@shared/writeRules'
 import {
   assertCents,
-  assertDueDay,
   assertOneOf,
   assertSortOrder,
   assertText,
   flagColumn,
   nowISO,
+  optionalAprBps,
+  optionalCents,
+  optionalDay,
   optionalText,
   requireGoal,
   softDelete,
@@ -18,8 +21,6 @@ import {
 } from './common'
 import { readSettings, writeSettings } from './settings'
 import { reconcileBillReserve } from './bills'
-
-const ACCOUNT_KINDS: readonly AccountKind[] = ['checking', 'savings', 'cash', 'investment', 'credit']
 
 type AccountRow = Omit<AccountWithBalance, 'isArchived' | 'inSafeToSpend'> & {
   isArchived: number
@@ -129,10 +130,10 @@ export function createAccount(db: Db, userId: string, input: AccountInput): stri
     optionalText(input.color, 'Color', 30),
     dedicatedGoalId,
     flagColumn(input.inSafeToSpend),
-    aprBpsColumn(input.aprBps) ?? null,
+    optionalAprBps(input.aprBps) ?? null,
     minimumPaymentColumn(input.minimumPaymentCents) ?? null,
-    dayColumn(input.statementDay, 'Statement day') ?? null,
-    dayColumn(input.paymentDueDay, 'Payment due day') ?? null,
+    optionalDay(input.statementDay, 'Statement day') ?? null,
+    optionalDay(input.paymentDueDay, 'Payment due day') ?? null,
     statementBalanceColumn(input.lastStatementBalanceCents) ?? null,
     assertSortOrder(input.sortOrder),
     ts,
@@ -182,64 +183,27 @@ export function updateAccount(
           : null,
     in_safe_to_spend:
       patch.inSafeToSpend === undefined ? undefined : flagColumn(patch.inSafeToSpend),
-    apr_bps:
-      patch.aprBps === undefined
-        ? undefined
-        : patch.aprBps === null
-          ? null
-          : assertAprBps(patch.aprBps),
+    apr_bps: optionalAprBps(patch.aprBps),
     minimum_payment_cents: minimumPaymentColumn(patch.minimumPaymentCents),
-    statement_day:
-      patch.statementDay === undefined ? undefined : dayColumn(patch.statementDay, 'Statement day'),
-    payment_due_day:
-      patch.paymentDueDay === undefined
-        ? undefined
-        : dayColumn(patch.paymentDueDay, 'Payment due day'),
+    statement_day: optionalDay(patch.statementDay, 'Statement day'),
+    payment_due_day: optionalDay(patch.paymentDueDay, 'Payment due day'),
     last_statement_balance_cents: statementBalanceColumn(patch.lastStatementBalanceCents),
     sort_order:
       patch.sortOrder === undefined ? undefined : assertSortOrder(patch.sortOrder)
   })
 }
 
-/** 0–1000% is a wide enough band to catch a typo like 1999 meaning 19.99%. */
-function assertAprBps(value: unknown): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new RepositoryError('VALIDATION', 'APR must be a number')
-  }
-  const rounded = Math.round(value)
-  if (rounded < 0 || rounded > 100_000) {
-    throw new RepositoryError('VALIDATION', 'APR must be between 0% and 1000%')
-  }
-  return rounded
-}
-
-function aprBpsColumn(value: number | null | undefined): number | null | undefined {
-  if (value === undefined) return undefined
-  if (value === null) return null
-  return assertAprBps(value)
-}
-
+/**
+ * The pure rules these columns share live in `@shared/writeRules`, so a phone
+ * edit is refused for exactly the reason the desktop would refuse it. These two
+ * only give the column its label.
+ */
 function minimumPaymentColumn(value: number | null | undefined): number | null | undefined {
-  if (value === undefined) return undefined
-  if (value === null) return null
-  return assertCents(value, 'Minimum payment', { allowZero: true })
+  return optionalCents(value, 'Minimum payment', { allowZero: true })
 }
 
-function dayColumn(value: number | null | undefined, label: string): number | null | undefined {
-  if (value === undefined) return undefined
-  if (value === null) return null
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new RepositoryError('VALIDATION', `${label} must be a number`)
-  }
-  return assertDueDay(value)
-}
-
-function statementBalanceColumn(
-  value: number | null | undefined
-): number | null | undefined {
-  if (value === undefined) return undefined
-  if (value === null) return null
-  return assertCents(value, 'Statement balance', { allowZero: true })
+function statementBalanceColumn(value: number | null | undefined): number | null | undefined {
+  return optionalCents(value, 'Statement balance', { allowZero: true })
 }
 
 export interface DeleteAccountOptions {

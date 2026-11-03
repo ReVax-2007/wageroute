@@ -7,9 +7,8 @@ import {
 } from '@shared/categories'
 import { RepositoryError } from '@shared/errors'
 import type { Category, CategoryInput, CategoryKind, TransactionKind } from '@shared/types'
+import { CATEGORY_KINDS } from '@shared/writeRules'
 import { assertOneOf, assertText, nowISO, optionalText, softDelete, updateRow, type Db } from './common'
-
-const CATEGORY_KINDS: readonly CategoryKind[] = ['expense', 'income', 'transfer', 'other']
 
 const CATEGORY_SELECT = `
   SELECT id, user_id AS userId, name, kind, color, sort_order AS sortOrder,

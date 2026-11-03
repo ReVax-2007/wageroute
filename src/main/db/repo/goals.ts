@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { RepositoryError } from '@shared/errors'
-import type { GoalFundingPace, GoalFundingSource, GoalInput, GoalWithProgress } from '@shared/types'
+import type { GoalFundingSource, GoalInput, GoalWithProgress } from '@shared/types'
 import {
   assertCents,
   assertDate,
+  assertPace,
   assertPriority,
   assertText,
   nowISO,
@@ -29,10 +30,6 @@ interface DedicatedAccountRow {
   id: string
   name: string
   balanceCents: number
-}
-
-function assertPace(value: GoalFundingPace | undefined): GoalFundingPace {
-  return value === 'by_date' || value === 'paused' ? value : 'asap'
 }
 
 export function listGoals(db: Db, userId: string): GoalWithProgress[] {

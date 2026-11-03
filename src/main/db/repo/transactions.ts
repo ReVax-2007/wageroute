@@ -28,20 +28,11 @@ import {
   updateRow,
   type Db
 } from './common'
+import { TRANSACTION_KINDS } from '@shared/writeRules'
 import { ensureCategory } from './categories'
 import { reconcileBillReserve } from './bills'
 import { accountBalanceOn } from './accounts'
 import { readSettings } from './settings'
-
-const TRANSACTION_KINDS: readonly TransactionKind[] = [
-  'income',
-  'expense',
-  'bill_payment',
-  'transfer',
-  'goal_funding',
-  'investment',
-  'adjustment'
-]
 
 function requirePaycheck(db: Db, userId: string, id: string): void {
   const row = db

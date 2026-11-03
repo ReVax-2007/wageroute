@@ -1,8 +1,9 @@
 import { create } from 'zustand'
 import type { ImportTables } from '@shared/importRepair'
+import { RepositoryError } from '@shared/errors'
+import type { Snapshot } from '@shared/types'
 import { todayISO, isISODate } from '@shared/dates'
 import { describeMerge, mergeTables } from '@shared/tableMerge'
-import type { Snapshot } from '@shared/types'
 import {
   BackupFileError,
   KNOWN_BACKUP_VERSION,
@@ -10,9 +11,9 @@ import {
   parseBackup,
   type PocketBackup
 } from './backup'
-import { createEntryRow, type EntryDraft } from './entry'
 import { deleteLedger, readLedger, writeLedger, type StoredLedger } from './idb'
 import { buildSnapshot } from './snapshot'
+import { deleteEntries, type Written } from './write'
 
 type Status = 'loading' | 'empty' | 'ready'
 
@@ -33,7 +34,14 @@ interface PocketState {
   newerSchema: boolean
   load: () => Promise<void>
   importFile: (text: string, name: string) => Promise<void>
-  addEntry: (draft: EntryDraft) => Promise<string>
+  /**
+   * Runs one writer over the phone's copy and stores the result. A refusal from
+   * the shared rules throws before anything is touched, so a form can show the
+   * desktop's own reason without the ledger half-changing.
+   */
+  edit: (mutate: (tables: ImportTables) => ImportTables, notice?: string | null) => Promise<void>
+  /** Runs a writer that adds a row, so the new id is marked as this phone's. */
+  add: (mutate: (tables: ImportTables) => Written, notice: string) => Promise<string>
   deleteEntry: (id: string) => Promise<void>
   forget: () => Promise<void>
   exportJson: () => string | null
@@ -48,22 +56,6 @@ function summarise(message: string): string {
 function isLiveRow(row: Record<string, unknown>): boolean {
   const deleted = row.deleted_at
   return deleted === undefined || deleted === null || deleted === ''
-}
-
-/**
- * A delete that travels: the row stays in the table with `deleted_at` set, so
- * the next export carries the removal to the computer. Like a desktop edit,
- * the stamp is never older than the row it replaces; the revision decides a
- * tie when two clocks land on the same instant.
- */
-function tombstoneRow(row: Record<string, unknown>, nowISO: string): Record<string, unknown> {
-  const previous = typeof row.updated_at === 'string' ? Date.parse(row.updated_at) : Number.NaN
-  const now = Date.parse(nowISO)
-  const stamp =
-    Number.isFinite(previous) && previous >= now ? new Date(previous + 1).toISOString() : nowISO
-  const revision =
-    typeof row.revision === 'number' && Number.isFinite(row.revision) ? row.revision : 0
-  return { ...row, deleted_at: stamp, updated_at: stamp, revision: revision + 1 }
 }
 
 function liveIdsOf(tables: ImportTables): Set<string> {
@@ -235,47 +227,38 @@ export const usePocket = create<PocketState>((set, get) => {
       }
     },
 
-    addEntry: async (draft) => {
+    edit: async (mutate, notice = null) => {
       const current = get()
-      if (!current.tables) throw new Error('Import a backup first')
-      const row = createEntryRow(current.tables, draft)
-      const tables: ImportTables = {
-        ...current.tables,
-        transactions: [...current.tables.transactions, row]
-      }
-      await commit(tables, [...current.localIds, row.id as string], 'Entry saved on this phone.')
-      return row.id as string
+      if (!current.tables) throw new RepositoryError('STATE', 'Import a backup first')
+      // Validation happens before anything is set, so a refusal leaves the
+      // on-screen ledger exactly as it was.
+      const tables = mutate(current.tables)
+      await commit(tables, current.localIds, notice)
+    },
+
+    add: async (mutate, notice) => {
+      const current = get()
+      if (!current.tables) throw new RepositoryError('STATE', 'Import a backup first')
+      // The writer validates before it returns anything, so a refusal leaves the
+      // on-screen ledger exactly as it was.
+      const written = mutate(current.tables)
+      await commit(written.tables, [...current.localIds, written.id], notice)
+      return written.id
     },
 
     deleteEntry: async (id) => {
       const current = get()
       if (!current.tables) return
-      const live = current.tables.transactions.filter(isLiveRow)
-      const target = live.find((row) => row.id === id)
-      if (!target) return
       // The ledger hides the other side of a transfer and the sweep a purchase
       // rounded up, so removing one row has to retire its partners too. A
       // half-pair left behind would read as money that moved on its own.
-      const targets = new Set<string>([id])
-      const group =
-        typeof target.transfer_group_id === 'string' ? target.transfer_group_id : ''
-      for (const row of live) {
-        if (typeof row.id !== 'string') continue
-        if (group && row.transfer_group_id === group) targets.add(row.id)
-        if (row.round_up_source_id === id) targets.add(row.id)
-      }
-      const now = new Date().toISOString()
-      const transactions = current.tables.transactions.map((row) =>
-        typeof row.id === 'string' && targets.has(row.id) && isLiveRow(row)
-          ? tombstoneRow(row, now)
-          : row
-      )
-      const tables: ImportTables = { ...current.tables, transactions }
+      const { tables, removed } = deleteEntries(current.tables, [id])
+      if (removed.length === 0) return
       const remaining = liveIdsOf(tables)
       await commit(
         tables,
         current.localIds.filter((entryId) => remaining.has(entryId)),
-        targets.size === 1 ? 'Entry removed.' : `${targets.size} entries removed.`
+        removed.length === 1 ? 'Entry removed.' : `${removed.length} entries removed.`
       )
     },
 
