@@ -1,21 +1,18 @@
 import { useState } from 'react'
 import { cardOwedCents } from '@shared/accounts'
-import { adjustmentPresetsFor, type AdjustmentReason } from '@shared/adjustments'
-import { owedCentsAtUtilization, parseUtilizationPercent } from '@shared/credit'
+import {
+  ADJUST_MODES,
+  adjustmentPresetsFor,
+  resolveAdjustBalance,
+  type AdjustMode,
+  type AdjustmentReason
+} from '@shared/adjustments'
 import { todayISO } from '@shared/dates'
-import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
+import { centsToEditable, formatMoney } from '@shared/money'
 import type { AccountWithBalance } from '@shared/types'
 import { Button, Field, Modal, MoneyInput, PercentInput, Segmented } from '../ui'
 import { useFinanceStore } from '../../store/useFinanceStore'
 import { useDialogSave } from '../useDialogSave'
-
-type CreditMode = 'owed' | 'available' | 'percent'
-
-const CREDIT_MODES: { value: CreditMode; label: string }[] = [
-  { value: 'owed', label: 'Amount owed' },
-  { value: 'available', label: 'Available credit' },
-  { value: 'percent', label: 'Utilization' }
-]
 
 export function AdjustBalanceDialog({
   account,
@@ -37,56 +34,40 @@ export function AdjustBalanceDialog({
       : null
   const canUseCreditModes = isCredit && limitCents !== null && limitCents > 0
   const presets = adjustmentPresetsFor(account.kind)
-  const [mode, setMode] = useState<CreditMode>('owed')
+  const [mode, setMode] = useState<AdjustMode>('owed')
   const [reason, setReason] = useState<AdjustmentReason>('correction')
   const [value, setValue] = useState(centsToEditable(owedCents))
   const [occurredOn, setOccurredOn] = useState(todayISO())
   const { saving, error, setError, run } = useDialogSave(onClose)
-  const preset = presets.find((candidate) => candidate.value === reason) ?? presets[0]
 
-  const seedFor = (next: CreditMode): string => {
+  const seedFor = (next: AdjustMode): string => {
     if (next === 'available') return centsToEditable(availableCents ?? 0)
     if (next === 'percent') return usedPercent === null ? '' : String(usedPercent)
     return centsToEditable(owedCents)
   }
 
-  const changeMode = (next: CreditMode) => {
+  const changeMode = (next: AdjustMode) => {
     setMode(next)
     setValue(seedFor(next))
     setError(null)
   }
 
-  // All three credit fields boil down to a target amount owed. Utilisation is
-  // percentage points, so it must not go through the money parser: `5` means
-  // five per cent of the limit, not 500 cents of it.
-  const typedMoney = mode === 'percent' ? null : parseMoneyToCents(value)
-  const typedPercent = mode === 'percent' ? parseUtilizationPercent(value) : null
-  const targetOwedCents =
-    typedMoney !== null && canUseCreditModes && mode === 'available'
-      ? limitCents! - typedMoney
-      : typedPercent !== null && canUseCreditModes && mode === 'percent'
-        ? owedCentsAtUtilization(limitCents!, typedPercent)
-        : typedMoney
+  // The shared resolver reads all three credit answers the same way the phone
+  // sheet does, and hands back the one sentence that says why an answer is unusable.
+  const resolved = resolveAdjustBalance(
+    { kind: account.kind, balanceCents: account.balanceCents, creditLimitCents: limitCents },
+    { mode, value, reason }
+  )
+  const preset = resolved.preset
 
   const submit = async () => {
-    if (targetOwedCents === null) {
-      setError(mode === 'percent' ? 'Enter a utilization percentage' : 'Enter a balance')
+    if (resolved.problem !== null || resolved.targetBalanceCents === null) {
+      setError(resolved.problem ?? 'Enter a balance')
       return
     }
-    // A card normally holds a negative balance, so a positive "owed" entry
-    // becomes money out. Typing a negative amount says the card is overpaid,
-    // which is the only way to record a credit balance in its favour.
-    const target = isCredit ? -targetOwedCents : targetOwedCents
-    const delta = target - account.balanceCents
-    if ((reason === 'investment_gain' || reason === 'interest_earned') && delta < 0) {
-      setError(`${preset.label} should raise the balance. Pick a loss or interest charged instead.`)
-      return
-    }
-    if ((reason === 'investment_loss' || reason === 'interest_charged') && delta > 0) {
-      setError(`${preset.label} should lower the balance. Pick a gain or interest earned instead.`)
-      return
-    }
-    await run(() => adjustAccountBalance(account, target, occurredOn, reason))
+    await run(() =>
+      adjustAccountBalance(account, resolved.targetBalanceCents!, occurredOn, reason)
+    )
   }
 
   return (
@@ -109,11 +90,11 @@ export function AdjustBalanceDialog({
         {canUseCreditModes && (
           <div className="field span-2">
             <span className="field-label">Adjust by</span>
-            <Segmented<CreditMode>
+            <Segmented<AdjustMode>
               label="What to enter"
               value={mode}
               onChange={changeMode}
-              options={CREDIT_MODES}
+              options={ADJUST_MODES}
             />
           </div>
         )}
@@ -172,13 +153,15 @@ export function AdjustBalanceDialog({
         </Field>
       </div>
 
-      {canUseCreditModes && targetOwedCents !== null && (
-        <p className="field-hint">
-          After saving: {formatMoney(targetOwedCents, settings.currency)} owed ·{' '}
-          {formatMoney(Math.max(0, limitCents! - targetOwedCents), settings.currency)} available ·{' '}
-          {Math.max(0, Math.round((targetOwedCents / limitCents!) * 1000) / 10)}% used
-        </p>
-      )}
+      {resolved.owedAfterCents !== null &&
+        resolved.availableAfterCents !== null &&
+        resolved.usedPercentAfter !== null && (
+          <p className="field-hint">
+            After saving: {formatMoney(resolved.owedAfterCents, settings.currency)} owed ·{' '}
+            {formatMoney(resolved.availableAfterCents, settings.currency)} available ·{' '}
+            {resolved.usedPercentAfter}% used
+          </p>
+        )}
       <p className="field-hint">
         Recorded as “{preset.memo}” · {preset.category}
       </p>

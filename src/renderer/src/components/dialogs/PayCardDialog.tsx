@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { CreditCard } from 'lucide-react'
-import { cardOwedCents } from '@shared/accounts'
+import { cardOwedCents, cardPaymentSources } from '@shared/accounts'
 import { todayISO } from '@shared/dates'
 import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
 import type { AccountWithBalance } from '@shared/types'
@@ -19,10 +19,7 @@ export function PayCardDialog({
   const snapshot = useFinanceStore((state) => state.snapshot)
   const settings = useFinanceStore((state) => state.settings)
   const createTransaction = useFinanceStore((state) => state.createTransaction)
-  const sources = (snapshot?.accounts ?? []).filter(
-    (account) =>
-      account.kind !== 'credit' && account.kind !== 'investment' && !account.isArchived
-  )
+  const sources = cardPaymentSources(snapshot?.accounts ?? [])
   const owed = accountDisplayBalanceCents(card)
   const creditCents = Math.max(0, -cardOwedCents(card))
 
