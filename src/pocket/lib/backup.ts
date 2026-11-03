@@ -131,6 +131,10 @@ function show(value: unknown): string {
   return text.length > 40 ? `${text.slice(0, 37)}…` : text
 }
 
+function article(label: string): string {
+  return /^[aeiou]/i.test(label) ? 'an' : 'a'
+}
+
 function validateRows(
   table: ImportTable,
   rows: readonly Record<string, unknown>[],
@@ -152,7 +156,7 @@ function validateRows(
         continue
       }
       if (!isWholeNumber(value)) {
-        fail(`The ${table} list has a ${rule.label} that is not a whole number`)
+        fail(`The ${table} list has ${article(rule.label)} ${rule.label} that is not a whole number`)
       }
     }
   }

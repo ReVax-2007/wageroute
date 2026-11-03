@@ -63,6 +63,9 @@ test('a finished money field settles on one exact form', () => {
   // A trailing decimal comma is a finished whole amount, like `12.`.
   assert.equal(canonicalMoneyInput('12,'), '12.00')
   assert.equal(canonicalMoneyInput('1,850,'), '1850.00')
+  // A repeated keypress leaves several trailing commas; all of them go.
+  assert.equal(canonicalMoneyInput('12,,'), '12.00')
+  assert.equal(canonicalMoneyInput('1,850,,'), '1850.00')
   assert.equal(canonicalMoneyInput(',50'), '0.50')
   assert.equal(canonicalMoneyInput('-45,10', { allowNegative: true }), '-45.10')
   // Unreadable text stays put so the form can point at it.

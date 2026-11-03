@@ -48,8 +48,9 @@ export function canonicalMoneyInput(
 ): string {
   const typed = sanitizeMoneyInput(raw, options)
   // A trailing decimal comma is a finished `12,` whose fraction is empty, the
-  // same as `12.`; without this the field kept a value the parser refuses.
-  const settled = typed.endsWith(',') ? typed.slice(0, -1) : typed
+  // same as `12.`; a repeated keypress leaves several, so every one is dropped
+  // rather than only the last, which would still be a value the parser refuses.
+  const settled = typed.replace(/,+$/, '')
   const cents = parseMoneyToCents(settled)
   return cents === null ? typed : centsToEditable(cents)
 }

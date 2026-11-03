@@ -1,6 +1,6 @@
 import { CalendarDays, ChevronRight, Wallet } from 'lucide-react'
 import { accountDisplayBalanceCents, ACCOUNT_KIND_LABEL } from '../../renderer/src/lib/finance'
-import { formatDateLabel, formatDateLong } from '@shared/dates'
+import { formatDateLabel, formatDateLong, localDateISO } from '@shared/dates'
 import { formatMoney } from '@shared/money'
 import { usePocket, useSnapshot } from '../lib/store'
 import { billLines, dueSoon, pocketView } from '../lib/compute'
@@ -169,7 +169,7 @@ export function Home({ go }: { go: (tab: Tab) => void }) {
 
       <p className="fine">
         {snapshot.transactionTotal.toLocaleString()} entries
-        {exportedAt ? ` · backup from ${formatDateLabel(exportedAt.slice(0, 10))}` : ''}
+        {exportedAt ? ` · backup from ${formatDateLabel(localDateISO(exportedAt))}` : ''}
       </p>
     </div>
   )

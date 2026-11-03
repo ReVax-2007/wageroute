@@ -22,6 +22,18 @@ export function toISODate(date: Date): string {
   return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`
 }
 
+/**
+ * The local calendar day a stored timestamp falls on. Slicing a UTC stamp
+ * showed "tomorrow" to anyone importing or exporting after their local
+ * evening; a date-only value is already the day it names.
+ */
+export function localDateISO(stamp: string): string {
+  const value: unknown = stamp
+  if (isISODate(value)) return value
+  const date = new Date(stamp)
+  return Number.isNaN(date.getTime()) ? stamp.slice(0, 10) : todayISO(date)
+}
+
 export function fromISODate(iso: string): Date {
   const [year, month, day] = iso.split('-').map(Number)
   return new Date(Date.UTC(year, month - 1, day))
