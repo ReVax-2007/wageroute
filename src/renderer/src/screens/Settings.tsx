@@ -19,6 +19,7 @@ import {
 import type { AppDiagnostics, LegalTexts, StorageCandidate, StorageLocationInfo } from '@shared/api'
 import { PAY_CADENCE_LABEL } from '@shared/cadence'
 import { isISODate } from '@shared/dates'
+import { eraseAllWords } from '@shared/deletion'
 import { apiErrorMessage } from '@shared/errors'
 import { currencySymbol, formatMoney } from '@shared/money'
 import type { PayCadence, RoundUpIncrementCents, ThemePreference } from '@shared/types'
@@ -150,6 +151,15 @@ export function Settings() {
     savingsAccounts.find((account) => account.id === settings.roundUpAccountId) ?? null
   const roundUpActive = settings.roundUpEnabled && roundUpAccount !== null
   const sampleSweepCents = roundUpRemainderCents(1240, settings.roundUpToCents)
+  // The erase question counts the rows the database holds, not the 500-entry
+  // window the grid reads: transactionTotal and paycheckTotal are the real totals.
+  const eraseWords = eraseAllWords({
+    accounts: snapshot.accounts.length,
+    bills: snapshot.bills.length,
+    goals: snapshot.goals.length,
+    paychecks: snapshot.paycheckTotal,
+    entries: snapshot.transactionTotal
+  })
 
   const commitPaydayLabel = () => {
     const next = paydayDraft.trim()
@@ -844,7 +854,7 @@ export function Settings() {
 
       {eraseStep === 1 && (
         <Modal
-          title="Erase all data?"
+          title={eraseWords.title}
           subtitle="Step 1 of 2"
           onClose={() => setEraseStep(0)}
           footer={
@@ -858,10 +868,7 @@ export function Settings() {
             </>
           }
         >
-          <p className="field-hint">
-            This deletes every account, bill, goal, paycheck and ledger entry from the live
-            database, and resets settings to their defaults.
-          </p>
+          <p className="field-hint">{eraseWords.body}</p>
           <p className="field-hint">
             A last-resort copy of the database is written to the app&apos;s <code>backups</code>{' '}
             folder before the erase (the newest three are kept). Exported backups, CSV files and
@@ -889,14 +896,15 @@ export function Settings() {
                   void resetData()
                 }}
               >
-                Erase everything
+                {eraseWords.confirmLabel}
               </Button>
             </>
           }
         >
           <p className="field-hint">
-            Clicking <strong>Erase everything</strong> empties the local database immediately and
-            drops you back on the dashboard with a blank profile, exactly like a first launch.
+            Clicking <strong>{eraseWords.confirmLabel}</strong> empties the local database
+            immediately and drops you back on the dashboard with a blank profile, exactly like a
+            first launch.
           </p>
         </Modal>
       )}

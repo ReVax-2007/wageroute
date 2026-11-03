@@ -16,7 +16,13 @@ export {
   type AccountOnDate,
   type DeleteAccountOptions
 } from './repo/accounts'
-export { listBills, createBill, updateBill, deleteBill } from './repo/bills'
+export {
+  listBills,
+  createBill,
+  updateBill,
+  deleteBill,
+  billDeletionSummary
+} from './repo/bills'
 export { listBillReserves, claimsThisMonthFor } from './repo/bills'
 export {
   listCategories,
@@ -49,6 +55,7 @@ export {
   deleteTransaction,
   deleteTransactions,
   doomedDeletionIds,
+  doomedAccountDeletionIds,
   reconcileAccountOn,
   type NewTransactionInput
 } from './repo/transactions'

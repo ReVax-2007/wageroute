@@ -190,7 +190,6 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
         () => window.api.archiveAccount(id, archived),
         archived ? 'Account archived' : 'Account restored'
       ),
-    accountEntryCount: (id) => window.api.accountEntryCount(id),
     adjustAccountBalance: async (
       account,
       targetBalanceCents,
@@ -282,6 +281,24 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
     },
 
     queryTransactions: (query) => window.api.queryTransactions(query),
+
+    countAccountDeletion: async (id) => {
+      try {
+        return await enqueue(() => window.api.countAccountDeletion(id))
+      } catch {
+        // Unknown rather than guessed: the dialog keeps its honest "its entries"
+        // wording instead of naming a number it cannot check.
+        return null
+      }
+    },
+
+    countBillDeletion: async (id) => {
+      try {
+        return await enqueue(() => window.api.countBillDeletion(id))
+      } catch {
+        return null
+      }
+    },
 
     commitPaycheck: async (input) => {
       const ok = await run(() => window.api.commitPaycheck(input), 'Paycheck routed')

@@ -13,6 +13,7 @@ import {
   type AdjustmentReason
 } from '@shared/adjustments'
 import { formatDateLabel, todayISO } from '@shared/dates'
+import { accountDeletionWords, archiveVsDeleteHint } from '@shared/deletion'
 import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
 import type { AccountKind, AccountWithBalance } from '@shared/types'
 import { validateAccountForm, type AccountFormProblems } from '@shared/writeRules'
@@ -32,10 +33,10 @@ import { useSheetSave } from '../components/useSheetSave'
 import { pocketView } from '../lib/compute'
 import { usePocket, useSnapshot } from '../lib/store'
 import {
-  accountEntryCount,
   createAccount,
   createEntry,
   deleteAccount,
+  doomedAccountEntryIds,
   patchAccount,
   setAccountArchived
 } from '../lib/write'
@@ -1000,7 +1001,10 @@ export function Accounts() {
   const openedAccount = opened
     ? snapshot.accounts.find((account) => account.id === opened.id) ?? opened
     : null
-  const deleteEntries = pendingDelete && tables ? accountEntryCount(tables, pendingDelete.id) : 0
+  const deleteDoomed = pendingDelete ? (tables ? doomedAccountEntryIds(tables, pendingDelete.id).size : null) : null
+  const deleteWords = pendingDelete
+    ? accountDeletionWords(pendingDelete.name, deleteDoomed)
+    : null
 
   return (
     <div className="screen">
@@ -1164,22 +1168,12 @@ export function Accounts() {
         />
       ) : null}
 
-      {pendingDelete ? (
+      {pendingDelete && deleteWords ? (
         <DeleteConfirm
-          title={`Remove ${pendingDelete.name}?`}
-          hint="Archiving keeps every entry and can be undone. Deleting with its entries cannot."
-          detail={
-            deleteEntries > 0
-              ? `Deleting removes the account and its ${deleteEntries === 1 ? '1 entry' : `${deleteEntries} entries`} from every total.`
-              : 'Deleting removes the account from every total. Nothing is recorded in it.'
-          }
-          confirmLabel={
-            deleteEntries === 1
-              ? 'Delete account and 1 entry'
-              : deleteEntries > 1
-                ? `Delete account and ${deleteEntries} entries`
-                : 'Delete account'
-          }
+          title={deleteWords.title}
+          hint={archiveVsDeleteHint}
+          detail={deleteWords.body}
+          confirmLabel={deleteWords.confirmLabel}
           onCancel={() => setPendingDelete(null)}
           onDone={() => {
             setPendingDelete(null)
@@ -1196,7 +1190,10 @@ export function Accounts() {
           remove={() =>
             edit(
               (current) => deleteAccount(current, pendingDelete.id, { withEntries: true }),
-              deleteEntries > 0 ? 'Account and its entries removed.' : 'Account removed.'
+              // The same sentence the computer's toast uses. The number belonged
+              // in the question, which named it before this ran; repeating a
+              // count here would be the one place the two devices disagree.
+              'Account and its entries removed.'
             )
           }
         />

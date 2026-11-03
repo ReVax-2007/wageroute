@@ -24,12 +24,13 @@ export function createFinanceApi(call: IpcCaller): FinanceApi {
     updateAccount: (id, input) => call('account:update', id, input),
     deleteAccount: (id, options) => call('account:delete', id, options),
     archiveAccount: (id, archived) => call('account:archive', id, archived),
-    accountEntryCount: (id) => call('account:entry-count', id),
+    countAccountDeletion: (id) => call('account:count-deletion', id),
 
     createBill: (input) => call('bill:create', input),
     updateBill: (id, input) => call('bill:update', id, input),
     deleteBill: (id) => call('bill:delete', id),
     billPayments: (month) => call('bill:payments', month),
+    countBillDeletion: (id) => call('bill:count-deletion', id),
 
     createCategory: (input) => call('category:create', input),
     updateCategory: (id, input) => call('category:update', id, input),

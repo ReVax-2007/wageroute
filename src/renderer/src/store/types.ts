@@ -1,5 +1,5 @@
 import type { AdjustmentReason } from '@shared/adjustments'
-import type { AppInfo, ImportPreview } from '@shared/api'
+import type { AppInfo, BillDeletionSummary, ImportPreview } from '@shared/api'
 import type { ImportAnswer } from '@shared/importRepair'
 import type { StatementReconciliation } from '@shared/statements'
 import type {
@@ -79,7 +79,8 @@ export interface DataSlice {
   updateAccount: (id: string, input: Partial<AccountInput>) => Promise<boolean>
   deleteAccount: (id: string, withEntries?: boolean) => Promise<boolean>
   archiveAccount: (id: string, archived: boolean) => Promise<boolean>
-  accountEntryCount: (id: string) => Promise<number>
+  /** Live entries a delete of this account retires, or null when the read failed. */
+  countAccountDeletion: (id: string) => Promise<number | null>
   adjustAccountBalance: (
     account: AccountWithBalance,
     targetBalanceCents: number,
@@ -89,6 +90,8 @@ export interface DataSlice {
   createBill: (input: BillInput) => Promise<boolean>
   updateBill: (id: string, input: Partial<BillInput>) => Promise<boolean>
   deleteBill: (id: string) => Promise<boolean>
+  /** What a delete of this bill does to the rows around it, or null when the read failed. */
+  countBillDeletion: (id: string) => Promise<BillDeletionSummary | null>
   createCategory: (input: CategoryInput) => Promise<boolean>
   updateCategory: (id: string, input: Partial<CategoryInput>) => Promise<boolean>
   deleteCategory: (id: string) => Promise<boolean>

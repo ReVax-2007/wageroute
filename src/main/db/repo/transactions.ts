@@ -804,6 +804,27 @@ export function doomedDeletionIds(db: Db, userId: string, ids: readonly string[]
 }
 
 /**
+ * Every live row retiring one account would take: the rows recorded in it,
+ * plus the twins and sweeps they own that live in other accounts. `deleteAccount`
+ * tombstones exactly this set, so a confirmation can count it and promise the
+ * same number the write will report.
+ */
+export function doomedAccountDeletionIds(
+  db: Db,
+  userId: string,
+  accountId: string
+): string[] {
+  const own = (
+    db
+      .prepare(
+        'SELECT id FROM transactions WHERE account_id = ? AND user_id = ? AND deleted_at IS NULL'
+      )
+      .all(accountId, userId) as { id: string }[]
+  ).map((row) => row.id)
+  return doomedDeletionIds(db, userId, own)
+}
+
+/**
  * Deletes every selected entry as one movement. Transfer legs are deleted in
  * pairs, so a selection that contains one leg also removes its twin; the twin
  * is then skipped instead of aborting the batch with "not found". The whole

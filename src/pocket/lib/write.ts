@@ -263,6 +263,25 @@ export function deleteBill(tables: ImportTables, id: string): ImportTables {
   return tombstoneRows(merged, 'bills', [id])
 }
 
+/**
+ * What a delete of this bill would do to the rows around it, counted with the
+ * same filter `deleteBill` uses: the set-asides it tombstones and the ledger rows
+ * it releases from the bill.
+ */
+export function billDeletionSummary(
+  tables: ImportTables,
+  billId: string
+): { reserves: number; linkedEntries: number } {
+  return {
+    reserves: tables.bill_reserves.filter(
+      (row) => isLive(row) && nullableText(row, 'bill_id') === billId
+    ).length,
+    linkedEntries: tables.transactions.filter(
+      (row) => isLive(row) && nullableText(row, 'bill_id') === billId
+    ).length
+  }
+}
+
 /** What this month's payments already cover, by the rule the phone displays. */
 export function billPaidThisMonthCents(tables: ImportTables, billId: string, today: string): number {
   const month = today.slice(0, 7)
@@ -631,6 +650,18 @@ export function accountEntryCount(tables: ImportTables, accountId: string): numb
   ).length
 }
 
+/**
+ * Every row removing this account retires: its own entries, plus the twin leg or
+ * round-up sweep each of them drags out of another account. The confirmation
+ * counts this set so the number it names is the number that leaves.
+ */
+export function doomedAccountEntryIds(tables: ImportTables, accountId: string): Set<string> {
+  const own = tables.transactions
+    .filter((row) => isLive(row) && nullableText(row, 'account_id') === accountId)
+    .map((row) => text(row, 'id'))
+  return expandDeletion(tables, own)
+}
+
 export function deleteAccount(tables: ImportTables, id: string, options: DeleteAccountOptions = {}): ImportTables {
   if (!tables.accounts.some((row) => isLive(row) && text(row, 'id') === id)) {
     throw new RepositoryError('NOT_FOUND', 'Account not found')
@@ -647,10 +678,7 @@ export function deleteAccount(tables: ImportTables, id: string, options: DeleteA
   if (entries > 0) {
     // The same cascade an entry delete uses: a leg takes its twin, a purchase
     // takes its sweep.
-    const own = next.transactions
-      .filter((row) => isLive(row) && nullableText(row, 'account_id') === id)
-      .map((row) => text(row, 'id'))
-    next = tombstoneRows(next, 'transactions', expandDeletion(next, own))
+    next = tombstoneRows(next, 'transactions', doomedAccountEntryIds(next, id))
   }
 
   const now = rules.nowISO()

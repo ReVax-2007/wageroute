@@ -10,6 +10,7 @@ import {
   reservePerPaycheckCents
 } from '@shared/cadence'
 import { formatDateLabel, todayISO } from '@shared/dates'
+import { billDeletionWords } from '@shared/deletion'
 import { formatMoney, formatMoneyCompact } from '@shared/money'
 import type { Bill, PayCadence } from '@shared/types'
 import { Button, Card, EmptyState, IconButton, Money } from '../components/ui'
@@ -40,6 +41,7 @@ export function PriorityWall() {
   const settings = useFinanceStore((state) => state.settings)
   const updateBill = useFinanceStore((state) => state.updateBill)
   const deleteBill = useFinanceStore((state) => state.deleteBill)
+  const countBillDeletion = useFinanceStore((state) => state.countBillDeletion)
   const askConfirm = useFinanceStore((state) => state.askConfirm)
   const [editing, setEditing] = useState<Bill | null | 'new'>(null)
 
@@ -124,17 +126,19 @@ export function PriorityWall() {
       ? Math.round((nextCheckTotal / lastIncome) * 100)
       : null
 
-  const remove = (bill: Bill) => {
-    // The record is soft-deleted, not un-pinned: its payment checks and this
-    // month's reservation go with it, so say that rather than implying a hide.
-    void askConfirm({
-      title: `Delete “${bill.name}”?`,
-      body: 'Its payment history and this month’s set-aside go with it. Paused bills stay on this page; this removes the bill itself.',
-      confirmLabel: 'Delete bill',
+  const remove = async (bill: Bill) => {
+    // The record is soft-deleted, not un-pinned: its set-asides go with it and
+    // the entries recorded against it stay in the ledger without it, so the
+    // question says how many of each rather than implying a hide.
+    const summary = await countBillDeletion(bill.id)
+    const words = billDeletionWords(bill.name, summary)
+    const ok = await askConfirm({
+      title: words.title,
+      body: words.body,
+      confirmLabel: words.confirmLabel,
       danger: true
-    }).then((ok) => {
-      if (ok) void deleteBill(bill.id)
     })
+    if (ok) void deleteBill(bill.id)
   }
 
   return (
@@ -313,7 +317,7 @@ export function PriorityWall() {
                       <IconButton label="Edit bill" onClick={() => setEditing(bill)}>
                         <Pencil size={15} />
                       </IconButton>
-                      <IconButton label="Delete bill" danger onClick={() => remove(bill)}>
+                      <IconButton label="Delete bill" danger onClick={() => void remove(bill)}>
                         <Trash2 size={15} />
                       </IconButton>
                     </div>
