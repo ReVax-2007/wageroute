@@ -230,7 +230,7 @@ New bills get `nextDueOn = null`. Editing preserves the existing `nextDueOn` unl
 
 - The wall is a reservation model; autopay only records the payment, it never moves money.
 - Monthly figures are smoothed; a large annual bill does not create a spike in the month it lands.
-- Deleting a bill does not delete its past payments.
+- Deleting a bill does not delete its past payments: a `bill_payment` row becomes an ordinary expense, keeps its money and its memo, and simply stops proving the bill. Its set-asides are retired with it. The confirmation counts both halves from the same filters the write uses, so *Its 2 set-asides go with it, and 1 entry recorded against it stays in the ledger without the bill* is exactly what the delete does.
 
 ---
 
@@ -483,11 +483,13 @@ Not every picker lists every account, and the difference is deliberate:
 
 ### Remove an account
 
-Confirmation text explains that entries stay in the ledger. On delete:
+**Remove** asks first, and the question counts what actually leaves. The number is the rows the ledger retires, not the rows filed under this account: a transfer's twin leg and the sweep leg a rounded-up purchase owns can stand in another account and go with them. So an account with 3 entries can honestly say *Delete account and 5 entries* when one of its legs has its twin in Savings. When the read fails the dialog says *every entry recorded in it or linked to it* rather than naming a figure it cannot check, and the delete button waits until the count is back. **Archive instead** sits beside it and keeps every entry.
 
+On delete-with-entries:
+
+- the account's own transactions, each transfer twin and each sweep leg it takes are soft-deleted, and any bill whose payment disappeared has its claims for the month re-derived;
 - bills, goals and paychecks referencing the account have the reference set to null;
 - the account is soft-deleted;
-- transactions remain and still display the account name;
 - balances, cash and credit totals stop including it.
 
 ---
@@ -758,7 +760,7 @@ A **Diagnostics** card next to About prints version, schema, Electron/Chromium/N
 
 ### Danger zone
 
-**Erase all data…** starts a two-step confirmation. The first dialog explains what is deleted (every account, bill, sinking fund, paycheck and ledger entry, plus settings) and that exported backups and CSV files are untouched; **Continue** opens a second dialog with a final **Erase everything** button. The erase wipes the database, re-seeds a blank local user with default settings, and returns to the dashboard in the same blank state as a first launch.
+**Erase all data…** starts a two-step confirmation. The first dialog counts what is deleted — the live database's own totals, so *This deletes 47 ledger entries, 2 accounts, 1 bill, 3 goals and 0 paychecks* rather than a general promise — and adds that settings go back to their defaults while exported backups and CSV files are untouched; **Continue** opens a second dialog with a final **Erase everything** button. The counts are `transactionTotal` and `paycheckTotal` from the snapshot, not the 500-row window the grid shows. The erase wipes the database, re-seeds a blank local user with default settings, and returns to the dashboard in the same blank state as a first launch.
 
 The erase is physical, not a tombstone: every row is dropped and the file is compacted (`VACUUM`), so the previous contents are not recoverable from free pages or the write-ahead log. Before the wipe the main process writes one last-resort copy with `VACUUM INTO` to the app's `backups` folder (`pre-erase-<timestamp>.db`, newest three kept), and the dialog says so — a user who erases by mistake has a way back, and a user who wants the data gone can delete that file too. The live ledger itself cannot be recovered. A single row deleted elsewhere in the app is different: it is soft-deleted and still present in backups.
 
@@ -799,11 +801,11 @@ Every figure is calculated with the desktop's shared functions: the snapshot der
 
 Bills, goals, accounts and entries have real editors on the phone, and they write through the desktop's own rules: the same shared validator (`src/shared/writeRules.ts`) produces the same refusal sentence on either device, so a typo is answered identically whether it was typed into a dialog or a phone sheet.
 
-**Bills.** Add or edit a bill's name, amount, frequency, due day, category, paying account, funding strategy and — for *Choose specific paycheck to fund* — which paycheck; flip autopay and the active switch. **Mark paid** posts the month's bill payment the way the desktop's prompt would, into the bill's account or the first live checking account if that one is archived, and refuses a second payment for a month already settled. Pause, resume and delete a bill; a paused or deleted bill hands its payments back to plain expenses.
+**Bills.** Add or edit a bill's name, amount, frequency, due day, category, paying account, funding strategy and — for *Choose specific paycheck to fund* — which paycheck; flip autopay and the active switch. **Mark paid** posts the month's bill payment the way the desktop's prompt would, into the bill's account or the first live checking account if that one is archived, and refuses a second payment for a month already settled. Pause, resume and delete a bill; a paused or deleted bill hands its payments back to plain expenses. The delete question counts both sides of that from the copy in the browser — the set-asides that go with the bill and the entries that stay — in the desktop's sentence.
 
 **Goals.** Add or edit a goal's name, target, remaining date, priority, pace, funding accounts and deposit account; archive and restore it. Deleting a goal releases the accounts dedicated to it.
 
-**Accounts.** Add or edit an account's name, bank, type, starting balance, the purpose choices (mine only for one goal, and whether it counts as spending money) and its colour. A credit card also takes its limit, APR, minimum payment, last statement balance and the two cycle days, and the sheet reads them back as the facts the desktop shows: what is owed, what is still available, the percentage used, when the statement closes and the payment is due, what is due now, and how long the balance takes to clear at the minimum. The type is locked once the account exists, on either device — the entries behind it were written as a different instrument. What you owe is never edited in place either: **Adjust balance** posts an adjustment entry instead, so the opening balance stays the figure the account started with. It asks **What changed?** from the reasons that account type can honestly carry, then takes the new figure and a date; on a card with a limit it also lets the figure be typed as available credit or as a utilization percentage, and previews the owed, available and used figures before saving. **Pay this card** sits beside it on a card and records a real payment — a transfer out of a spendable account and onto the card, both legs in the ledger, cash down and the debt down by the same amount, total wealth unmoved. Both sheets answer a bad typing with the desktop's own sentence, and both hide themselves on an archived account, which the desktop does too. Archive keeps every entry and can be undone; **Remove** asks first and offers *Archive instead*, and deleting an account that has entries deletes them with it, counting them in the button the way the desktop does.
+**Accounts.** Add or edit an account's name, bank, type, starting balance, the purpose choices (mine only for one goal, and whether it counts as spending money) and its colour. A credit card also takes its limit, APR, minimum payment, last statement balance and the two cycle days, and the sheet reads them back as the facts the desktop shows: what is owed, what is still available, the percentage used, when the statement closes and the payment is due, what is due now, and how long the balance takes to clear at the minimum. The type is locked once the account exists, on either device — the entries behind it were written as a different instrument. What you owe is never edited in place either: **Adjust balance** posts an adjustment entry instead, so the opening balance stays the figure the account started with. It asks **What changed?** from the reasons that account type can honestly carry, then takes the new figure and a date; on a card with a limit it also lets the figure be typed as available credit or as a utilization percentage, and previews the owed, available and used figures before saving. **Pay this card** sits beside it on a card and records a real payment — a transfer out of a spendable account and onto the card, both legs in the ledger, cash down and the debt down by the same amount, total wealth unmoved. Both sheets answer a bad typing with the desktop's own sentence, and both hide themselves on an archived account, which the desktop does too. Archive keeps every entry and can be undone; **Remove** asks first and offers *Archive instead*, and deleting an account that has entries deletes them with it — counting the rows that actually leave, including a transfer twin or a sweep leg standing in another account, in the button the way the desktop does.
 
 **Entries.** **Add** offers every kind the desktop has — expense, income, transfer, bill payment, goal funding, investment, adjustment — with an amount, a live account, a date up to today and an optional note. The category field takes one you already use or a new name, and a new name creates the category exactly as the desktop's entry dialog does. The amount uses the same money sanitiser as the desktop: separators survive typing and the field settles on one exact form when it is left. A transfer writes both legs with a shared group and crossed counterpart accounts; a purchase that rounds up writes its sweep. Editing an entry changes what the sheet offers: a transfer leg or a round-up sweep keeps its account and kind locked and says why, because those rows are half of a pair the ledger only reads together.
 
@@ -819,7 +821,7 @@ Opening a second backup on the phone merges the same way, so a desktop export do
 
 ### Installing and limits
 
-The built folder is static. On a browser that offers `beforeinstallprompt`, Data shows **Add WageRoute to this phone**; on iOS it explains Share → Add to Home Screen; otherwise it names the browser menu. The service worker caches the shell and its hashed bundles, so the app opens offline, and navigation is network-first so a release lands on the next open. Opening another backup and **Forget this phone** both confirm first; the merge confirmation names the entries added here that could still be replaced by a newer copy in the file, and the forget confirmation counts what would be lost. If storage refuses the erase, the screen clears but the app says the stored copy may remain. Pocket has no analytics, remote font, third-party request or upload; the production page carries a same-origin CSP. The app cannot merge two phone copies, show which side won a conflict, or read a file from the desktop automatically: the person carries the file. It keeps no field-level history, so editing the same record on both devices keeps the newer edit and silently drops the other; that rule is recorded in [ADR 0024](decisions/0024-two-copies-merge-by-time.md).
+The built folder is static. On a browser that offers `beforeinstallprompt`, Data shows **Add WageRoute to this phone**; on iOS it explains Share → Add to Home Screen; otherwise it names the browser menu. The service worker caches the shell and its hashed bundles, so the app opens offline, and navigation is network-first so a release lands on the next open. Opening another backup and **Forget this phone** both confirm first; the merge confirmation names the entries added here that could still be replaced by a newer copy in the file, and the forget confirmation counts the entries this browser holds and names how many of them this phone wrote, so it warns about the rows no other device is known to hold and tells the person to export first. If storage refuses the erase, the screen clears but the app says the stored copy may remain. Pocket has no analytics, remote font, third-party request or upload; the production page carries a same-origin CSP. The app cannot merge two phone copies, show which side won a conflict, or read a file from the desktop automatically: the person carries the file. It keeps no field-level history, so editing the same record on both devices keeps the newer edit and silently drops the other; that rule is recorded in [ADR 0024](decisions/0024-two-copies-merge-by-time.md).
 
 ---
 
@@ -871,7 +873,7 @@ It rejects more than two decimals, non-numeric text, an empty string (returns `n
 
 - Success messages are toasts, auto-dismissed after 4.2 seconds; errors stay until dismissed, because an error is a fact the user has to read. Hovering or focusing a toast pauses its timer, so it does not vanish mid-read.
 - A toast is a live region — `role="status"` for success, `role="alert"` for errors — with a dedicated **Dismiss notification** button. Its text is selectable, so an error can be copied into a bug report.
-- Destructive actions — deleting a bill, a goal, a ledger row or a selection, and a grid edit that changes an entry's kind or account — use one styled `askConfirm` dialog that names the consequence. Import uses a confirmation before opening the file picker.
+- Destructive actions — deleting a bill, a goal, an account, a ledger row or a selection, and a grid edit that changes an entry's kind or account — use one styled `askConfirm` dialog that names the consequence. Every one of those sentences comes from `src/shared/deletion.ts`, and any that quotes a number asks the ledger first: the desktop reads it over a read-only channel, the phone measures its own copy. A question that could not get a number says so in words instead of guessing one. Import uses a confirmation before opening the file picker.
 
 ### Keyboard, focus and dialogs
 
@@ -947,7 +949,9 @@ All domain dates are constructed as UTC dates from `YYYY-MM-DD` strings. “Toda
 | Impossible calendar date (`2026-02-31`) | Refused before it is written; the message asks for `YYYY-MM-DD` |
 | Edit a paired transfer's account or kind | Rejected with an explanation |
 | Delete one transfer leg | Both legs are soft-deleted |
-| Delete an account with transactions | The dialog counts them and needs an explicit **Delete account and N entries**; **Archive instead** keeps everything |
+| Delete an account with transactions | The dialog counts the rows that leave — its own entries plus any transfer twin or sweep leg in another account — and needs an explicit **Delete account and N entries**; **Archive instead** keeps everything |
+| Delete an account that owns a rounded-up purchase | The sweep legs in the round-up account go too; none is left pointing at a retired purchase |
+| Delete a bill with payments | The set-asides are retired, the payments stay as ordinary expenses, and the question names both counts |
 | Archived account | Hidden from cash/credit totals and most pickers |
 | Credit card overpaid | Displays zero owed; available credit is capped at the limit |
 | Round-up destination is the source account | No sweep |

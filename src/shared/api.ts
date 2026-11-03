@@ -198,6 +198,18 @@ export interface StorageMoveResult {
   restartRequired: true
 }
 
+/**
+ * What a delete of one bill would do to the rows around it, read before the
+ * write so the question can say it. `reserves` are the set-asides that go with
+ * the bill; `linkedEntries` are the ledger rows that stay, released from the bill
+ * they used to prove. Both are counted with the same filter the write uses, so
+ * the numbers cannot describe a different delete from the one being offered.
+ */
+export interface BillDeletionSummary {
+  reserves: number
+  linkedEntries: number
+}
+
 export interface FinanceApi {
   getSnapshot(): Promise<Snapshot>
   getDatabasePath(): Promise<string>
@@ -230,7 +242,13 @@ export interface FinanceApi {
     options?: { withEntries?: boolean }
   ): Promise<WriteResult<void>>
   archiveAccount(id: string, archived: boolean): Promise<WriteResult<void>>
-  accountEntryCount(id: string): Promise<number>
+  /**
+   * How many live entries deleting this account would retire. It is larger than
+   * the rows recorded in the account whenever a transfer's twin or a purchase's
+   * sweep leg stands in another account, which is what leaves the ledger rather
+   * than what was recorded here.
+   */
+  countAccountDeletion(id: string): Promise<number>
 
   createBill(input: BillInput): Promise<WriteResult<string>>
   updateBill(id: string, input: Partial<BillInput>): Promise<WriteResult<void>>
@@ -241,6 +259,11 @@ export interface FinanceApi {
    * cannot answer when a paycheck is dated into another month.
    */
   billPayments(month: string): Promise<BillPaymentTotal[]>
+  /**
+   * What deleting this bill would do to the rows around it: the set-asides that
+   * go with it and the entries that stay in the ledger without it.
+   */
+  countBillDeletion(id: string): Promise<BillDeletionSummary>
 
   createCategory(input: CategoryInput): Promise<WriteResult<string>>
   updateCategory(id: string, input: Partial<CategoryInput>): Promise<WriteResult<void>>

@@ -21,6 +21,7 @@ import {
 } from './common'
 import { readSettings, writeSettings } from './settings'
 import { reconcileBillReserve } from './bills'
+import { doomedAccountDeletionIds } from './transactions'
 
 type AccountRow = Omit<AccountWithBalance, 'isArchived' | 'inSafeToSpend'> & {
   isArchived: number
@@ -246,38 +247,29 @@ export function deleteAccount(
 
   db.transaction(() => {
     if (entries > 0) {
-      // A bill payment on this account is about to disappear, so its claim has
-      // to be replayed afterwards or the bill stays marked paid by a row that
-      // no longer exists.
+      // One expansion serves every delete: a leg takes its twin and a purchase
+      // takes its sweep, even when the row it takes lives in another account.
+      // Doing this by hand over only the account's own rows left sweep legs
+      // standing against a purchase that no longer exists.
+      const doomed = doomedAccountDeletionIds(db, userId, id)
+      const placeholders = doomed.map(() => '?').join(', ')
+      // A bill payment about to disappear would otherwise leave the bill marked
+      // paid by a row that no longer exists.
       const touchedBills = db
         .prepare(
           `SELECT DISTINCT bill_id AS billId FROM transactions
-           WHERE account_id = ? AND user_id = ? AND deleted_at IS NULL
-             AND bill_id IS NOT NULL`
+           WHERE user_id = ? AND deleted_at IS NULL AND bill_id IS NOT NULL
+             AND id IN (${placeholders})`
         )
-        .all(id, userId) as { billId: string }[]
+        .all(userId, ...doomed) as { billId: string }[]
 
-      // A transfer leg is meaningless without its twin, so every group that
-      // touches this account goes as a pair.
-      const groups = db
-        .prepare(
-          `SELECT DISTINCT transfer_group_id AS groupId FROM transactions
-           WHERE account_id = ? AND user_id = ? AND deleted_at IS NULL
-             AND transfer_group_id IS NOT NULL`
-        )
-        .all(id, userId) as { groupId: string }[]
-      for (const group of groups) {
-        db.prepare(
-          `UPDATE transactions
-           SET deleted_at = ?, updated_at = ?, revision = revision + 1
-           WHERE transfer_group_id = ? AND user_id = ? AND deleted_at IS NULL`
-        ).run(ts, ts, group.groupId, userId)
-      }
-      db.prepare(
+      const tombstone = db.prepare(
         `UPDATE transactions
          SET deleted_at = ?, updated_at = ?, revision = revision + 1
-         WHERE account_id = ? AND user_id = ? AND deleted_at IS NULL`
-      ).run(ts, ts, id, userId)
+         WHERE id = ? AND user_id = ? AND deleted_at IS NULL`
+      )
+      for (const rowId of doomed) tombstone.run(ts, ts, rowId, userId)
+
       for (const bill of touchedBills) reconcileBillReserve(db, userId, bill.billId)
     }
 

@@ -1,6 +1,7 @@
 import type {
   AppDiagnostics,
   AppInfo,
+  BillDeletionSummary,
   CommittedPaycheck,
   ImportPreview,
   ImportResult,
@@ -57,12 +58,13 @@ export interface IpcContract {
   'account:update': { args: [string, Partial<AccountInput>]; result: WriteResult<void> }
   'account:delete': { args: [string, { withEntries?: boolean }?]; result: WriteResult<void> }
   'account:archive': { args: [string, boolean]; result: WriteResult<void> }
-  'account:entry-count': { args: [string]; result: number }
+  'account:count-deletion': { args: [string]; result: number }
 
   'bill:create': { args: [BillInput]; result: WriteResult<string> }
   'bill:update': { args: [string, Partial<BillInput>]; result: WriteResult<void> }
   'bill:delete': { args: [string]; result: WriteResult<void> }
   'bill:payments': { args: [string]; result: BillPaymentTotal[] }
+  'bill:count-deletion': { args: [string]; result: BillDeletionSummary }
 
   'category:create': { args: [CategoryInput]; result: WriteResult<string> }
   'category:update': { args: [string, Partial<CategoryInput>]; result: WriteResult<void> }
@@ -118,11 +120,12 @@ export const CHANNELS = [
   'account:update',
   'account:delete',
   'account:archive',
-  'account:entry-count',
+  'account:count-deletion',
   'bill:create',
   'bill:update',
   'bill:delete',
   'bill:payments',
+  'bill:count-deletion',
   'category:create',
   'category:update',
   'category:delete',

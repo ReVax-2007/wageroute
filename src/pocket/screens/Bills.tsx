@@ -7,6 +7,7 @@ import {
   reachableCheckIndexes
 } from '@shared/cadence'
 import { formatDateLabel } from '@shared/dates'
+import { billDeletionWords } from '@shared/deletion'
 import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
 import type { AppSettings, Bill, BillFundingStrategy, BillInput, Frequency } from '@shared/types'
 import { ordinal } from '../../renderer/src/lib/finance'
@@ -19,7 +20,7 @@ import { type BillLine, billLines, pocketView } from '../lib/compute'
 import { entryAccounts } from '../lib/entry'
 import { flag, text } from '../lib/rows'
 import { usePocket, useSnapshot } from '../lib/store'
-import { createBill, deleteBill, patchBill, payBill } from '../lib/write'
+import { billDeletionSummary, createBill, deleteBill, patchBill, payBill } from '../lib/write'
 
 const STATE_LABEL: Record<BillLine['state'], string> = {
   paid: 'Paid',
@@ -357,6 +358,7 @@ function BillSheet({
 
 export function Bills() {
   const snapshot = useSnapshot()
+  const tables = usePocket((state) => state.tables)
   const edit = usePocket((state) => state.edit)
   const [opened, setOpened] = useState<BillLine | null>(null)
   const [form, setForm] = useState<Bill | 'new' | null>(null)
@@ -368,6 +370,14 @@ export function Bills() {
   const unpaid = lines.filter((line) => line.state !== 'paid')
   const paidLines = lines.filter((line) => line.state === 'paid')
   const openedLine = opened ? (lines.find((line) => line.bill.id === opened.bill.id) ?? opened) : null
+  // The phone holds the whole ledger, so it can count the rows a bill delete
+  // moves without asking the computer — the same numbers the desktop reads.
+  const deleteWords = pendingDelete
+    ? billDeletionWords(
+        pendingDelete.bill.name,
+        tables ? billDeletionSummary(tables, pendingDelete.bill.id) : null
+      )
+    : null
 
   return (
     <div className="screen">
@@ -469,14 +479,14 @@ export function Bills() {
         />
       ) : null}
 
-      {pendingDelete ? (
+      {pendingDelete && deleteWords ? (
         <DeleteConfirm
-          title={`Delete “${pendingDelete.bill.name}”?`}
-          hint="Its payment history and this month’s set-aside go with it. Paused bills stay on this page; this removes the bill itself."
+          title={deleteWords.title}
+          hint={deleteWords.body}
           detail={`${formatMoney(pendingDelete.bill.amountCents, currency)} ${
             FREQUENCY_LABEL[pendingDelete.bill.frequency]
           } · due ${formatDateLabel(pendingDelete.dueOn)}`}
-          confirmLabel="Delete bill"
+          confirmLabel={deleteWords.confirmLabel}
           onCancel={() => setPendingDelete(null)}
           onDone={() => {
             setPendingDelete(null)

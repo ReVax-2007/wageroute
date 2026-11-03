@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Pencil, Plus } from 'lucide-react'
 import { formatDateLong } from '@shared/dates'
+import { goalDeletionWords } from '@shared/deletion'
 import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
 import type { GoalFundingPace, GoalInput, GoalWithProgress } from '@shared/types'
 import { fundableAccounts, goalsSummary } from '../../renderer/src/lib/finance'
@@ -298,6 +299,7 @@ export function Goals() {
   if (!snapshot) return null
   const view = pocketView(snapshot)
   const currency = view.settings.currency
+  const goalWords = goalDeletionWords(pendingDelete?.name ?? '')
   const goals = snapshot.goals.filter((goal) => !goal.isArchived)
   const archived = snapshot.goals.filter((goal) => goal.isArchived)
   const summary = goalsSummary(goals)
@@ -421,13 +423,13 @@ export function Goals() {
 
       {pendingDelete ? (
         <DeleteConfirm
-          title={`Delete “${pendingDelete.name}”?`}
-          hint="The fund disappears for good. Money already moved into the ledger stays in its accounts and history."
+          title={goalWords.title}
+          hint={goalWords.body}
           detail={`${formatMoney(pendingDelete.fundedCents, currency)} of ${formatMoney(
             pendingDelete.targetCents,
             currency
           )}`}
-          confirmLabel="Delete goal"
+          confirmLabel={goalWords.confirmLabel}
           onCancel={() => setPendingDelete(null)}
           onDone={() => {
             setPendingDelete(null)

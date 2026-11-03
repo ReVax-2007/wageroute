@@ -8,6 +8,7 @@ import { emptyTables } from './backup'
 import { cents, flag, isLive, nullableText, text } from './rows'
 import {
   accountEntryCount,
+  billDeletionSummary,
   billPaidThisMonthCents,
   createAccount,
   createBill,
@@ -19,6 +20,7 @@ import {
   deleteCategory,
   deleteEntries,
   deleteGoal,
+  doomedAccountEntryIds,
   insertedEntryIds,
   ledgerUserId,
   patchAccount,
@@ -184,6 +186,45 @@ test('a paused bill keeps its history and delete hands the payments back', () =>
   assert.equal(text(entry, 'kind'), 'expense')
   assert.equal(isLive(rowOf(removed, 'rent')), false)
   assert.match(refusal(() => deleteBill(removed, 'rent')).message, /That record no longer exists/)
+})
+
+test('the bill question counts the set-asides that go and the payments that stay', () => {
+  const tables = ledger()
+  const paid = payBill(tables, 'rent')
+  const withReserve: ImportTables = {
+    ...paid.tables,
+    bill_reserves: [
+      ...paid.tables.bill_reserves,
+      lifecycle({
+        id: 'res-1',
+        bill_id: 'rent',
+        paycheck_id: 'pay-1',
+        cycle: todayISO().slice(0, 7),
+        amount_cents: 120_000,
+        state: 'reserved',
+        strategy: 'all_checks',
+        due_day: 1,
+        settled_by: null
+      })
+    ]
+  }
+  assert.deepEqual(billDeletionSummary(withReserve, 'rent'), {
+    reserves: 1,
+    linkedEntries: 1
+  })
+
+  const removed = deleteBill(withReserve, 'rent')
+  assert.equal(
+    removed.bill_reserves.filter(isLive).length,
+    0,
+    'every set-aside the question named is retired'
+  )
+  assert.equal(
+    entries(removed).filter((row) => nullableText(row, 'bill_id') === 'rent').length,
+    0,
+    'the payment it named lets go of the tombstone'
+  )
+  assert.equal(entries(removed).length, 1, 'and stays in the ledger as an ordinary expense')
 })
 
 test('marking a bill paid takes whatever the month still owes', () => {
@@ -422,6 +463,40 @@ test('a bill or goal pointed at a deleted account lets go of it', () => {
   const removed = deleteAccount(wired, 'sav')
   assert.equal(nullableText(rowOf(removed, 'car'), 'account_id'), null)
   assert.equal(nullableText(rowOf(removed, 'rent'), 'account_id'), 'chk')
+})
+
+test('the account question counts the rows in the other accounts too', () => {
+  const tables = ledger()
+  tables.settings = [
+    lifecycle({ id: 'roundUpEnabled', key: 'roundUpEnabled', value: 'true' }),
+    lifecycle({ id: 'roundUpAccountId', key: 'roundUpAccountId', value: 'sav' }),
+    lifecycle({ id: 'roundUpToCents', key: 'roundUpToCents', value: '100' })
+  ]
+  const moved = createEntry(tables, {
+    accountId: 'chk',
+    kind: 'transfer',
+    amountCents: 30_000,
+    occurredOn: todayISO(),
+    memo: 'To savings',
+    category: 'Transfer',
+    counterAccountId: 'sav'
+  })
+  const bought = createEntry(moved.tables, {
+    accountId: 'chk',
+    kind: 'expense',
+    amountCents: 4_530,
+    occurredOn: todayISO(),
+    memo: 'Coffee beans',
+    category: 'Food'
+  })
+
+  // Everyday holds three rows; the transfer's twin and the sweep's landing leg
+  // stand in Savings and leave with them.
+  assert.equal(accountEntryCount(bought.tables, 'chk'), 3)
+  assert.equal(doomedAccountEntryIds(bought.tables, 'chk').size, 5)
+
+  const removed = deleteAccount(bought.tables, 'chk', { withEntries: true })
+  assert.equal(entries(removed).length, 0, 'no half-pair or lone sweep is left behind')
 })
 
 test('a transfer is two legs the phone cannot pull apart', () => {

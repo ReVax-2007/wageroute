@@ -154,6 +154,30 @@ export function deleteBill(db: Db, userId: string, id: string): void {
   })()
 }
 
+/**
+ * What a delete of this bill would do to the rows around it, read before the
+ * write so the confirmation can name them: the set-asides that go with the bill,
+ * and the ledger rows that stay but stop proving it. `deleteBill` releases every
+ * live row linked to the bill, adjustments included, so the same filter counts
+ * both numbers.
+ */
+export function billDeletionSummary(
+  db: Db,
+  userId: string,
+  billId: string
+): { reserves: number; linkedEntries: number } {
+  const total = (sql: string): number =>
+    (db.prepare(sql).get(billId, userId) as { total: number }).total
+  return {
+    reserves: total(
+      'SELECT COUNT(*) AS total FROM bill_reserves WHERE bill_id = ? AND user_id = ? AND deleted_at IS NULL'
+    ),
+    linkedEntries: total(
+      'SELECT COUNT(*) AS total FROM transactions WHERE bill_id = ? AND user_id = ? AND deleted_at IS NULL'
+    )
+  }
+}
+
 // ------------------------------------------------------------ bill reserves
 
 export function softDeleteBillReserves(

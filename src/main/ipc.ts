@@ -625,9 +625,8 @@ export function registerIpcHandlers(db: Database.Database): void {
       repo.setAccountArchived(db, userId(), requireId(id), archived === true)
     )
   )
-  handle(
-    'account:entry-count',
-    (_event, id: unknown) => repo.accountEntryCount(db, userId(), requireId(id))
+  handle('account:count-deletion', (_event, id: unknown) =>
+    repo.doomedAccountDeletionIds(db, userId(), requireId(id)).length
   )
 
   handle('bill:create', (_event, input: BillInput) =>
@@ -645,6 +644,10 @@ export function registerIpcHandlers(db: Database.Database): void {
   )
   handle('bill:payments', (_event, month: unknown) =>
     repo.listBillPaymentsThisMonth(db, userId(), requireMonth(month))
+  )
+
+  handle('bill:count-deletion', (_event, id: unknown) =>
+    repo.billDeletionSummary(db, userId(), requireId(id))
   )
 
   handle('category:create', (_event, input: CategoryInput) =>

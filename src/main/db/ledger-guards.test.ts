@@ -18,6 +18,7 @@ import {
   deleteBill,
   deleteTransaction,
   deleteTransactions,
+  doomedAccountDeletionIds,
   doomedDeletionIds,
   getSnapshot,
   listAccounts,
@@ -142,6 +143,77 @@ test('deleting an account with entries takes both legs of its transfers', () => 
 
   assert.deepEqual(listTransactions(db, USER_ID), [])
   assert.equal(accountEntryCount(db, USER_ID, savings), 0, 'the other leg goes too')
+})
+
+test('an account delete promises the rows it really retires', () => {
+  const db = freshDb()
+  const chequing = account(db, 'Chequing')
+  const savings = account(db, 'Savings', 'savings')
+  writeSettings(db, USER_ID, {
+    roundUpEnabled: 'true',
+    roundUpAccountId: savings,
+    roundUpToCents: '100'
+  })
+  entry(db, chequing, { amountCents: -1_001 })
+  entry(db, chequing, { kind: 'transfer', amountCents: -40_000, counterAccountId: savings })
+
+  // Three rows are recorded in the account; the delete also takes the sweep leg
+  // and the transfer twin standing in the other one.
+  assert.equal(accountEntryCount(db, USER_ID, chequing), 3)
+  const promised = doomedAccountDeletionIds(db, USER_ID, chequing).length
+  assert.equal(promised, 5, 'the rows outside the account are part of the promise')
+
+  deleteAccount(db, USER_ID, chequing, { withEntries: true })
+
+  assert.deepEqual(listTransactions(db, USER_ID), [], 'every row the promise named is gone')
+  assert.equal(accountEntryCount(db, USER_ID, savings), 0, 'including those in the other account')
+})
+
+test('deleting the round-up destination takes both sweep legs and leaves the spending', () => {
+  const db = freshDb()
+  const chequing = account(db, 'Chequing')
+  const fund = account(db, 'Round-up fund', 'savings')
+  writeSettings(db, USER_ID, {
+    roundUpEnabled: 'true',
+    roundUpAccountId: fund,
+    roundUpToCents: '100'
+  })
+  const purchase = entry(db, chequing, { amountCents: -1_040 })
+
+  // One leg sits in the fund being deleted, the other in the account that spent.
+  // Taking only the fund's row would leave a one-legged transfer holding up a
+  // balance nobody moved.
+  deleteAccount(db, USER_ID, fund, { withEntries: true })
+
+  const live = listTransactions(db, USER_ID)
+  assert.deepEqual(
+    live.map((row) => row.id),
+    [purchase],
+    'the pair goes and the purchase it rounds up stays'
+  )
+})
+
+test('an account delete leaves no sweep pointing at a retired purchase', () => {
+  const db = freshDb()
+  const chequing = account(db, 'Chequing')
+  const savings = account(db, 'Savings', 'savings')
+  const purchase = entry(db, chequing, { amountCents: -1_001 })
+  // A sweep leg whose twin never arrived — what an old or hand-edited file holds.
+  db.prepare(
+    `INSERT INTO transactions
+       (id, user_id, account_id, kind, amount_cents, occurred_on, memo,
+        created_at, updated_at, revision, round_up_source_id)
+     VALUES ('lone-sweep', ?, ?, 'transfer', 66, '2026-03-01', 'Round-up',
+             '2026-03-01T00:00:00.000Z', '2026-03-01T00:00:00.000Z', 0, ?)`
+  ).run(USER_ID, savings, purchase)
+
+  deleteAccount(db, USER_ID, chequing, { withEntries: true })
+
+  assert.deepEqual(
+    db.prepare('SELECT id FROM transactions WHERE deleted_at IS NULL').all(),
+    [],
+    'the leg swept for a purchase in this account goes with it'
+  )
 })
 
 test('archiving keeps an account and its history out of the working totals', () => {

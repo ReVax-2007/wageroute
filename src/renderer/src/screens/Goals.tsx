@@ -13,6 +13,7 @@ import {
   Trash2
 } from 'lucide-react'
 import { formatDateLong, monthsUntil, todayISO } from '@shared/dates'
+import { goalDeletionWords } from '@shared/deletion'
 import {
   EMERGENCY_MONTH_OPTIONS,
   averageMonthlyVariableCents,
@@ -237,10 +238,11 @@ export function Goals() {
                   label={`Delete ${goal.name}`}
                   danger
                   onClick={() => {
+                    const words = goalDeletionWords(goal.name)
                     void askConfirm({
-                      title: `Delete “${goal.name}”?`,
-                      body: 'The fund disappears for good. Money already moved into the ledger stays in its accounts and history.',
-                      confirmLabel: 'Delete goal',
+                      title: words.title,
+                      body: words.body,
+                      confirmLabel: words.confirmLabel,
                       danger: true
                     }).then((ok) => {
                       if (ok) void deleteGoal(goal.id)

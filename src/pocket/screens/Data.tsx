@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Download, FolderInput, ShieldCheck, Smartphone, Trash2 } from 'lucide-react'
 import { formatDateLabel, localDateISO, todayISO } from '@shared/dates'
+import { phoneCopyWords } from '@shared/deletion'
 import { PickBackup } from '../components/PickBackup'
 import { Sheet } from '../components/Sheet'
 import { isAppleTouch, useInstallPrompt } from '../lib/install'
@@ -33,6 +34,9 @@ export function Data() {
   const [forgetting, setForgetting] = useState(false)
 
   if (!snapshot) return null
+
+  // The copy on this phone is worth exactly the rows only it has ever seen.
+  const forgetWords = phoneCopyWords(snapshot.transactionTotal, localIds.length)
 
   return (
     <div className="screen">
@@ -184,8 +188,8 @@ export function Data() {
 
       {forgetting ? (
         <Sheet
-          title="Forget this phone?"
-          hint="The ledger is deleted from this browser. Nothing on your computer changes."
+          title={forgetWords.title}
+          hint={forgetWords.body}
           onClose={() => setForgetting(false)}
         >
           <div className="sheet-actions">
@@ -200,7 +204,7 @@ export function Data() {
                 setForgetting(false)
               }}
             >
-              Delete from this phone
+              {forgetWords.confirmLabel}
             </button>
           </div>
         </Sheet>
