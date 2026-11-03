@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { SNAPSHOT_TRANSACTION_LIMIT } from '@shared/api'
 import { formatDateLabel, todayISO } from '@shared/dates'
+import { entryDeletionWords } from '@shared/deletion'
 import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
 import type { TransactionInput, TransactionKind, TransactionRow } from '@shared/types'
 import { TRANSACTION_KIND_LABEL } from '../../renderer/src/lib/finance'
@@ -379,6 +380,10 @@ export function Ledger() {
   // and the two sweep rows a rounded-up purchase caused. The question has to
   // name every row that goes, the way the desktop's delete counts them.
   const doomed = pendingDelete && tables ? expandDeletion(tables, [pendingDelete.id]).size : 1
+  const words = entryDeletionWords(doomed, {
+    isTransferLeg: Boolean(pendingDelete?.transferGroupId),
+    memo: pendingDelete?.memo ?? ''
+  })
 
   return (
     <div className="screen">
@@ -463,24 +468,12 @@ export function Ledger() {
 
       {pendingDelete ? (
         <DeleteConfirm
-          title={
-            pendingDelete.transferGroupId
-              ? 'Delete both legs of this transfer?'
-              : doomed > 1
-                ? `Delete ${doomed} entries?`
-                : 'Delete this entry?'
-          }
-          hint={
-            pendingDelete.transferGroupId
-              ? `“${pendingDelete.memo || 'This transfer'}” is one movement of money; removing it also removes the matching leg.`
-              : doomed > 1
-                ? `${doomed} entries disappear from the ledger and every balance they touch. A purchase takes the round-up it caused, and a transfer takes its matching leg.`
-                : `“${pendingDelete.memo || 'This entry'}” disappears from the ledger and every balance it touches.`
-          }
+          title={words.title}
+          hint={words.body}
           detail={`${formatMoney(pendingDelete.amountCents, currency)} on ${formatDateLabel(
             pendingDelete.occurredOn
           )}. It leaves this phone now, and the removal travels with your next export.`}
-          confirmLabel="Delete"
+          confirmLabel={words.confirmLabel}
           onCancel={() => setPendingDelete(null)}
           onDone={() => setPendingDelete(null)}
           remove={() => deleteEntry(pendingDelete.id)}

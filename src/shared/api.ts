@@ -257,6 +257,12 @@ export interface FinanceApi {
   deleteTransaction(id: string): Promise<WriteResult<void>>
   /** Deletes a selection, removing both legs of any transfer it touches. */
   deleteTransactions(ids: string[]): Promise<WriteResult<number>>
+  /**
+   * How many live entries a delete of this selection would retire, including a
+   * transfer's matching leg and the sweep legs a rounded-up purchase owns, so a
+   * confirmation can name the rows that go rather than the rows that were picked.
+   */
+  countEntryDeletion(ids: string[]): Promise<number>
   /** One filtered, sorted page of the ledger, with the filter's own total. */
   queryTransactions(query: LedgerQuery): Promise<TransactionPage>
 

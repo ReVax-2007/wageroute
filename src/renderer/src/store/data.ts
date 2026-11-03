@@ -267,6 +267,20 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
       }
     },
 
+    countEntryDeletion: async (ids) => {
+      const unique = [...new Set(ids)]
+      if (unique.length === 0) return 0
+      // Counted through the write queue, so a question cannot be answered from a
+      // ledger that has not yet taken the edits this screen already made.
+      try {
+        return await enqueue(() => window.api.countEntryDeletion(unique))
+      } catch {
+        // The selection is the floor — a delete never retires fewer rows than the
+        // ones it was pointed at — so the question stays honest if the read fails.
+        return unique.length
+      }
+    },
+
     queryTransactions: (query) => window.api.queryTransactions(query),
 
     commitPaycheck: async (input) => {

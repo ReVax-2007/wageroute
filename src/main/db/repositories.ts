@@ -48,6 +48,7 @@ export {
   roundUpSweepIds,
   deleteTransaction,
   deleteTransactions,
+  doomedDeletionIds,
   reconcileAccountOn,
   type NewTransactionInput
 } from './repo/transactions'

@@ -77,6 +77,7 @@ export interface IpcContract {
   'transaction:update': { args: [string, TransactionPatch]; result: WriteResult<void> }
   'transaction:delete': { args: [string]; result: WriteResult<void> }
   'transaction:delete-many': { args: [string[]]; result: WriteResult<number> }
+  'transaction:count-deletion': { args: [string[]]; result: number }
   'transaction:query': { args: [LedgerQuery]; result: TransactionPage }
 
   'paycheck:commit': { args: [PaycheckDraftInput]; result: WriteResult<CommittedPaycheck> }
@@ -133,6 +134,7 @@ export const CHANNELS = [
   'transaction:update',
   'transaction:delete',
   'transaction:delete-many',
+  'transaction:count-deletion',
   'transaction:query',
   'paycheck:commit',
   'paycheck:apply',

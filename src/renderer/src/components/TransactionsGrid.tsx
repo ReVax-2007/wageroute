@@ -12,6 +12,7 @@ import {
   type RenderEditCellContentProps
 } from 'react-data-grid'
 import { categoryKey } from '@shared/categories'
+import { entryDeletionWords } from '@shared/deletion'
 import { formatDateLabel } from '@shared/dates'
 import { formatMoney, centsToEditable, canonicalMoneyInput, parseMoneyToCents, sanitizeMoneyInput } from '@shared/money'
 import type {
@@ -41,6 +42,7 @@ export function TransactionsGrid({
 }) {
   const updateTransaction = useFinanceStore((state) => state.updateTransaction)
   const deleteTransaction = useFinanceStore((state) => state.deleteTransaction)
+  const countEntryDeletion = useFinanceStore((state) => state.countEntryDeletion)
   const askConfirm = useFinanceStore((state) => state.askConfirm)
   const pending = useFinanceStore((state) => state.pending)
   const refresh = useFinanceStore((state) => state.refresh)
@@ -219,16 +221,20 @@ export function TransactionsGrid({
               title={busy ? 'Removing…' : row.transferGroupId ? 'Delete transfer' : 'Delete entry'}
               disabled={busy}
               onClick={() => {
-                void askConfirm({
-                  title: row.transferGroupId ? 'Delete both legs of this transfer?' : 'Delete this entry?',
-                  body: row.transferGroupId
-                    ? `“${row.memo || 'This transfer'}” is one movement of money; removing it also removes the matching leg.`
-                    : `“${row.memo || 'This entry'}” disappears from the ledger and every balance it touches.`,
-                  confirmLabel: 'Delete',
-                  danger: true
-                }).then((ok) => {
-                  if (ok) void deleteTransaction(row.id)
-                })
+                // The database is the only place that can see a transfer's twin and
+                // the sweep legs a purchase owns, so the question waits for the count.
+                void countEntryDeletion([row.id]).then((doomed) =>
+                  askConfirm({
+                    ...entryDeletionWords(doomed, {
+                      isTransferLeg: Boolean(row.transferGroupId),
+                      memo: row.memo
+                    }),
+                    danger: true
+                  })
+                )
+                  .then((ok) => {
+                    if (ok) void deleteTransaction(row.id)
+                  })
               }}
             >
               <Trash2 size={14} />
@@ -237,7 +243,7 @@ export function TransactionsGrid({
         }
       }
     ],
-    [accounts, askConfirm, categories, currency, deleteTransaction, onSelectedChange, pending, refresh, updateTransaction]
+    [accounts, askConfirm, categories, countEntryDeletion, currency, deleteTransaction, onSelectedChange, pending, refresh, updateTransaction]
   )
 
   return (

@@ -101,6 +101,8 @@ export interface DataSlice {
   deleteTransaction: (id: string) => Promise<boolean>
   /** Resolves to how many rows went, or null when the batch failed. */
   deleteTransactions: (ids: string[]) => Promise<number | null>
+  /** How many live entries a delete of this selection would retire. */
+  countEntryDeletion: (ids: string[]) => Promise<number>
   /** A filtered page of the ledger, read straight from the database. */
   queryTransactions: (query: LedgerQuery) => Promise<TransactionPage>
   commitPaycheck: (input: PaycheckDraftInput) => Promise<boolean>

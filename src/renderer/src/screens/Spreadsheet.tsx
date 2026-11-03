@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Landmark, Plus, Sheet, Trash2 } from 'lucide-react'
 import { todayISO } from '@shared/dates'
+import { entryDeletionWords } from '@shared/deletion'
 import { projectUpcoming } from '@shared/projections'
 import type { LedgerFilter, LedgerQuery, LedgerSort, TransactionPage } from '@shared/types'
 import { Button, EmptyState, Segmented } from '../components/ui'
@@ -50,6 +51,7 @@ export function Spreadsheet() {
   const go = useFinanceStore((state) => state.go)
   const queryTransactions = useFinanceStore((state) => state.queryTransactions)
   const deleteTransactions = useFinanceStore((state) => state.deleteTransactions)
+  const countEntryDeletion = useFinanceStore((state) => state.countEntryDeletion)
   const askConfirm = useFinanceStore((state) => state.askConfirm)
   const notify = useFinanceStore((state) => state.notify)
   const [tab, setTab] = useState<SheetTab>('ledger')
@@ -165,15 +167,14 @@ export function Spreadsheet() {
   }
 
   const deleteSelected = async () => {
-    const count = selected.length
-    if (count === 0) return
+    if (selected.length === 0) return
+    // A transfer hides its twin and a purchase hides its round-up sweep, so the
+    // rows leaving the ledger are counted from the database, not from the ticks.
+    const words = entryDeletionWords(await countEntryDeletion(selected))
     const ok = await askConfirm({
-      title: count === 1 ? 'Delete this entry?' : `Delete ${count} entries?`,
-      body:
-        count === 1
-          ? 'The entry disappears from the ledger and every balance it touches.'
-          : `${count} entries disappear from the ledger and every balance they touch. Deleting a transfer removes its matching leg too.`,
-      confirmLabel: count === 1 ? 'Delete' : `Delete ${count}`,
+      title: words.title,
+      body: words.body,
+      confirmLabel: words.confirmLabel,
       danger: true
     })
     if (!ok) return
