@@ -125,6 +125,25 @@ function insertRow(tables: ImportTables, table: WritableTable, columns: Columns)
   return { tables: withRows(tables, table, [...tables[table], row]), id }
 }
 
+/**
+ * The ledger rows this write created, read from the two table copies rather than
+ * from what the caller asked for. One entry form can post several rows: a
+ * transfer writes both legs, a purchase that rounds up writes its sweep on top,
+ * and only one of them is the id the writer hands back. Naming that id alone
+ * would mark half a pair as somebody else's work, so the next import prunes it
+ * out of this phone's list and the delete that follows goes unnoticed.
+ *
+ * Only entries count. A bill, a goal or an account created here is a record of
+ * its own, and the screens that read this list count them against the ledger.
+ */
+export function insertedEntryIds(before: ImportTables, after: ImportTables): string[] {
+  const already = new Set(before.transactions.map((row) => text(row, 'id')))
+  return after.transactions
+    .filter(isLive)
+    .map((row) => text(row, 'id'))
+    .filter((id) => id !== '' && !already.has(id))
+}
+
 // --------------------------------------------------------------- references
 
 /** The desktop's `requireAccount`, read from the copy on this phone. */

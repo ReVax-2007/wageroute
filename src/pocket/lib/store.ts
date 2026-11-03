@@ -13,7 +13,7 @@ import {
 } from './backup'
 import { deleteLedger, readLedger, writeLedger, type StoredLedger } from './idb'
 import { buildSnapshot } from './snapshot'
-import { deleteEntries, type Written } from './write'
+import { deleteEntries, insertedEntryIds, type Written } from './write'
 
 type Status = 'loading' | 'empty' | 'ready'
 
@@ -25,6 +25,7 @@ interface PocketState {
   /** The desktop's export date, which is how old the copy on the phone is. */
   exportedAt: string | null
   sourceName: string | null
+  /** The live ledger entries this phone created; every other row came from a file. */
   localIds: string[]
   notice: string | null
   error: string | null
@@ -40,7 +41,7 @@ interface PocketState {
    * desktop's own reason without the ledger half-changing.
    */
   edit: (mutate: (tables: ImportTables) => ImportTables, notice?: string | null) => Promise<void>
-  /** Runs a writer that adds a row, so the new id is marked as this phone's. */
+  /** Runs a writer that posts rows, so every row it created is marked as this phone's. */
   add: (mutate: (tables: ImportTables) => Written, notice: string) => Promise<string>
   deleteEntry: (id: string) => Promise<void>
   forget: () => Promise<void>
@@ -64,6 +65,16 @@ function liveIdsOf(tables: ImportTables): Set<string> {
     if (isLiveRow(row) && typeof row.id === 'string') ids.add(row.id)
   }
   return ids
+}
+
+/**
+ * The phone's own entries after one write. A form that posts a transfer leaves
+ * two rows and a rounded-up purchase leaves three, so the list is read from the
+ * rows that appeared rather than from the single id the writer hands back —
+ * half a pair left off this list is pruned by the next import as foreign.
+ */
+function keepLocal(before: ImportTables, after: ImportTables, current: string[]): string[] {
+  return [...new Set([...current, ...insertedEntryIds(before, after)])]
 }
 
 function storageMessage(error: unknown, prefix = 'Saved on this screen only'): string {
@@ -233,7 +244,7 @@ export const usePocket = create<PocketState>((set, get) => {
       // Validation happens before anything is set, so a refusal leaves the
       // on-screen ledger exactly as it was.
       const tables = mutate(current.tables)
-      await commit(tables, current.localIds, notice)
+      await commit(tables, keepLocal(current.tables, tables, current.localIds), notice)
     },
 
     add: async (mutate, notice) => {
@@ -242,7 +253,11 @@ export const usePocket = create<PocketState>((set, get) => {
       // The writer validates before it returns anything, so a refusal leaves the
       // on-screen ledger exactly as it was.
       const written = mutate(current.tables)
-      await commit(written.tables, [...current.localIds, written.id], notice)
+      await commit(
+        written.tables,
+        keepLocal(current.tables, written.tables, current.localIds),
+        notice
+      )
       return written.id
     },
 
