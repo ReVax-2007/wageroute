@@ -9,7 +9,8 @@
  * runs here for real rather than being mocked.
  */
 import assert from 'node:assert/strict'
-import { basename, dirname } from 'node:path'
+import { basename, dirname, join } from 'node:path'
+import { tmpdir } from 'node:os'
 import Database from 'better-sqlite3-multiple-ciphers'
 import test from 'node:test'
 import { todayISO } from '@shared/dates'
@@ -192,7 +193,7 @@ test('the reader tells a sealed export from a plain one without parsing either t
 test('an export names, dates and writes itself the same way whether it is sealed or not', () => {
   const backup = seededBackup()
   const exportedAt = parseBackupJson(backup).exportedAt
-  const dir = '/tmp/wageroute-documents'
+  const dir = join(tmpdir(), 'wageroute-documents')
 
   const plain = exportFileOf(backup, exportedAt, null, dir)
   assert.equal(plain.text, backup, 'a plain export is the backup itself, byte for byte')
