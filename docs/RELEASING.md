@@ -1,6 +1,6 @@
 # Releasing WageRoute
 
-A WageRoute release is a **verified build of the desktop app plus a deliberate distribution step**. There is no server to deploy and no migration to run remotely. A tag build packages every platform and attaches the installers to a **draft** GitHub Release, but publishing that release — and updating the Homebrew tap — stays manual. The hard parts are data compatibility, native modules and the fact that the installers are currently unsigned.
+A WageRoute release is a **verified build of the desktop app plus a deliberate distribution step**. There is no server to deploy and no migration to run remotely. A tag build packages every platform and attaches the installers to a **draft** GitHub Release, but publishing that release — and updating the Homebrew tap — stays manual. The hard parts are data compatibility, the native SQLite module, the fact that the installers are currently unsigned, and — for the first release that carries [encryption at rest](SECURITY.md#encryption-at-rest-and-key-custody) — a layer that has never been run from a packaged app.
 
 This document is the operational manual: what the version numbers mean, how to build, what CI does, what is missing before public distribution, and how to roll back without losing a ledger.
 
@@ -14,6 +14,7 @@ This document is the operational manual: what the version numbers mean, how to b
 - [Local build](#local-build)
 - [What the build produces](#what-the-build-produces)
 - [WageRoute Pocket](#wageroute-pocket)
+- [Container images](#container-images)
 - [CI pipeline](#ci-pipeline)
 - [Code signing and notarization](#code-signing-and-notarization)
 - [Manual release procedure](#manual-release-procedure)
@@ -33,11 +34,11 @@ WageRoute has three independent version numbers. Confusing them is the most comm
 
 | Version | Where it lives | Current value | What it means |
 | --- | --- | --- | --- |
-| App version | `package.json` → `version` | `1.2.0` | The build users install. Drives installer names, macOS bundle version and release tags. |
+| App version | `package.json` → `version` | `1.3.0` | The build users install. Drives installer names, macOS bundle version and release tags. |
 | Database schema version | `src/main/db/migrations.ts` → `SCHEMA_VERSION`, stored in SQLite `PRAGMA user_version` | `10` | The shape of the on-disk database. Changes only when a migration is added. |
 | Backup format version | Written into every JSON backup, equal to `SCHEMA_VERSION` | `10` | The newest backup the app writes. The reader accepts versions `2` through `10`. |
 
-`package.json` reads `1.2.0` at the moment of the 1.2.0 release; between releases it keeps the last released number even though newer commits have landed, so the **commit SHA** is the only reliable identifier of an un-released build. Bump the version as part of the release, never before. Every build users had before 1.1.0 was schema 3; 1.1.0 was the first installer carrying schemas 4, 5 and 6, and 1.2.0 adds schema 7 (bill reserves) and schema 8 (categories, card terms and balance history), so it migrates a 1.0.x database through every step in one launch. Schema 9 (each claim's strategy, the due day it carried and the payment that settled it) and schema 10 (each goal's funding pace) are on `main` after that release, so the next build migrates 1.2.0 databases 8 → 9 → 10 on first launch.
+`package.json` reads `1.3.0` at the moment of the 1.3.0 cut; between releases it keeps the last released number even though newer commits have landed, so the **commit SHA** is the only reliable identifier of an un-released build. Bump the version as part of the release, never before. Every build users had before 1.1.0 was schema 3; 1.1.0 was the first installer carrying schemas 4, 5 and 6, and 1.2.0 adds schema 7 (bill reserves) and schema 8 (categories, card terms and balance history), so it migrates a 1.0.x database through every step in one launch. Schema 9 (each claim's strategy, the due day it carried and the payment that settled it) and schema 10 (each goal's funding pace) are what 1.3.0 brings, so a 1.2.0 database migrates 8 → 9 → 10 on its first launch into that build.
 
 The source of truth for the app version is `package.json`. `npm` updates `package-lock.json` with it; electron-builder reads it when naming artifacts and writing bundle metadata.
 
@@ -55,7 +56,7 @@ Tags use the `v` prefix and match the app version exactly: `v1.0.0`. The CI work
 
 - The backup format's internal marker remains `cash-flow-routing-backup` for compatibility with files produced before the rename. **Do not "fix" this string**; changing it would reject every existing backup.
 - The `appId` (`com.wageroute.desktop`) and `productName` (`WageRoute`) are identity, not version. Changing either changes install paths and can orphan user data.
-- Electron's version is pinned by `package-lock.json`. Upgrading Electron's major version changes the native-module ABI and is effectively a platform change; treat it as a feature release with a full installer test.
+- Electron's version is pinned by `package-lock.json`. Upgrading Electron's major version is still effectively a platform change — the renderer, the ABI of the shell and the packaging tooling all move together — and it deserves a full installer test. It no longer changes the SQLite module: that one is N-API, so its prebuilt binary survives the bump. Treat it as a feature release with a full installer test either way.
 
 ---
 
@@ -67,6 +68,7 @@ Tags use the `v` prefix and match the app version exactly: `v1.0.0`. The CI work
 - Opening an older database upgrades it in place. There is no automatic downgrade.
 - The app **refuses a database whose `user_version` is newer than the app's `SCHEMA_VERSION`**. `migrate()` raises `SchemaTooNewError` before any window opens; the main process names the problem and quits without writing to the file. Never open a newer database with an older build anyway — the guard protects the file, not your expectations.
 - Schema changes must preserve existing rows unless the migration explicitly rebuilds a table, as the v2 rebuild did. Every migration must be tested against a copy of the previous schema with realistic data.
+- **Encryption at rest is not a schema version.** A keyed ledger carries the same `user_version` as a plaintext one; the difference is in the first sixteen bytes and in the `ledger.key.json` beside it. `migrate()` neither creates nor removes it, so a migration is tested against whichever state the user was in — and a migration test run on a plaintext copy proves nothing about the keyed one, because every read goes through the codec.
 
 ### Backups
 
@@ -88,9 +90,13 @@ Imports merge by row identity and are idempotent. A row the file holds a newer v
 
 A release that raises `SCHEMA_VERSION` must also decide whether the new backup shape is backward-compatible with the previous app version. The default answer is **no**: backups written by a newer app are not readable by an older app.
 
+A **sealed** export is a versioned envelope (`wageroute-envelope`, `contains: 'backup'`) with one of these backups encrypted inside it. The table above governs the contents; the envelope version is checked first and independently, and a reader that does not know the envelope it is handed refuses it before the passphrase is typed. Both versions have to be named in the release notes when either changes — see [Version bump procedure](#version-bump-procedure).
+
 ### Application
 
 There is no auto-update, so "compatibility" means the new installer can open the existing database and the old installer can still be reinstalled if the new one is rejected. The second half is only true before a migration runs. Back up before every upgrade.
+
+Encryption adds a second way that promise fails, and it has nothing to do with schema versions: **a ledger turned on for encryption cannot be read by a build that predates the codec**, and installing an old installer over it does not make it plaintext again. The only way back is the app that holds the key — turn encryption off in Settings, or take a plain (not sealed) export — before an older build is expected to open the folder. A keyed `.db` handed to a pre-encryption build does not even reach the `user_version` guard; the driver refuses the bytes. This is why the release notes for the encryption release have to say *back up before turning encryption on*, and why [Rollback](#rollback) treats it as its own case.
 
 ---
 
@@ -122,6 +128,9 @@ Run this before building anything you intend to distribute. It is intentionally 
 - [ ] A JSON export from the previous build imports into the new build on a fresh profile.
 - [ ] A database created by the previous schema version migrates when opened by the new build, using a **copy**.
 - [ ] Account balances, recent transactions and settings survive the migration.
+- [ ] A sealed backup (`-encrypted.json`) exported by this build opens in this build, and one exported by the previous release still opens here.
+- [ ] On a throwaway profile, the **packaged** app — not `npm run dev` — encrypts a ledger, quits, comes back to the unlock prompt, opens with the passphrase, and decrypts again. `ledger.key.json` is `0600` beside the file, and the safety copy the transition takes is gone once it verifies.
+- [ ] A keyed ledger whose `ledger.key.json` was moved away is refused **by name**, not by crash: the dialog says which two files it wanted, and nothing on disk changed.
 
 ### Packaging
 
@@ -140,18 +149,18 @@ Run this before building anything you intend to distribute. It is intentionally 
 
 - Node.js **22 or newer** (`engines.node`). CI uses Node 24.
 - npm with a working lockfile.
-- Platform build tools for the native module:
+- Platform build tools **only as a fallback**. The SQLite driver ships prebuilt N-API binaries for `darwin`, `linux` and `win32` at `x64` and `arm64` (plus `linuxmusl` for both), and its `package.json` sets `gypfile: false`, so `npm ci` never compiles it and a normal release build needs no C toolchain at all. You need one only where those eight files do not cover you — an unsupported architecture, or a `--force_build` source build — and there the compiler is required:
   - macOS: Xcode Command Line Tools;
   - Windows: Visual Studio Build Tools with the C++ workload and Python;
   - Linux: `build-essential`, `python3`, `make`, `g++`.
 - Enough disk for Electron, the unpacked app and installers (roughly 1–2 GB per platform).
 
-`npm ci` runs `postinstall`, which is `electron-builder install-app-deps`. That rebuilds `better-sqlite3` against the installed Electron ABI. Skipping it produces `NODE_MODULE_VERSION` errors at launch.
+`npm ci` runs `postinstall`, which is `electron-builder install-app-deps`. With this driver there is nothing for it to rebuild: the module's binary is N-API, the same one loads under Node and under Electron, and the install step is kept because it is what would compile a source build on a platform that has no prebuild. `NODE_MODULE_VERSION` errors at launch were the classic reason to skip it; that failure mode belongs to the pre-N-API `better-sqlite3` this project no longer uses.
 
 ### Commands
 
 ```bash
-npm ci                      # exact dependency tree + native rebuild
+npm ci                      # exact dependency tree, prebuilt native binary
 npm test                    # shared domain tests
 npm run typecheck           # node + web + pocket projects
 npm run build               # typecheck, then electron-vite build into out/
@@ -186,15 +195,15 @@ npm run dist                # build + installers for the current platform
 | `dist:mac` | build, then macOS DMG |
 | `dist:win` | build, then Windows NSIS, MSI, portable and zip |
 | `dist:linux` | build, then Linux AppImage, deb and rpm |
-| `postinstall` | rebuild native modules for Electron |
+| `postinstall` | `electron-builder install-app-deps` — a no-op for this driver's prebuilds, and the step that would rebuild a native module from source |
 
 ### Cross-platform builds
 
 Build each installer on the platform it targets, or let CI do it.
 
-- **macOS** — build on macOS. Producing both arm64 and x64 from an Apple Silicon machine requires the x64 native `better-sqlite3` binary; the config requests both architectures, but a build succeeding is not proof the x64 app launches. Verify on an Intel Mac or an x64 VM before shipping both.
+- **macOS** — build on macOS. Producing both arm64 and x64 from an Apple Silicon machine is no longer a compile question: the driver ships `prebuilds/darwin-x64.node` beside `prebuilds/darwin-arm64.node`, and the config requests both architectures. A build succeeding is still not proof the x64 app launches — verify on an Intel Mac or an x64 VM before shipping both.
 - **Windows** — build on Windows. electron-builder can sometimes cross-build NSIS from macOS with Wine, but that path is not supported by this project and is not tested.
-- **Linux** — build on Linux (CI uses Ubuntu). The AppImage, deb and rpm targets each download their own tooling (appimagetool, fpm) on demand; the Ubuntu runners already have the C toolchain better-sqlite3 needs. Cross-building Linux installers from macOS or Windows is not supported and not tested.
+- **Linux** — build on Linux (CI uses Ubuntu). The AppImage, deb and rpm targets each download their own tooling (appimagetool, fpm) on demand; nothing downloads or compiles a SQLite binary, because the driver's `linux-x64`, `linux-arm64`, `linuxmusl-x64` and `linuxmusl-arm64` prebuilds are already in `node_modules`. Cross-building Linux installers from macOS or Windows is not supported and not tested.
 
 ### Isolated test profile
 
@@ -206,15 +215,17 @@ CFFIXED_USER_HOME=/tmp/wageroute-release-test npm run dev
 
 For the packaged app, launch it with the same environment variable if needed, or test on a clean user account or VM. Confirm the path shown in Settings before creating data.
 
+For the encryption proofs, the throwaway folder is the whole custody: a keyed ledger is `wageroute.db` **and** the `ledger.key.json` beside it, so reproduce a keyed profile by copying both together — a folder with only the `.db` is the missing-key-file case, not a working ledger. Settings can point the data directory somewhere else entirely, which is why the path on screen is confirmed before any data is created.
+
 ### Why `npm ci` matters
 
-`better-sqlite3` is a native module. It is compiled for one Electron ABI and one CPU architecture. The failure modes are:
+`better-sqlite3-multiple-ciphers` is a native module, but a prebuilt one: `lib/binding.js` picks `prebuilds/<platform>-<arch>.node` before it ever looks for a node-gyp output, and the binary registers through N-API rather than a versioned V8 ABI, so the same file serves Node and Electron. The failure modes are now narrower, and `npm ci` still guards the ones that remain:
 
-- compiled for Node instead of Electron → `NODE_MODULE_VERSION` mismatch;
-- compiled for arm64 and shipped in an x64 build → module load failure;
+- a platform or architecture with no prebuild → the loader falls through to `build/Release/better_sqlite3.node`, which does not exist unless something compiled it: a module-load failure that looks like a packaging bug and is really a missing toolchain;
+- the wrong architecture's prebuild shipped inside an installer → module load failure, which is why the Linux CI jobs assert exactly one `*.AppImage` and one `*.deb` rather than trusting the flag;
 - `npm install` resolving a different tree than CI → a build that works locally and fails in CI.
 
-`npm ci` plus `postinstall` is the supported path.
+`npm ci` plus `postinstall` is still the supported path — it is the same command that would build from source on a platform that needs it.
 
 ---
 
@@ -241,8 +252,8 @@ out/
 
 ```text
 release/
-├── WageRoute-1.2.0-arm64.dmg
-├── WageRoute-1.2.0-x64.dmg
+├── WageRoute-1.3.0-arm64.dmg
+├── WageRoute-1.3.0-x64.dmg
 ├── mac-arm64/WageRoute.app
 └── mac/WageRoute.app            # when an x64 build runs
 ```
@@ -253,12 +264,12 @@ The names are pinned by `dmg.artifactName` in `electron-builder.yml` (`WageRoute
 
 ```text
 release/
-├── WageRoute.Setup.1.2.0.exe
-├── WageRoute-1.2.0-x64.msi
-├── WageRoute-1.2.0-arm64.msi
-├── WageRoute-1.2.0.portable.exe
-├── WageRoute-1.2.0-x64.zip
-└── WageRoute-1.2.0-arm64.zip
+├── WageRoute.Setup.1.3.0.exe
+├── WageRoute-1.3.0-x64.msi
+├── WageRoute-1.3.0-arm64.msi
+├── WageRoute-1.3.0.portable.exe
+├── WageRoute-1.3.0-x64.zip
+└── WageRoute-1.3.0-arm64.zip
 ```
 
 `nsis.artifactName` and `portable.artifactName` deliberately omit `${arch}`: electron-builder builds one installer that carries both architectures, and it only emits per-architecture copies *in addition* when the pattern contains `${arch}`. Asking for `${arch}` therefore produced three NSIS installers — a universal one and two per-arch ones — and the same for the portable exe. One universal file per format is what a release should carry, and it matches the `WageRoute.Setup.1.1.0.exe` name that 1.1.0 shipped.
@@ -275,19 +286,19 @@ The MSI and the NSIS installer are separate products with separate uninstall ent
 
 ```text
 release/
-├── WageRoute-1.2.0-x86_64.AppImage
-├── WageRoute-1.2.0-arm64.AppImage
-├── WageRoute-1.2.0-amd64.deb
-├── WageRoute-1.2.0-arm64.deb
-├── WageRoute-1.2.0-x86_64.rpm
-└── WageRoute-1.2.0-aarch64.rpm
+├── WageRoute-1.3.0-x86_64.AppImage
+├── WageRoute-1.3.0-arm64.AppImage
+├── WageRoute-1.3.0-amd64.deb
+├── WageRoute-1.3.0-arm64.deb
+├── WageRoute-1.3.0-x86_64.rpm
+└── WageRoute-1.3.0-aarch64.rpm
 ```
 
 `appImage.artifactName`, `deb.artifactName` and `rpm.artifactName` pin one pattern for all three packagers, but `${arch}` expands to each packager's own architecture name, not `x64`: AppImage and rpm call 64-bit Intel `x86_64`, deb calls it `amd64`, and only the arm64 AppImage and deb keep the literal `arm64` (the arm64 rpm says `aarch64`). That is electron-builder's naming, not a choice of ours, and it is why the CI smoke test selects `release/*.AppImage` and `release/*.deb` by format and asserts exactly one of each rather than matching a suffix. AppImage runs on any distro without root; deb and rpm integrate with the system package manager and desktop menu. All three are unsigned, so some distros warn during install.
 
 ### Bundle contents
 
-`files` includes only `out/**/*` and `package.json`, minus source maps. `asarUnpack` extracts `**/*.node`, so the native SQLite binary sits outside the asar archive where it can be loaded. `npmRebuild: true` rebuilds native modules during packaging. `extraResources` copies `LICENSE` and the generated `THIRD-PARTY-NOTICES.txt` beside the app, and Settings → About can display both.
+`files` includes only `out/**/*` and `package.json`, minus source maps. `asarUnpack` extracts `**/*.node`, so the native SQLite binary sits outside the asar archive where it can be loaded — it now lives under `node_modules/better-sqlite3-multiple-ciphers/prebuilds/`, one file per platform and architecture, which that glob still covers. `npmRebuild: true` remains in the config; for a prebuilt N-API module there is nothing for it to compile, and it stays as the path a source build would take. `extraResources` copies `LICENSE` and the generated `THIRD-PARTY-NOTICES.txt` beside the app, and Settings → About can display both.
 
 `publish: null` is deliberate. electron-builder otherwise infers a publisher from the repository field on a tag build and writes `latest-mac.yml` / `latest.yml`; WageRoute has no updater, so those files would advertise an update channel that does not exist. Releases are assembled by the workflow's release job instead.
 
@@ -297,15 +308,15 @@ No database is bundled. On first launch the app seeds one blank local user with 
 
 ## WageRoute Pocket
 
-WageRoute Pocket is the phone app: a static Vite/React build in `src/pocket/`, written to `dist-pocket/`, and installed from a browser. It is **not** part of a desktop release and not an electron-builder target.
+WageRoute Pocket is the phone app: a static Vite/React build in `src/pocket/`, written to `dist-pocket/`, and installed from a browser. It is **not** part of a desktop release and not an electron-builder target. What a person does with it — installing it, the six tabs, carrying files between the two devices — is [POCKET.md](POCKET.md).
 
-- **It has no version of its own.** It reads a desktop backup, merges it into its browser copy and merges its edits back through an export; the backup's format version is the only compatibility number that matters. A change to the backup shape belongs in the desktop schema procedure above.
+- **It has no version of its own.** It reads a desktop backup, merges it into its browser copy and merges its edits back through an export; the backup's format version is the compatibility number that matters, alongside the two cipher formats it can write and read — `wageroute-envelope` for a sealed file and `wageroute-vault` for its own sealed copy. A change to any of the three belongs in the desktop schema procedure above and in [Encryption and key custody change](#encryption-and-key-custody-change).
 - **CI builds it, but never publishes it.** The `verify` job runs `npm run pocket:build` after `npm run build`, so a broken Pocket build fails the same gate as a broken desktop build. `dist-pocket/` is gitignored and is not uploaded as an artifact.
 - **Publishing is a separate, manual decision.** [`.github/workflows/pocket.yml`](../.github/workflows/pocket.yml) is `workflow_dispatch` only and deploys `dist-pocket/` to GitHub Pages. A normal push or tag never publishes the phone app, and the workflow has no effect on the desktop installers.
 - **A publish is a public deployment.** The static bundle is served from a public URL, so treat enabling Pages, running that workflow, or changing the published origin as owner actions, not release steps.
 - **The service worker owns its own cache.** The build stamps `public/sw.js` with the package version and a hash of the built assets, and names the cache `wageroute-pocket-<stamp>`; only caches with that prefix are removed on activation, so a shared Pages origin does not lose another app's cache. Hashed assets are cache-first, navigation is network-first. A shell change reaches an installed phone on its next open without a manual version bump.
 
-Releasing the desktop app does not require rebuilding or republishing Pocket. The reverse is also true: fixing only the phone app does not need a new installer. If a release changes the backup format, rebuild Pocket and republish it so phones can read backups from the new app.
+Releasing the desktop app does not require rebuilding or republishing Pocket. The reverse is also true: fixing only the phone app does not need a new installer. Do rebuild and republish when a release changes the backup format, the envelope or the vault, so phones can read and write what the new desktop writes — a phone on an old build cannot open a sealed file whose format it does not know, and refuses it by name rather than guessing.
 
 To verify the phone build by hand:
 
@@ -314,7 +325,21 @@ npm run pocket:build
 npm run pocket:preview   # then open the printed URL
 ```
 
-Check that an exported desktop backup imports, an entry survives a reload, and the manifest and service worker are served.
+Check that an exported desktop backup imports, an entry survives a reload, and the manifest and service worker are served. Then check the two ciphers on the one origin that gives them: seal this phone's copy, reload the page and unlock it again; export it sealed and open that file on the desktop; export a sealed backup from the desktop and open it here. On `localhost` all three work; over a LAN address on plain HTTP the app should say it has no cipher and refuse to offer a seal — which is the correct answer, not a failure to fix in code.
+
+---
+
+## Container images
+
+`docker/` carries the two Dockerfiles plus their nginx, supervisor and entrypoint files, and `docker-compose.yml` runs both from one command. [`.github/workflows/docker.yml`](../.github/workflows/docker.yml) builds the pair and pushes them to `ghcr.io/<owner>/wageroute-pocket` and `…/wageroute-desktop`. What running one of them is *for*, and the caveats a user has to read first, are in [DEPLOYMENT.md](DEPLOYMENT.md#running-wageroute-in-a-container).
+
+- **A tag push publishes them.** `build.yml` also fires on `v*`, but a tag run there stops at a **draft** Release whose publishing stays manual; `docker.yml` is the one workflow that actually delivers on a tag — it pushes the images to ghcr.io as part of the run. `pocket.yml`, by contrast, is `workflow_dispatch` only. A tag push writes `<version>` and `latest`; a manual run writes `sha-<commit>` and nothing else, because between releases `package.json` still carries the last released number and a run from `main` must not overwrite a published version tag. If you are not ready to publish images, that decision belongs **before** the tag, not after it.
+- **Its guard is narrower than `build.yml`'s.** It fails the run unless the tag equals `package.json`'s version; it does not repeat the `guard` job's second check, that the tagged commit is an ancestor of `origin/main`, because an image built from any tag is still just an image and cannot replace a published artifact's checksums.
+- **The first push creates the package as private.** Making it public, or linking it to the repository, is an owner action in the package's settings; the workflow cannot do either and does not try.
+- **CI builds one architecture: the runner's, `linux/amd64`.** There is no multi-arch manifest, so an arm64 host pulling `wageroute-desktop` runs it under emulation — build locally with the same Dockerfile for a native arm64 image.
+- **Publishing images is a deployment, not a release step.** No installer contains them, `SHA256SUMS` covers the installers and not the images, and a desktop release does not require rebuilding them. Pin `@sha256:` digests rather than `latest` if you depend on one not moving.
+- **The workflow exists and has never run.** No image has ever been pushed to ghcr.io; every container proof in this repository was made against locally built `linux/arm64` images.
+- **Inside a container, encryption is passphrase-only.** Device custody asks Electron's `safeStorage`, which throws without a keyring daemon — a headless session or a container — so the Settings picker withholds *This computer* and prints the reason there. The consequence for a release note is concrete: the key file and the ledger live in the same mounted volume, so a container user who loses that volume or forgets the passphrase has no second way in, and the machine holding the keychain is not an option.
 
 ---
 
@@ -346,7 +371,7 @@ A normal branch push does **not** build installers. That is deliberate: packagin
 | `ubuntu-latest` | `--linux --x64` | `wageroute-linux-x64` | `release/*.AppImage`, `release/*.deb`, `release/*.rpm` |
 | `ubuntu-24.04-arm` | `--linux --arm64` | `wageroute-linux-arm64` | `release/*.AppImage`, `release/*.deb`, `release/*.rpm` |
 
-Each Linux job passes one architecture flag, so a native runner never has to cross-compile `better-sqlite3`. macOS and Windows build both architectures on one runner because their prebuilt native binaries are available for both.
+Each Linux job passes one architecture flag, so a native runner never has to cross-compile anything. macOS and Windows build both architectures on one runner because the driver's prebuild for each is already in `node_modules`.
 
 Architectures are passed on the command line, never as `arch` lists inside `electron-builder.yml`. electron-builder merges a target's declared arches into whatever the CLI asks for, so `--linux --x64` against a config that lists `arm64` still emits arm64 artifacts — which is how the first run of this workflow produced an x64 job holding an arm64 AppImage.
 
@@ -383,6 +408,7 @@ The rpm is built but not launched, because `rpm2cpio` is not installed on the ru
 - It does not test the NSIS installer, the portable exe, the zip or the rpm at run time. They share the packaged payload with the MSI or the deb.
 - It does not create a tag or write release notes. On a tag push it creates or updates a **draft** release and attaches the files plus `SHA256SUMS`; publishing stays manual.
 - It does not sign with a real identity or notarize. macOS artifacts get an ad-hoc signature from the afterSign and afterAllArtifactBuild hooks; Windows and Linux artifacts are unsigned.
+- It never turns encryption on. Every smoke test boots a **fresh profile**, and encryption is opt-in with a plaintext ledger as its default, so CI proves the multiple-ciphers binary loads and writes a plain database inside the packaged layout — not that the packaged app can encrypt, unlock at launch, decrypt again, or read a keyed ledger it did not create. That gap is exactly what [step 5](#5-test-the-packaged-artifacts) exists for.
 - It does not run `npm audit`, generate an SBOM or attest build provenance.
 - It does not push packages to a registry or an auto-update feed. `npm run dist:*` and every packaging step pass `--publish never` (and `publish: null` is set in the config), because electron-builder treats a tag build as an implicit publish request and fails when `GH_TOKEN` is absent. The only upload is `gh release upload` into a draft release, described above. Workflow artifacts expire according to the repository's retention setting (GitHub's default is 90 days).
 
@@ -433,7 +459,7 @@ To remove the warning you need an OV or EV code-signing certificate (or a cloud 
 
 Signing proves who built the binary and that it was not modified after signing. It does not:
 
-- encrypt the database;
+- encrypt the database — that is the opt-in setting inside the app, and the ledger's own cipher does not care who signed the binary that reads it;
 - make the app safe to run from an untrusted source;
 - replace backups;
 - provide auto-update.
@@ -449,11 +475,12 @@ This is the full path for a release you intend to distribute. It assumes the rep
 - Does this release add a migration? If yes, raise the minor version and update [DATA-MODEL.md](DATA-MODEL.md).
 - Does it change backup compatibility? If yes, document the new minimum/maximum in [IMPORT-EXPORT.md](IMPORT-EXPORT.md) and this file.
 - Does it change app identity (`productName`, `appId`)? If yes, stop and plan data adoption first; see [ADR 0005](decisions/0005-wageroute-rename.md).
+- Does it change the key file's `version`, the envelope's, or the vault's — or the iteration rails a reader will accept? Each is a compatibility event of its own, independent of `SCHEMA_VERSION`: see [Encryption and key custody change](#encryption-and-key-custody-change).
 
 ### 2. Bump the version
 
 ```bash
-npm version 1.2.0 --no-git-tag-version
+npm version 1.3.0 --no-git-tag-version
 ```
 
 This updates `package.json` and `package-lock.json` without committing or tagging. Review the diff. Do not hand-edit one file and forget the other.
@@ -468,7 +495,7 @@ npm run typecheck
 npm run build
 ```
 
-Run the preflight checklist above. Test on a copy of a real database and on a fresh profile.
+Run the preflight checklist above. Test on a copy of a real database and on a fresh profile. Since encryption is a property of the file rather than a schema version, "a copy of a real database" is two copies: one from a plaintext profile and one from a keyed one with its `ledger.key.json` moved beside it. Only the second exercises the codec, and never test either against the profile that holds real data — copy it out first.
 
 ### 4. Build the installers
 
@@ -500,6 +527,16 @@ Install from the DMG/EXE on a machine or VM that has never run WageRoute:
 
 A build that launches from `out/` is not evidence that the packaged app works. The asar layout and native module unpacking only exist in the packaged artifact.
 
+**Encryption at rest is the layer that needs this the most**, because the thing it depends on — the codec inside the unpacked `.node` — exists only in the packaged app. On a throwaway profile:
+
+- turn encryption **on** in Settings, quit, relaunch. With *This computer* custody and an unlocked login keychain the app should open with **nothing typed**; with a passphrase-only ledger the only window should be the one titled `WageRoute — locked`, and closing it should end the launch with the "stayed locked" dialog and both files untouched. Type a wrong phrase, then the right one — the retry is the screen's only complaint and the log records the count, never the phrase;
+- turn it **off** again on the same profile: quit, relaunch, confirm the ledger opens with no prompt and that `sqlite3` can read the file. The reverse rewrite is a second transition, and it can fail in ways the forward one cannot;
+- confirm the key file beside the ledger is `ledger.key.json` with mode `0600`, that it carries no pending transition marker after a clean boot, and that the safety copy taken for the change is gone;
+- move `ledger.key.json` away and relaunch. The dialog must be the one that **names the missing key file and both paths** — not `file is not a database`, and not a crash. Put the file back and confirm it opens again;
+- export a **sealed** backup from the packaged app, then import it into a fresh profile: the passphrase is asked for *before* any counts appear, a wrong phrase says so, and a plain export still opens straight into the preview.
+
+Each of these is a two-minute check on a machine that has only ever seen the DMG or EXE. None of them is proved by `npm test`.
+
 ### 6. Checksums
 
 The tag build's release job computes `SHA256SUMS` over the artifacts it downloads and attaches it to the draft release, so the published hashes come from the same run that built the files. For a locally assembled release, or to compare against CI, compute them yourself:
@@ -510,14 +547,18 @@ shasum -a 256 release/*.dmg release/*.exe release/*.msi release/*.zip release/*.
 
 They let a recipient confirm the file was not truncated or replaced.
 
-### 7. Commit and tag
+### 7. Commit, merge and tag
+
+`main` is protected and takes changes only through a merged pull request, and the tag guard refuses a tag that is not an ancestor of `origin/main` — so the tag comes **after** the merge lands, never before.
 
 ```bash
-git add package.json package-lock.json docs
-git commit -m "Release 1.2.0"
-git push
-git tag -a v1.2.0 -m "WageRoute 1.2.0"
-git push origin v1.2.0
+git switch -c release/1.3.0
+git add package.json package-lock.json CHANGELOG.md README.md docs
+git commit -m "Release 1.3.0"
+git push -u origin release/1.3.0      # open the pull request, wait for `verify`, merge
+git switch main && git pull
+git tag -a v1.3.0 -m "WageRoute 1.3.0"
+git push origin v1.3.0
 ```
 
 Only do this when you intend to release. The tag push starts CI. Do not move or force-push a tag after artifacts have been distributed; publish a new patch version instead.
@@ -538,9 +579,11 @@ Keep, for the current and previous release:
 - the checksums;
 - the release notes;
 - a copy of the database schema version and a sample backup from that version;
+- a sample **sealed** export from that version, and a throwaway-profile `ledger.key.json` with it, so the envelope and key-file shapes read from the release are on hand — from a profile made for the test, never the one holding real data;
+- the three format versions the release wrote: `SCHEMA_VERSION`, the key file's `version`, and the envelope and vault versions. They move independently, and a future reader needs the pair that belonged together;
 - the exact commit SHA.
 
-If a future migration is questioned, this archive is how you reproduce the old behaviour.
+If a future migration is questioned, this archive is how you reproduce the old behaviour. If a future *decryption* is questioned, the sample files are the only way to prove what the release actually wrote.
 
 ---
 
@@ -549,7 +592,7 @@ If a future migration is questioned, this archive is how you reproduce the old b
 A tag build runs the `release` job, which creates or refreshes a **draft** release carrying every installer and `SHA256SUMS`. Publishing it — and updating the Homebrew tap — is a manual, deliberate step.
 
 1. Open **Releases → Drafts** and select the draft the tag pushed. Do not create a second release for the same tag in the web UI.
-2. Title: `WageRoute 1.2.0`.
+2. Title: `WageRoute 1.3.0`.
 3. Paste the release notes from the template below.
 4. Confirm the draft carries:
    - `WageRoute-<version>-arm64.dmg` and `WageRoute-<version>-x64.dmg` (Intel)
@@ -595,10 +638,20 @@ No schema or backup change. Installers get the new version; the database is unto
 ### Electron upgrade
 
 1. Upgrade `electron` and `electron-builder` together where required.
-2. Run `npm ci` so `postinstall` rebuilds `better-sqlite3` for the new ABI.
+2. Run `npm ci`. `postinstall` still executes, but there is nothing for it to compile: the SQLite driver is a prebuilt N-API module, so its binary is the same file under the old and the new Electron. What an upgrade can still break is the shell around it — the asar layout, `safeStorage`, and the window's security defaults.
 3. Rebuild and launch the packaged app on every target architecture.
 4. Check the CSP and preload bridge against the new Electron defaults; do not relax `sandbox`, `contextIsolation` or `nodeIntegration` to make an upgrade work.
 5. Treat it as a feature release, not a patch.
+
+### Encryption and key custody change
+
+Three small formats are independent of `SCHEMA_VERSION` and none of them is migrated by `migrate()`: the key file beside the ledger (`version: 1` in [ledger-key.ts](../src/main/db/ledger-key.ts)), the sealed backup (`wageroute-envelope` version 1, `src/shared/envelope.ts`), and the phone's vault (`wageroute-vault` version 1, `src/pocket/lib/vault.ts`). Each is versioned precisely so a reader can refuse what it cannot decode rather than guess — which is what the readers do today.
+
+- **Changing one is a compatibility event, not a refactor.** A new envelope version must still be readable by the desktop release before it, or every sealed file users already carry becomes unreadable the day they upgrade. There is no automatic conversion of an old sealed file: the phrase opens it, or it stays shut.
+- **`LEDGER_CIPHER` is pinned in code (`chacha20`), and a ledger that exists has already chosen.** Raising or swapping it does not re-encrypt anything; it makes every keyed ledger on the previous cipher unreadable. If it ever has to change, that needs its own migration story and a release that says so — the transition path in `src/main/db/encryption.ts` re-keys between plaintext and the pinned cipher and nothing else.
+- **The iteration rails are a promise to the reader.** `MIN_ITERATIONS` / `MAX_ITERATIONS` in `src/shared/envelope.ts` bound what a reader will spend, and a file outside them is refused by design. Tightening the rails can strand files written under the old ones; check the released range before narrowing it.
+- **The phone has to be republished.** A release that changes the envelope or the vault format needs `npm run pocket:build` deployed again — the phone is a separate distribution, and a phone that cannot read the desktop's new file is the same failure as a desktop that cannot read an old one. See [WageRoute Pocket](#wageroute-pocket).
+- **Nothing here is proven by a test run.** The manual shape is what settles these, and one pass of it has been made: on 2026-11-04 the packaged macOS app encrypted a scratch ledger, restarted into the unlock prompt, opened it with the passphrase, moved the keyed folder and back, and decrypted it again. What that pass did **not** cover is why the checklist below still exists: no packaged build has written a **device** wrap (`safeStorage` under a signed, installed app on a real login), none has run on Windows or Linux with a keyed ledger, and none has been caught mid-transition. Before a release that ships the encryption toggle, the manual proof in the checklist below is the gate, not `npm test`.
 
 ### Rename or identity change
 
@@ -629,6 +682,19 @@ No data is lost because the schema did not change.
 5. Launch and confirm balances and recent entries.
 
 If you do not have a pre-upgrade copy, you cannot safely downgrade. Either stay on the newer app or reconstruct data from a JSON backup into a clean profile. Imports merge rather than replace, but an old backup describes an old state; import into an empty database when reconstructing.
+
+### Rolling back a profile that has encryption on
+
+Reinstalling an older build does not undo encryption, and a keyed ledger is unreadable to a build with no codec — it fails at the driver, before the `user_version` guard ever runs. So the order matters:
+
+1. On the **current** build, confirm the ledger opens (device custody, or type the passphrase).
+2. Take a **plain** export — the dialog's unsealed option, not the sealed one. A sealed file is as unreadable to the old build as the database is.
+3. Turn encryption **off** in Settings and let it finish. The transition verifies on a fresh connection, and removing the key file is the last step of a verified decrypt — if it did not verify, the marker stays and the ledger stays ciphertext.
+4. Quit, reinstall the previous installer, and confirm the ledger opens plaintext.
+
+If the passphrase is gone, there is no rollback: the custody is the point, and no reset exists in the app. The route back is a plain export taken before encryption was turned on, imported into a clean profile — which is why the release notes ask for a backup *before* the first encryption, not only before the upgrade.
+
+Never hand an old build a `.db` whose `ledger.key.json` you moved into the folder to see what happens; move the whole folder or nothing, and keep the wreck (`<the ledger file>.wrecked`) if a restore ever runs.
 
 ### Bad release already distributed
 
@@ -662,10 +728,10 @@ If the fix requires a schema change, it is not a patch. Follow the schema proced
 ## Release notes template
 
 ```markdown
-# WageRoute 1.2.0
+# WageRoute <version>
 
-Released: 2026-11-02
-Schema: 8 (migrates 3 → 4 → 5 → 6 → 7 → 8) · Backups: accepts 2–8
+Released: <YYYY-MM-DD>
+Schema: <N> (migrates <prev> → <N>) · Backups: accepts 2–<N>
 
 ## Highlights
 
@@ -685,13 +751,15 @@ Schema: 8 (migrates 3 → 4 → 5 → 6 → 7 → 8) · Backups: accepts 2–8
 
 ## Data and compatibility
 
-- Database schema: 3 → 4 → 5 → 6 → 7 → 8, automatic on first launch, forward-only.
-- Backups from versions 2–8 are accepted; a backup written by a newer app is refused by an older one.
+- Database schema: <prev> → <N>, automatic on first launch, forward-only.
+- Backups from versions 2–<N> are accepted; a backup written by a newer app is refused by an older one.
+- Encryption at rest: opt-in in Settings, reversible, off by default. Nothing is encrypted until you ask for it, and a ledger that has been encrypted can be turned back.
+- Sealed backups: an export can be wrapped in a passphrase this app and WageRoute Pocket both open. There is no reset and no recovery: a file whose phrase is lost stays shut.
 - Existing data: preserved / requires the following step.
 
 ## Upgrade notes
 
-- Back up before installing. See docs/DEPLOYMENT.md.
+- Back up before installing. See docs/DEPLOYMENT.md. Do it **before** turning encryption on: a plain backup is the one artifact that still opens if a passphrase is lost. Keep a sealed export's phrase somewhere the copied file is not, and remember that an encrypted `.db` is only a ledger when its `ledger.key.json` sits beside it — move the whole folder, never the database alone.
 - macOS (Homebrew): `brew upgrade --cask ReVax-2007/wageroute/wageroute` — nothing else to do.
 - macOS (manual DMG): the build is unsigned; right-click → Open on first launch. Zero-prompt alternative: `curl -LO <dmg-url>` instead of a browser download.
 - Windows: SmartScreen will warn; choose More info → Run anyway.
@@ -727,9 +795,11 @@ Keep the notes honest about signing, because that is the first thing a recipient
 - [ ] Previous-schema database copy migrates correctly.
 - [ ] Export → fresh-profile import works.
 - [ ] Packaged artifact launches on each target architecture.
+- [ ] If this release carries the encryption toggle: the packaged-build encryption proof above was done by hand, on a throwaway profile, and recorded here. *(The macOS half was run on 2026-11-04 with passphrase custody — see [UNRELEASED.md](UNRELEASED.md)'s Batch 57 — so the release that ships the toggle still owes the device wrap, the missing-key-file dialog, a sealed export/import and every step on Windows and Linux. No test substitutes for any of them.)*
 - [ ] No personal data, database, backup or `.env` in the source tree.
 - [ ] Icons and product metadata are correct.
 - [ ] `release/` contains no stale installer from an earlier name or version.
+- [ ] Decided whether this tag publishes the container images — `docker.yml` fires on `v*`, so the answer has to be reached before the tag, not after it.
 
 ### At release
 
@@ -745,7 +815,8 @@ Keep the notes honest about signing, because that is the first thing a recipient
 
 - [ ] Install from the published assets on a clean machine.
 - [ ] Bump the `homebrew-wageroute` tap: set `version` and both arch `sha256`s in `Casks/wageroute.rb` to the new release's checksums from `SHA256SUMS`.
-- [ ] Archive installers, checksums, notes, schema version and commit SHA.
+- [ ] If the tag published images, confirm both ghcr.io packages carry the new `<version>` and note their visibility — the first push makes a package private, and only an owner can make it public.
+- [ ] Archive installers, checksums, notes, schema version, commit SHA — and, once a release carries encryption, the key file/envelope/vault versions with a throwaway-profile sample of each.
 - [ ] Keep the previous installer until the new one has been used successfully.
 - [ ] Record any signing or Gatekeeper/SmartScreen feedback.
 
@@ -764,6 +835,9 @@ These are real limitations, not TODOs that are already handled elsewhere:
 | No packaged-app smoke test for macOS or the NSIS-family formats | The MSI and the Linux packages are installed or booted by CI; the DMG, NSIS installer, portable exe and zip still need a human launch |
 | No x64 app verification on Apple Silicon | The config requests x64, but only arm64 has been exercised locally |
 | No rollback automation | Rollback is a manual file restore with a quarantine step |
-| Unsigned native module | `better-sqlite3` is unpacked from asar; integrity depends on the installer signature (which does not exist yet) |
+| Unsigned native module | `better-sqlite3-multiple-ciphers` is unpacked from asar; integrity depends on the installer signature (which does not exist yet) |
+| Encryption at rest has only run **packaged** on macOS, with a passphrase | The keyed open path, the unlock prompt, both directions of the transition and the keyed folder move ran in `release/mac-arm64/WageRoute.app` on 2026-11-04 ([UNRELEASED.md](UNRELEASED.md)'s Batch 57). A packaged build has still never written a **device** wrap — `safeStorage` behaves differently in a signed, installed app on a real login — nothing has run on Windows or Linux, and no packaged run has been interrupted mid-transition. The first release that ships the toggle owes the manual proof in the preflight checklist for those, and until they are done no document may promise them |
+| The phone's cipher has never run on a handset | The vault and the sealed export are proved in Node's WebCrypto, jsdom and Chromium-through-Electron. No iPhone or Android device has sealed a copy, re-sealed on a save, or come back locked after a restart — see [POCKET.md](POCKET.md#status-what-has-been-proved-and-what-has-not) |
+| GitHub Pages has never been enabled for Pocket | The phone app exists in the repository and has never been published, so no release has ever had a live phone build to test against |
 
 Closing any of these changes the release process. Record the decision before implementing it.

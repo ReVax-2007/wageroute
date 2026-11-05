@@ -41,7 +41,10 @@ export function PickBackup({ children, className = 'button primary', onDone }: P
             }
             const before = usePocket.getState().tables
             await importFile(await file.text(), file.name)
-            if (usePocket.getState().tables !== before) onDone?.()
+            // A sealed file is a pass, not a refusal: the confirming sheet has to
+            // step aside so the one asking for the passphrase is not behind it.
+            const after = usePocket.getState()
+            if (after.tables !== before || after.pendingSeal) onDone?.()
           } catch {
             usePocket.setState({ error: 'That file could not be read. Try another copy.' })
           } finally {

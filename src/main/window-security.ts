@@ -3,8 +3,13 @@
  * allowed to leave the app. Both checks are exact rather than prefix-based: a
  * prefix test would accept `http://localhost:5173.attacker.test/`, and the
  * navigation guard is the last line of defence for the whole ledger API.
+ *
+ * One query string is accepted, and only beside the app's own document: the
+ * unlock gate loads the same bundle with `?mode=unlock` so a locked ledger can
+ * show a prompt without registering a single ledger channel.
  */
 const EXTERNAL_URLS = new Set(['https://buymeacoffee.com/revax'])
+export const UNLOCK_QUERY = 'mode=unlock'
 
 export function isAllowedExternalUrl(raw: string): boolean {
   try {
@@ -22,7 +27,8 @@ export function isTrustedPageUrl(
   packagedUrl: string
 ): boolean {
   const page = raw.split('#')[0]
-  if (!devUrl) return page === packagedUrl
+  if (page === packagedUrl || page === `${packagedUrl}?${UNLOCK_QUERY}`) return true
+  if (!devUrl) return false
   try {
     return new URL(page).origin === new URL(devUrl).origin
   } catch {

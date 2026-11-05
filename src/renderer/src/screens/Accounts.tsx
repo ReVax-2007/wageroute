@@ -32,6 +32,7 @@ export function Accounts() {
   const snapshot = useFinanceStore((state) => state.snapshot)
   const settings = useFinanceStore((state) => state.settings)
   const archiveAccount = useFinanceStore((state) => state.archiveAccount)
+  const go = useFinanceStore((state) => state.go)
   const [editing, setEditing] = useState<AccountWithBalance | 'new' | null>(null)
   const [adjusting, setAdjusting] = useState<AccountWithBalance | null>(null)
   const [paying, setPaying] = useState<AccountWithBalance | null>(null)
@@ -86,9 +87,14 @@ export function Accounts() {
             one records a change instead of quietly overwriting it.
           </p>
         </div>
-        <Button variant="primary" icon={<Plus size={16} />} onClick={() => setEditing('new')}>
-          Add account
-        </Button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <Button variant="quiet" icon={<ArrowRightLeft size={16} />} onClick={() => go('transfers')}>
+            Transfer
+          </Button>
+          <Button variant="primary" icon={<Plus size={16} />} onClick={() => setEditing('new')}>
+            Add account
+          </Button>
+        </div>
       </header>
 
       <div className="account-summary">

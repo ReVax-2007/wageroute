@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 import { mergeBackup, parseBackupJson } from '../main/db/backup'
 import { migrate, SCHEMA_VERSION } from '../main/db/migrations'
 

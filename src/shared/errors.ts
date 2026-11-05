@@ -2,8 +2,12 @@
  * A repository refusal that the renderer is allowed to react to. The message is
  * still the sentence a user reads; the code is what code branches on, so a
  * caller never has to match prose to know *why* a write was refused.
+ *
+ * `PASSPHRASE` is the one refusal that is not about the data: it means what was
+ * typed did not open an encrypted file, and the screen that asked for it is the
+ * only thing that can do anything about it — retry the field, not reload the page.
  */
-export type ErrorCode = 'VALIDATION' | 'NOT_FOUND' | 'CONFLICT' | 'STATE'
+export type ErrorCode = 'VALIDATION' | 'NOT_FOUND' | 'CONFLICT' | 'STATE' | 'PASSPHRASE'
 
 export class RepositoryError extends Error {
   readonly code: ErrorCode

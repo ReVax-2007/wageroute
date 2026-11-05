@@ -6,6 +6,7 @@ import { Dashboard } from './screens/Dashboard'
 import { PriorityWall } from './screens/PriorityWall'
 import { Goals } from './screens/Goals'
 import { Accounts } from './screens/Accounts'
+import { Transfers } from './screens/Transfers'
 import { Settings } from './screens/Settings'
 
 // The grid engine, the wizard and the allocator are only needed once the user
@@ -31,6 +32,7 @@ const SCREEN_LABEL: Record<Screen, string> = {
   wall: 'Bills',
   goals: 'Goals',
   accounts: 'Accounts',
+  transfers: 'Transfers',
   ledger: 'Spreadsheet',
   settings: 'Settings'
 }
@@ -109,6 +111,7 @@ export default function App() {
             {screen === 'wall' && <PriorityWall />}
             {screen === 'goals' && <Goals />}
             {screen === 'accounts' && <Accounts />}
+            {screen === 'transfers' && <Transfers />}
             {screen === 'ledger' && <Spreadsheet />}
             {screen === 'settings' && <Settings />}
           </Suspense>

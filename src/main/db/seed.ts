@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type Database from 'better-sqlite3'
+import type Database from 'better-sqlite3-multiple-ciphers'
 import { reservePerPaycheckCents } from '@shared/cadence'
 import { DEFAULT_CATEGORIES } from '@shared/categories'
 import { addDaysISO, todayISO } from '@shared/dates'

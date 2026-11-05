@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type Database from 'better-sqlite3'
+import type Database from 'better-sqlite3-multiple-ciphers'
 import type { CsvEntry, CsvIssue } from '@shared/csv'
 import { signedAmountError } from '@shared/kinds'
 import { ensureCategory } from './repo/categories'

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { ShieldCheck, X } from 'lucide-react'
 import { Nav, type Tab } from './components/Nav'
+import { UnlockSeal } from './components/UnlockSeal'
+import { UnlockVault } from './components/UnlockVault'
 import { usePocket } from './lib/store'
 import { Accounts } from './screens/Accounts'
 import { Bills } from './screens/Bills'
@@ -45,6 +47,9 @@ export function App() {
       <main className="main">
         {status === 'loading' ? <p className="loading">Opening your ledger…</p> : null}
         {status === 'empty' ? <Welcome /> : null}
+        {/* Locked is a screen of its own, not a spinner: nothing here is on its way
+            until a passphrase arrives, and the tabs below would all render empty. */}
+        {status === 'locked' ? <UnlockVault /> : null}
         {status === 'ready' ? (
           <>
             {tab === 'home' ? <Home go={setTab} /> : null}
@@ -58,6 +63,10 @@ export function App() {
       </main>
 
       {status === 'ready' ? <Nav tab={tab} onSelect={setTab} /> : null}
+
+      {/* One sheet for both doors: a sealed file arrives from the first-run
+          screen or from a merge on Data, and the answer is the same there. */}
+      <UnlockSeal />
 
       {notice ? (
         <div className="toast" role="status">

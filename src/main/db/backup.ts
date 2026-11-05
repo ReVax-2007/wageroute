@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type Database from 'better-sqlite3'
+import type Database from 'better-sqlite3-multiple-ciphers'
 import type { ImportCounts, ImportIssue } from '@shared/api'
 import { CATEGORY_NAME_MAX, categoryKey, normalizeCategoryName } from '@shared/categories'
 import { IMPORT_TABLES, type ImportTable, type ImportTables } from '@shared/importRepair'

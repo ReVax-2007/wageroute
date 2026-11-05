@@ -1,9 +1,10 @@
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 import { app, dialog } from 'electron'
 import { chmodSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { StorageLocationInfo } from '@shared/api'
 import { DB_FILE, adoptLegacyDatabase as adoptLegacy, type AdoptionResult } from './legacy'
+import { openLedger } from './encryption'
 import { assertHealthy, backupBeforeUpgrade, backupDaily, needsPreUpgradeBackup } from './maintenance'
 import { migrate, SCHEMA_VERSION } from './migrations'
 import { logCrash } from '../log'
@@ -15,6 +16,16 @@ import {
 } from '../storage'
 
 let instance: Database.Database | null = null
+/**
+ * The key the session opened with, kept for the *other* connections the app
+ * makes: a storage copy is probed on a fresh handle, and an unkeyed handle cannot
+ * read an encrypted ledger. Null means this ledger is plaintext.
+ */
+let sessionKey: Buffer | null = null
+
+export function ledgerDataKey(): Buffer | null {
+  return sessionKey
+}
 
 export function storageLocation(): StorageLocationInfo {
   const userData = app.getPath('userData')
@@ -53,6 +64,7 @@ function handleLockLost(): void {
     // else can be done with the handle.
   }
   instance = null
+  sessionKey = null
   dialog.showErrorBox(
     'This data folder is now in use elsewhere',
     'Another computer took over the WageRoute data folder after this one stopped updating ' +
@@ -62,7 +74,7 @@ function handleLockLost(): void {
   app.quit()
 }
 
-export function getDatabase(): Database.Database {
+export function getDatabase(dataKey: Buffer | null): Database.Database {
   if (instance) return instance
 
   const location = resolveDataDirectory(app.getPath('userData'))
@@ -71,9 +83,13 @@ export function getDatabase(): Database.Database {
   acquireDataLock(location.directory, handleLockLost)
 
   try {
-    const db = new Database(file)
-    // The ledger is readable plaintext; it should at least not be readable by
-    // every account on the machine. Best effort — a filesystem may refuse.
+    // Keyed before any other pragma, because every pragma after the first read
+    // is answered from pages that are either cipher text or not a database.
+    // A null key here is the plaintext ledger, not a missing one: the launch
+    // decided which this is from the header and the key file together.
+    const db = openLedger(file, dataKey)
+    // Nothing on the ledger should be readable by every account on the machine,
+    // encrypted or not. Best effort — a filesystem may refuse.
     try {
       chmodSync(file, 0o600)
     } catch {
@@ -132,6 +148,7 @@ export function getDatabase(): Database.Database {
       throw error
     }
     instance = db
+    sessionKey = dataKey
     return db
   } catch (error) {
     releaseDataLock()
@@ -144,6 +161,7 @@ export function closeDatabase(): void {
     instance?.close()
   } finally {
     instance = null
+    sessionKey = null
     releaseDataLock()
   }
 }

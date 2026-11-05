@@ -17,11 +17,13 @@ import {
 } from 'node:fs'
 import { hostname } from 'node:os'
 import { join, resolve } from 'node:path'
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 import { RepositoryError } from '@shared/errors'
 import type { StorageCandidate, StorageMoveMode } from '@shared/api'
 import { DB_FILE } from './db/legacy'
 import { assertHealthy } from './db/maintenance'
+import { ledgerLooksEncrypted, openLedger } from './db/encryption'
+import { KEY_FILE } from './db/ledger-key'
 import { SCHEMA_VERSION } from './db/migrations'
 import { writeFileAtomic } from './files'
 
@@ -266,9 +268,25 @@ export function releaseDataLock(): void {
   if (current?.info.token === lock.token) rmSync(lock.path, { force: true })
 }
 
+/**
+ * Reading a folder the app is only *looking at*, before it commits to it.
+ *
+ * An encrypted ledger in that folder is refused by name. There is no key to
+ * borrow: the running session's key belongs to a different ledger, and trying it
+ * here would report a healthy file as a corrupt one. The honest answer is that
+ * this build cannot read someone else's encrypted folder.
+ */
 export function inspectLedger(directory: string): { hasLedger: boolean; schemaVersion: number | null } {
   const file = join(directory, DB_FILE)
   if (!existsSync(file)) return { hasLedger: false, schemaVersion: null }
+  if (ledgerLooksEncrypted(file)) {
+    throw new RepositoryError(
+      'CONFLICT',
+      'That folder holds an encrypted WageRoute ledger. Its key lives in the custody chosen on the ' +
+        'machine that wrote it, so this one cannot read it. Restore that folder from a backup, or ' +
+        'turn encryption off there before moving it.'
+    )
+  }
   const db = new Database(file, { readonly: true })
   try {
     const version = db.pragma('user_version', { simple: true })
@@ -362,11 +380,21 @@ export function describeStorageCandidate(directory: string, now = Date.now()): S
 }
 
 /**
- * A consistent copy of the open ledger, taken with SQLite's backup API, written
- * beside the target and renamed into place only after it passes an integrity
- * check. The previous bytes of a partially written file never become a ledger.
+ * A consistent copy of the open ledger, taken with `VACUUM INTO`, written beside
+ * the target and renamed into place only after it passes an integrity check. The
+ * previous bytes of a partially written file never become a ledger.
+ *
+ * `VACUUM INTO` rather than SQLite's backup API because the backup API refuses a
+ * source and a target that disagree about encryption, which is exactly the case
+ * for an encrypted ledger: it would fail every copy rather than make a good one.
+ * Through the codec, the copy comes out in the same state as the original — and
+ * `dataKey` says which state that is, so the probe can read it.
  */
-export async function copyLedgerInto(db: Database.Database, targetDirectory: string): Promise<string> {
+export async function copyLedgerInto(
+  db: Database.Database,
+  targetDirectory: string,
+  dataKey: Buffer | null
+): Promise<string> {
   const target = join(targetDirectory, DB_FILE)
   const temporary = join(targetDirectory, `.${DB_FILE}.${process.pid}.tmp`)
   rmSync(temporary, { force: true })
@@ -374,8 +402,8 @@ export async function copyLedgerInto(db: Database.Database, targetDirectory: str
   // them would let SQLite replay an old journal over the new file.
   for (const sidecar of ['-wal', '-shm']) rmSync(`${target}${sidecar}`, { force: true })
   try {
-    await db.backup(temporary)
-    const probe = new Database(temporary)
+    db.prepare('VACUUM INTO ?').run(temporary)
+    const probe = openLedger(temporary, dataKey)
     try {
       assertHealthy(probe)
     } finally {
@@ -389,10 +417,21 @@ export async function copyLedgerInto(db: Database.Database, targetDirectory: str
   }
 }
 
+/**
+ * The key file travels with the ledger it opens, and both folders keep a copy:
+ * the old folder still holds its own readable ledger, and the new one cannot be
+ * opened without the marker. Nothing is invented here — a plaintext ledger has no
+ * key file, and a folder without one is left exactly as it is.
+ */
+export function copyKeyFile(fromDirectory: string, toDirectory: string): void {
+  const source = join(fromDirectory, KEY_FILE)
+  if (!existsSync(source)) return
+  copyFileSync(source, join(toDirectory, KEY_FILE))
+}
+
 function stamp(date: Date): string {
   return date.toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15)
 }
-
 function prune(directory: string, prefix: string, keep: number): void {
   const copies = readdirSync(directory)
     .filter((name) => name.startsWith(prefix) && name.endsWith('.db'))
@@ -410,7 +449,10 @@ export async function copyLedgerToBackups(
   const directory = backupsDirectory(dataDirectory)
   mkdirSync(directory, { recursive: true })
   const file = join(directory, `pre-move-${stamp(now)}.db`)
-  await db.backup(file)
+  // `VACUUM INTO` refuses to overwrite, so a copy made in the same second is
+  // replaced rather than turning the move into an error.
+  rmSync(file, { force: true })
+  db.prepare('VACUUM INTO ?').run(file)
   prune(directory, 'pre-move-', 3)
   return file
 }

@@ -1,9 +1,11 @@
 # 0020. There is no app lock
 
-- **Status:** Accepted
+- **Status:** Accepted; amended by [ADR 0029](0029-encryption-is-a-choice-on-the-disk-and-on-the-way-out.md), which adds the one kind of gate this record allowed for — a prompt backed by a keyed file, with its limits written into the type that describes it
 - **Date:** 2026-10-31
 - **Deciders:** Project owner
 - **Related:** [ADR 0019](0019-the-ledger-is-plaintext-at-rest.md), [SECURITY.md](../SECURITY.md)
+
+> *What 0029 changed here:* an app that opened straight to the dashboard can now stop at a passphrase prompt, but only for a ledger whose owner turned encryption on, and only because the file behind that prompt is genuinely unreadable without the key. **The decision at the core of this record stands: a UI-only lock is still rejected as a security control.** A PIN or a lock button over a plaintext ledger would add exactly what this ADR refused — protection that anyone with a file copy walks past.
 
 ## Context
 

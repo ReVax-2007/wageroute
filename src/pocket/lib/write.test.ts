@@ -29,6 +29,7 @@ import {
   patchEntry,
   patchGoal,
   payBill,
+  reconcileAllBillClaims,
   requireLiveRow,
   setAccountArchived,
   setGoalArchived,
@@ -88,6 +89,45 @@ function ledger(): ImportTables {
     })
   ]
   return tables
+}
+
+/**
+ * The ledger with one cheque that wrote a claim: the walk needs the cheque's
+ * date to know whether the money was in the account when the payment left.
+ */
+function withClaim(tables: ImportTables, amountCents = 120_000): ImportTables {
+  const cycle = todayISO().slice(0, 7)
+  return {
+    ...tables,
+    paychecks: [
+      ...tables.paychecks,
+      lifecycle({
+        id: 'pay-1',
+        amount_cents: 320_000,
+        received_on: `${cycle}-01`,
+        source: 'Paycheck',
+        deposit_account_id: 'chk',
+        priority_cents: 0,
+        surplus_cents: 0,
+        leisure_cents: 0,
+        health: 'covered'
+      })
+    ],
+    bill_reserves: [
+      ...tables.bill_reserves,
+      lifecycle({
+        id: 'claim-1',
+        bill_id: 'rent',
+        paycheck_id: 'pay-1',
+        cycle,
+        amount_cents: amountCents,
+        state: 'reserved',
+        strategy: 'all_checks',
+        due_day: 1,
+        settled_by: null
+      })
+    ]
+  }
 }
 
 function rowOf(tables: ImportTables, id: string): Record<string, unknown> {
@@ -740,4 +780,81 @@ test('a bill or a goal added here is not counted as an entry', () => {
     fundingAccountIds: []
   })
   assert.deepEqual(insertedEntryIds(bill.tables, goal.tables), [])
+})
+
+test('paying a bill here settles the claim the cheque left open', () => {
+  const paid = payBill(withClaim(ledger()), 'rent')
+  const claim = rowOf(paid.tables, 'claim-1')
+  assert.equal(text(claim, 'state'), 'paid')
+  assert.equal(nullableText(claim, 'settled_by'), paid.id)
+  assert.equal(cents(claim, 'revision'), 2, 'the claim moved, so this phone has a newer copy to export')
+})
+
+test('deleting the payment here reopens the claim it had settled', () => {
+  const paid = payBill(withClaim(ledger()), 'rent')
+  const removed = deleteEntries(paid.tables, [paid.id])
+  const claim = rowOf(removed.tables, 'claim-1')
+  assert.equal(text(claim, 'state'), 'reserved', 'a bill is not paid by a row that left the ledger')
+  assert.equal(nullableText(claim, 'settled_by'), null)
+  assert.equal(cents(claim, 'revision'), 3)
+})
+
+test('a part payment holds the claim open and rewrites nothing', () => {
+  const tables = withClaim(ledger())
+  const part = createEntry(tables, {
+    accountId: 'chk',
+    kind: 'bill_payment',
+    amountCents: -40_000,
+    occurredOn: todayISO(),
+    memo: 'Part of rent',
+    category: 'Bills',
+    billId: 'rent'
+  })
+  const claim = rowOf(part.tables, 'claim-1')
+  assert.equal(text(claim, 'state'), 'reserved')
+  assert.equal(cents(claim, 'revision'), 1, 'an unchanged claim keeps the computer’s copy instead of being shouted over in a merge')
+})
+
+test('cutting a payment back reopens the claim it closed', () => {
+  const paid = payBill(withClaim(ledger()), 'rent')
+  const trimmed = patchEntry(paid.tables, paid.id, { amountCents: -20_000 })
+  assert.equal(text(rowOf(trimmed, 'claim-1'), 'state'), 'reserved')
+})
+
+test('an edit that carries its category writes the row it was shown', () => {
+  // The phone's entry sheet sends the category with every save, so a patch that
+  // resolves a category must not take the pre-edit rows back with it.
+  const paid = payBill(withClaim(ledger()), 'rent')
+  const edited = patchEntry(paid.tables, paid.id, {
+    amountCents: -6_000,
+    occurredOn: todayISO(),
+    accountId: 'chk',
+    kind: 'bill_payment',
+    memo: 'Rent',
+    category: 'Bills',
+    categoryId: null
+  })
+  const row = rowOf(edited, paid.id)
+  assert.equal(cents(row, 'amount_cents'), -6_000)
+  assert.equal(cents(row, 'revision'), 2)
+  assert.equal(text(rowOf(edited, 'claim-1'), 'state'), 'reserved')
+})
+
+test('deleting the account that held the payment takes the settlement back', () => {
+  const paid = payBill(withClaim(ledger()), 'rent')
+  const removed = deleteAccount(paid.tables, 'chk', { withEntries: true })
+  assert.equal(text(rowOf(removed, 'claim-1'), 'state'), 'reserved')
+})
+
+test('opening a file replays the payments the phone made after it was written', () => {
+  // The claim arrives holding the state the computer derived before this phone's
+  // payment existed, so the merged ledger must be re-derived, not trusted.
+  const paid = payBill(ledger(), 'rent')
+  const merged = reconcileAllBillClaims(withClaim(paid.tables))
+  assert.equal(text(rowOf(merged, 'claim-1'), 'state'), 'paid')
+})
+
+test('reconciling a ledger that already agrees leaves every row exactly as it was', () => {
+  const paid = payBill(withClaim(ledger()), 'rent')
+  assert.deepEqual(reconcileAllBillClaims(paid.tables).bill_reserves, paid.tables.bill_reserves)
 })

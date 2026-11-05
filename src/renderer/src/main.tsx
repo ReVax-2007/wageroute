@@ -4,6 +4,7 @@ import { apiErrorMessage } from '@shared/errors'
 import './styles/tokens.css'
 import './styles/app.css'
 import App from './App'
+import Unlock from './Unlock'
 
 if (navigator.userAgent.includes('Mac')) {
   document.documentElement.classList.add('is-mac')
@@ -41,10 +42,13 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { message: string
   }
 }
 
+// A locked ledger gets a window with nothing but the passphrase prompt in it.
+// Which page this is comes from the URL the main process loaded, never from a
+// channel, because while the ledger is locked there is no channel to ask.
+const locked = new URLSearchParams(window.location.search).get('mode') === 'unlock'
+
 createRoot(document.getElementById('root') as HTMLElement).render(
   <StrictMode>
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
+    <ErrorBoundary>{locked ? <Unlock /> : <App />}</ErrorBoundary>
   </StrictMode>
 )

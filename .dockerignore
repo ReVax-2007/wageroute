@@ -1,0 +1,16 @@
+# Everything the images copy in explicitly, they copy in from the build context.
+# These paths are either build outputs, machine state, or far too big to be a
+# context.
+.git
+.github
+.local-backups
+.local-quarantine
+node_modules
+out
+dist
+dist-pocket
+release
+*.log
+.DS_Store
+AI-HANDBOOK.md
+AUDIT-2026-10-29.md

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createElement, act } from 'react'
 import { JSDOM } from 'jsdom'
-import { emptyImportCounts, type ImportPreview } from '@shared/api'
+import { emptyImportCounts, type ImportNeedsPassphrase, type ImportPreview } from '@shared/api'
 import type { ImportChoice, ImportChoiceTable, ImportProblem } from '@shared/importRepair'
 
 // The wizard is a form: its answers, disabled state and review text are DOM
@@ -217,5 +217,151 @@ test('the review names the file’s export date and flags one from the future', 
     )
   } finally {
     future.unmount()
+  }
+})
+
+const SEALED: ImportNeedsPassphrase = {
+  sealed: true,
+  token: 'token-sealed',
+  path: '/tmp/wageroute-backup-20260203-100000-encrypted.json',
+  exportedAt: '2026-02-03T10:00:00.000Z'
+}
+
+function buttonWith(label: string): HTMLButtonElement {
+  const button = [...window.document.querySelectorAll('button')].find(
+    (candidate) => candidate.textContent?.trim() === label
+  ) as HTMLButtonElement
+  assert.ok(button, `the panel offers ${label}`)
+  return button
+}
+
+function phraseInput(): HTMLInputElement {
+  const input = window.document.querySelector('.unlock-row input.input') as HTMLInputElement
+  assert.ok(input, 'the panel asks for a passphrase')
+  return input
+}
+
+/** The sealed file's screen, with the main process replaced by an answer about the phrase. */
+async function mountSealed(
+  supplyPassphrase: (token: string, passphrase: string) => Promise<ImportPreview>
+): Promise<{ unmount: () => void }> {
+  const { createRoot } = await import('react-dom/client')
+  const { useFinanceStore } = await import('../store/useFinanceStore')
+  const { ImportWizard } = await import('./ImportWizard')
+  Object.defineProperty(window, 'api', {
+    value: { supplyPassphrase },
+    configurable: true,
+    writable: true
+  })
+  useFinanceStore.setState({ importPreview: SEALED, importStep: 'fix', busy: false })
+
+  const container = window.document.createElement('div')
+  window.document.body.append(container)
+  const root = createRoot(container)
+  await act(async () => {
+    root.render(createElement(ImportWizard))
+  })
+  return {
+    unmount: () => {
+      act(() => root.unmount())
+      container.remove()
+      useFinanceStore.setState({ importPreview: null, importStep: 'fix' })
+    }
+  }
+}
+
+async function press(label: string): Promise<void> {
+  await act(async () => {
+    buttonWith(label).click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+}
+
+function refusal(code: string, message: string): Error {
+  return new Error(`[[wageroute:${code}]] ${message}`)
+}
+
+test('a sealed file stops the wizard at the passphrase and shows no rows', async () => {
+  const calls: [string, string][] = []
+  const mounted = await mountSealed(async (token, passphrase) => {
+    calls.push([token, passphrase])
+    return previewOf()
+  })
+  try {
+    const text = window.document.body.textContent ?? ''
+    const made = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(
+      Date.parse(SEALED.exportedAt)
+    )
+    assert.ok(text.includes('Open an encrypted backup'))
+    assert.ok(
+      text.includes('wageroute-backup-20260203-100000-encrypted.json'),
+      'it names the file it is holding'
+    )
+    assert.ok(text.includes(`written ${made}`), 'the header date is readable before the file opens')
+    assert.equal(buttonWith('Open it').disabled, true, 'nothing can be opened with no phrase typed')
+    assert.equal(
+      [...window.document.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Import'),
+      false,
+      'an unread file cannot be imported'
+    )
+
+    await act(async () => typeInto(phraseInput(), 'correct horse battery staple'))
+    assert.equal(buttonWith('Open it').disabled, false)
+    await press('Open it')
+
+    assert.deepEqual(calls, [['token-sealed', 'correct horse battery staple']])
+    assert.equal(window.document.querySelector('.unlock-row'), null, 'the preview replaces the box')
+    assert.ok(
+      [...window.document.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Import'),
+      'and the import is offered once the rows are counted'
+    )
+  } finally {
+    mounted.unmount()
+  }
+})
+
+test('a wrong phrase is retried in the same box, but a file that is not one is not', async () => {
+  const wrong = await mountSealed(async () => {
+    throw refusal(
+      'PASSPHRASE',
+      'That passphrase does not open this file, or the file has been changed since it was written.'
+    )
+  })
+  try {
+    await act(async () => typeInto(phraseInput(), 'not the phrase'))
+    await press('Open it')
+    assert.match(
+      window.document.querySelector('.field-error')?.textContent ?? '',
+      /does not open this file/
+    )
+    assert.ok(
+      (window.document.body.textContent ?? '').includes('Open an encrypted backup'),
+      'the box stays so the phrase can be typed again'
+    )
+    assert.equal(buttonWith('Open it').disabled, false)
+    assert.equal(
+      window.document.querySelector('.form-error'),
+      null,
+      'a wrong phrase is not a broken file, so it must not be reported as one'
+    )
+
+    await act(async () => typeInto(phraseInput(), 'typed again'))
+    assert.equal(window.document.querySelector('.field-error'), null, 'typing clears the refusal')
+  } finally {
+    wrong.unmount()
+  }
+
+  const broken = await mountSealed(async () => {
+    throw refusal('VALIDATION', 'This is not a WageRoute encrypted export.')
+  })
+  try {
+    await act(async () => typeInto(phraseInput(), 'anything'))
+    await press('Open it')
+    assert.match(
+      window.document.querySelector('.form-error')?.textContent ?? '',
+      /not a problem the passphrase can fix/
+    )
+  } finally {
+    broken.unmount()
   }
 })

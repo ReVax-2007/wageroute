@@ -9,7 +9,7 @@ import {
   rmSync
 } from 'node:fs'
 import { join } from 'node:path'
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 
 export const DB_FILE = 'wageroute.db'
 
@@ -25,6 +25,11 @@ export interface AdoptionResult {
   error?: string
 }
 
+/**
+ * The 16-byte magic, not merely "there is a file there". It also refuses a
+ * ledger whose pages are encrypted, so adoption can never copy, check or rename
+ * one — a keyed file is left exactly where its own app can open it.
+ */
 function hasSqliteHeader(path: string): boolean {
   const fd = openSync(path, 'r')
   try {

@@ -1,0 +1,132 @@
+# Both halves of WageRoute in one command:
+#
+#   docker compose up --build
+#
+#   Pocket   http://localhost:8173
+#   Desktop  http://localhost:6080/vnc.html?autoconnect=true
+#
+# Compose is a convenience over the two docker run lines written in the headers of
+# docker/pocket.Dockerfile and docker/desktop.Dockerfile. Nothing here is required
+# to run either image.
+#
+# Both ports are published to 127.0.0.1 on purpose. Changing that to 0.0.0.0 puts
+# a phone-facing web app and a streamed desktop session on your network in plain
+# HTTP: Pocket then loses its install prompt and offline copy, and the desktop's
+# VNC password crosses the wire unencrypted. Put TLS in front instead — see
+# docs/DEPLOYMENT.md#tls-a-login-and-more-than-one-person, and the `edge` profile
+# below.
+
+services:
+  pocket:
+    build:
+      context: .
+      dockerfile: docker/pocket.Dockerfile
+    ports:
+      - '127.0.0.1:8173:80'
+    restart: unless-stopped
+
+  desktop:
+    build:
+      context: .
+      dockerfile: docker/desktop.Dockerfile
+    ports:
+      - '127.0.0.1:6080:6080'
+    environment:
+      # Blank means the container prints a generated one to its log on start.
+      WAGEROUTE_VNC_PASSWORD: '${WAGEROUTE_VNC_PASSWORD:-}'
+    volumes:
+      # The ledger, its key file when encryption is on, its settings, its crash log
+      # and the app's own daily backups. If this volume is removed, the only copy of
+      # the ledger is the last export you carried out — and a keyed ledger inside it
+      # needs this same volume's ledger.key.json to open at all.
+      - 'wageroute-data:/data'
+    shm_size: 1gb
+    restart: unless-stopped
+
+  # --- The edge shape (ADR 0030) ---------------------------------------------
+  #
+  # Nothing above this line changes: these three services only start when the
+  # profile is switched on, and the default two stay exactly as they were.
+  #
+  #   COMPOSE_PROFILES=edge \
+  #   WAGEROUTE_DOMAIN=ann.example.lan \
+  #   WAGEROUTE_AUTH_UPSTREAM=192.168.1.9:9091 \
+  #   WAGEROUTE_AUTH_URI=/api/authz/forward-auth \
+  #   WAGEROUTE_BIND=192.168.1.20 \
+  #   docker compose up -d --build caddy pocket-ann desktop-ann
+  #
+  # Naming the three services is what keeps the two loopback defaults from
+  # starting alongside them: one shape or the other, never a half-mixed pair.
+  #
+  # WAGEROUTE_BIND defaults to 127.0.0.1 and that *is* the fail-closed part. An
+  # edge configured halfway is a proxy nobody can reach, not a ledger everybody
+  # can; publishing it on a LAN address is a choice the operator types. The three
+  # values Caddy builds its sites from are checked by the container itself before
+  # Caddy starts — deliberately not with compose's `${VAR:?error}`, because that
+  # is evaluated while parsing the *whole file*, and it would have broken the
+  # default `docker compose up` for everyone who never turns this profile on.
+
+  caddy:
+    profiles: [edge]
+    # Pinned to the version this file was validated against (`caddy validate`,
+    # 2026-11-04). A proxy that decides who may read a ledger is not something to
+    # take on a floating tag.
+    image: caddy:2.11.7-alpine
+    restart: unless-stopped
+    ports:
+      - '${WAGEROUTE_BIND:-127.0.0.1}:443:443'
+    environment:
+      WAGEROUTE_DOMAIN: '${WAGEROUTE_DOMAIN:-}'
+      WAGEROUTE_AUTH_UPSTREAM: '${WAGEROUTE_AUTH_UPSTREAM:-}'
+      WAGEROUTE_AUTH_URI: '${WAGEROUTE_AUTH_URI:-}'
+    volumes:
+      - ./docker/edge.Caddyfile:/etc/caddy/Caddyfile:ro
+      - wageroute-caddy:/data
+    # An empty name here would not fail: Caddy would happily build a site called
+    # `pocket.` and serve it. So refuse the unset state out loud instead.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        for v in WAGEROUTE_DOMAIN WAGEROUTE_AUTH_UPSTREAM WAGEROUTE_AUTH_URI; do
+          eval "value=\$$v"
+          [ -n "$$value" ] || { echo "edge: $$v is not set — see docker/edge.Caddyfile"; exit 1; }
+        done
+        exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+
+  # Ann's phone app, reached only through the proxy. No `ports:` on purpose: a
+  # published tenant container is a door that walks past the login and the
+  # certificate at the same time.
+  pocket-ann:
+    profiles: [edge]
+    build:
+      context: .
+      dockerfile: docker/pocket.Dockerfile
+    restart: unless-stopped
+
+  # Ann's desktop. Same image build as the default service above (the layer cache
+  # makes the second copy cheap), but its own process, its own single-instance
+  # lock, and its own /data — which is what a second person costs.
+  desktop-ann:
+    profiles: [edge]
+    build:
+      context: .
+      dockerfile: docker/desktop.Dockerfile
+    environment:
+      WAGEROUTE_VNC_PASSWORD: '${WAGEROUTE_VNC_PASSWORD:-}'
+    volumes:
+      - wageroute-ann-data:/data
+    shm_size: 1gb
+    restart: unless-stopped
+
+volumes:
+  wageroute-data:
+  # The proxy's own state: ADR 0030's TLS termination keeps Caddy's local CA here,
+  # so the root certificate phones have to trust survives the container being
+  # recreated. Delete this volume and every device that trusted it says *not
+  # secure* again.
+  wageroute-caddy:
+  # One tenant, one volume. This is the whole multi-user mechanism: Ann's ledger,
+  # her ledger.key.json, her settings, her crash log and her daily backup copies
+  # are inside here, and another person's container cannot mount it and cannot
+  # query past it, because it is a different process with a different file.
+  wageroute-ann-data:

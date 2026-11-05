@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
-import { Download } from 'lucide-react'
-import type { ImportCounts } from '@shared/api'
+import { Download, LockKeyholeOpen } from 'lucide-react'
+import type { ImportCounts, ImportNeedsPassphrase, ImportPreview } from '@shared/api'
 import type { ImportAnswer, ImportProblem, ImportTable } from '@shared/importRepair'
 import { answerContext, validateFieldValue } from '@shared/importRepair'
 import { formatMoney } from '@shared/money'
@@ -121,8 +121,19 @@ function nameRows(rows: readonly RowDecision[]): string {
   return rows.length > 3 ? `${named} and ${rows.length - 3} more` : named
 }
 
+/**
+ * The wizard has two very different first screens: a file it can already read,
+ * and a file that says it is sealed. Splitting them keeps the row-repair
+ * component's hooks on one path that never changes shape mid-import.
+ */
 export function ImportWizard() {
   const preview = useFinanceStore((state) => state.importPreview)
+  if (!preview) return null
+  if ('sealed' in preview) return <UnlockPanel preview={preview} />
+  return <RowWizard preview={preview} />
+}
+
+function RowWizard({ preview }: { preview: ImportPreview }) {
   const step = useFinanceStore((state) => state.importStep)
   const busy = useFinanceStore((state) => state.busy)
   const currency = useFinanceStore((state) => state.settings.currency)
@@ -502,6 +513,91 @@ export function ImportWizard() {
           </>
         )}
       </div>
+    </Modal>
+  )
+}
+
+/**
+ * The screen for a file that says it is sealed. Nothing about its contents can
+ * be shown yet — not from caution but because the rows are under the cipher —
+ * so this asks for the one thing that can count them and stays on the same box
+ * when the answer is wrong.
+ */
+function UnlockPanel({ preview }: { preview: ImportNeedsPassphrase }) {
+  const closeImport = useFinanceStore((state) => state.closeImport)
+  const unlock = useFinanceStore((state) => state.unlockImport)
+  const [phrase, setPhrase] = useState('')
+  const [visible, setVisible] = useState(false)
+  const [failure, setFailure] = useState<{ message: string; retry: boolean } | null>(null)
+  const [opening, setOpening] = useState(false)
+  const made = madeOn(preview.exportedAt)
+
+  const open = async (): Promise<void> => {
+    setOpening(true)
+    const result = await unlock(phrase)
+    // On success this screen is replaced by the preview it unlocked, so only a
+    // failure needs the button back.
+    if (result) {
+      setFailure(result)
+      setOpening(false)
+    }
+  }
+
+  return (
+    <Modal
+      wide
+      title="Open an encrypted backup"
+      subtitle={`${fileNameOf(preview.path)} · encrypted WageRoute backup`}
+      onClose={closeImport}
+      footer={
+        <>
+          <Button variant="quiet" onClick={closeImport}>
+            Choose a different file
+          </Button>
+          <Button
+            variant="primary"
+            icon={<LockKeyholeOpen size={15} />}
+            disabled={opening || phrase === ''}
+            onClick={() => void open()}
+          >
+            {opening ? 'Opening…' : 'Open it'}
+          </Button>
+        </>
+      }
+    >
+      <p className="wizard-hint">
+        This export was sealed with a passphrase, so nothing in it can be counted until that
+        phrase opens it.{made ? ` The file says it was written ${made}.` : ''}
+      </p>
+      <div className="unlock-row">
+        <Field label="Passphrase" error={failure ? failure.message : undefined}>
+          <input
+            className="input"
+            type={visible ? 'text' : 'password'}
+            value={phrase}
+            onChange={(event: ChangeEvent<HTMLInputElement>) => {
+              setPhrase(event.target.value)
+              setFailure(null)
+            }}
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </Field>
+        <Button size="sm" variant="ghost" aria-pressed={visible} onClick={() => setVisible((now) => !now)}>
+          {visible ? 'Hide' : 'Show'}
+        </Button>
+      </div>
+      {failure && !failure.retry && (
+        <p className="form-error" role="alert">
+          That is not a problem the passphrase can fix — the file itself is not one WageRoute can
+          open. Choose a different file.
+        </p>
+      )}
+      <p className="field-hint">
+        WageRoute kept no copy of this phrase, and there is no reset: a lost one means this file
+        stays shut for good. Opening it writes nothing — the import only runs if you go on to press
+        Import.
+      </p>
     </Modal>
   )
 }

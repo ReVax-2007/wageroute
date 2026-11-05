@@ -1,0 +1,78 @@
+# The edge shape from ADR 0030: TLS and a login live here, never in WageRoute.
+#
+# This file is read by the `caddy` service in docker-compose.yml's `edge`
+# profile. It is an *example* of the one shape this product refuses to implement
+# itself: Caddy terminates TLS with its own local CA, asks an identity provider
+# whether this connection may come in, and only then proxies the request to one
+# tenant's container.
+#
+# Two rules it is written to keep:
+#
+# - **One tenant, one app container.** `pocket-ann` and `desktop-ann` are Ann's
+#   own processes with Ann's own volume. Nothing here chooses a folder out of a
+#   header: the *site block* chooses the upstream, so a mistyped name shows a
+#   Caddy error page rather than someone else's money.
+# - **Each app at the root of its own name.** Pocket is built with relative paths
+#   on purpose — it registers `./sw.js` and precaches `./index.html` and
+#   `./assets/*`, and docs/POCKET.md says the folder works at a root *or* under a
+#   prefix. The desktop half is noVNC, whose page and websocket live at
+#   `/vnc.html` and friends. Two names mean neither app is competing with the
+#   other for the root of an origin, its service-worker scope, or its storage —
+#   and the phone's sealed vault is that origin's storage. Hence
+#   `pocket.ann.example.lan`, not `ann.example.lan/pocket`.
+#
+# Three values come from the environment, which compose passes through: the
+# domain the operator's DNS or `/etc/hosts` resolves, the auth provider's address,
+# and that provider's verification endpoint. `docker-compose.yml` requires all
+# three, so this profile cannot start half-configured and quietly serve an open
+# ledger.
+
+pocket.{$WAGEROUTE_DOMAIN} {
+	tls internal
+
+	# Fail closed: forward_auth proxies nothing unless the auth request answers
+	# 2xx, and it hands the browser the provider's own 401 or redirect. The two
+	# values are the provider's address and its verification endpoint — with
+	# Authelia that is `/api/authz/forward-auth`, with anything else whatever path
+	# answers 200 for a session it likes and 401 for one it does not.
+	#
+	# No copy_headers here on purpose. Caddy can hand the app the authenticated
+	# identity, and ADR 0030's whole point is that WageRoute has no code to read it
+	# with: the door is the edge's business, the ledger does not learn who walked
+	# through it.
+	forward_auth {$WAGEROUTE_AUTH_UPSTREAM} {
+		uri {$WAGEROUTE_AUTH_URI}
+		header_up X-Original-Method {method}
+		header_up X-Original-URL {scheme}://{host}{uri}
+		header_up X-Forwarded-Uri {uri}
+	}
+
+	encode zstd gzip
+	reverse_proxy pocket-ann:80
+}
+
+desktop.{$WAGEROUTE_DOMAIN} {
+	tls internal
+
+	forward_auth {$WAGEROUTE_AUTH_UPSTREAM} {
+		uri {$WAGEROUTE_AUTH_URI}
+		header_up X-Original-Method {method}
+		header_up X-Original-URL {scheme}://{host}{uri}
+		header_up X-Forwarded-Uri {uri}
+	}
+
+	# noVNC's websocket upgrades through reverse_proxy with no extra config, and
+	# TLS here is what takes the VNC password out of the clear the plain-HTTP
+	# shape left it in.
+	reverse_proxy desktop-ann:6080
+}
+
+# A second person is not a second route on this one — it is a second container.
+# Copy the two blocks above, change the two names, and give them their own volume
+# in docker-compose.yml (`wageroute-bob-data:/data`). Nothing inside WageRoute
+# changes, because nothing inside WageRoute is involved.
+#
+# TLS with no login is a shape ADR 0030 supports too: delete both forward_auth
+# blocks. But then keep the published port on 127.0.0.1 — an HTTPS site with no
+# door on it is still an open ledger for anyone who can reach the address. The
+# options are the point; so are the consequences.

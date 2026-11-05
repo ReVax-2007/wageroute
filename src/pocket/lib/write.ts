@@ -5,22 +5,35 @@ import {
   defaultCategoryKind,
   normalizeCategoryName
 } from '@shared/categories'
+import { deriveClaimStates, type ClaimFact, type PaymentFact } from '@shared/claims'
 import { todayISO } from '@shared/dates'
 import { RepositoryError } from '@shared/errors'
 import { normalizeSignedCents, signedAmountError } from '@shared/kinds'
 import { parseSettings } from '@shared/settings'
+import { incomingWins } from '@shared/tableMerge'
 import { roundUpRemainderCents, transferLegs } from '@shared/transfers'
 import type {
   AccountInput,
   AccountKind,
   BillInput,
   CategoryInput,
+  Frequency,
   GoalInput,
   TransactionInput,
   TransactionKind
 } from '@shared/types'
 import * as rules from '@shared/writeRules'
-import { cents, flag, integer, isLive, nullableText, settingRecord, text, type Row } from './rows'
+import {
+  cents,
+  flag,
+  integer,
+  isLive,
+  nullableInteger,
+  nullableText,
+  settingRecord,
+  text,
+  type Row
+} from './rows'
 
 /**
  * The phone's write path.
@@ -295,6 +308,143 @@ export function billPaidThisMonthCents(tables: ImportTables, billId: string, tod
     paid += Math.max(0, -cents(entry, 'amount_cents'))
   }
   return paid
+}
+
+/**
+ * One row per id out of a list that may repeat an id. On the computer the id is
+ * the primary key, and its merge lets a repeated row replace the first only when
+ * it is strictly newer — a later stamp, or the same stamp with a higher revision.
+ * A file that repeats an id is therefore one row there and two rows here, which
+ * would offer one promise's money twice; this keeps the same row each device
+ * keeps. The one difference from a real merge is no future-stamp ceiling, which
+ * cannot move a row the desktop itself wrote.
+ */
+function keepNewestById(rows: readonly Row[]): Row[] {
+  const byId = new Map<string, Row>()
+  for (const row of rows) {
+    const id = nullableText(row, 'id')
+    if (id === null) continue
+    const kept = byId.get(id)
+    if (kept === undefined || incomingWins(kept, row, Number.POSITIVE_INFINITY)) byId.set(id, row)
+  }
+  return [...byId.values()]
+}
+
+/**
+ * The wall's claim states, re-derived from the payments this copy of the ledger
+ * holds. The computer replays the same walk after every entry write and every
+ * import; without it a payment typed here would leave its bill reading *reserved*
+ * until a backup made the round trip, and a payment deleted here would leave the
+ * bill reading *paid* on the strength of a row that no longer exists.
+ *
+ * Nothing here waits for the other device: the money fact and the promise it
+ * settles are both already in the tables on this phone.
+ *
+ * A backup row carries no constraints: the file says what it says. `parseBackup`
+ * refuses a value that is present and wrong, but a key a released desktop never
+ * wrote is simply absent, and the row readers answer with `0` or `''` — values
+ * that read as in-domain to the walk while saying something the computer never
+ * meant. A `due_day` of 0 flips the due-day gate open and settles a claim the
+ * computer holds reserved. So each fact is taken only where the computer's own
+ * schema would have accepted the row, and a claim that cannot be read is left
+ * exactly as the file has it.
+ */
+export function reconcileBillClaims(tables: ImportTables, billId: string): ImportTables {
+  const bill = tables.bills.find((row) => isLive(row) && text(row, 'id') === billId)
+  if (!bill) return tables
+  const frequency = text(bill, 'frequency') as Frequency
+  const claimRows = keepNewestById(
+    tables.bill_reserves.filter(
+      (row) => isLive(row) && nullableText(row, 'bill_id') === billId && cents(row, 'amount_cents') > 0
+    )
+  )
+  // Only the row this bill actually has gets rewritten; a duplicate the computer
+  // would merge away stays where the file left it.
+  const keptRows = new Set(claimRows)
+  const claims: ClaimFact[] = []
+  for (const row of claimRows) {
+    // The computer's join drops a claim whose cheque is missing from the ledger
+    // entirely, and keeps one whose cheque is tombstoned: that cheque is still
+    // the one that wrote the claim, and the money left with it.
+    const paycheck = tables.paychecks.find(
+      (candidate) => text(candidate, 'id') === nullableText(row, 'paycheck_id')
+    )
+    if (!paycheck) continue
+    const id = nullableText(row, 'id')
+    const cycle = nullableText(row, 'cycle')
+    const receivedOn = nullableText(paycheck, 'received_on')
+    const createdAt = nullableText(row, 'created_at')
+    if (id === null || cycle === null || cycle.length !== 7 || receivedOn === null || createdAt === null) {
+      continue
+    }
+    // A claim written before schema 9 has no `due_day` key at all. The computer
+    // gives such a row the bill's own due day on import (`main/db/backup.ts`),
+    // which is the value the v9 migration backfilled from, so the phone reads it
+    // as the file would look after the upgrade. Either way the day has to be a
+    // day, which is what the CHECK on the column means.
+    const dueDay = nullableInteger(row, 'due_day') ?? integer(bill, 'due_day', 1)
+    if (dueDay < 1 || dueDay > 31) continue
+    claims.push({
+      id,
+      cycle,
+      amountCents: cents(row, 'amount_cents'),
+      state: text(row, 'state') === 'paid' ? 'paid' : 'reserved',
+      settledBy: nullableText(row, 'settled_by'),
+      dueDay,
+      receivedOn,
+      createdAt,
+      frequency
+    })
+  }
+  if (claims.length === 0) return tables
+
+  const payments: PaymentFact[] = []
+  for (const row of keepNewestById(
+    tables.transactions.filter((row) => {
+      if (!isLive(row) || nullableText(row, 'bill_id') !== billId) return false
+      const kind = text(row, 'kind')
+      return (kind === 'bill_payment' || kind === 'expense') && cents(row, 'amount_cents') !== 0
+    })
+  )) {
+    // Same rule as the computer's read: an entry with no date to order it by, or
+    // no id for a claim to name, is not a payment this ledger can see.
+    const id = nullableText(row, 'id')
+    const occurredOn = nullableText(row, 'occurred_on')
+    const createdAt = nullableText(row, 'created_at')
+    if (id === null || occurredOn === null || createdAt === null) continue
+    payments.push({ id, occurredOn, amountCents: cents(row, 'amount_cents'), createdAt })
+  }
+
+  const settled = new Map(
+    deriveClaimStates(claims, payments)
+      .filter((outcome) => outcome.changed)
+      .map((outcome) => [outcome.id, outcome])
+  )
+  if (settled.size === 0) return tables
+  const now = rules.nowISO()
+  const reserves = tables.bill_reserves.map((row) => {
+    const outcome = settled.get(text(row, 'id'))
+    if (!outcome || !keptRows.has(row)) return row
+    return { ...row, state: outcome.state, settled_by: outcome.settledBy, ...stampAfter(row, now) }
+  })
+  return withRows(tables, 'bill_reserves', reserves)
+}
+
+/**
+ * Every claim in the ledger, replayed against the payments on this phone. The
+ * backstop for a merged file: the claims arrive with the states the computer
+ * derived, but a payment typed here after that export is not in its arithmetic.
+ */
+export function reconcileAllBillClaims(tables: ImportTables): ImportTables {
+  const billIds = new Set<string>()
+  for (const row of tables.bill_reserves) {
+    if (!isLive(row)) continue
+    const billId = nullableText(row, 'bill_id')
+    if (billId) billIds.add(billId)
+  }
+  let next = tables
+  for (const billId of billIds) next = reconcileBillClaims(next, billId)
+  return next
 }
 
 /**
@@ -678,7 +828,12 @@ export function deleteAccount(tables: ImportTables, id: string, options: DeleteA
   if (entries > 0) {
     // The same cascade an entry delete uses: a leg takes its twin, a purchase
     // takes its sweep.
-    next = tombstoneRows(next, 'transactions', doomedAccountEntryIds(next, id))
+    const doomed = doomedAccountEntryIds(next, id)
+    const paidFor = billsPaidBy(next, doomed)
+    next = tombstoneRows(next, 'transactions', doomed)
+    // A bill payment about to disappear would otherwise leave the bill marked
+    // paid by a row that no longer exists.
+    for (const billId of paidFor) next = reconcileBillClaims(next, billId)
   }
 
   const now = rules.nowISO()
@@ -927,20 +1082,24 @@ export function createEntry(tables: ImportTables, input: TransactionInput): Writ
     goal_id: goalId,
     paycheck_id: input.paycheckId ?? null
   })
-  if (kind === 'expense' && amountCents < 0) {
-    return {
-      tables: applyRoundUp(inserted.tables, {
-        sourceId: inserted.id,
-        accountId: input.accountId,
-        accountKind: text(account, 'kind') as AccountKind,
-        amountCents,
-        occurredOn,
-        memo
-      }),
-      id: inserted.id
-    }
+  const posted =
+    kind === 'expense' && amountCents < 0
+      ? applyRoundUp(inserted.tables, {
+          sourceId: inserted.id,
+          accountId: input.accountId,
+          accountKind: text(account, 'kind') as AccountKind,
+          amountCents,
+          occurredOn,
+          memo
+        })
+      : inserted.tables
+  // A payment settles the wall's claim here, the same instant it does on the
+  // computer — an adjustment may name a bill as a note, but only these two kinds
+  // pay it.
+  if (billId && (kind === 'bill_payment' || kind === 'expense')) {
+    return { tables: reconcileBillClaims(posted, billId), id: inserted.id }
   }
-  return inserted
+  return { tables: posted, id: inserted.id }
 }
 
 export interface EntryPatch {
@@ -1076,8 +1235,13 @@ export function patchEntry(tables: ImportTables, id: string, patch: EntryPatch):
         categoryId: patch.categoryId
       })
     : null
+  // A new category name is a row of its own, so resolve it first and patch on
+  // top of the copy that carries it. Patching the old copy and then taking the
+  // resolved one would drop this edit — the sheet sends a category with every
+  // entry, so it would drop all of it.
+  const base = resolved ? resolved.tables : tables
 
-  let patched = patchRow(tables, 'transactions', id, {
+  let patched = patchRow(base, 'transactions', id, {
     account_id: patch.accountId,
     kind: patch.kind === undefined ? undefined : nextKind,
     amount_cents: touchesAmount ? nextAmount : undefined,
@@ -1088,7 +1252,6 @@ export function patchEntry(tables: ImportTables, id: string, patch: EntryPatch):
     bill_id: dropBill ? null : undefined,
     goal_id: dropGoal ? null : undefined
   })
-  if (resolved) patched = resolved.tables
 
   // A purchase's sweep is derived from it: remove the old pair, then let the same
   // rule that created it decide whether a new one is still owed.
@@ -1105,6 +1268,12 @@ export function patchEntry(tables: ImportTables, id: string, patch: EntryPatch):
         memo: nextMemo
       })
     }
+  }
+
+  // Editing a payment replays the bill's claims, so the wall never shows a bill
+  // as paid on a date, amount or kind it no longer is.
+  if (billId && (touchesAmount || patch.occurredOn !== undefined)) {
+    return reconcileBillClaims(patched, billId)
   }
   return patched
 }
@@ -1128,10 +1297,26 @@ export function expandDeletion(tables: ImportTables, ids: Iterable<string>): Set
   return doomed
 }
 
+/** The bills these rows were paying, without repeats — the set whose claims a delete reopens. */
+function billsPaidBy(tables: ImportTables, ids: ReadonlySet<string>): string[] {
+  const found: string[] = []
+  for (const row of tables.transactions) {
+    if (!isLive(row) || !ids.has(text(row, 'id'))) continue
+    const billId = nullableText(row, 'bill_id')
+    if (billId && !found.includes(billId)) found.push(billId)
+  }
+  return found
+}
+
 export function deleteEntries(
   tables: ImportTables,
   ids: Iterable<string>
 ): { tables: ImportTables; removed: string[] } {
   const doomed = expandDeletion(tables, ids)
-  return { tables: tombstoneRows(tables, 'transactions', doomed), removed: [...doomed] }
+  const paidFor = billsPaidBy(tables, doomed)
+  let next = tombstoneRows(tables, 'transactions', doomed)
+  // Deleting the row that paid a bill takes the settlement with it: the claim it
+  // held reopens, exactly as it does on the computer.
+  for (const billId of paidFor) next = reconcileBillClaims(next, billId)
+  return { tables: next, removed: [...doomed] }
 }

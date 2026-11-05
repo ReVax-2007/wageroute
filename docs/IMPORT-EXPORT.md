@@ -4,9 +4,9 @@ WageRoute has one data-movement principle: **an import merges, it never replaces
 
 The second principle is **a file is never rejected because of one bad row.** Anything the app cannot work out on its own is asked about in an import wizard, and anything you cannot answer is left out with an explanation while the rest of the file lands.
 
-This document specifies both file formats, the wizard, the merge rules, deduplication, validation, error reporting and the exact behaviour the UI exposes.
+This document specifies every file format WageRoute reads or writes — plain JSON, the sealed envelope around it, the CSV review copy and the bank statement formats — plus the wizard, the merge rules, deduplication, validation, error reporting and the exact behaviour the UI exposes.
 
-Source: [`src/shared/importRepair.ts`](../src/shared/importRepair.ts), [`src/main/db/backup.ts`](../src/main/db/backup.ts), [`src/main/db/entries.ts`](../src/main/db/entries.ts), [`src/shared/csv.ts`](../src/shared/csv.ts), [`src/main/ipc.ts`](../src/main/ipc.ts), [`src/renderer/src/components/ImportWizard.tsx`](../src/renderer/src/components/ImportWizard.tsx).
+Source: [`src/shared/importRepair.ts`](../src/shared/importRepair.ts), [`src/main/db/backup.ts`](../src/main/db/backup.ts), [`src/main/db/entries.ts`](../src/main/db/entries.ts), [`src/shared/csv.ts`](../src/shared/csv.ts), [`src/shared/envelope.ts`](../src/shared/envelope.ts), [`src/main/envelope.ts`](../src/main/envelope.ts), [`src/main/ipc.ts`](../src/main/ipc.ts), [`src/renderer/src/components/ImportWizard.tsx`](../src/renderer/src/components/ImportWizard.tsx).
 
 ---
 
@@ -15,6 +15,7 @@ Source: [`src/shared/importRepair.ts`](../src/shared/importRepair.ts), [`src/mai
 - [Entry points](#entry-points)
 - [The import wizard](#the-import-wizard)
 - [JSON backup format](#json-backup-format)
+- [Sealed exports (the envelope)](#sealed-exports-the-envelope)
 - [JSON merge semantics](#json-merge-semantics)
 - [JSON validation and errors](#json-validation-and-errors)
 - [CSV export](#csv-export)
@@ -35,13 +36,15 @@ Import lives in **Settings → Data**; export lives beside it.
 
 | Action | API method | Dialog | Default name |
 | --- | --- | --- | --- |
-| Export full backup | `exportBackup()` | Save JSON | `~/Documents/wageroute-backup-YYYY-MM-DD.json` |
+| Export full backup | `exportBackup(passphrase)` | Choice of plain or sealed, then Save JSON | `~/Documents/wageroute-backup-YYYY-MM-DD.json`, or `wageroute-backup-<stamp>-encrypted.json` when sealed |
 | Export transactions CSV | `exportTransactionsCsv()` | Save CSV | `~/Documents/wageroute-transactions-YYYY-MM-DD.csv` |
-| Import data | `previewImport()` then `confirmImport(token, answers)` | Open JSON, CSV, OFX, QFX or QIF, then the wizard | — |
+| Import data | `previewImport()`, then `supplyPassphrase(token, phrase)` for a sealed file, then `confirmImport(token, answers)` | Open JSON, sealed JSON, CSV, OFX, QFX or QIF, then the wizard | — |
+
+A full backup is written `0600` — plain or sealed, since either holds the whole ledger — and both go through the same atomic write, so a crash mid-export leaves the previous file rather than a half-written one.
 
 The first-run dashboard offers **Start from scratch** or **Import a backup**; the second button opens the same wizard as Settings → Import data. There is no longer a single "pick a file and hope" import.
 
-The file picker accepts `.json`, `.csv`, `.ofx`, `.qfx` and `.qif`. `.ofx` and `.qfx` are read as statements (bank, card, loan or investment); `.qif` is read as a Quicken export; a `.csv` is an entry list when it has an Account column and a bank statement when it does not; anything else must be a JSON backup. The branch is chosen by the file extension, case-insensitively, with the CSV shape checked from its header. A file larger than **64 MiB** is rejected before parsing.
+The file picker accepts `.json`, `.csv`, `.ofx`, `.qfx` and `.qif`. `.ofx` and `.qfx` are read as statements (bank, card, loan or investment); `.qif` is read as a Quicken export; a `.csv` is an entry list when it has an Account column and a bank statement when it does not; anything else must be a JSON backup — plain, or an [encrypted envelope](#sealed-exports-the-envelope) the wizard will ask to open. The branch is chosen by the file extension, case-insensitively, with the CSV shape checked from its header. A file larger than **64 MiB** is rejected before parsing.
 
 Cancelling the file picker returns `null` and opens nothing. Cancelling the wizard leaves the database untouched.
 
@@ -60,6 +63,8 @@ The ledger's columns are `NOT NULL`, `STRICT` and `CHECK`-constrained, while a h
 3. **Review** — what will be imported, what you filled in (with the values), and only the rows you chose to leave out. An incomplete row is named once (up to three, with a count) in an alert that points back to **Missing info**, rather than also appearing under **Not imported**. A backup also names the date it was exported on, so the file you are about to merge can be checked against the one you meant to pick.
 
 Step 2 is skipped when nothing is missing, so a clean WageRoute backup is a one-click confirm.
+
+A file whose header says it is [sealed](#sealed-exports-the-envelope) replaces all three steps with an **Open an encrypted backup** panel: the file's name, the date it says it was written, one passphrase field, and nothing else — no row counts, no preview, no Import button. The typed phrase is handed to `supplyPassphrase(token, phrase)`, which opens the held bytes and returns the ordinary preview, so a correct phrase turns the panel into step 2 or 3 and the token stays alive. A wrong phrase keeps the panel and the text on screen; a file that is not a readable envelope at all gets the other sentence ("…the file itself is not one WageRoute can open. Choose a different file"), because those two failures need different next moves and the screen is not asked to match prose to tell them apart. **Opening a file writes nothing** — it only makes the preview countable; the import runs when you go on to press Import.
 
 ### What the wizard asks about
 
@@ -106,7 +111,7 @@ A backup is a single JSON object:
 ```json
 {
   "format": "cash-flow-routing-backup",
-  "version": 9,
+  "version": 10,
   "exportedAt": "2026-10-27T18:22:04.871Z",
   "tables": {
     "accounts": [],
@@ -128,7 +133,7 @@ A backup is a single JSON object:
 | Field | Required | Rule |
 | --- | --- | --- |
 | `format` | Yes | Must equal `cash-flow-routing-backup` |
-| `version` | Yes | Integer, 2 to 9, not greater than the current schema version |
+| `version` | Yes | Integer, 2 to 10 (the current `SCHEMA_VERSION`); a higher number is refused as *This backup came from a newer version* |
 | `exportedAt` | No | String; defaults to `""` when absent |
 | `tables` | Yes | Object containing table arrays |
 
@@ -145,7 +150,7 @@ Ten tables are exported and accepted. Each row carries the full column set below
 | `categories` | `id`, `user_id`, `name`, `kind`, `color`, `sort_order`, `created_at`, `updated_at`, `deleted_at`, `revision` |
 | `bills` | `id`, `user_id`, `name`, `amount_cents`, `frequency`, `due_day`, `category`, `account_id`, `autopay`, `is_active`, `next_due_on`, `funding_strategy`, `funding_paycheck_index`, `created_at`, `updated_at`, `deleted_at`, `revision` |
 | `bill_reserves` | `id`, `user_id`, `bill_id`, `paycheck_id`, `cycle`, `amount_cents`, `state`, `strategy`, `due_day`, `settled_by`, `created_at`, `updated_at`, `deleted_at`, `revision` |
-| `goals` | `id`, `user_id`, `name`, `target_cents`, `target_date`, `priority`, `color`, `account_id`, `is_emergency`, `is_archived`, `created_at`, `updated_at`, `deleted_at`, `revision` |
+| `goals` | `id`, `user_id`, `name`, `target_cents`, `target_date`, `priority`, `color`, `account_id`, `is_emergency`, `is_archived`, `funding_pace`, `created_at`, `updated_at`, `deleted_at`, `revision` |
 | `paychecks` | `id`, `user_id`, `amount_cents`, `received_on`, `source`, `deposit_account_id`, `priority_cents`, `surplus_cents`, `leisure_cents`, `health`, `created_at`, `updated_at`, `deleted_at`, `revision` |
 | `allocations` | `id`, `user_id`, `paycheck_id`, `bucket`, `goal_id`, `label`, `amount_cents`, `created_at`, `updated_at`, `deleted_at`, `revision` |
 | `transactions` | `id`, `user_id`, `account_id`, `kind`, `amount_cents`, `occurred_on`, `memo`, `category`, `category_id`, `external_id`, `bill_id`, `goal_id`, `paycheck_id`, `counter_account_id`, `transfer_group_id`, `round_up_source_id`, `created_at`, `updated_at`, `deleted_at`, `revision` |
@@ -167,7 +172,8 @@ It does **not** include:
 - the `users` row (display name, email and the legacy currency column);
 - the theme cache in `localStorage`;
 - the database file itself;
-- any indexes, triggers or schema metadata beyond `version`.
+- any indexes, triggers or schema metadata beyond `version`;
+- any key material — the wraps that open an encrypted ledger stay in `ledger.key.json`, and sealing a file adds an envelope *around* these tables rather than a column inside them.
 
 Because the user row is absent, restoring a backup into a fresh database still relies on the seeded local user. Display name is not carried across devices.
 
@@ -238,11 +244,77 @@ Anything else that is missing or unusable — no `name`, an out-of-range `due_da
 | `6` | Accepted; no `bill_reserves` rows, so the wall starts its receipts from the next route |
 | `7` | Accepted; no `categories` or `balance_snapshots` rows and no card terms, so the category list stays empty until an entry is written, the trend starts at the next launch, and the card rows show no amount due |
 | `8` | Accepted; no reserve `strategy`, `due_day` or `settled_by` values, so each restored claim takes its bill's strategy and due day and starts unlinked |
-| `9` | Accepted |
-| `> 9` | Rejected: “This backup came from a newer version (schema N)” |
+| `9` | Accepted; `goals.funding_pace` arrives as `asap`, which is the pre-v10 behaviour |
+| `10` | Accepted; the current `SCHEMA_VERSION` |
+| `> 10` | Rejected: “This backup came from a newer version (schema N)” |
 | Non-integer | Rejected: “Backup has no version number” |
 
 `bills.funding_strategy` is `NOT NULL` with a schema default, so it needs an entry in the importer's per-table defaults (`TABLE_DEFAULTS`): the importer lists every allowlisted column explicitly, and without the fallback an older file that omits the key would insert `NULL` and trip the constraint. That is the same failure fixed for `accounts.sort_order` in `2024f7f`, so the new column is covered by the same regression test rather than a new one.
+
+## Sealed exports (the envelope)
+
+A backup can leave the computer in one of two states, and **Export full backup** asks which before it asks where:
+
+| Choice | What is written | Readable by |
+| --- | --- | --- |
+| **Plain JSON** | the backup object above, as bytes | anyone holding the file, in any spreadsheet |
+| **Sealed with a passphrase** | the same JSON, encrypted, inside a small clear header | anyone who types the phrase |
+
+The two rules that shaped the format:
+
+- **Nothing about this file is kept by WageRoute.** There is no key file, no keychain entry and no reset. The phrase is used once to derive a key and then forgotten, so a lost one means this file stays shut for good. That is deliberately *not* the same promise the ledger's own custody makes — which is why sealing an export is offered separately from encrypting the ledger, and why the two are independent: an encrypted ledger exports plain JSON if asked to, and a plaintext ledger can write a sealed file.
+- **The KDF is chosen by the weakest reader.** The desktop's key file uses scrypt because Node has it and the desktop is the only reader. An envelope must open in a browser's WebCrypto too, and WebCrypto implements PBKDF2 and nothing memory-hard — so the cost is paid in rounds instead: 600 000 of PBKDF2-HMAC-SHA-256.
+
+### The file
+
+```json
+{
+  "format": "wageroute-envelope",
+  "version": 1,
+  "contains": "backup",
+  "exportedAt": "2026-11-04T09:12:44.517Z",
+  "kdf": "PBKDF2-SHA256",
+  "iterations": 600000,
+  "cipher": "AES-256-GCM",
+  "salt": "…16 bytes, base64…",
+  "iv": "…12 bytes, base64…",
+  "tag": "…16 bytes, base64…",
+  "ciphertext": "…the JSON above, base64…"
+}
+```
+
+Every parameter the reader needs is **in the clear**, including `exportedAt` — a folder of these files has to be sortable and recognisable without a passphrase. The header is not authenticated as additional data and does not need to be: the salt and the iteration count feed the derivation, so tampering with either changes the key and the GCM tag fails.
+
+| Field | Rule the reader enforces |
+| --- | --- |
+| `format` | `wageroute-envelope`; this is what `textIsEnvelope` tests before anything is parsed |
+| `version` | `1`. Higher is refused — a newer file is not guessed at |
+| `contains` | `backup`, the only thing an envelope carries |
+| `kdf`, `cipher` | exactly `PBKDF2-SHA256` and `AES-256-GCM` |
+| `iterations` | integer 100 000–2 000 000. The floor stops a hostile file asking for 1 round and handing back a key in microseconds; the ceiling stops a file making a person wait for a billion |
+| `exportedAt` | a parseable date, or the file is refused |
+| `salt` / `iv` / `tag` | 16 / 12 / 16 bytes **after decoding** — a base64 string can look right and decode short, and a truncated salt is exactly the damage that quietly changes a key |
+| `ciphertext` | non-empty, checked before decoding so an empty export is not reported as a broken encoding |
+| base64 | standard alphabet with padding, encoded and decoded in [`src/shared/envelope.ts`](../src/shared/envelope.ts) rather than delegated to `Buffer` or `btoa`, because a desktop has one and a phone has the other |
+
+A refusal is typed `shape` or `passphrase` (`EnvelopeFailure`), because the two need different sentences: one means choose a different file, the other means type again. A failed authentication tag cannot say which of them happened — the phrase is wrong *or* the file changed since it was written — and the message says exactly that rather than guessing.
+
+### Both devices, one format
+
+The shape, the validation and the base64 are shared; only the crypto is per platform, because a shared module that called either could not run in both.
+
+| Device | Module | Primitives |
+| --- | --- | --- |
+| Desktop | [`src/main/envelope.ts`](../src/main/envelope.ts) | `node:crypto` — `pbkdf2Sync`, `aes-256-gcm`, synchronous open |
+| Pocket | [`src/pocket/lib/envelope.ts`](../src/pocket/lib/envelope.ts) | `crypto.subtle` — the same derivation and cipher, async |
+
+The two halves are proved against each other rather than assumed compatible: `src/main/envelope.test.ts` seals on one platform and opens on the other in both directions, and `src/pocket/lib/sealed-store.test.ts` drives the phone's store with a sealed file and then opens that phone-written file with the desktop's Node reader. The sealed file's name (`wageroute-backup-<stamp>-encrypted.json`), its `exportedAt` header and the `exportedAt` inside the backup are all taken from the one moment, built **before** the save dialog opens, so the three timestamps cannot drift.
+
+The phrase itself is checked by `passphraseProblem(phrase, 'this export')` — the same rule that guards the ledger's custody passphrase, so the two cannot disagree about what counts: at least 10 characters, at most 1 024, not one character repeated, and no strength meter beyond that, because length is the only part an app can check. The sealed box is typed twice: a phrase nobody can type again correctly is only discovered when the file is needed.
+
+Pocket does more with the same format: it can also keep its own copy sealed in the browser ([`src/pocket/lib/vault.ts`](../src/pocket/lib/vault.ts), `wageroute-vault` v1), which is a different marker around a different record — a sealed *store*, not a sealed *export* — and needs a secure context to exist at all. See [POCKET.md](POCKET.md#sealing-this-phones-copy).
+
+The CSV is never sealed. [ADR 0017](decisions/0017-the-csv-is-a-review-copy.md) already defines it as a review copy rather than a restore path, and a format whose whole value is that a spreadsheet can open it does not gain from a passphrase.
 
 ---
 
@@ -336,7 +408,7 @@ IDs the file creates for itself count as known, so a partial file that ships its
 
 ## JSON validation and errors
 
-Whole-file problems are rejected in `data:preview`, before the wizard opens, and the database is never touched:
+A [sealed envelope](#sealed-exports-the-envelope) is recognised before any of this runs — the header test asks only whether the file says `wageroute-envelope` — so none of these messages can be the answer to a file that merely needs its passphrase. Whole-file problems are rejected in `data:preview`, before the wizard opens, and the database is never touched:
 
 | Condition | Message |
 | --- | --- |
@@ -405,6 +477,8 @@ The CSV is a spreadsheet view of the ledger, **not a backup**. It cannot round-t
 - Links are lost: `bill_id`, `goal_id`, `paycheck_id`, `counter_account_id` and `transfer_group_id` are not columns, so an imported row is never attached to a bill, a goal, a paycheck or a transfer.
 
 Use the JSON backup (Data → Export full backup) to move a ledger between profiles or to keep a recovery copy.
+
+The CSV has no sealed form. [ADR 0017](decisions/0017-the-csv-is-a-review-copy.md) defines it as a review copy, and a file whose value is that any spreadsheet opens it gains nothing from a passphrase. It is written `0600` like every other export, and it carries the same rows whoever reads it.
 
 ---
 
@@ -553,7 +627,7 @@ The wizard groups a bank statement's many `COFFSHOC *BREW BAR` lines into a sing
 
 Account names are not created automatically. Either map the lines onto an existing account in the wizard, or create an account with that exact name and import again — the second run matches by name and needs no mapping.
 
-A file with **no Account column at all** (see [Bank statements](#bank-statements-ofx-qfx-and-account-less-csv)) has no names to match against. The wizard asks one question for the whole file, with no pre-selected account, and **Import** stays disabled until you answer. This is the one path where nothing is placed in the dropdown for you: the account number in the file is not a local account's name, and a wrong guess would post money into the wrong balance.
+A file with **no Account column at all** (see [Bank statements](#bank-statements-and-qif-ofx-qfx-qif-and-account-less-csv)) has no names to match against. The wizard asks one question for the whole file, with no pre-selected account, and **Import** stays disabled until you answer. This is the one path where nothing is placed in the dropdown for you: the account number in the file is not a local account's name, and a wrong guess would post money into the wrong balance.
 
 Archived accounts are still eligible for matching because the lookup does not filter `is_archived`. Soft-deleted accounts are excluded. An account you mapped in the wizard and then deleted before confirming is reported per line (“was mapped to an account that no longer exists”) rather than aborting the import.
 
@@ -812,6 +886,15 @@ The header is found at row 4. Both rows import as entries. The first becomes an 
 - The single account question is unanswered, so **Import** is disabled. Choose *Chequing* and confirm.
 - Result: two entries added, one refused as a transfer. Re-importing the same file adds nothing and reports both as already present.
 
+### 11. A sealed backup, opened on the other device
+
+The desktop writes `wageroute-backup-20261104-091244-encrypted.json`; Pocket is served over `https://` on the same network and the file is handed to the phone.
+
+- Pocket recognises the header **before** it counts anything and shows the unlock sheet with the file's name and its date — no rows, because the rows are under the cipher.
+- The wrong phrase keeps the sheet and the text; the right one unwraps the same backup object this document describes and merges it by the same last-write-wins rules as a plain file. Nothing about the envelope reaches the tables: it is a wrapper, not a schema.
+- The same file on the desktop answers `data:preview` with `{ sealed, token, exportedAt }` and then the ordinary preview once `supplyPassphrase` opens it, so the wizard's row-repair questions are identical either way.
+- Importing it back into the ledger that wrote it changes nothing: every row is already there with the same ID and the same stamp.
+
 ---
 
 ## UI messages
@@ -836,6 +919,16 @@ When nothing was added:
 
 Problems raised before or during the run appear as error toasts with the main-process message verbatim: `That file is not valid JSON`, `That CSV has no usable entries`, `That statement has no usable transactions`, `That file has no transactions — is it an OFX or QFX statement?`, `That file is too large`, `That file could not be read`, and `That import has expired — pick the file again` when the token was evicted or already used.
 
+The sealed panel (`Open an encrypted backup`) says what it can see and nothing it cannot: the file's name, `encrypted WageRoute backup`, the date in its own header ("The file says it was written …"), and then one of two answers after a phrase is typed.
+
+| Outcome | What the screen says |
+| --- | --- |
+| Right phrase | the panel is replaced by the preview it unlocked — the wizard continues as if the file had never been sealed |
+| Wrong phrase, or a byte changed | `That passphrase does not open this file, or the file has been changed since it was written.` — stays in the same box, keeps what was typed |
+| A file that is not a readable envelope | `That is not a problem the passphrase can fix — the file itself is not one WageRoute can open. Choose a different file.` |
+
+The two failures are different codes (`PASSPHRASE` and `VALIDATION`, from `EnvelopeFailure`'s `passphrase` and `shape`), not different prose the screen has to recognise. Either way the held token survives the attempt: opening is a peek, and the import only runs on **Import**.
+
 ---
 
 ## Limits and cautions
@@ -849,10 +942,15 @@ Problems raised before or during the run appear as error toasts with the main-pr
 | Snapshot returned to the grid | 500 newest transactions |
 | CSV export rows | Every live transaction, not just the snapshot window |
 | JSON date range | Any valid date; no limit |
+| Sealed export — key stretching | PBKDF2-HMAC-SHA-256, 600 000 rounds by default |
+| Sealed export — rounds a reader will honour | 100 000 to 2 000 000; anything else is refused before any crypto runs |
+| Sealed export — field sizes | salt 16, IV 12, tag 16, key 32 bytes |
 
 Cautions:
 
-- Backups contain your complete financial history in plain text. Store them somewhere you would store a bank statement.
+- A **plain** backup contains your complete financial history in readable JSON. Store it somewhere you would store a bank statement, or export it sealed.
+- A **sealed** backup is protected by one passphrase and nothing else. WageRoute keeps no copy of it, there is no reset, and the phrase that opens the ledger on this computer does not open the file unless you typed the same one. Anyone holding the file can test guesses offline at their own speed, which is why the minimum is 10 characters and why the box is typed twice.
+- Sealing is not the same switch as encrypting the ledger. An encrypted ledger still offers a plain export, and a plain ledger still offers a sealed one ([ADR 0029](decisions/0029-encryption-is-a-choice-on-the-disk-and-on-the-way-out.md)).
 - Imported JSON preserves IDs. Importing two installations into one database creates duplicate accounts and goals with the same names but different IDs.
 - CSV import does not create missing accounts, link bills or goals, or reconstruct transfers.
 - Bank statement import stores `FITID` for dedupe and compares the closing balance on its closing day, offering one adjustment; the sign of each line is taken as the statement wrote it. Only the closing balance is converted for a card account. See [what is not supported](#what-is-not-supported).

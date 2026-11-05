@@ -20,10 +20,13 @@ import type { AppDiagnostics, LegalTexts, StorageCandidate, StorageLocationInfo 
 import { PAY_CADENCE_LABEL } from '@shared/cadence'
 import { isISODate } from '@shared/dates'
 import { eraseAllWords } from '@shared/deletion'
+import { describeDiagnostics } from '@shared/diagnostics'
 import { apiErrorMessage } from '@shared/errors'
+import { passphraseProblem } from '@shared/encryption'
 import { currencySymbol, formatMoney } from '@shared/money'
 import type { PayCadence, RoundUpIncrementCents, ThemePreference } from '@shared/types'
 import { roundUpRemainderCents } from '@shared/transfers'
+import { EncryptionCard, PhraseFields } from '../components/EncryptionCard'
 import { Button, Card, Field, Modal, Segmented, Switch } from '../components/ui'
 import { fundableAccounts } from '../lib/finance'
 import { useFinanceStore } from '../store/useFinanceStore'
@@ -58,33 +61,12 @@ const CURRENCIES: { code: string; label: string }[] = [
 
 const CADENCES = Object.keys(PAY_CADENCE_LABEL) as PayCadence[]
 
-/** The text behind Copy diagnostics: no balances, no names, just the shape. */
-function describeDiagnostics(info: AppDiagnostics): string {
-  const counts = Object.entries(info.counts)
-    .map(([table, rows]) => `  ${table}: ${rows}`)
-    .join('\n')
-  return [
-    `WageRoute ${info.version}`,
-    `Generated: ${info.generatedAt}`,
-    `Schema: v${info.schemaVersion}`,
-    `Electron ${info.electron} · Chrome ${info.chrome} · Node ${info.node}`,
-    `Platform: ${info.platform} ${info.arch} (${info.packaged ? 'packaged' : 'development'})`,
-    `Database: ${info.databasePath} (${(info.databaseBytes / 1024).toFixed(1)} kB)`,
-    `Backups: ${info.backupsPath}`,
-    `Log: ${info.logPath}`,
-    info.logTail ? `Last log lines:\n${info.logTail}` : 'Log: no entries',
-    'Row counts:',
-    counts
-  ].join('\n')
-}
-
 export function Settings() {
   const settings = useFinanceStore((state) => state.settings)
   const snapshot = useFinanceStore((state) => state.snapshot)
   const busy = useFinanceStore((state) => state.busy)
   const saveSettings = useFinanceStore((state) => state.saveSettings)
   const setDisplayName = useFinanceStore((state) => state.setDisplayName)
-  const exportBackup = useFinanceStore((state) => state.exportBackup)
   const exportCsv = useFinanceStore((state) => state.exportCsv)
   const openImport = useFinanceStore((state) => state.openImport)
   const resetData = useFinanceStore((state) => state.resetData)
@@ -92,6 +74,7 @@ export function Settings() {
   const dbPath = useFinanceStore((state) => state.dbPath)
   const appInfo = useFinanceStore((state) => state.appInfo)
   const [eraseStep, setEraseStep] = useState<0 | 1 | 2>(0)
+  const [exportOpen, setExportOpen] = useState(false)
   const displayName = snapshot?.user.displayName ?? ''
   const [nameDraft, setNameDraft] = useState(displayName)
   const [nameBusy, setNameBusy] = useState(false)
@@ -516,10 +499,10 @@ export function Settings() {
           <div className="data-actions">
             <Button
               icon={<Download size={15} />}
-              onClick={() => void exportBackup()}
+              onClick={() => setExportOpen(true)}
               disabled={busy}
             >
-              Export full backup
+              Export full backup…
             </Button>
             <Button
               icon={<FileSpreadsheet size={15} />}
@@ -538,12 +521,15 @@ export function Settings() {
           </div>
           <p className="field-hint">
             A JSON backup holds accounts, bills, goals, paychecks, allocations, transactions and
-            every setting — it can be a full backup or just a few tables. The transactions CSV is
-            for reviewing the ledger in a spreadsheet, not a backup: it writes a transfer as two
-            rows and cannot rebuild them on import, and it carries neither the currency nor the
-            links between records. Use the JSON backup to move data between profiles. Importing
-            merges by record: what changed more recently on either side wins, a delete recorded
-            more recently is applied, and a record left alone in the file is left alone here.
+            every setting — it can be a full backup or just a few tables. Exporting offers the file
+            two ways: plain JSON, which any spreadsheet opens, and the same contents sealed under a
+            passphrase, which WageRoute on the phone opens with that phrase and nobody else can read
+            without it. The transactions CSV is for reviewing the ledger in a spreadsheet, not a
+            backup: it writes a transfer as two rows and cannot rebuild them on import, and it
+            carries neither the currency nor the links between records. Use the JSON backup to move
+            data between profiles. Importing merges by record: what changed more recently on either
+            side wins, a delete recorded more recently is applied, and a record left alone in the
+            file is left alone here.
           </p>
           <p className="db-path" title={dbPath}>
             {dbPath}
@@ -614,6 +600,8 @@ export function Settings() {
             </p>
           )}
         </Card>
+
+        <EncryptionCard />
 
         <Card
           title="Emergency fund"
@@ -692,8 +680,9 @@ export function Settings() {
           actions={<Info size={16} className="stat-icon" />}
         >
           <p className="field-hint">
-            Version, runtime, file paths, the end of the crash log and how many rows each table
-            holds. No account names, amounts or settings leave this machine unless you copy them.
+            Version, runtime, file paths, whether the ledger on disk is ciphertext, the end of the
+            crash log and how many rows each table holds. No account names, amounts or settings leave
+            this machine unless you copy them, and a report never carries a key or a passphrase.
           </p>
           <div className="data-actions">
             <Button icon={copied ? <ClipboardCheck size={15} /> : <Copy size={15} />} onClick={() => void copyDiagnostics()} disabled={busy}>
@@ -737,6 +726,8 @@ export function Settings() {
           </p>
         </Card>
       </div>
+
+      {exportOpen && <ExportBackupDialog onClose={() => setExportOpen(false)} />}
 
       {storageCandidate && (
         <Modal
@@ -927,5 +918,105 @@ export function Settings() {
         </Modal>
       )}
     </>
+  )
+}
+
+/**
+ * The choice behind "Export full backup". Both ways are offered every time,
+ * because which one is right depends on where the file is going next — a folder
+ * only this person sees, or an email to themselves — and the app cannot know.
+ */
+export function ExportBackupDialog({ onClose }: { onClose: () => void }) {
+  const busy = useFinanceStore((state) => state.busy)
+  const exportBackup = useFinanceStore((state) => state.exportBackup)
+  const [sealed, setSealed] = useState(false)
+  const [passphrase, setPassphrase] = useState('')
+  const [again, setAgain] = useState('')
+  const [visible, setVisible] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [working, setWorking] = useState(false)
+
+  const run = async (): Promise<void> => {
+    if (!sealed) {
+      onClose()
+      await exportBackup(null)
+      return
+    }
+    const problem = passphraseProblem(passphrase, 'this export')
+    if (problem) {
+      setError(problem)
+      return
+    }
+    // The second box exists for one mistake: a phrase nobody can type again
+    // correctly is only discovered when the file is needed.
+    if (passphrase !== again) {
+      setError('The two do not match. Type it once more in the second box.')
+      return
+    }
+    setWorking(true)
+    await exportBackup(passphrase)
+    setWorking(false)
+    onClose()
+  }
+
+  return (
+    <Modal
+      title="Export full backup"
+      subtitle="A JSON file with every table in this ledger"
+      onClose={() => (working ? undefined : onClose())}
+      wide
+      footer={
+        <>
+          <Button variant="quiet" onClick={onClose} disabled={working} autoFocus>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={() => void run()} disabled={busy || working}>
+            {working ? 'Sealing…' : 'Choose where to save'}
+          </Button>
+        </>
+      }
+    >
+      <Segmented
+        label="How readable should this file be"
+        options={[
+          { value: 'plain', label: 'Plain JSON' },
+          { value: 'sealed', label: 'Sealed with a passphrase' }
+        ]}
+        value={sealed ? 'sealed' : 'plain'}
+        onChange={(value) => {
+          setSealed(value === 'sealed')
+          setError(null)
+        }}
+      />
+      <p className="field-hint">
+        {sealed
+          ? 'The contents are sealed with AES-256-GCM under a key stretched from the passphrase, and the file says so in its name. WageRoute on the phone opens it with the same phrase. Anyone holding the file can keep testing guesses at their own speed offline, which is why the phrase has to be a phrase.'
+          : 'Anyone who can read this file can read the whole ledger in any spreadsheet. That is the right answer for a copy that never leaves this computer, and the wrong one for anything else.'}
+      </p>
+      {sealed && (
+        <>
+          <PhraseFields
+            visible={visible}
+            onToggle={() => setVisible((now) => !now)}
+            passphrase={passphrase}
+            again={again}
+            onPassphrase={(value) => {
+              setPassphrase(value)
+              setError(null)
+            }}
+            onAgain={(value) => {
+              setAgain(value)
+              setError(null)
+            }}
+            error={error ?? undefined}
+          />
+          <p className="field-hint">
+            Nothing in WageRoute can recover this phrase: it is used once to seal the file and then
+            forgotten, and it is not the passphrase that opens the ledger on this computer unless you
+            type the same one.
+          </p>
+        </>
+      )}
+    </Modal>
   )
 }

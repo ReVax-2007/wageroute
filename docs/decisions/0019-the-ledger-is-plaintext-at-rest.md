@@ -1,9 +1,11 @@
 # 0019. The ledger is plaintext at rest
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR 0029](0029-encryption-is-a-choice-on-the-disk-and-on-the-way-out.md) (2026-11-04)
 - **Date:** 2026-10-31
 - **Deciders:** Project owner
 - **Related:** [ADR 0001](0001-local-first-desktop.md), [ADR 0020](0020-there-is-no-app-lock.md), [SECURITY.md](../SECURITY.md)
+
+> *Historical record.* [ADR 0029](0029-encryption-is-a-choice-on-the-disk-and-on-the-way-out.md) supersedes the first line of this decision: encryption at rest and an encrypted export now exist, opt-in, reversible, and with a choice of key custody. What still stands is the default — a ledger is plaintext until its owner turns encryption on, the operating system is still the boundary for anyone who never does, and every control listed under "the app does what it can cheaply" is unchanged. The rest of this record is kept as it was written; read 0029 for current behaviour.
 
 ## Context
 

@@ -1,6 +1,6 @@
 {
   "name": "wageroute",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "private": true,
   "description": "Zero-based paycheck routing for the desktop.",
   "main": "./out/main/index.js",
@@ -25,7 +25,7 @@
     "lint": "node scripts/lint.mjs",
     "notices": "node scripts/third-party-notices.mjs",
     "prebuild": "node scripts/third-party-notices.mjs",
-    "test": "node --import tsx --test src/shared/dates.test.ts src/shared/money.test.ts src/shared/emergency.test.ts src/shared/adjustments.test.ts src/shared/errors.test.ts src/shared/domain.test.ts src/shared/allocator.property.test.ts src/shared/cadence.test.ts src/shared/occurrences.test.ts src/shared/accounts.test.ts src/shared/backup-example.test.ts src/shared/backup-merge.test.ts src/shared/importRepair.test.ts src/shared/tableMerge.test.ts src/shared/kinds.test.ts src/shared/writeRules.test.ts src/shared/deletion.test.ts src/shared/csv.test.ts src/shared/statements.test.ts src/shared/qif.test.ts src/shared/categories.test.ts src/shared/credit.test.ts src/shared/payoff.test.ts src/shared/history.test.ts src/preload/api.test.ts src/main/db/entries.test.ts src/main/db/export-roundtrip.test.ts src/main/db/device-round-trip.test.ts src/main/db/dedicated-accounts.test.ts src/main/db/migrations.test.ts src/main/db/reserves.test.ts src/main/db/legacy.test.ts src/main/db/maintenance.test.ts src/main/db/ledger-guards.test.ts src/main/db/entry-links.test.ts src/main/db/reconciliation.test.ts src/main/db/paycheck-plan.test.ts src/main/db/seed.test.ts src/main/db/users.test.ts src/main/db/product-model.test.ts src/main/files.test.ts src/main/window-security.test.ts src/main/storage.test.ts src/renderer/src/lib/finance.test.ts src/renderer/src/store/selectors.test.ts src/renderer/src/components/ui.dialog.test.ts src/renderer/src/components/ImportWizard.test.ts src/renderer/src/components/BillPrompts.test.ts src/renderer/src/components/dialogs/EntryDialog.test.ts src/renderer/src/components/dialogs/ReconcileStatementDialog.test.ts src/renderer/src/screens/Allocator.test.ts src/renderer/src/screens/PriorityWall.test.ts src/pocket/lib/snapshot.test.ts src/pocket/lib/backup.test.ts src/pocket/lib/write.test.ts",
+    "test": "node --import tsx --test src/shared/dates.test.ts src/shared/money.test.ts src/shared/emergency.test.ts src/shared/adjustments.test.ts src/shared/errors.test.ts src/shared/domain.test.ts src/shared/allocator.property.test.ts src/shared/cadence.test.ts src/shared/occurrences.test.ts src/shared/accounts.test.ts src/shared/backup-example.test.ts src/shared/backup-merge.test.ts src/shared/importRepair.test.ts src/shared/tableMerge.test.ts src/shared/kinds.test.ts src/shared/writeRules.test.ts src/shared/deletion.test.ts src/shared/claims.test.ts src/shared/csv.test.ts src/shared/statements.test.ts src/shared/qif.test.ts src/shared/categories.test.ts src/shared/credit.test.ts src/shared/payoff.test.ts src/shared/history.test.ts src/shared/encryption.test.ts src/shared/envelope.test.ts src/shared/diagnostics.test.ts src/preload/api.test.ts src/main/envelope.test.ts src/main/db/custody.test.ts src/main/db/entries.test.ts src/main/db/encryption.test.ts src/main/db/export-roundtrip.test.ts src/main/db/device-round-trip.test.ts src/main/db/dedicated-accounts.test.ts src/main/db/migrations.test.ts src/main/db/reserves.test.ts src/main/db/legacy.test.ts src/main/db/ledger-key.test.ts src/main/db/unlock.test.ts src/main/db/maintenance.test.ts src/main/db/ledger-guards.test.ts src/main/db/entry-links.test.ts src/main/db/reconciliation.test.ts src/main/db/paycheck-plan.test.ts src/main/db/seed.test.ts src/main/db/users.test.ts src/main/db/product-model.test.ts src/main/files.test.ts src/main/log.test.ts src/main/window-security.test.ts src/main/window-load.test.ts src/main/storage.test.ts src/renderer/src/lib/finance.test.ts src/renderer/src/store/selectors.test.ts src/renderer/src/components/ui.dialog.test.ts src/renderer/src/components/ImportWizard.test.ts src/renderer/src/components/BillPrompts.test.ts src/renderer/src/components/dialogs/EntryDialog.test.ts src/renderer/src/components/dialogs/ReconcileStatementDialog.test.ts src/renderer/src/screens/Allocator.test.ts src/renderer/src/screens/PriorityWall.test.ts src/renderer/src/screens/Settings.export.test.ts src/renderer/src/screens/Transfers.test.ts src/pocket/lib/snapshot.test.ts src/pocket/lib/claims-parity.test.ts src/pocket/lib/backup.test.ts src/pocket/components/seal-ui.test.ts src/pocket/lib/sealed-store.test.ts src/pocket/lib/vault.test.ts src/pocket/lib/vault-store.test.ts src/pocket/components/vault-ui.test.ts src/pocket/lib/write.test.ts",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "tsc --noEmit -p tsconfig.json",
     "typecheck:pocket": "tsc --noEmit -p src/pocket/tsconfig.json",
@@ -41,7 +41,7 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
-    "better-sqlite3": "^13.0.3",
+    "better-sqlite3-multiple-ciphers": "^13.0.3",
     "lucide-react": "^1.62.0",
     "react": "^19.3.1",
     "react-data-grid": "^7.0.0-beta.63",
@@ -49,7 +49,6 @@
     "zustand": "^5.0.16"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^9.6.0",
     "@types/jsdom": "^30.0.0",
     "@types/node": "^24.9.0",
     "@types/react": "^19.3.0",

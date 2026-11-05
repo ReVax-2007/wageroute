@@ -1,4 +1,5 @@
 import type { ImportTables } from '@shared/importRepair'
+import { looksSealed, type SealedCopy } from './vault'
 
 /** One record holds the whole ledger; a backup is small enough for that. */
 export interface StoredLedger {
@@ -11,6 +12,19 @@ export interface StoredLedger {
   sourceName: string
   localIds: string[]
 }
+
+/**
+ * What the one record holds: the ledger as it was written, or the same fields
+ * sealed under this phone's vault.
+ *
+ * It is one record and one key because there is one ledger, and it is a union
+ * rather than a new store because turning the vault on or off has to be a single
+ * read-and-write over the data that is already there. A record whose `vault` says
+ * which format it is lets that happen without a schema change — and without the
+ * plaintext copy ever existing beside the sealed one, even for the moment a write
+ * is in flight.
+ */
+export type StoredCopy = StoredLedger | SealedCopy
 
 const DB_NAME = 'wageroute-pocket'
 const DB_VERSION = 1
@@ -76,13 +90,22 @@ function run<T>(mode: IDBTransactionMode, task: (store: IDBObjectStore) => IDBRe
   )
 }
 
-export async function readLedger(): Promise<StoredLedger | null> {
-  const value = await run<StoredLedger | undefined>('readonly', (store) => store.get(KEY))
-  if (!value || typeof value !== 'object' || !value.tables) return null
+/**
+ * Read the record without opening anything. A sealed copy stays sealed here: the
+ * store is the only place that knows a passphrase was just typed, and a reader that
+ * decrypted on its own would be holding a key nobody asked it for.
+ */
+export async function readLedger(): Promise<StoredCopy | null> {
+  const value = await run<StoredCopy | undefined>('readonly', (store) => store.get(KEY))
+  if (!value || typeof value !== 'object') return null
+  if (looksSealed(value)) return value
+  // An object from storage is not a ledger just because it is present: a record
+  // missing its rows means this phone has nothing to show.
+  if (!('tables' in value) || !value.tables) return null
   return value
 }
 
-export async function writeLedger(value: StoredLedger): Promise<void> {
+export async function writeLedger(value: StoredCopy): Promise<void> {
   await run('readwrite', (store) => store.put(value, KEY))
 }
 

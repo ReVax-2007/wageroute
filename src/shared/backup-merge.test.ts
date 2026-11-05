@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 import test from 'node:test'
 import { parseEntriesCsv, type CsvEntry } from '@shared/csv'
 import { buildBackup, mergeBackup, TABLE_COLUMNS, TABLE_DEFAULTS, type BackupPayload } from '../main/db/backup'

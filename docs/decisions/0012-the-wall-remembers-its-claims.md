@@ -82,6 +82,7 @@ Without an anchor the wall falls back to day-of-month slots, and a bill whose du
 
 - Backup format version rises to 7 because `SCHEMA_VERSION` does, and `bill_reserves` is added to the table list. Old files import with an empty table.
 - Schema 9 adds `strategy`, `due_day` and `settled_by` to the table and raises the backup version to 9. A restored row without a stated strategy or due day takes its bill's values, falling back to `all_checks` and `1`; that is the only reading available for files written before the columns existed. The v9 migration backfills live rows the same way, so no amount or state changes.
+- [ADR 0028](0028-both-devices-derive-a-bills-set-aside-from-its-payments.md) moved this derivation out of `reconcileBillReserve`'s SQL and into one pure module, `src/shared/claims.ts`, so the phone runs the same walk instead of reading the stored state. The rule is unchanged; where it lives is not, and `src/pocket/lib/claims-parity.test.ts` now pins that the two devices still reach the same state on the same money.
 - The migration deletes three settings rows no released build read; schema 7 therefore has one visible side effect outside the new table, documented in the changelog.
 - `idx_transactions_user_date` is rebuilt in the same migration so the month query used to compute the cycle stays indexed.
 
