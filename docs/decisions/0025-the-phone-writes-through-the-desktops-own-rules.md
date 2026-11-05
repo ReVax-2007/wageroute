@@ -20,7 +20,7 @@ There is also a browser limit worth stating. The phone has no transaction: it re
 4. **Refusals land before anything is written.** Each writer takes the current tables and returns new ones, so a rule violated halfway through throws while the phone still holds the ledger it had. The store commits only after the writer returns.
 5. **Stamps follow the desktop's arithmetic.** `stampAfter` never moves a timestamp backwards and always bumps `revision`, so a merge on either side sees a genuinely newer row (ADR 0024) rather than a tie.
 6. **Destructive taps ask first, in the desktop's words.** Deleting a bill, a goal, an account or an entry on the phone opens the same question the desktop's confirm dialog shows for the same row — including the sentences about payment history, the month's set-aside, the other leg of a transfer, and the offer to archive an account instead of deleting it — with *Keep it* as the default action.
-7. **What the phone will not do stays out of reach.** Paychecks, allocations, reserves, the routing plan and settings are desktop actions; the phone has no writer for them, so it cannot half-write one.
+7. **What the phone will not do stays out of reach.** Paychecks, allocations, the routing plan and settings are desktop actions; the phone has no writer for them, so it cannot half-write one. *(A paycheck's set-aside was on this list until [ADR 0028](0028-both-devices-derive-a-bills-set-aside-from-its-payments.md): the phone still never writes a `bill_reserves` row, but it now rewrites the state of the ones it was given, from the payments it holds.)*
 
 ## Consequences
 

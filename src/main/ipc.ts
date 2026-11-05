@@ -11,7 +11,7 @@ import { readFileSync, statSync } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import { join, basename } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import type Database from 'better-sqlite3'
+import type Database from 'better-sqlite3-multiple-ciphers'
 import type {
   ImportDroppedRow,
   ImportIssue,
@@ -28,7 +28,15 @@ import {
 } from '@shared/channels'
 import { parseEntriesCsv, transactionsToCsv, type CsvEntry } from '@shared/csv'
 import { addDaysISO, isISODate, todayISO } from '@shared/dates'
+import {
+  passphraseProblem,
+  type CustodyMethod,
+  type EnableEncryptionRequest,
+  type EncryptionStatus,
+  type KeyCustodyChange
+} from '@shared/encryption'
 import { encodeError, RepositoryError } from '@shared/errors'
+import { EnvelopeError, parseEnvelope, textIsEnvelope } from '@shared/envelope'
 import {
   applyImportAnswers,
   buildAccountMap,
@@ -67,10 +75,19 @@ import type {
   TransactionPatch,
   TransactionRowsPatch
 } from '@shared/types'
-import { backupsPath, closeDatabase, databasePath, storageLocation } from './db/connection'
+import { backupsPath, closeDatabase, databasePath, ledgerDataKey, storageLocation } from './db/connection'
+import {
+  changeKeyCustody,
+  disableEncryption,
+  enableEncryption,
+  readEncryptionStatus,
+  type DeviceKeychain
+} from './db/custody'
+import { deviceCustodyAvailable, openWithDevice, sealForDevice } from './db/device-custody'
 import { DB_FILE } from './db/legacy'
 import {
   backupFileAside,
+  copyKeyFile,
   copyLedgerInto,
   copyLedgerToBackups,
   describeStorageCandidate,
@@ -78,7 +95,7 @@ import {
   writeStoragePointer
 } from './storage'
 import { backupBeforeErase } from './db/maintenance'
-import { logPath, recentLogTail } from './log'
+import { logCrash, logPath, recentLogTail } from './log'
 import {
   backupToJson,
   buildBackup,
@@ -90,6 +107,7 @@ import { mergeEntries } from './db/entries'
 import { SCHEMA_VERSION } from './db/migrations'
 import { seedDemoIfEmpty, seedIfEmpty } from './db/seed'
 import { writeFileAtomic } from './files'
+import { exportFileOf, openEnvelopeFileText } from './envelope'
 import { isTrustedPageUrl } from './window-security'
 import * as repo from './db/repositories'
 
@@ -110,6 +128,84 @@ function relaunchSoon(): void {
 function requireId(value: unknown): string {
   if (typeof value !== 'string' || value.length === 0) throw new Error('Invalid id')
   return value
+}
+
+/**
+ * The keychain, handed to the custody module rather than imported by it: the
+ * ledger code stays free of Electron, and this is the one place that knows
+ * `safeStorage` is what sits behind "this computer".
+ */
+const deviceKeychain: DeviceKeychain = {
+  available: deviceCustodyAvailable,
+  seal: sealForDevice,
+  open: openWithDevice
+}
+
+function encryptionFolder(): { dataDirectory: string; ledgerFile: string } {
+  return { dataDirectory: storageLocation().directory, ledgerFile: databasePath() }
+}
+
+function encryptionStatus(): EncryptionStatus {
+  return readEncryptionStatus({ ...encryptionFolder(), deviceAvailable: deviceCustodyAvailable() })
+}
+
+const CUSTODY_METHODS: readonly CustodyMethod[] = ['device', 'passphrase', 'both']
+
+/**
+ * Checked on the wire before the ledger is opened at all, because the cheapest
+ * way to fail a five-second page rewrite is to mistype the phrase that gates it.
+ */
+function enableRequestOf(raw: unknown): EnableEncryptionRequest {
+  const source = (raw && typeof raw === 'object' ? raw : {}) as Partial<EnableEncryptionRequest>
+  const custody = source.custody as CustodyMethod | undefined
+  if (!custody || !CUSTODY_METHODS.includes(custody)) {
+    throw new RepositoryError('VALIDATION', 'Choose how the key should be held.', 'custody')
+  }
+  const passphrase = typeof source.passphrase === 'string' ? source.passphrase : ''
+  if (custody === 'passphrase' || custody === 'both') {
+    const problem = passphraseProblem(passphrase)
+    if (problem) throw new RepositoryError('VALIDATION', problem, 'passphrase')
+  }
+  return { custody, passphrase }
+}
+
+function custodyChangeOf(raw: unknown): KeyCustodyChange {
+  const source = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const text = (value: unknown): string => (typeof value === 'string' ? value : '')
+  const action = text(source.action)
+  switch (action) {
+    case 'add-device':
+    case 'remove-device':
+    case 'remove-passphrase':
+      return { action }
+    case 'add-passphrase':
+      return { action, passphrase: text(source.passphrase) }
+    case 'change-passphrase':
+      return { action, current: text(source.current), next: text(source.next) }
+    default:
+      throw new RepositoryError('VALIDATION', 'That is not a way of holding the key.', 'action')
+  }
+}
+
+/**
+ * A transition that failed left the ledger exactly as it was — but this app's
+ * handle was closed to attempt it, and every ledger handler is bound to that
+ * handle, so the way back is the normal boot path. The reason has to be read
+ * before the window goes, which is why this waits for the user.
+ */
+async function reportEncryptionFailure(
+  window: BrowserWindow | null,
+  title: string,
+  detail: unknown
+): Promise<void> {
+  const options = {
+    type: 'error' as const,
+    title,
+    message: detail instanceof Error ? detail.message : String(detail),
+    detail: 'WageRoute will now restart and open the ledger as it stands on disk.',
+    buttons: ['OK']
+  }
+  await (window ? dialog.showMessageBox(window, options) : dialog.showMessageBox(options))
 }
 
 /** A signed whole number of cents; a float here would silently round an adjustment. */
@@ -301,6 +397,8 @@ interface PendingImport {
   path: string
   format: 'backup' | 'entries'
   exportedAt: string
+  /** A sealed file's text, held until a passphrase turns it into a payload. */
+  sealed?: string
   payload?: BackupPayload
   entries?: CsvEntry[]
   parseIssues?: ImportIssue[]
@@ -389,6 +487,38 @@ function importContext(
     for (const choice of choices[table]) knownIds[table].add(choice.id)
   }
   return withFileIds({ knownIds, choices, today: todayISO() }, payload.tables)
+}
+
+/**
+ * The preview for a backup's JSON text, whether it came from a plain file or
+ * from an envelope that has just opened. It fills the entry the token already
+ * holds, so the confirm step cannot tell the two readers apart.
+ */
+function backupPreviewOf(
+  database: Database.Database,
+  localUserId: string,
+  path: string,
+  text: string,
+  token: string
+): ImportPreview {
+  const payload = parseBackupJson(text)
+  const context = importContext(database, localUserId, payload)
+  // Keep the questions the user was shown. Confirm re-derives them against the
+  // live ledger; anything new means the two screens disagree, and a row must not
+  // be dropped just because the database changed in between.
+  const problems = findImportProblems(payload.tables, context)
+  pendingImports.set(token, { path, format: 'backup', exportedAt: payload.exportedAt, payload, problems })
+  const rows = emptyImportCounts()
+  for (const table of IMPORT_TABLES) rows[table] = payload.tables[table].length
+  return {
+    token,
+    path,
+    format: 'backup',
+    exportedAt: payload.exportedAt,
+    fileRows: rows,
+    problems,
+    choices: context.choices
+  }
 }
 
 function entryProblem(mapping: EntryMapping): ImportProblem {
@@ -517,6 +647,7 @@ export function registerIpcHandlers(db: Database.Database): void {
       packaged: app.isPackaged,
       databasePath: file,
       databaseBytes: bytes,
+      encryption: encryptionStatus(),
       backupsPath: backupsPath(),
       logPath: logPath(),
       logTail: recentLogTail(),
@@ -563,11 +694,17 @@ export function registerIpcHandlers(db: Database.Database): void {
     }
     const userData = app.getPath('userData')
     const plan = planStorageMove(userData, directory, mode)
+    const from = storageLocation().directory
     if (plan.mode === 'move') {
       // Both copies are required: one in the old folder so a switch can be
       // undone, one in the new folder so it opens with the same ledger.
-      await copyLedgerToBackups(db, storageLocation().directory)
-      await copyLedgerInto(db, plan.directory)
+      await copyLedgerToBackups(db, from)
+      await copyLedgerInto(db, plan.directory, ledgerDataKey())
+      // A ledger and its key file are two halves of one thing; the new folder
+      // needs both or it holds nothing but unreadable bytes. Only a move carries
+      // a ledger, so only a move carries a key — `adopt` must not overwrite the
+      // key file the folder it is taking over already has.
+      copyKeyFile(from, plan.directory)
     }
     writeStoragePointer(userData, plan.directory)
     // The running handle still points at the old file. Stop touching it, then
@@ -584,12 +721,66 @@ export function registerIpcHandlers(db: Database.Database): void {
     }
     // Returning is a move too: the ledger now in use becomes the local one, and
     // the local file it replaces is kept aside first.
+    const from = storageLocation().directory
     backupFileAside(join(userData, DB_FILE), userData, 'pre-return')
-    await copyLedgerInto(db, userData)
+    await copyLedgerInto(db, userData, ledgerDataKey())
+    copyKeyFile(from, userData)
     writeStoragePointer(userData, null)
     closeDatabase()
     relaunchSoon()
     return { directory: userData, restartRequired: true as const }
+  })
+
+  handle('encryption:status', () => encryptionStatus())
+
+  handle('encryption:enable', async (event, request: unknown) => {
+    const choice = enableRequestOf(request)
+    const folder = encryptionFolder()
+    // Closed first, because the transition is the only thing allowed to hold the
+    // file: while this session keeps it open in WAL, a second connection cannot
+    // change the journal mode the rekey needs, and a rekey that half-happens is
+    // the failure this whole path is built to avoid.
+    closeDatabase()
+    try {
+      const outcome = enableEncryption({ ...folder, ...choice, keychain: deviceKeychain })
+      relaunchSoon()
+      return { applied: true, rows: outcome.rows, restartRequired: true as const }
+    } catch (error) {
+      logCrash('encryption-enable', error)
+      await reportEncryptionFailure(ownerWindow(event), 'Encryption did not turn on', error)
+      relaunchSoon()
+      return { applied: false, rows: 0, restartRequired: true as const }
+    }
+  })
+
+  handle('encryption:disable', async (event) => {
+    const folder = encryptionFolder()
+    // Read before the close: the session key is dropped with the handle, and the
+    // only way to turn encryption off is to be holding the key it went on with.
+    const dataKey = ledgerDataKey()
+    closeDatabase()
+    try {
+      const outcome = disableEncryption({ ...folder, dataKey })
+      relaunchSoon()
+      return { applied: true, rows: outcome.rows, restartRequired: true as const }
+    } catch (error) {
+      logCrash('encryption-disable', error)
+      await reportEncryptionFailure(ownerWindow(event), 'Encryption did not turn off', error)
+      relaunchSoon()
+      return { applied: false, rows: 0, restartRequired: true as const }
+    }
+  })
+
+  handle('encryption:custody', (_event, change: unknown) => {
+    // No `closeDatabase`, no restart: re-wrapping the key touches 32 bytes in a
+    // sidecar, not a page of the ledger, so the session carries on underneath it.
+    changeKeyCustody({
+      ...encryptionFolder(),
+      dataKey: ledgerDataKey(),
+      change: custodyChangeOf(change),
+      keychain: deviceKeychain
+    })
+    return encryptionStatus()
   })
 
   handle('user:set-name', (_event, name: unknown) =>
@@ -776,20 +967,37 @@ export function registerIpcHandlers(db: Database.Database): void {
     })
   )
 
-  handle('backup:export', async (event) => {
+  handle('backup:export', async (event, passphrase) => {
+    // `null` is the plain backup the button has always written. A phrase here is
+    // checked by the same rule the ledger's own custody uses, so the two cannot
+    // disagree about what counts as a passphrase.
+    const sealed = passphrase !== null
+    if (sealed) {
+      const problem = passphraseProblem(passphrase, 'this export')
+      if (problem) throw new RepositoryError('VALIDATION', problem, 'passphrase')
+    }
+
+    // Built before the folder is chosen: the file's name carries the moment it
+    // was written, and that has to be the same moment the contents say.
+    const payload = buildBackup(db, userId())
+    const file = exportFileOf(
+      backupToJson(payload),
+      payload.exportedAt,
+      passphrase,
+      app.getPath('documents')
+    )
     const win = ownerWindow(event)
     const options = {
       title: 'Export a full backup',
-      defaultPath: defaultFile('wageroute-backup-DATE.json'),
-      filters: [{ name: 'JSON backup', extensions: ['json'] }]
+      defaultPath: file.defaultPath,
+      filters: [{ name: file.filterName, extensions: ['json'] }]
     }
     const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options)
     if (result.canceled || !result.filePath) return null
 
-    const payload = buildBackup(db, userId())
-    // A backup is the user's whole financial history in readable JSON; keep it
-    // private to their account rather than inheriting the umask.
-    writeFileAtomic(result.filePath, backupToJson(payload), 0o600)
+    // A backup is the user's whole financial history, in readable JSON or under
+    // one passphrase; either way it is private to their account, not world-readable.
+    writeFileAtomic(result.filePath, file.text, 0o600)
     return result.filePath
   })
 
@@ -897,30 +1105,45 @@ export function registerIpcHandlers(db: Database.Database): void {
       return entriesPreview(parsed.entries, parsed.issues, statement)
     }
 
-    const payload = parseBackupJson(text)
-    const context = importContext(db, userId(), payload)
-    // Keep the questions the user was shown. Confirm re-derives them against
-    // the live ledger; anything new means the two screens disagree, and a row
-    // must not be dropped just because the database changed in between.
-    const problems = findImportProblems(payload.tables, context)
-    const token = holdImport({
-      path,
-      format: 'backup',
-      exportedAt: payload.exportedAt,
-      payload,
-      problems
-    })
-    const rows = emptyImportCounts()
-    for (const table of IMPORT_TABLES) rows[table] = payload.tables[table].length
-    return {
-      token,
-      path,
-      format: 'backup',
-      exportedAt: payload.exportedAt,
-      fileRows: rows,
-      problems,
-      choices: context.choices
-    } satisfies ImportPreview
+    // A sealed file says so in its header, in the clear. The wizard gets that
+    // answer instead of a preview, because nothing inside can be counted — or
+    // trusted — until the phrase that opens it is typed.
+    if (textIsEnvelope(text)) {
+      const header = parseEnvelope(text)
+      return {
+        sealed: true as const,
+        token: holdImport({ path, format: 'backup', exportedAt: header.exportedAt, sealed: text }),
+        path,
+        exportedAt: header.exportedAt
+      }
+    }
+
+    return backupPreviewOf(db, userId(), path, text, holdImport({ path, format: 'backup', exportedAt: '' }))
+  })
+
+  handle('data:passphrase', (_event, token: unknown, passphrase: unknown) => {
+    const id = requireId(token)
+    const pending = peekImport(id)
+    if (pending.sealed === undefined) {
+      throw new RepositoryError('STATE', 'That file is not sealed, so there is nothing to unlock.')
+    }
+    const phrase = typeof passphrase === 'string' ? passphrase : ''
+    let text: string
+    try {
+      text = openEnvelopeFileText(pending.sealed, phrase)
+    } catch (error) {
+      // A wrong phrase and a broken file need different answers from the screen:
+      // one is typed again into the same box, the other means a different file.
+      // The code carries that difference, so the wizard never matches prose.
+      if (error instanceof EnvelopeError) {
+        throw new RepositoryError(
+          error.failure === 'passphrase' ? 'PASSPHRASE' : 'VALIDATION',
+          error.message
+        )
+      }
+      throw error
+    }
+    return backupPreviewOf(db, userId(), pending.path, text, id)
   })
 
   handle('data:confirm', (_event, token: unknown, answers: unknown) => {

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, truncateSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 import test from 'node:test'
 import { DB_FILE, adoptLegacyDatabase } from './legacy'
 

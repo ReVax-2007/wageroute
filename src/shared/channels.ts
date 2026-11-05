@@ -3,6 +3,7 @@ import type {
   AppInfo,
   BillDeletionSummary,
   CommittedPaycheck,
+  ImportNeedsPassphrase,
   ImportPreview,
   ImportResult,
   LegalTexts,
@@ -13,6 +14,12 @@ import type {
   WriteResult
 } from './api'
 import type { ImportAnswer } from './importRepair'
+import type {
+  EnableEncryptionRequest,
+  EncryptionChange,
+  EncryptionStatus,
+  KeyCustodyChange
+} from './encryption'
 import type {
   AccountInput,
   AppliedPlan,
@@ -52,6 +59,21 @@ export interface IpcContract {
   }
   'storage:default': { args: []; result: StorageMoveResult }
 
+  /** What the folder reports now: the header's answer plus the marker's. */
+  'encryption:status': { args: []; result: EncryptionStatus }
+  /**
+   * Rewrites every page of the ledger. It does not resolve into a usable
+   * session: the transition needs the app's own handle closed to run, and that
+   * handle is bound to the state it opened in, so WageRoute restarts either way.
+   */
+  'encryption:enable': { args: [EnableEncryptionRequest]; result: EncryptionChange }
+  'encryption:disable': { args: []; result: EncryptionChange }
+  /**
+   * Re-wraps the 32-byte key for a different way of holding it. No page moves,
+   * so the session survives it and the new status comes straight back.
+   */
+  'encryption:custody': { args: [KeyCustodyChange]; result: EncryptionStatus }
+
   'user:set-name': { args: [string]; result: WriteResult<void> }
 
   'account:create': { args: [AccountInput]; result: WriteResult<string> }
@@ -86,10 +108,11 @@ export interface IpcContract {
   'paycheck:apply': { args: [string, PlanMoveTarget[]]; result: WriteResult<AppliedPlan> }
   'settings:save': { args: [AppSettings]; result: WriteResult<void> }
 
-  'backup:export': { args: []; result: string | null }
+  'backup:export': { args: [string | null]; result: string | null }
   'csv:export': { args: []; result: string | null }
   'statement:reconcile': { args: [string, number, string]; result: WriteResult<number> }
-  'data:preview': { args: []; result: ImportPreview | null }
+  'data:preview': { args: [], result: ImportPreview | ImportNeedsPassphrase | null }
+  'data:passphrase': { args: [string, string]; result: ImportPreview }
   'data:confirm': { args: [string, ImportAnswer[]]; result: ImportResult }
   'data:reset': { args: []; result: WriteResult<void> }
 }
@@ -97,6 +120,15 @@ export interface IpcContract {
 export type Channel = keyof IpcContract
 export type ChannelArgs<C extends Channel> = IpcContract[C]['args']
 export type ChannelResult<C extends Channel> = IpcContract[C]['result']
+
+/**
+ * The two messages an unlock prompt can cross, deliberately outside `IpcContract`.
+ * The contract is the ledger API, and while the ledger is locked there is no
+ * ledger API to have: no channel in it is registered yet. The names are shared so
+ * the window and the main process cannot disagree about what is being listened for.
+ */
+export const UNLOCK_SUBMIT = 'wageroute:unlock-submit'
+export const UNLOCK_RETRY = 'wageroute:unlock-retry'
 
 /** The one callable the renderer side hands around; both halves use it. */
 export type IpcCaller = <C extends Channel>(
@@ -115,6 +147,10 @@ export const CHANNELS = [
   'storage:choose',
   'storage:apply',
   'storage:default',
+  'encryption:status',
+  'encryption:enable',
+  'encryption:disable',
+  'encryption:custody',
   'user:set-name',
   'account:create',
   'account:update',
@@ -146,6 +182,7 @@ export const CHANNELS = [
   'csv:export',
   'statement:reconcile',
   'data:preview',
+  'data:passphrase',
   'data:confirm',
   'data:reset'
 ] as const satisfies readonly Channel[]

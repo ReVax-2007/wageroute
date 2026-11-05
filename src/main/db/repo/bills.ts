@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { monthlyEquivalentCents } from '@shared/cadence'
+import { deriveClaimStates, type ClaimFact, type PaymentFact } from '@shared/claims'
 import type {
   Bill,
   BillFundingStrategy,
@@ -302,47 +303,17 @@ export function recordBillReserves(
   }
 }
 
-interface ClaimRow {
-  id: string
-  cycle: string
-  amountCents: number
-  state: BillReserve['state']
-  settledBy: string | null
-  dueDay: number
-  receivedOn: string
-  frequency: Bill['frequency']
-}
-
-interface PaymentRow {
-  id: string
-  occurredOn: string
-  amountCents: number
-}
-
 /**
  * Derive a bill's claim states from its payments instead of patching them one
- * entry at a time. Two half payments close one claim, a payment already spent
- * on one claim is never offered to another, and deleting or re-dating any
- * payment simply replays the rest.
- *
- * A payment is offered first to the claims of its own cycle whose cheque had
- * already arrived. Money left over falls back to earlier claims that cheque
- * carried: a cheque dated after the bill's due day funds the next occurrence,
- * so a 31 January cheque pays a bill due 1 February. A claim turns paid only
- * when the money offered to it covers it.
- *
- * A bill that is paid a few times a year (quarterly or annual) gathers one
- * claim per cheque, so its single payment has to clear every slice it covers.
- * That leftover skips the due-day gate and walks the earlier claims in order;
- * the cheque had already arrived before the payment, so it was still holding
- * them.
+ * entry at a time. The walk itself is in `@shared/claims`, where the phone reads
+ * the same copy of the rule — see ADR 0028.
  */
 export function reconcileBillReserve(db: Db, userId: string, billId: string): void {
   const claims = db
     .prepare(
       `SELECT r.id, r.cycle, r.amount_cents AS amountCents, r.state,
               r.settled_by AS settledBy, r.due_day AS dueDay,
-              p.received_on AS receivedOn, b.frequency
+              p.received_on AS receivedOn, r.created_at AS createdAt, b.frequency
        FROM bill_reserves r
        JOIN bills b ON b.id = r.bill_id AND b.user_id = r.user_id
                    AND b.deleted_at IS NULL
@@ -351,86 +322,33 @@ export function reconcileBillReserve(db: Db, userId: string, billId: string): vo
        -- the claim must not stay reserved because the money already left.
        JOIN paychecks p ON p.id = r.paycheck_id AND p.user_id = r.user_id
        WHERE r.user_id = ? AND r.bill_id = ? AND r.deleted_at IS NULL
-         AND r.amount_cents > 0
-       ORDER BY r.cycle ASC, r.created_at ASC, r.id ASC`
+         AND r.amount_cents > 0`
     )
-    .all(userId, billId) as ClaimRow[]
+    .all(userId, billId) as ClaimFact[]
   if (claims.length === 0) return
 
   // Signed, so a refund can take back the money a payment put down. A positive
   // row is never allowed to close a claim by itself.
   const payments = db
     .prepare(
-      `SELECT id, occurred_on AS occurredOn, amount_cents AS amountCents
+      `SELECT id, occurred_on AS occurredOn, amount_cents AS amountCents,
+              created_at AS createdAt
        FROM transactions
        WHERE user_id = ? AND bill_id = ? AND deleted_at IS NULL
-         AND kind IN ('bill_payment','expense') AND amount_cents <> 0
-       ORDER BY occurred_on ASC, created_at ASC, id ASC`
+         AND kind IN ('bill_payment','expense') AND amount_cents <> 0`
     )
-    .all(userId, billId) as PaymentRow[]
+    .all(userId, billId) as PaymentFact[]
 
-  const offered = new Map<string, { cents: number; settledBy: string | null }>(
-    claims.map((claim) => [claim.id, { cents: 0, settledBy: null }])
-  )
-  const contributions: { claimId: string; cents: number }[] = []
-  const smoothed = claims[0].frequency === 'quarterly' || claims[0].frequency === 'annual'
-  for (const payment of payments) {
-    if (payment.amountCents > 0) {
-      // The refund reverses the most recent coverage first: that is the
-      // payment it most likely came from.
-      let refund = payment.amountCents
-      for (let index = contributions.length - 1; index >= 0 && refund > 0; index -= 1) {
-        const contribution = contributions[index]
-        const take = Math.min(contribution.cents, refund)
-        if (take === 0) continue
-        contribution.cents -= take
-        refund -= take
-        const slot = offered.get(contribution.claimId)!
-        slot.cents -= take
-        slot.settledBy = null
-      }
-      continue
-    }
-
-    const cycle = payment.occurredOn.slice(0, 7)
-    const arrived = (claim: ClaimRow) => claim.receivedOn <= payment.occurredOn
-    const order = [
-      ...claims.filter((claim) => claim.cycle === cycle && arrived(claim)),
-      ...claims.filter(
-        (claim) =>
-          claim.cycle < cycle &&
-          arrived(claim) &&
-          (smoothed ||
-            Number.parseInt(claim.receivedOn.slice(8, 10), 10) > claim.dueDay)
-      )
-    ]
-    let left = -payment.amountCents
-    for (const claim of order) {
-      if (left <= 0) break
-      const slot = offered.get(claim.id)!
-      const need = claim.amountCents - slot.cents
-      if (need <= 0) continue
-      const give = Math.min(need, left)
-      slot.cents += give
-      left -= give
-      contributions.push({ claimId: claim.id, cents: give })
-      if (slot.cents === claim.amountCents) slot.settledBy = payment.id
-    }
-  }
-
+  const derived = deriveClaimStates(claims, payments)
   const ts = nowISO()
   const update = db.prepare(
     `UPDATE bill_reserves
      SET state = ?, settled_by = ?, updated_at = ?, revision = revision + 1
      WHERE id = ? AND user_id = ? AND deleted_at IS NULL`
   )
-  for (const claim of claims) {
-    const slot = offered.get(claim.id)!
-    const paid = slot.cents === claim.amountCents
-    const state: BillReserve['state'] = paid ? 'paid' : 'reserved'
-    const settledBy = paid ? slot.settledBy : null
-    if (claim.state === state && claim.settledBy === settledBy) continue
-    update.run(state, settledBy, ts, claim.id, userId)
+  for (const claim of derived) {
+    if (!claim.changed) continue
+    update.run(claim.state, claim.settledBy, ts, claim.id, userId)
   }
 }
 

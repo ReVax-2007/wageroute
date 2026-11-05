@@ -1,22 +1,13 @@
 import { useState } from 'react'
 import { Download, FolderInput, ShieldCheck, Smartphone, Trash2 } from 'lucide-react'
-import { formatDateLabel, localDateISO, todayISO } from '@shared/dates'
+import { formatDateLabel, localDateISO } from '@shared/dates'
 import { phoneCopyWords } from '@shared/deletion'
+import { ExportSheet } from '../components/ExportSheet'
 import { PickBackup } from '../components/PickBackup'
 import { Sheet } from '../components/Sheet'
+import { VaultCard } from '../components/VaultCard'
 import { isAppleTouch, useInstallPrompt } from '../lib/install'
 import { usePocket, useSnapshot } from '../lib/store'
-
-function download(name: string, text: string): void {
-  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }))
-  const link = document.createElement('a')
-  link.href = url
-  link.download = name
-  document.body.append(link)
-  link.click()
-  link.remove()
-  window.setTimeout(() => URL.revokeObjectURL(url), 4_000)
-}
 
 export function Data() {
   const snapshot = useSnapshot()
@@ -26,11 +17,12 @@ export function Data() {
   const version = usePocket((state) => state.version)
   const newerSchema = usePocket((state) => state.newerSchema)
   const localIds = usePocket((state) => state.localIds)
+  const vault = usePocket((state) => state.vault)
   const warnings = usePocket((state) => state.warnings)
-  const exportJson = usePocket((state) => state.exportJson)
   const forget = usePocket((state) => state.forget)
   const { canInstall, installed, install } = useInstallPrompt()
   const [replacing, setReplacing] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [forgetting, setForgetting] = useState(false)
 
   if (!snapshot) return null
@@ -94,14 +86,7 @@ export function Data() {
           <button type="button" className="button" onClick={() => setReplacing(true)}>
             <FolderInput size={17} aria-hidden="true" /> Open a newer backup
           </button>
-          <button
-            type="button"
-            className="button"
-            onClick={() => {
-              const json = exportJson()
-              if (json) download(`wageroute-pocket-${todayISO()}.json`, json)
-            }}
-          >
+          <button type="button" className="button" onClick={() => setExporting(true)}>
             <Download size={17} aria-hidden="true" /> Export a backup
           </button>
         </div>
@@ -111,6 +96,8 @@ export function Data() {
           there with the normal Import step.
         </p>
       </section>
+
+      <VaultCard />
 
       <section className="card">
         <h2 className="card-title">
@@ -141,7 +128,10 @@ export function Data() {
         <ul className="checks">
           <li>No account and no sign-in.</li>
           <li>No sync service and no analytics.</li>
-          <li>Your ledger is stored only in this browser's storage.</li>
+          <li>
+            Your ledger is stored only in this browser’s storage
+            {vault ? ', and there it is ciphertext under your passphrase' : ''}.
+          </li>
           <li>The app never uploads the file it opens.</li>
         </ul>
       </section>
@@ -185,6 +175,8 @@ export function Data() {
           </div>
         </Sheet>
       ) : null}
+
+      {exporting ? <ExportSheet onClose={() => setExporting(false)} /> : null}
 
       {forgetting ? (
         <Sheet

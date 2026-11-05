@@ -1,5 +1,6 @@
 import { useRef, useSyncExternalStore, type KeyboardEvent } from 'react'
 import {
+  ArrowRightLeft,
   Landmark,
   LayoutDashboard,
   Moon,
@@ -26,6 +27,7 @@ const NAV: { id: Screen; label: string; hint: string; icon: LucideIcon }[] = [
   { id: 'wall', label: 'Bills', hint: 'Rent, utilities, subscriptions', icon: ShieldCheck },
   { id: 'goals', label: 'Goals', hint: 'Save for what is coming', icon: Target },
   { id: 'accounts', label: 'Accounts', hint: 'Banks and cards', icon: Landmark },
+  { id: 'transfers', label: 'Transfers', hint: 'Move between accounts', icon: ArrowRightLeft },
   { id: 'ledger', label: 'Spreadsheet', hint: 'Every entry', icon: Table2 },
   { id: 'settings', label: 'Settings', hint: 'Theme and data', icon: SettingsIcon }
 ]

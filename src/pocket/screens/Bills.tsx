@@ -463,8 +463,8 @@ export function Bills() {
       ) : null}
 
       <p className="fine">
-        Marking a bill paid here writes the same entry the computer would, and settles its
-        reservation the next time you import on the desktop.
+        Marking a bill paid here writes the same entry the computer would and settles its
+        reservation on this phone, the way the desktop does.
       </p>
 
       {openedLine ? (

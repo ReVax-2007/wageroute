@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3'
+import type Database from 'better-sqlite3-multiple-ciphers'
 import { RepositoryError } from '@shared/errors'
 import type { AccountKind } from '@shared/types'
 import { nowISO } from '@shared/writeRules'

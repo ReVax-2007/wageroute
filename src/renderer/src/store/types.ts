@@ -1,5 +1,5 @@
 import type { AdjustmentReason } from '@shared/adjustments'
-import type { AppInfo, BillDeletionSummary, ImportPreview } from '@shared/api'
+import type { AppInfo, BillDeletionSummary, ImportNeedsPassphrase, ImportPreview } from '@shared/api'
 import type { ImportAnswer } from '@shared/importRepair'
 import type { StatementReconciliation } from '@shared/statements'
 import type {
@@ -19,7 +19,7 @@ import type {
   TransactionPatch
 } from '@shared/types'
 
-export type Screen = 'dashboard' | 'wall' | 'goals' | 'accounts' | 'ledger' | 'settings'
+export type Screen = 'dashboard' | 'wall' | 'goals' | 'accounts' | 'transfers' | 'ledger' | 'settings'
 
 export interface Notice {
   text: string
@@ -63,7 +63,7 @@ export interface DataSlice {
   settings: AppSettings
   dbPath: string
   appInfo: AppInfo | null
-  importPreview: ImportPreview | null
+  importPreview: ImportPreview | ImportNeedsPassphrase | null
   importStep: 'fix' | 'review'
   /** A just-imported statement whose closing balance disagrees with the ledger. */
   reconciliation: StatementReconciliation | null
@@ -115,9 +115,14 @@ export interface DataSlice {
   ) => Promise<AppliedPlan | null>
   saveSettings: (next: AppSettings) => Promise<boolean>
   setDisplayName: (name: string) => Promise<boolean>
-  exportBackup: () => Promise<void>
+  /** A phrase seals the export into an envelope; `null` writes the readable file. */
+  exportBackup: (passphrase: string | null) => Promise<void>
   exportCsv: () => Promise<void>
   openImport: () => Promise<void>
+  /** The phrase for a sealed file. Null once it opens; otherwise why it stayed shut, and whether typing again can help. */
+  unlockImport: (
+    passphrase: string
+  ) => Promise<{ message: string; retry: boolean } | null>
   closeImport: () => void
   goImportStep: (step: 'fix' | 'review') => void
   /** Resolves to an error message on failure, or null once the wizard can close. */

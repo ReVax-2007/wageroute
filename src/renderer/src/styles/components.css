@@ -978,6 +978,15 @@ input[type='date'] {
   color: var(--text-muted);
 }
 
+/* The first-run card offers two ways in and they have to stay side by side on
+   a narrow window instead of one stretching under the other. */
+.empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+}
+
 /* --------------------------------------------------------------- toast */
 
 .toast {
@@ -1091,12 +1100,59 @@ input[type='date'] {
   font-size: 11.5px;
 }
 
-.boot-error .boot-hint {
+.boot .boot-hint {
   max-width: 56ch;
   color: var(--text-muted);
   font-family: inherit;
   font-size: 12.5px;
   line-height: 1.55;
+}
+
+/* -------------------------------------------------------------- unlock */
+
+.unlock {
+  justify-items: stretch;
+  width: min(420px, 90vw);
+}
+
+.unlock h1 {
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.unlock-lead {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-muted);
+  font-family: inherit;
+}
+
+.unlock form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 22px;
+  text-align: left;
+}
+
+.unlock .field-error {
+  margin: 0;
+}
+
+.unlock-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.unlock-row .input {
+  min-width: 0;
+  flex: 1;
+}
+
+.unlock .boot-hint {
+  margin-top: 20px;
 }
 
 /* ----------------------------------------------------------- segmented */

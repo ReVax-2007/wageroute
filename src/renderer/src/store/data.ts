@@ -1,7 +1,7 @@
 import type { StateCreator } from 'zustand'
 import { adjustmentFor, type AdjustmentReason } from '@shared/adjustments'
 import { SNAPSHOT_TRANSACTION_LIMIT, type ImportCounts, type WriteResult } from '@shared/api'
-import { apiErrorMessage } from '@shared/errors'
+import { apiErrorCode, apiErrorMessage } from '@shared/errors'
 import { formatMoney } from '@shared/money'
 import { DEFAULT_SETTINGS, parseSettings } from '@shared/settings'
 import type { SnapshotPatch, TransactionRow, TransactionRowsPatch } from '@shared/types'
@@ -379,10 +379,10 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
       }
     },
 
-    exportBackup: async () => {
+    exportBackup: async (passphrase) => {
       set({ busy: true })
       try {
-        const path = await window.api.exportBackup()
+        const path = await window.api.exportBackup(passphrase)
         if (path) get().notify(`Backup saved: ${fileNameOf(path)}`)
       } catch (error) {
         get().notify(messageOf(error), 'error')
@@ -408,10 +408,16 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
       try {
         const preview = await window.api.previewImport()
         if (!preview) return
+        // A second file replaces the first answer rather than stacking two.
+        if ('sealed' in preview) {
+          // Nothing can be counted until the file opens, so the wizard stops at
+          // the passphrase and the step is decided when it does.
+          set({ importPreview: preview, importStep: 'fix', reconciliation: null })
+          return
+        }
         set({
           importPreview: preview,
           importStep: preview.problems.length > 0 ? 'fix' : 'review',
-          // A second file replaces the first answer rather than stacking two.
           reconciliation: null
         })
       } catch (error) {
@@ -421,13 +427,32 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
       }
     },
 
+    unlockImport: async (passphrase) => {
+      const sealed = get().importPreview
+      if (!sealed || !('sealed' in sealed)) {
+        return { message: 'That file is not sealed, so there is nothing to unlock.', retry: false }
+      }
+      try {
+        const preview = await window.api.supplyPassphrase(sealed.token, passphrase)
+        set({ importPreview: preview, importStep: preview.problems.length > 0 ? 'fix' : 'review' })
+        return null
+      } catch (error) {
+        // Returned, not notified: the box that typed the phrase stays open. A
+        // wrong phrase is retried in it; a file that is not one is not, and the
+        // wizard says which of the two it is holding.
+        return { message: messageOf(error), retry: apiErrorCode(error) === 'PASSPHRASE' }
+      }
+    },
+
     closeImport: () => set({ importPreview: null, importStep: 'fix' }),
 
     goImportStep: (step) => set({ importStep: step }),
 
     runImport: async (answers) => {
       const preview = get().importPreview
-      if (!preview) return null
+      // A file that is still sealed has nothing to write; the wizard cannot reach
+      // this button while it is, and the store does not rely on it having tried.
+      if (!preview || 'sealed' in preview) return null
 
       set({ busy: true })
       try {

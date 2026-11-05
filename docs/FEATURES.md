@@ -34,13 +34,14 @@ The sidebar has six destinations and one global action:
 | Bills | `wall` | Recurring bills (the Priority Wall) |
 | Goals | `goals` | Goals (sinking funds) and the emergency calculator |
 | Accounts | `accounts` | Banks and credit |
+| Transfers | `transfers` | Move money between accounts in one step |
 | Spreadsheet | `ledger` | Ledger and projections |
-| Settings | `settings` | Pay cycle and payday label, default paycheck account, theme, round-up, data |
+| Settings | `settings` | Pay cycle and payday label, default paycheck account, theme, round-up, data, encryption at rest |
 | **Route a paycheck** | — | Opens the allocator wizard over any screen |
 
 The sidebar labels are the interface; the rest of this document, and the code, keep the original names. The mapping is: **Bills** = Priority Wall and its reserve, **Goals** = sinking funds, **Fun money** = guilt-free money (`leisure`), **Left to split** = true surplus, **Left to spend** = Safe to Spend, and **set aside** = reserved. Screen ids and stored bucket keys never changed, so a database or backup written before the rename reads identically.
 
-The sidebar also shows a light/dark switch, cash on hand, the number of tracked accounts and the database path. Navigation is local state; there is no URL routing. The selected screen is not persisted across launches.
+The sidebar also shows a light/dark switch, cash on hand, the number of tracked accounts and the database path. Navigation is local state; there is no URL routing — with one exception, the unlock prompt, which is the same bundle loaded at `?mode=unlock` so a locked ledger can show a passphrase field and nothing else. The selected screen is not persisted across launches.
 
 ---
 
@@ -601,6 +602,21 @@ Because settings are saved before the commit, a failed commit can still update t
 
 ---
 
+## Transfers
+
+The dedicated **Transfers** screen (`transfers`) moves money between two accounts in a single movement.
+
+### Capabilities
+
+- **Single-step movement**: Select source and destination accounts, amount, date and an optional memo.
+- **Account swap**: A one-click swap button inverts the from and to accounts.
+- **Live balance previews**: Previews the current balance and the post-transfer balance on both accounts simultaneously (including debt reduction for credit card accounts).
+- **Quick-amount presets**: One-click chips for common increments (`+$50`, `+$100`, `+$250`, `+$500`) plus contextual shortcuts to pay a card in full or transfer the entire available balance.
+- **Ledger-backed**: Records two linked transaction legs with a shared `transfer_group_id` atomically.
+- **Recent transfers table**: Displays recent transfers with date, route (source ➔ destination), amount, and deletion actions that remove both legs together.
+
+---
+
 ## Spreadsheet
 
 ### Tabs
@@ -677,9 +693,9 @@ The first card sets the name the Home screen greets you with. It is trimmed, cap
 
 ### Where your data lives
 
-The ledger is one SQLite file. It lives in WageRoute's own per-user folder by default, and the **Where your data lives** card can point it at a folder the user chooses — a NAS share, an external disk, or a folder that Google Drive, Dropbox, OneDrive or iCloud already syncs.
+The ledger is one SQLite file — plus `ledger.key.json` beside it when the owner turns encryption on. It lives in WageRoute's own per-user folder by default, and the **Where your data lives** card can point it at a folder the user chooses — a NAS share, an external disk, or a folder that Google Drive, Dropbox, OneDrive or iCloud already syncs.
 
-- **Choose another folder…** opens the directory picker and inspects the choice. A folder with a ledger can be **opened** (adopt: the ledger on this computer is left untouched), an empty folder can receive **Move my data here** (copy the current ledger, keeping a `pre-move-*.db` safety copy in the backups folder beside the ledger it leaves) or **Start empty here** (a fresh profile in that folder).
+- **Choose another folder…** opens the directory picker and inspects the choice. A folder with a ledger can be **opened** (adopt: the ledger on this computer is left untouched), an empty folder can receive **Move my data here** (copy the current ledger, keeping a `pre-move-*.db` safety copy in the backups folder beside the ledger it leaves) or **Start empty here** (a fresh profile in that folder). An encrypted ledger moves with its key file: the copy is taken with the same data key, and the marker is written into the new folder before anything is read back.
 - **Move it back to this computer** copies the current external ledger over the local one after writing a `pre-return-*.db` safety copy, then returns to the default folder.
 - Every switch validates the folder (exists, writable, not in use), refuses a ledger from a newer schema, writes `storage.json` outside the database and **restarts** WageRoute. The next launch opens the chosen file through the normal boot path.
 - The folder is locked while WageRoute runs (`wageroute.lock`, refreshed every 30 seconds). A second computer is told which machine holds the lock instead of opening the ledger. A lock that has not been refreshed for three minutes is treated as abandoned. If the running app loses the lock, it closes the database and quits rather than overwrite the new owner.
@@ -723,16 +739,19 @@ Rules enforced at write time:
 
 Three actions:
 
-- **Export full backup** — JSON save dialog, default `~/Documents/wageroute-backup-YYYY-MM-DD.json`.
-- **Export transactions CSV** — CSV save dialog, default `~/Documents/wageroute-transactions-YYYY-MM-DD.csv`. Memo, category, account name and institution are written as text cells with any leading `=`, `+`, `-`, `@`, tab or carriage return prefixed by an apostrophe, so opening the file in a spreadsheet evaluates nothing; amounts stay numeric. Importing the file back strips exactly one leading apostrophe from those cells, so a round trip returns the original text — and a memo that genuinely begins with an apostrophe keeps it.
+- **Export full backup** — a dialog first, because a file that leaves the computer is a different exposure from the ledger on disk. *Plain JSON* is the default and writes exactly what it always wrote; *Sealed with a passphrase* takes the phrase twice — the same `passphraseProblem()` rule and the same mismatch sentence as the encryption card — and writes a `wageroute-envelope` file under AES-256-GCM whose name ends `-encrypted.json`, with the marker, parameters and the export date left in the clear so the file identifies itself without the phrase. Each choice prints its own honest line: a plain file is readable by anyone who can read it, a sealed one can be guessed at offline by whoever holds it. Then the JSON save dialog, default `~/Documents/wageroute-backup-YYYY-MM-DD.json`. Nothing in WageRoute recovers that phrase, and it is not the ledger's passphrase unless it was typed the same.
+- **Export transactions CSV** — CSV save dialog, default `~/Documents/wageroute-transactions-YYYY-MM-DD.csv`. Memo, category, account name and institution are written as text cells with any leading `=`, `+`, `-`, `@`, tab or carriage return prefixed by an apostrophe, so opening the file in a spreadsheet evaluates nothing; amounts stay numeric. Importing the file back strips exactly one leading apostrophe from those cells, so a round trip returns the original text — and a memo that genuinely begins with an apostrophe keeps it. **There is no sealed CSV:** the cipher lives in the JSON envelope only, so a CSV is always plaintext whoever holds the file.
 - **Import data** — open dialog accepting `.json`, `.csv`, `.ofx`, `.qfx` and `.qif`, then the import wizard. A CSV with no Account column and any OFX/QFX file are read as a statement; a QIF is read as one account's Quicken history.
 
 Both exports are written to a temporary file, flushed and renamed into place, so a failed or interrupted export leaves the previous file untouched instead of a half-written one. The file is created mode `0600` on macOS and Linux; on Windows it inherits the user profile's ACL.
 
+An **encrypted ledger does not make its exports encrypted.** The seal is chosen per file, and turning encryption on changes nothing about what a plain export contains — which is the reason the export dialog exists rather than a silent rule.
+
 ### Import wizard
 
-The wizard has three steps — choose file, missing info, review — and the same component serves the first-run "Import a backup" button on the dashboard.
+The wizard has three steps — choose file, missing info, review — and the same component serves the first-run "Import a backup" button on the dashboard. A sealed backup makes it four: the passphrase is asked before anything is counted, because nothing can be counted until it is given.
 
+- **A sealed file is opened before it is read.** `data:preview` answers `sealed` with the token and the export date instead of counts, and the wizard shows *Open an encrypted backup* — the file name, the phrase box, and no row information at all, because the rows are under the cipher. **Open it** writes nothing; unlocking only lets the wizard count, and the import still needs its own press. A wrong phrase names itself on the field and stays on the same box; a file that is not damaged-but-readable answers *that is not a problem the passphrase can fix* rather than asking again, because inside AES-GCM a wrong phrase and a wrecked file look the same and the wizard distinguishes them only by the code the reader returns. The hint says there is no reset and no copy kept.
 - **Missing info** shows one card per row that cannot import as it stands, with an editor per question: text, amount, whole number, date, an enum dropdown, or a dropdown of local rows for a foreign key (with **Leave unlinked** where the column allows NULL). CSV account names that match nothing are grouped into one question per name covering every line that shares it.
 - **Statements** (OFX 1.x/2.x, QFX, QIF, and any CSV without an Account column) are read as one account's history: the wizard prints the bank (or the QIF's account name), masked account number, covered date range and closing balance when the file states one, lists lines it left out (bad dates, zero amounts, transfers, and an investment statement's trades and holdings), and asks a single question — which local account these lines belong to. Nothing is pre-selected and **Import** stays disabled until you answer, because a statement's account number is not a local account name and a guess would post money into the wrong balance. A bank, card or loan statement's cash lines import; a loan's outstanding principal and an investment's holdings never do. A QIF naming more than one account is refused. Amounts are read without assuming one locale: `12,50` is twelve fifty, `1,250` is one thousand two hundred fifty, both separators together follow the rightmost one (`1.234,56`), and grouping that fits neither pattern is refused rather than guessed.
 - **Closing-balance check.** When the statement carries a closing balance and a closing date, the import compares the bank's figure with the account's balance on that day *after* the lines land. If they agree, the toast says so and nothing else happens. If they differ, a dialog names both figures and the gap and offers one adjustment dated on the closing day; **Leave it** writes nothing. A card statement prints what is owed as a positive number while the ledger holds debt as negative, so the comparison converts it first. Entries recorded after the closing day are never touched.
@@ -746,17 +765,29 @@ The file path stays in the main process between the two steps — the renderer o
 
 The database path is displayed below the actions. The sidebar footer shows the running version instead — `WageRoute v1.2.0` — with the full database path as its tooltip.
 
+### Encryption at rest
+
+An **Encryption at rest** card sits between *Where your data lives* and the Emergency fund pointer. It is opt-in and off by default: nothing in the app encrypts a ledger the owner did not ask it to encrypt.
+
+- **The state is read, not remembered.** The headline is `Not encrypted`, `Encrypted — this computer opens it without asking`, `Encrypted — only the passphrase opens it`, or `Encrypted — this computer or the passphrase opens it`, built from the ledger file's first bytes and the `ledger.key.json` marker beside it — not from a setting. While that read is in flight the card says `Checking this folder…`. A key file with plaintext pages (`staleKeyFile`, what an interrupted change leaves) is disclosed as one rather than hidden; a half-finished change (`pending`) prints what it was and tells the user to relaunch before pressing anything, because the next launch reconciles it.
+- **Encrypt my ledger…** asks who holds the key first: *This computer*, *A passphrase*, or *Both*. *This computer* is withheld when the system offers no keychain (`deviceAvailable` is false on a headless or containerised launch) and the card prints the reason instead of leaving an option unexplained. A passphrase is checked before the write: at least 10 characters, at most 1024, not one character repeated — the same `passphraseProblem()` the main process applies, so the two boxes cannot disagree. The confirm dialog says the whole ledger is rewritten as ciphertext and WageRoute restarts when it is done; the button stays busy after that, because the reply only announces the restart.
+- **Turn encryption off** is the same rewrite in the other direction, plus deleting the key file, plus a restart, and says so before the button is pressed. It is the action that returns the file to readable-by-anybody, so it is a `danger` confirm.
+- **Five custody actions rewrite no page**: let this computer open it too, add a passphrase, change the passphrase, remove the passphrase, stop letting this computer open it. Only the 32 key bytes are re-wrapped, so these are instant and repeatable. Removing the last way in asks twice, in words that name the risk (this machine as the only way in, or the phrase as the only way out).
+- **The honesty table is mandatory.** Every custody option renders `It protects against` / `It does not stop` / `If you lose it` from the one `CUSTODY_COPY` table in `src/shared/encryption.ts`, never from sentences of its own — the rule [ADR 0020](decisions/0020-there-is-no-app-lock.md) set and [ADR 0029](decisions/0029-encryption-is-a-choice-on-the-disk-and-on-the-way-out.md) extended to ciphers: an offer that implies more protection than it gives is a defect. Three standing hints repeat the boundary in the card itself: the `backups/` copies follow the ledger, moving the data folder carries the key file, an exported backup is *not* covered unless it was sealed with a passphrase, the phone keeps its own separate copy, and the whole thing is encryption of a file rather than a lock on the app — once the key is in hand WageRoute opens without asking, and the keychain answers to the login, not to a fingerprint.
+
+A ledger that is encrypted and locked has no screen at all: the boot opens the file before it registers any ledger IPC, and a refused open loads the same bundle at `?mode=unlock` so the only writable surface is the passphrase field. See [ARCHITECTURE.md](ARCHITECTURE.md) and [ADR 0029](decisions/0029-encryption-is-a-choice-on-the-disk-and-on-the-way-out.md).
+
 ### About
 
 - **Version** — `app.getVersion()`, the version baked into the running bundle, delivered over the `app:info` IPC channel. It is *not* read from the checkout's `package.json` at runtime, so a build launched from `release/` reports the version it was packaged as.
-- **Database schema** — `SCHEMA_VERSION`, the last migration this build applies. A database at a lower `user_version` is migrated on launch; one above it is refused before any window opens, and the file is left untouched.
+- **Database schema** — `SCHEMA_VERSION`, the last migration this build applies. A database at a lower `user_version` is migrated on launch; one above it is refused before any window opens, and the file is left untouched. The published `1.2.0` is schema 8 and the tree in this repository is 10, so the number is the quickest way to tell a build that has the encryption layer from one that does not — see the downgrade warning in [DEPLOYMENT.md](DEPLOYMENT.md).
 - **Electron** — the runtime version the bundle carries, useful when a bug could be a runtime bug.
 - **Buy me a coffee** — an `https://buymeacoffee.com/revax` link with `target="_blank"`. The main process denies in-app windows and opens only that allowlisted URL in the system browser, so the app never navigates away from the ledger and no other host can be reached through the handler.
 - **Licence** and **Third-party notices** — open the packaged `LICENSE` and the generated `THIRD-PARTY-NOTICES.txt` in a scrollable dialog instead of sending the user to the repository. Both files are copied beside the packaged app as extra resources, so a build always carries the texts it is required to.
 
 ### Diagnostics
 
-A **Diagnostics** card next to About prints version, schema, Electron/Chromium/Node, platform and architecture, whether the build is packaged, the database path and size, the backups and log paths, the last lines of `logs/main.log`, and how many rows each imported table currently holds. **Copy diagnostics** puts that report on the clipboard, and **Show details** reveals it as selectable text. Every value comes from the running process (`app.getVersion()`, `process.versions`, the live database), not from the checkout, so the report describes the binary in front of the user.
+A **Diagnostics** card next to About prints version, schema, Electron/Chromium/Node, platform and architecture, whether the build is packaged, the database path and size, whether the ledger on disk is ciphertext and which wraps can open it, the backups and log paths, the last lines of `logs/main.log`, and how many rows each imported table currently holds. **Copy diagnostics** puts that report on the clipboard, and **Show details** reveals it as selectable text. Every value comes from the running process (`app.getVersion()`, `process.versions`, the live database, the file's own first bytes), not from the checkout, so the report describes the binary in front of the user. The encryption line is the part that earns its place: an older build meeting a keyed ledger and a genuinely damaged file both arrive as *WageRoute refused to open this*, and the report is where a support reply tells them apart. It carries the cipher name and which custody wraps answered — booleans, never a key, a salt, a wrap or a passphrase — and `src/shared/diagnostics.test.ts` fails the report if a long run of encoded text ever appears in it.
 
 ### Danger zone
 
@@ -764,11 +795,19 @@ A **Diagnostics** card next to About prints version, schema, Electron/Chromium/N
 
 The erase is physical, not a tombstone: every row is dropped and the file is compacted (`VACUUM`), so the previous contents are not recoverable from free pages or the write-ahead log. Before the wipe the main process writes one last-resort copy with `VACUUM INTO` to the app's `backups` folder (`pre-erase-<timestamp>.db`, newest three kept), and the dialog says so — a user who erases by mistake has a way back, and a user who wants the data gone can delete that file too. The live ledger itself cannot be recovered. A single row deleted elsewhere in the app is different: it is soft-deleted and still present in backups.
 
+Encryption survives an erase, and that is deliberate. Whether the file is ciphertext is a property of the ledger, not a setting, so the *settings go back to their defaults* promise does not quietly switch protection off on the blank profile that replaces it; the key file is left where it is and `Turn encryption off` remains the way to stop it. The last-resort copy follows the ledger it was taken from — when the ledger is keyed, `VACUUM INTO` writes ciphertext and that copy opens with `ledger.key.json` beside it or with nothing at all once the key file is deleted, which is what makes *a user who wants the data gone can delete that file too* still true of the copy as well as the original.
+
 ### Safety copies
 
 When a build opens a database from an older schema, it writes a consistent copy to `backups/` in the app data folder before migrating, named `pre-upgrade-<from>-to-<to>-<timestamp>.db`. The newest three are kept. If the database fails SQLite's `quick_check` at launch, WageRoute refuses to open or change it and says so rather than migrating a damaged file.
 
 Once the schema is settled, every launch also keeps one copy per local calendar day, named `daily-YYYY-MM-DD.db`. An existing file for today is left alone — restarting the app does not write another — and the newest seven are kept, so a week of history survives without a manual export. The copy is written after the pre-upgrade copy and a failure is only logged: a full disk must not stop the app opening a ledger someone needs.
+
+Every one of those copies is taken with `VACUUM INTO`, not the file-copy backup API, because SQLite's backup API refuses a database with a codec attached — and that is also why a copy of a keyed ledger is ciphertext. `backups/` is not a plaintext escape hatch from an encrypted ledger: it holds copies that need the same `ledger.key.json` to open, and none of them is useful on a machine without the key file.
+
+The two transition copies are a separate rule, written beside the ledger in the data folder rather than in `backups/` — `pre-encrypt-<stamp>.db`, `pre-decrypt-<stamp>.db`. If the rewrite fails, that copy is renamed back over the ledger, which is what makes the failure reversible instead of merely disclosed; if it succeeds, the copy is deleted, so switching encryption on or off leaves no readable older copy of the ledger lying beside it.
+
+A crash between those two outcomes is what the `pending` marker in the key file is for. The next launch decides from three facts — the promised direction, the file's first bytes, and whether the copy reads. If the ledger is still readable in the state before the change, nothing moved and the duplicate copy is discarded; if the ledger is half-written and the copy reads, the copy is renamed into place and the wrecked file is preserved beside it as `<the ledger file>.wrecked` rather than overwritten, because it is the evidence of what happened; if neither reads, the launch says so instead of guessing.
 
 ### Emergency fund
 
@@ -778,11 +817,13 @@ A pointer card to Sinking funds; the calculator itself lives there.
 
 ## Pocket (phone)
 
-Pocket is an optional, installable web app built from the same repository. It is not a second ledger and never syncs: it opens one backup, works from a copy in the browser, and merges with the desktop through the same backup file in both directions. A record changed on either side is carried across by the next file, with the newer copy winning. The phone is an editing peer of the desktop for bills, goals, accounts and entries, and it writes through the same validation the desktop dialogs use.
+Pocket is an optional, installable web app built from the same repository. It is not a second ledger and never syncs: it opens one backup, works from a copy in the browser, and merges with the desktop through the same backup file in both directions. A record changed on either side is carried across by the next file, with the newer copy winning. The phone is an editing peer of the desktop for bills, goals, accounts and entries, and it writes through the same validation the desktop dialogs use. This section is the reference; the step-by-step guide a person follows is [POCKET.md](POCKET.md).
 
 ### First run and storage
 
-The welcome screen asks for a WageRoute backup file and explains where to get one (Settings → Export a backup on the computer). Nothing else is asked: there is no account, sign-in or server. A file must be JSON with `format: "cash-flow-routing-backup"`, a version of at least 2 and a `tables` object with at least one live account; larger than 24 MB is refused. Every row is checked against the schema the file claims: a value outside the kinds, frequencies, funding strategies, reserve states or other enums the build knows is refused for a known version instead of being silently replaced, and every money field must be a whole number of cents. A file from a newer schema opens with a warning and the Data screen says not to export it back until the desktop is updated. The imported tables, schema version, file name and the ids the phone created are stored in IndexedDB under one key. Closing the app, going offline or restarting the phone keeps them; clearing site data or using another browser does not. A save is announced only after IndexedDB accepted it, an import that opened but could not be stored says so, and a storage open that fails shows its reason on the welcome screen rather than an empty app.
+The welcome screen asks for a WageRoute backup file and explains where to get one (Settings → **Export full backup** on the computer). Nothing else is asked: there is no account, sign-in or server. A file must be JSON with `format: "cash-flow-routing-backup"`, a version of at least 2 and a `tables` object with at least one live account; larger than 24 MB is refused. Every row is checked against the schema the file claims: a value outside the kinds, frequencies, funding strategies, reserve states or other enums the build knows is refused for a known version instead of being silently replaced, and every money field must be a whole number of cents. A file from a newer schema opens with a warning and the Data screen says not to export it back until the desktop is updated. The imported tables, schema version, file name and the ids the phone created are stored in IndexedDB under one key. A file's reservations arrive with the states the computer derived when it wrote the file, so the phone replays them against its own payments on opening — a bill the phone paid after that export reads paid here, and a claim the phone destroyed reads open again. Closing the app, going offline or restarting the phone keeps them; clearing site data or using another browser does not. A save is announced only after IndexedDB accepted it, an import that opened but could not be stored says so, and a storage open that fails shows its reason on the welcome screen rather than an empty app.
+
+A sealed backup is recognised before it is read. `PickBackup` notices the `wageroute-envelope` marker, holds the file's text in `pendingSeal` and asks for the phrase instead of showing tables it cannot have; the phrase is the only thing that turns it into rows, and **Choose a different file** discards it. The file's export date is in the clear, so the sheet can name the file and when it was written without opening it. Nothing is half-imported while it waits: a sealed file that never gets a phrase leaves the phone exactly as it was.
 
 ### What it shows
 
@@ -793,15 +834,17 @@ The welcome screen asks for a WageRoute backup file and explains where to get on
 | **Goals** | Funded total, progress, each goal's target, remaining and target date; a goal opens a sheet with **Edit**, **Archive** and **Delete**, and archived goals stay listed under their own heading until they are brought back |
 | **Accounts** | Total wealth, cash on hand, card debt and the room left on the cards, with a utilisation meter on each card row; an account opens a sheet with its balance, opening balance, limit, available, used, APR, minimum payment, statement close and due days, what is due now and the payoff at the minimum, plus **Adjust balance** and — on a card — **Pay this card**, then **Edit**, **Archive** / **Bring back** and **Remove**; archived accounts keep their own heading until brought back |
 | **Entries** | The ledger grouped by date, with paired transfers shown as two legs; **Add** opens the entry sheet and a row opens it again for editing or removal; every row this phone posted carries *on this phone*, including the leg a transfer writes second and the two rows a rounded-up purchase sweeps |
-| **Data** | File facts, last merge notes, how many ledger entries this phone posted, open a newer backup, export, install, privacy and forget |
+| **Data** | File facts, last merge notes, how many ledger entries this phone posted, open a newer backup, export, seal this phone's copy, install, privacy and forget |
 
 Every figure is calculated with the desktop's shared functions: the snapshot derives balances from live entries, cash restricts them to today, the wall subtracts the month's unpaid claims, goals read allocation lines or their dedicated account balance, and Safe to Spend subtracts the same pool, wall, goal money and unsettled routing. A parity test compares the phone with a desktop snapshot of the same database.
+
+A bill's set-aside is decided the same way on both devices. Whether a paycheck's reservation has been spent is not remembered anywhere — it follows from the payments, and one shared rule (`src/shared/claims.ts`) replays them on either device. Paying, editing, deleting or moving a payment on the phone settles or reopens that bill's claim in the same keystroke the desktop does, so the phone's own screen is right between backups instead of only after one. A claim is only rewritten when the derivation disagrees with what is stored, so a device with nothing to say never inflates a revision the other device would have to win.
 
 ### Editing
 
 Bills, goals, accounts and entries have real editors on the phone, and they write through the desktop's own rules: the same shared validator (`src/shared/writeRules.ts`) produces the same refusal sentence on either device, so a typo is answered identically whether it was typed into a dialog or a phone sheet.
 
-**Bills.** Add or edit a bill's name, amount, frequency, due day, category, paying account, funding strategy and — for *Choose specific paycheck to fund* — which paycheck; flip autopay and the active switch. **Mark paid** posts the month's bill payment the way the desktop's prompt would, into the bill's account or the first live checking account if that one is archived, and refuses a second payment for a month already settled. Pause, resume and delete a bill; a paused or deleted bill hands its payments back to plain expenses. The delete question counts both sides of that from the copy in the browser — the set-asides that go with the bill and the entries that stay — in the desktop's sentence.
+**Bills.** Add or edit a bill's name, amount, frequency, due day, category, paying account, funding strategy and — for *Choose specific paycheck to fund* — which paycheck; flip autopay and the active switch. **Mark paid** posts the month's bill payment the way the desktop's prompt would, into the bill's account or the first live checking account if that one is archived, refuses a second payment for a month already settled, and settles the bill's reservation on this phone the moment it writes — the bill moves to **Paid** without waiting for a round trip. Pause, resume and delete a bill; a paused or deleted bill hands its payments back to plain expenses. The delete question counts both sides of that from the copy in the browser — the set-asides that go with the bill and the entries that stay — in the desktop's sentence.
 
 **Goals.** Add or edit a goal's name, target, remaining date, priority, pace, funding accounts and deposit account; archive and restore it. Deleting a goal releases the accounts dedicated to it.
 
@@ -811,7 +854,7 @@ Bills, goals, accounts and entries have real editors on the phone, and they writ
 
 Any live entry can be removed, whether it was added on the phone or arrived from the computer. The removal is written as a tombstone (`deleted_at` set, `updated_at` and `revision` bumped) rather than dropping the row, so the next export carries the deletion to the desktop. A transfer takes its other leg with it and a purchase takes its round-up, matching the desktop's delete, so a half-pair cannot be left behind — and the question says how many rows are going: *Delete 3 entries?* for a rounded-up purchase, *Delete both legs of this transfer?* for a leg, and *Delete this entry?* only when the row really stands alone. Both devices build that sentence from the same module (`src/shared/deletion.ts`), so the phone and the desktop ask the same question in the same words about the same money; the phone's plural button now reads **Delete 3** the way the desktop's does.
 
-Deleting a bill, a goal, an account or an entry asks first, in the desktop's own words, and *Keep it* is the safe answer. Categories need no screen on either device: a new one is typed into an entry, which creates it. Paychecks, allocations, bill reserves and settings stay on the computer and arrive with the next backup.
+Deleting a bill, a goal, an account or an entry asks first, in the desktop's own words, and *Keep it* is the safe answer. Categories need no screen on either device: a new one is typed into an entry, which creates it. Paychecks, allocations, settings and the writing of a paycheck's set-aside stay on the computer and arrive with the next backup; whether a set-aside has already been spent is worked out on the phone too, from the payments it holds.
 
 ### Exporting back
 
@@ -819,9 +862,22 @@ Deleting a bill, a goal, an account or an entry asks first, in the desktop's own
 
 Opening a second backup on the phone merges the same way, so a desktop export does not overwrite entries added on the phone since the last import. The Data screen shows **Imported** and **Backup from** separately, and lists any notes from the last merge, such as a category name that already existed under another id.
 
+The export sheet asks the same question the desktop's does — *Plain JSON* or *Sealed with a passphrase* — with the same two boxes, the same rule and the same `-encrypted.json` name, because the file is one format read by both devices. Plain is the default and a phrase is asked for only when the choice is changed. A sealed file leaves the phone carrying the ledger under AES-256-GCM, which is the point: the thing that travels through someone else's sync folder or email is the copy worth sealing.
+
+### Sealing this phone's copy
+
+The desktop's encryption protects a file; this protects a browser's storage, and the two are separate decisions about separate exposures.
+
+- **What it is.** `src/pocket/lib/vault.ts` seals the copy that lives in IndexedDB as `wageroute-vault` v1: one marker in the clear (the algorithm names, the iteration count, the salt, a sealed verifier token) over one sealed record. It shares the export envelope's constants and its WebCrypto seam but not its shape, because it is written many times from one key — the phrase is stretched **once per unlock**, the derived key is non-extractable and lives only in module scope, and every save re-seals with a fresh initial vector. Sealing and unsealing are two members of one union under the same store key, so there is no bulk migration and no half-moved state to recover from, and sealing costs no IndexedDB version bump.
+- **What the card says.** The Data tab's *Seal this phone's copy* / *This phone's copy is sealed* card answers ADR 0029's three questions in the phone's own words — it stops anyone reading this handset's storage (a copied app folder, a device backup, a browser you did not open), it does not stop anyone using the phone while the app is open, and a lost phrase means this copy is gone for good while the computer and the exported backups are untouched. When sealed it also prints the date and the iteration count, so the cost of a guess is visible rather than assumed.
+- **Four actions, all reversible.** *Seal it*, *Change the passphrase* (which asks the current one first, so a typo in the new one cannot lock the owner out of their own phone), *Turn it off*, and *Close it now* — the last takes the key out of the page without touching the data, and reopening asks for the phrase again.
+- **What "locked" means here.** Closing the page loses the module-scope key, so the next open is a gate, not a dashboard: `UnlockVault.tsx` asks for the phrase and the ledger screens behind it hold nothing until it answers. A vault with no key in hand reports `closed`, distinct from `passphrase` and `shape`, because the advice differs — and a copy whose sealed record does not parse is answered with *Typing again will not change this. The copy on this phone is damaged, and the way back is a backup from your computer*, because inside AES-GCM a wrong phrase and a wrecked file are indistinguishable and only the code the reader returns can tell them apart.
+- **Forget stays reachable — except where it would be a destruction.** On the unlock gate, *Forget this phone's copy* is the door for a phrase that is gone for good: it deletes what is on this handset and nothing else, and the computer's ledger and every exported backup are untouched. On a page with no cipher the same button is disabled, because such a page cannot open a healthy vault and a delete there would end a copy that merely looks lost — the way out is a different URL, and the notice says so.
+- **The cipher is a privilege of the origin.** A browser hands `crypto.subtle` only to a secure context, so Pocket on `http://192.168.x.x` has `getRandomValues` and no cipher at all. `hasCipher()` is asked before any sheet offers sealing, opening a sealed file, or unlocking a vault; the answer is one sentence — *This page has no cipher: a browser lends WageRoute its crypto only over HTTPS, or on the machine the app is running on* — and on that page **Open it** stays disabled and **Forget this phone's copy** stays disabled too, because a healthy vault on a LAN address is exactly the copy that must not be erased by someone told it is lost. TLS in front of a self-hosted Pocket is therefore a functional requirement, not a preference.
+
 ### Installing and limits
 
-The built folder is static. On a browser that offers `beforeinstallprompt`, Data shows **Add WageRoute to this phone**; on iOS it explains Share → Add to Home Screen; otherwise it names the browser menu. The service worker caches the shell and its hashed bundles, so the app opens offline, and navigation is network-first so a release lands on the next open. Opening another backup and **Forget this phone** both confirm first; the merge confirmation names the entries added here that could still be replaced by a newer copy in the file, and the forget confirmation counts the entries this browser holds and names how many of them this phone wrote, so it warns about the rows no other device is known to hold and tells the person to export first. If storage refuses the erase, the screen clears but the app says the stored copy may remain. Pocket has no analytics, remote font, third-party request or upload; the production page carries a same-origin CSP. The app cannot merge two phone copies, show which side won a conflict, or read a file from the desktop automatically: the person carries the file. It keeps no field-level history, so editing the same record on both devices keeps the newer edit and silently drops the other; that rule is recorded in [ADR 0024](decisions/0024-two-copies-merge-by-time.md).
+The built folder is static. On a browser that offers `beforeinstallprompt`, Data shows **Add WageRoute to this phone**; on iOS it explains Share → Add to Home Screen; otherwise it names the browser menu. The service worker caches the shell and its hashed bundles, so the app opens offline, and navigation is network-first so a release lands on the next open. Opening another backup and **Forget this phone** both confirm first; the merge confirmation names the entries added here that could still be replaced by a newer copy in the file, and the forget confirmation counts the entries this browser holds and names how many of them this phone wrote, so it warns about the rows no other device is known to hold and tells the person to export first. If storage refuses the erase, the screen clears but the app says the stored copy may remain. Pocket has no analytics, remote font, third-party request or upload; the production page carries a same-origin CSP. The app cannot merge two phone copies, show which side won a conflict, or read a file from the desktop automatically: the person carries the file. It keeps no field-level history, so editing the same record on both devices keeps the newer edit and silently drops the other; that rule is recorded in [ADR 0024](decisions/0024-two-copies-merge-by-time.md). And a plain-HTTP origin costs it more than the install prompt: the service worker and every cipher go with it, which is why [POCKET.md](POCKET.md) treats TLS as a functional requirement rather than a preference.
 
 ---
 
@@ -911,7 +967,7 @@ All domain dates are constructed as UTC dates from `YYYY-MM-DD` strings. “Toda
 | Bill payment prompts | Implemented | Session-only, per-occurrence snooze |
 | 90-day projections | Implemented | Bills and goal deadlines |
 | Dark/light/system themes | Implemented | Tri-state, follows `prefers-color-scheme` live |
-| JSON backup, partial JSON import | Implemented | Merged by record: newer copy wins, newer deletes apply, omitted rows are untouched |
+| JSON backup, partial JSON import | Implemented | Merged by record: newer copy wins, newer deletes apply, omitted rows are untouched. Optionally sealed with a passphrase — see *Sealed backup* below |
 | CSV export and entries import | Implemented | Export covers the whole ledger; Debit/Credit columns are read |
 | Statement import (OFX/QFX bank, card and loan, QIF, account-less CSV) | Implemented | Destinations chosen in the wizard; `FITID`/reference dedupe; closing balance compared and optionally reconciled with one adjustment; investment cash lines import while trades and holdings are reported |
 | Keyboard dialogs and focus management | Implemented | Trap, Escape, focus restore, skip link, named headings |
@@ -924,9 +980,12 @@ All domain dates are constructed as UTC dates from `YYYY-MM-DD` strings. “Toda
 | Category budgets and reports | Partial | Monthly spending by category; no budgets |
 | Cloud sync, multi-device, accounts | Not implemented | Schema prepared only |
 | Auto-update | Not implemented | |
-| Encryption at rest | Not implemented | Rely on OS full-disk encryption |
+| Encryption at rest | Implemented, opt-in, unreleased | Off until the owner turns it on. `chacha20` through the SQLite codec, wraps in `ledger.key.json`; this computer, a passphrase, or both; reversible in both directions, and a custody change rewrites no page. The whole transition, plus the keyed folder move and return, ran in the **packaged** macOS app on 2026-11-04 with passphrase custody; a shipped build has **never** written a device wrap |
+| Sealed backup, opened on both devices | Implemented, unreleased | `wageroute-envelope` v1 — PBKDF2-HMAC-SHA256 at 600 000 rounds, AES-256-GCM; read by the desktop wizard and by Pocket |
+| Sealed copy on the phone | Implemented, unreleased | `wageroute-vault` v1, non-extractable key in module scope; needs a secure origin, and has never run on a handset |
+| CSV export | Always plaintext | The cipher is in the JSON envelope only. A CSV that leaves the machine carries no protection — see [ADR 0017](decisions/0017-the-csv-is-a-review-copy.md) for what the CSV is for |
 | Multi-user | Not implemented | One local user row |
-| Mobile or web build | Not implemented | Desktop Electron only |
+| Mobile or web build | Pocket: implemented | An installable offline web app in `src/pocket`, served by the owner. The desktop half stays Electron and there is no live connection between the two — the file is carried |
 
 ---
 
@@ -952,6 +1011,7 @@ All domain dates are constructed as UTC dates from `YYYY-MM-DD` strings. “Toda
 | Delete an account with transactions | The dialog counts the rows that leave — its own entries plus any transfer twin or sweep leg in another account — and needs an explicit **Delete account and N entries**; **Archive instead** keeps everything |
 | Delete an account that owns a rounded-up purchase | The sweep legs in the round-up account go too; none is left pointing at a retired purchase |
 | Delete a bill with payments | The set-asides are retired, the payments stay as ordinary expenses, and the question names both counts |
+| Pay, edit or delete a bill payment on the phone | Its bill's reservation settles, reopens or settles again in the same action, from the shared derivation — the phone's own wall is right before any backup travels |
 | Archived account | Hidden from cash/credit totals and most pickers |
 | Credit card overpaid | Displays zero owed; available credit is capped at the limit |
 | Round-up destination is the source account | No sweep |
@@ -968,6 +1028,12 @@ All domain dates are constructed as UTC dates from `YYYY-MM-DD` strings. “Toda
 | Import settings that already exist | Local value wins |
 | Import a backup from a newer schema | Rejected with a version message |
 | Open a database written by a newer build | Refused at launch with a dialog; the file is not opened or modified |
+| Wrong passphrase at the unlock gate | The ledger stays locked and the prompt says it did not open. Nothing is throttled, counted down or locked out — anyone holding the file can test guesses offline anyway, so a delay here would cost the owner and stop nobody. How many phrases it took goes into the log; the phrase never does |
+| Keychain cannot release the device wrap (locked login keychain, no keychain at all) | The device wrap is tried silently first; when it cannot answer and a passphrase wrap exists, the app asks for the phrase. With neither, it refuses and names which half is missing rather than reporting the ledger as damaged |
+| Ciphertext ledger with no `ledger.key.json` | Refused before the file is opened, and the dialog names both paths: the ledger it would not touch and the key file it could not find. It also says what the two ways out are — put the pair back from a backup of the folder, or, if this ledger was never encrypted, treat the file as damaged and restore a backup. Nothing is rewritten and no key is invented |
+| Encrypted ledger opened by a build without the cipher (for example the published 1.2.0) | `SQLITE_NOTADB` — refused, file untouched. There is no in-place downgrade path; a **plain JSON** export taken before the switch is the way a ledger travels backwards |
+| A sealed export whose phrase is wrong | The wizard names the passphrase as the problem and stays on the same step; a file that is not an envelope at all is refused with the other sentence, because typing again cannot fix it |
+| Pocket on a plain-HTTP origin | No cipher exists to offer: sealing, opening a sealed backup and unlocking a vault are all answered with one instruction, **Open it** and **Forget this phone's copy** stay disabled, and `crypto.getRandomValues` still works so nothing else breaks |
 | JSON import with missing sync metadata | Filled with `now` and revision 1 |
 | JSON import with a dangling foreign key | The whole import rolls back |
 | Delete the database file | Packaged: next launch seeds a blank profile with the first-run prompt; development: next launch re-seeds the demo profile |

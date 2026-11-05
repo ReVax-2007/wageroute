@@ -18,6 +18,11 @@ export function createFinanceApi(call: IpcCaller): FinanceApi {
     applyStorageDirectory: (directory, mode) => call('storage:apply', directory, mode),
     useDefaultStorage: () => call('storage:default'),
 
+    getEncryptionStatus: () => call('encryption:status'),
+    enableEncryption: (request) => call('encryption:enable', request),
+    disableEncryption: () => call('encryption:disable'),
+    changeKeyCustody: (change) => call('encryption:custody', change),
+
     setDisplayName: (name) => call('user:set-name', name),
 
     createAccount: (input) => call('account:create', input),
@@ -52,11 +57,12 @@ export function createFinanceApi(call: IpcCaller): FinanceApi {
     applyPaycheckPlan: (id, targets) => call('paycheck:apply', id, targets),
     saveSettings: (settings) => call('settings:save', settings),
 
-    exportBackup: () => call('backup:export'),
+    exportBackup: (passphrase) => call('backup:export', passphrase),
     exportTransactionsCsv: () => call('csv:export'),
     reconcileStatement: (accountId, statementCents, balanceOn) =>
       call('statement:reconcile', accountId, statementCents, balanceOn),
     previewImport: () => call('data:preview'),
+    supplyPassphrase: (token, passphrase) => call('data:passphrase', token, passphrase),
     confirmImport: (token, answers) => call('data:confirm', token, answers),
     resetData: () => call('data:reset')
   }

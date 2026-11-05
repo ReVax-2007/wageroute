@@ -191,7 +191,7 @@ export function Dashboard() {
             title="Start from scratch or import a backup"
             body="Set up your own accounts, bills and goals, or bring everything back from a WageRoute JSON backup."
             action={
-              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'center' }}>
+              <div className="empty-actions">
                 <Button variant="primary" onClick={() => go('accounts')}>
                   Start from scratch
                 </Button>

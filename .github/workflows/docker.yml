@@ -1,0 +1,83 @@
+name: Container images
+
+# Builds the two images in docker/ and publishes them to ghcr.io.
+#
+# A tag push publishes `<version>` and `latest`; a manual run publishes
+# `sha-<commit>` only, because between releases package.json still carries the
+# last released number and a run from main must not overwrite it.
+#
+# The first push creates the package as **private**. Making it public, or linking
+# it to this repository, is an owner action in the package settings — this
+# workflow cannot do it and does not try.
+#
+# No third-party action is used here: the runner's own docker CLI logs in and
+# pushes, so this file adds nothing to the supply chain beyond the pinned checkout.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: containers-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: wageroute-pocket
+            dockerfile: docker/pocket.Dockerfile
+          - image: wageroute-desktop
+            dockerfile: docker/desktop.Dockerfile
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Decide the tags
+        id: tags
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          if [ "${GITHUB_EVENT_NAME}" = push ] && [ "${GITHUB_REF_NAME}" != "v${VERSION}" ]; then
+            echo "The tag ${GITHUB_REF_NAME} does not match package.json (${VERSION})." >&2
+            exit 1
+          fi
+          BASE="${REGISTRY}/${GITHUB_REPOSITORY_OWNER}/${{ matrix.image }}"
+          if [ "${GITHUB_EVENT_NAME}" = push ]; then
+            echo "release=${BASE}:${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "latest=${BASE}:latest" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=${BASE}:sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+            echo "latest=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          TAGS=(-t "${{ steps.tags.outputs.release }}")
+          if [ -n "${{ steps.tags.outputs.latest }}" ]; then
+            TAGS+=(-t "${{ steps.tags.outputs.latest }}")
+          fi
+          docker build -f "${{ matrix.dockerfile }}" "${TAGS[@]}" .
+
+      - name: Push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "${GITHUB_TOKEN}" | docker login "${REGISTRY}" -u "${GITHUB_ACTOR}" --password-stdin
+          docker push "${{ steps.tags.outputs.release }}"
+          if [ -n "${{ steps.tags.outputs.latest }}" ]; then
+            docker push "${{ steps.tags.outputs.latest }}"
+          fi

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 import test from 'node:test'
 import { DEFAULT_CATEGORIES } from '@shared/categories'
 import { DEFAULT_SETTINGS } from '@shared/settings'

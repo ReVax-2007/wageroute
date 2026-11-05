@@ -8,9 +8,11 @@ WageRoute is a local-first personal finance ledger that puts every paycheck thro
 2. **Split the true surplus** — savings, investments, sinking funds and debt payoff.
 3. **Leave the remainder guilt-free** — leisure is the residual, so the plan can never spend money twice.
 
-It is a planning and ledger tool, not a bank connection. There is no account linking, no cloud account, no telemetry and no sync. Everything lives in one SQLite file on the machine where you installed it.
+It is a planning and ledger tool, not a bank connection. There is no account linking, no cloud account, no telemetry and no sync. Everything lives in one SQLite file on the machine where you installed it — plus, only if you turn encryption on, a small key file beside it that holds no key in the clear.
 
-> Version 1.2.0 · single user · macOS, Windows and Linux · unsigned release builds
+> Version 1.3.0 · single user · macOS, Windows and Linux · unsigned release builds
+
+> **Read this first if you installed 1.2.0.** The encryption at rest, sealed backups and phone vault described below are **not** in the published `1.2.0`. They are cut as release **1.3.0**: until that tag is published they exist only in this repository's build, and upgrading to it is the way to get them. Either way, an encrypted ledger opened by a build without the cipher is refused as unreadable — take a **plain** JSON backup before switching builds.
 
 ---
 
@@ -50,10 +52,11 @@ It is a planning and ledger tool, not a bank connection. There is no account lin
 | **Round-up** | Tangerine-style spare-change sweeps: when an expense is logged against a checking or cash account, the difference to the next $1, $2 or $5 is moved to a savings account as a paired transfer. |
 | **Paired transfers** | Account-to-account moves are written as two linked rows sharing a `transfer_group_id`. Editing an amount, date, memo or category updates both legs. Deleting either leg removes both. |
 | **Chronology prompts** | Active bills past their latest due date with no matching `bill_id` payment are surfaced on the dashboard as “Did this clear?” prompts with one-click logging. A bill marked **autopay** is recorded automatically at the next launch after its due date instead, so the wall clears itself. |
-| **Data portability** | Full or partial JSON backups, a whole-ledger CSV export, and imports that merge either format by row identity. Bank statements (OFX/QFX, QIF, or a CSV with no account column) import into the account you name; loan and investment statements are read for what they can offer. A bank line that carries a reference is never added twice, and a statement that carries a closing balance can be reconciled against the ledger. |
-| **Data folder** | Optionally keep the ledger in a folder you choose — a NAS share, an external disk, or a synced folder — so several computers read the same data. The default per-user folder is unchanged; a chosen folder is locked to one writer at a time, uses rollback journaling, and keeps a safety copy on every move. |
-| **Pocket (phone)** | An optional installable web app that opens a backup and works as a peer of the desktop: it shows Safe to Spend, bills, goals, accounts and the ledger, and edits them offline through the desktop's own validation rules — including a card's owed balance and a card payment. It keeps a full copy of the tables in the browser, reuses the desktop's money functions, and merges with the desktop in both directions by exporting the tables it now holds. No server, account or upload. |
-| **Appearance** | Dark, light or system theme. The resolved palette is cached locally to prevent a flash on launch. |
+| **Data portability** | Full or partial JSON backups, a whole-ledger CSV export, and imports that merge either format by row identity. A JSON backup is written either plain — readable by any spreadsheet — or sealed under a passphrase nobody can read without. Bank statements (OFX/QFX, QIF, or a CSV with no account column) import into the account you name; loan and investment statements are read for what they can offer. A bank line that carries a reference is never added twice, and a statement that carries a closing balance can be reconciled against the ledger. |
+| **Data folder** | Optionally keep the ledger in a folder you choose — a NAS share, an external disk, or a synced folder — so several computers read the same data. The default per-user folder is unchanged; a chosen folder is locked to one writer at a time, uses rollback journaling, and keeps a safety copy on every move. With encryption on, the key file travels with the folder. |
+| **Encryption at rest (opt-in)** | Settings can rewrite the ledger as ciphertext — chacha20 through the SQLite cipher driver — and take it back to plaintext from the same screen. The key is held by whoever you choose: this computer's keychain, a passphrase, or either one alone being enough. Changing who holds it re-wraps 32 bytes and touches no page, so custody is adjustable after the fact. Nothing is encrypted unless asked, and a forgotten passphrase has no reset, no escrow and no support path. |
+| **Pocket (phone)** | An optional installable web app that opens a backup and works as a peer of the desktop: it shows Safe to Spend, bills, goals, accounts and the ledger, and edits them offline through the desktop's own validation rules — including a card's owed balance and a card payment. It keeps a full copy of the tables in the browser, reuses the desktop's money functions, and merges with the desktop in both directions by exporting the tables it now holds. Its own copy can be sealed under a phrase of its own. No server, account or upload. |
+| **Appearance** | Dark, light or system theme. The resolved palette is cached locally to prevent a flash on launch. Motion is decoration: both devices obey the operating system's reduce-motion request, every control shows a keyboard focus ring, and the phone's browser bar follows the theme the page is actually painting. |
 
 ## Design rules
 
@@ -68,6 +71,7 @@ These are product and engineering constraints, not aspirations.
 7. **Local by default.** No server, no network calls in application code, no analytics, no auto-update.
 8. **Deterministic domain logic.** The allocator, account and wealth rules, cadence maths, emergency calculator, projections and bill prompts are pure functions in `src/shared`, covered by Node tests.
 9. **A dedicated account is the exception to rule 4.** Marking an account "only for" a goal makes its balance the goal's progress, and takes it out of the spendable pool so the same money is never counted twice. [ADR 0007](docs/decisions/0007-dedicated-accounts-balance-is-progress.md) records why, and what it costs.
+10. **Encryption is offered, never imposed.** The ledger is plaintext on disk unless the owner turns it on, and turning it off again is the same screen. Every option states what it does not stop, and custody can be changed without rewriting a page. [ADR 0029](docs/decisions/0029-encryption-is-a-choice-on-the-disk-and-on-the-way-out.md) records why an opt-in, and why it is not an app lock.
 
 ## Screens
 
@@ -78,7 +82,7 @@ These are product and engineering constraints, not aspirations.
 | **Sinking funds** | Goal CRUD, progress, emergency calculator | `funded / target`; dedicated goals read `account balance`; `essentials × months` |
 | **Accounts** | Bank-grouped account CRUD, purpose and safe-to-spend choices, balance adjustments, credit payments | `starting + SUM(entries)`; `max(0, −balance)` owed |
 | **Spreadsheet** | Editable ledger and 90-day projection | `next due date`, `advance by frequency` |
-| **Settings** | Theme, round-up, import/export, database path | `remainder to next increment` |
+| **Settings** | Theme, round-up, import/export, database path, encryption at rest | `remainder to next increment` |
 
 The **Allocator** is a full-screen wizard available from the sidebar or the Overview page, not a separate navigation tab.
 
@@ -91,7 +95,8 @@ The **Allocator** is a full-screen wizard available from the sidebar or the Over
 | UI | React 19.3, TypeScript 7 (strict), Zustand 5 |
 | Grid | react-data-grid 7 |
 | Icons | lucide-react |
-| Database | better-sqlite3 13, SQLite in WAL mode |
+| Database | better-sqlite3-multiple-ciphers 13 (the fork of better-sqlite3 that carries the cipher), SQLite in WAL mode |
+| Key custody | Electron `safeStorage` for the device wrap — device-bound, not biometric; scrypt + AES-256-GCM for a passphrase. Opt-in, and only in this build |
 | Packaging | electron-builder 26 (DMG, NSIS, portable, zip, AppImage, deb, rpm) |
 | Tests | `node:test` through `tsx` |
 | CI | GitHub Actions: `verify` on Ubuntu for every pull request (lint, tests, build, packaging dry run); tag builds produce the macOS, Windows and Linux installers |
@@ -131,25 +136,42 @@ hdiutil detach /tmp/wageroute-dmg
 
 Full details, including the Gatekeeper behaviour on each macOS version, are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) and [docs/RELEASING.md](docs/RELEASING.md).
 
+**Docker (neither half is an installer, and no release needs these):** the repository ships a container for each app, built from source in the image.
+
+```bash
+docker compose up --build
+# Pocket   http://localhost:8173
+# Desktop  http://localhost:6080/vnc.html?autoconnect=true
+```
+
+Pocket is the static phone app served by nginx, with the headers a plain file drop forgets. The desktop container is **not** a web version of the app: it runs the real Linux build against a virtual display and streams that window to your browser, so there is one shared session watched through a websocket, the ledger lives in a named volume — with its key file, if encryption is on, in that same volume — and Chromium's sandbox is off. A container has no keychain, so a ledger encrypted there can only be held by a passphrase. Read the caveats in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#running-wageroute-in-a-container) before pointing it at a real ledger.
+
+There is a third shape for people who want a phone or a second person to reach it: `docker-compose.yml`'s `edge` profile puts Caddy in front with TLS and a forward-auth login, plus one pair of containers and one volume per person. Neither the certificate nor the login is in the app — [ADR 0030](docs/decisions/0030-self-hosting-puts-identity-at-the-edge.md) decides they stay at the edge — and the default `docker compose up` starts exactly the two loopback containers it started before. The command, the fail-closed rules and what is still unproven are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#tls-a-login-and-more-than-one-person).
+
 ## WageRoute Pocket
 
-Pocket is an optional second front end for a phone, built from `src/pocket` to static files. It works from a full copy of the same tables in the browser's IndexedDB, merges a newer backup into it, edits that copy through the desktop's own validation rules, and exports the result for the desktop to merge.
+Pocket is the optional phone app: an installable static web app built from `src/pocket`. It opens a backup from the computer, keeps those tables in the browser, edits them offline through the desktop's own validation rules, and exports the result for the desktop to merge. No account, no server, no analytics, no upload — you carry the file, and it never leaves the phone except in your own hands.
 
-- **Install it.** Serve `dist-pocket/` from any static HTTPS origin (the repository contains a GitHub Pages workflow), open it on the phone, and use the browser's **Install app** or **Add to Home Screen**. It then opens offline like an app.
-- **First run.** Export a backup on the computer (Settings → Export a backup), send the file to the phone, and choose it on the welcome screen. The file is checked before it opens: an unknown kind or frequency, or money that is not a whole number of cents, is refused rather than quietly replaced.
-- **What it shows.** Safe to Spend and its breakdown, cash, total wealth, bills still due, goal progress, your accounts with what each card owes and how much of its limit is left, recent entries and the full ledger, read with the desktop's own shared money functions.
-- **What it can change.** Bills, goals, accounts and ledger entries: add, edit, pause or archive a bill, mark it paid, add an expense, income, transfer, bill payment, goal funding, investment or adjustment, edit or remove any entry, create, edit, archive or delete a goal, and create, edit, archive or delete an account — a credit card keeps its limit, APR, minimum payment and cycle days on the phone too. A delete is written as a tombstone and travels with the next export, taking a transfer's other leg or a purchase's round-up with it. A record changed more recently on either device wins on the next merge, and the phone refuses a save with the same sentence the desktop would. Categories need no screen on either device — a new one is typed into an entry. Paychecks, allocations, reserves and settings stay on the computer and arrive with the next backup.
-- **Getting changes back.** Data → **Export a backup** writes every table as the phone now holds it. Import that file on the computer: new rows are added, a row the phone changed more recently replaces the desktop's copy, and a deletion recorded on the phone is applied.
-- **Trust.** No account, no server, no analytics, no upload. The file never leaves the phone. Clearing the browser's site data, or using another browser, removes the phone copy — export first if it holds entries you need.
+**Using it** — the full guide is [docs/POCKET.md](docs/POCKET.md):
 
-Build and run it with `npm run pocket:dev`, `npm run pocket:build`, and `npm run pocket:preview`. Its limits and the two-way merge rule are recorded in [ADR 0024](docs/decisions/0024-two-copies-merge-by-time.md), and the rule that its writes go through the desktop's own validation in [ADR 0025](docs/decisions/0025-the-phone-writes-through-the-desktops-own-rules.md).
+1. **Put the app on an HTTPS origin.** [`pocket.yml`](.github/workflows/pocket.yml) builds `dist-pocket/` and deploys it to GitHub Pages, or serve that folder from any static host you trust, or run the container the repository ships: `docker build -f docker/pocket.Dockerfile -t wageroute-pocket . && docker run --rm -p 127.0.0.1:8173:80 wageroute-pocket`. On the machine running that container `localhost` counts as a secure origin, so the offline shell is available there — but the `-p 127.0.0.1:` binding means a handset cannot reach that container at all. To serve a phone, republish the port on your LAN address and put TLS in front; plain HTTP on a LAN address gives no service worker, no install prompt and no cipher at all. Publishing is a deliberate owner action: Pages is not enabled on this repository yet, so today this step is yours.
+2. **Install it on the phone.** Open the address in Chrome (Android) or Safari (iPhone), then **Install app** from the browser menu, or Share → **Add to Home Screen**. From then on it opens as its own app, with the signal off.
+3. **Give it your ledger.** On the computer: Settings → **Export full backup**. Send that file to the phone and choose it on the welcome screen. A sealed one is offered a passphrase and stays shut without it — nothing about its contents is counted until it opens. The file is checked before it opens — an unknown kind or frequency, or money that is not a whole number of cents, is refused rather than quietly replaced.
+4. **Work in the six tabs.** Home, Bills, Goals, Accounts, Entries, Data. A bill you **Mark paid** here closes its paycheck's set-aside on this phone, in the same keystroke the desktop would; a save the desktop would refuse is refused here, in the same words, and nothing is written.
+5. **Carry the changes back.** Data → **Export a backup**, then import that file on the computer with Settings → **Import data**: rows added on the phone arrive, the phone's newer edits win, its deletions are applied. Opening a newer backup on the phone merges instead of replacing, so entries typed there between files survive.
+
+6. **Seal what it holds, if you want.** Data → **Seal this phone's copy** puts the phone's own tables under a passphrase of its own — separate from the desktop's, and separate from the one on an exported file. **Close it now** shuts the copy between sessions; nothing on it is readable until it is opened again. It is not a screen lock: an unlocked tab holds the same data sealed or not. And the cipher is a privilege of the origin — a page served over plain HTTP has no cipher at all, so sealing and opening are refused there instead of half-working. Serve Pocket over HTTPS, or from the machine it runs on.
+
+Paychecks, allocations, the routing plan, settings and the writing of a paycheck's set-aside stay on the computer and arrive with the next backup; whether that set-aside has been spent is not one of them — the phone derives it from the payments it holds. Merge by hand means one habit matters: carry the file after each session, because the newer row wins and the older edit is dropped without a conflict screen.
+
+Build and run it with `npm run pocket:dev`, `npm run pocket:build`, and `npm run pocket:preview`. It is not part of the desktop installers. The two-way merge rule is [ADR 0024](docs/decisions/0024-two-copies-merge-by-time.md), the shared validation is [ADR 0025](docs/decisions/0025-the-phone-writes-through-the-desktops-own-rules.md), the shared claim derivation is [ADR 0028](docs/decisions/0028-both-devices-derive-a-bills-set-aside-from-its-payments.md), and the choice to make the phone's copy sealable is [ADR 0029](docs/decisions/0029-encryption-is-a-choice-on-the-disk-and-on-the-way-out.md). **Honest status:** every screen has been driven over the Chrome DevTools Protocol against the built bundle, and no real handset has run it yet — including the vault, whose unlock speed on a phone CPU has never been measured.
 
 ## Quick start
 
 Requirements: **Node.js 22 or newer** (CI uses 24) and npm. macOS packaging expects Xcode Command Line Tools; Windows packaging is normally done on Windows or in CI, and the MSI target only builds on Windows because it needs WiX.
 
 ```bash
-npm install          # also rebuilds better-sqlite3 for Electron
+npm install          # uses the cipher fork's prebuilt N-API binary — nothing is compiled
 npm run dev          # launch the app with hot reload
 npm test             # domain, accounts, import-repair, backup and repository tests
 npm run lint         # repository lint gate: no debugger, console logging, @ts-ignore or any
@@ -176,13 +198,17 @@ The database file is `wageroute.db` under Electron's per-user data directory:
 
 SQLite also creates `wageroute.db-wal` and `wageroute.db-shm` while the app is open. Copy all three together if you copy the database while WageRoute is running.
 
+With encryption on, the same folder holds one more file: `ledger.key.json`, a few hundred bytes that carry the ledger's key **wrapped** — never in the clear — and are readable only by WageRoute (`0600`). It is the other half of the ledger: a keyed `wageroute.db` copied without its key file opens nowhere, and a key file without its ledger is inert. **Copy the folder, not the file.** Moving the data folder from inside the app carries the key file along with the ledger.
+
+A keyed database is not a SQLite file any older build can read — the published `1.2.0` refuses it as unreadable, so it is a one-way move unless you also keep a **plain** JSON backup, which is the only copy that survives switching builds back.
+
 The app was previously named **Cash Flow Routing**. On first launch, if the new database does not exist, WageRoute copies `Cash Flow Routing/cash-flow-routing.db` (plus WAL and SHM) into the new folder and leaves the original untouched. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#legacy-data-adoption).
 
 ## Backup, export and import
 
-- **Export full backup** writes every row of accounts, balance snapshots, categories, bills, goals, paychecks, allocations, bill reserves, transactions and settings as JSON, tagged with backup version 10. It includes tombstones and all linked IDs, and an older backup (version 2 or later) still restores.
-- **Export transactions CSV** writes the **whole** ledger — not the 500-row screen snapshot — with Date, Account, Institution, Kind, Category, Description, Amount and Currency. Both exports are written owner-only (`0600`).
-- **Import data** accepts a backup, an entries CSV, a bank statement (OFX/QFX or QIF) or a CSV with no account column, and walks you through a three-step wizard. JSON may contain only some tables. CSV is treated as entries and matched to local accounts by name (optionally narrowed by institution); a statement is imported into the one account you pick, and a transaction the bank identifies with a FITID (or a CSV reference) is never added twice. When the statement carries a closing balance it is compared with your ledger, and one adjustment is offered if the two disagree.
+- **Export full backup** writes every row of accounts, balance snapshots, categories, bills, goals, paychecks, allocations, bill reserves, transactions and settings as JSON, tagged with backup version 10. It includes tombstones and all linked IDs, and an older backup (version 2 or later) still restores. The dialog offers the file **two ways**: plain JSON, which any spreadsheet opens, or the same contents sealed under a passphrase — AES-256-GCM under a key stretched with PBKDF2-HMAC-SHA256, written as `wageroute-backup-<stamp>-encrypted.json`, which WageRoute on the phone opens with that phrase and nobody else can read. Nothing recovers a lost phrase: the file is then a puzzle with one piece missing.
+- **Export transactions CSV** writes the **whole** ledger — not the 500-row screen snapshot — with Date, Account, Institution, Kind, Category, Description, Amount and Currency. It is always plaintext, and it is a report rather than a backup. Both exports are written owner-only (`0600`).
+- **Import data** accepts a backup (plain or sealed), an entries CSV, a bank statement (OFX/QFX or QIF) or a CSV with no account column, and walks you through a three-step wizard — four, when the file arrives sealed and has to be opened first. JSON may contain only some tables. CSV is treated as entries and matched to local accounts by name (optionally narrowed by institution); a statement is imported into the one account you pick, and a transaction the bank identifies with a FITID (or a CSV reference) is never added twice. When the statement carries a closing balance it is compared with your ledger, and one adjustment is offered if the two disagree.
 - **The wizard asks instead of failing.** Anything a row is missing, mis-typed, out of range or pointing at — plus CSV account names that match nothing — is put to you as a question with a fix-or-leave-out choice. Rows you cannot fix are left out with an explanation of what was wrong and how to repair the file; the rest of the import still lands.
 - Imports merge by row identity: a row the file holds a newer version of replaces the local copy, an older copy is skipped, and a newer tombstone deletes. Settings merge per key the same way once the ledger has history; a backup restored into an empty profile also supplies its settings. Re-importing the same file changes nothing.
 
@@ -190,11 +216,15 @@ Full format rules, examples and failure modes are in [docs/IMPORT-EXPORT.md](doc
 
 ## Deployment status
 
-**WageRoute is local-only today.** There is no sync engine, no cloud backup, no server, no user account and no automatic updates. The optional data folder can sit on a drive the user already syncs, but WageRoute itself does not coordinate that sync. Multi-device use otherwise requires exporting and importing files manually. The schema is deliberately sync-ready, but no sync design has been agreed or implemented.
+**WageRoute is local-only today.** There is no sync engine, no cloud backup, no hosted service, no user account and no automatic updates. The installers contain no listening port at all; the two container images are the only way this project runs something on a port, and both publish to `127.0.0.1` by default. The optional data folder can sit on a drive the user already syncs, but WageRoute itself does not coordinate that sync. Multi-device use otherwise requires exporting and importing files manually. The schema is deliberately sync-ready, but no sync design has been agreed or implemented.
 
-**Pocket is static.** Its build is a folder of files with no backend; deployment means publishing those files to a static host. The repository includes a manual GitHub Pages workflow, but enabling Pages and publishing the site are deliberate owner actions and are not part of a release.
+**Encryption is the same kind of local.** It is opt-in, it is reversible from the same screen, and every part of it stays on the machine: a wrapped key in the ledger's own folder, the OS keychain for the device wrap, or the passphrase in the owner's head. There is no hosted key, no escrow, no reset and no support path that can open a locked ledger — losing the only custody there is means the data is gone, and the app says so before it lets you choose it. The transition rewrites every page, and it has now run end to end in the **packaged** macOS app: encrypted from Settings, restarted into the unlock prompt, opened with the passphrase, turned back to plaintext again. What an installed build has still never done is write a **device** wrap, and no Windows or Linux artifact has held a keyed ledger.
+
+**Pocket is static.** Its build is a folder of files with no backend; deployment means publishing those files to a static host. The repository includes a manual GitHub Pages workflow, but enabling Pages and publishing the site are deliberate owner actions and are not part of a release. It has never been installed on a real handset: every screen, refusal and round trip has been proved in a browser against the built bundle.
 
 The CI workflow builds unsigned installers; on a tag it attaches them to a **draft** GitHub Release but never publishes it. Publishing the release is a manual step. Code signing and notarization are not configured.
+
+The two container images build and run locally — Pocket serves the same hash-named bundle `npm run pocket:build` writes and every response header has been checked one by one, and the desktop session has been watched and driven in a browser — but the in-container **install prompt** has never been exercised, no handset has opened either URL, and the workflow that would publish them to `ghcr.io` has never run and no image has been pushed. Publishing an image is a deployment, not a release: see [docs/RELEASING.md](docs/RELEASING.md#container-images).
 
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full status matrix and the GitHub vs GitLab recommendation, and [docs/RELEASING.md](docs/RELEASING.md) for the build and release checklist.
 
@@ -203,6 +233,8 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full status matrix and the 
 ```text
 .
 ├── build/                     App icon sources and generated .icns/.png
+├── docker/                    Pocket nginx image, streamed desktop image, entrypoint, supervisor, edge Caddyfile
+├── docker-compose.yml         Both images, one command, published to 127.0.0.1; the `edge` profile adds TLS + a login
 ├── docs/                      Documentation (this set)
 ├── examples/                  Example backup used by the importer tests
 ├── out/                       electron-vite build output (ignored)
@@ -211,7 +243,8 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full status matrix and the 
 ├── src/
 │   ├── main/                  Electron main process
 │   │   ├── db/                connection, migrations, repositories, backup,
-│   │   │                      entries import, legacy adoption, seed
+│   │   │                      entries import, key custody and the encrypt/
+│   │   │                      decrypt transition, legacy adoption, seed
 │   │   ├── index.ts           app lifecycle, window, security policy
 │   │   └── ipc.ts             IPC handlers and file dialogs
 │   ├── preload/               contextBridge surface
@@ -225,8 +258,10 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full status matrix and the 
 │   │       ├── store/         Zustand slices, actions and selectors
 │   │       └── styles/        tokens, layered sheets, grid theme
 │   ├── pocket/                Static installable phone app
-│   │   ├── lib/               backup reader, snapshot, store, IndexedDB, install
-│   │   ├── components/        Sheet, field, money and percent inputs, nav, delete confirm
+│   │   ├── lib/               backup reader, snapshot, store, IndexedDB, sealed
+│   │   │                      vault and envelope, WebCrypto guard, install
+│   │   ├── components/        Sheet, field, money and percent inputs, nav, delete
+│   │   │                      confirm, vault card, seal and unlock sheets
 │   │   ├── screens/           Home, Bills, Goals, Accounts, Ledger, Data, Welcome
 │   │   └── public/            manifest, service worker, icons
 │   └── shared/                Pure domain layer used by all processes
@@ -234,6 +269,8 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full status matrix and the 
 │       ├── accounts.ts        Safe-to-spend membership, total wealth, buckets
 │       ├── cadence.ts         Bill/pay frequency smoothing
 │       ├── emergency.ts       Emergency fund calculator
+│       ├── encryption.ts      Custody options and the honesty table they carry
+│       ├── envelope.ts        Sealed backup format, shared by both devices
 │       ├── csv.ts             CSV export and import parsing
 │       ├── qif.ts             QIF record reader
 │       ├── statements.ts      OFX/QFX and bank CSV statement readers
@@ -250,11 +287,12 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full status matrix and the 
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Process model, boot sequence, IPC, state flow, module responsibilities |
 | [docs/DATA-MODEL.md](docs/DATA-MODEL.md) | Every table, column, index, invariant, settings key and migration |
 | [docs/FEATURES.md](docs/FEATURES.md) | Screen-by-screen behaviour and the exact formulas behind each number |
-| [docs/IMPORT-EXPORT.md](docs/IMPORT-EXPORT.md) | JSON backup schema, partial imports, CSV grammar, dedupe and errors |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Local-only reality, multi-device options, sync status, repo hosting |
+| [docs/POCKET.md](docs/POCKET.md) | Using the phone app: getting it installed, first run, the six tabs, sealing the phone's copy, carrying files between devices, what is refused, and what has not been proved yet |
+| [docs/IMPORT-EXPORT.md](docs/IMPORT-EXPORT.md) | JSON backup schema, sealed exports, partial imports, CSV grammar, dedupe and errors |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Local-only reality, multi-device options, running either app in a container, TLS and a login at the edge, key custody there, sync status, repo hosting |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Setup, scripts, feature checklist, migration recipe, debugging |
 | [docs/RELEASING.md](docs/RELEASING.md) | Versioning, packaging, CI, signing gaps, release and rollback |
-| [docs/SECURITY.md](docs/SECURITY.md) | Trust boundaries, controls, threats, known gaps |
+| [docs/SECURITY.md](docs/SECURITY.md) | Trust boundaries, controls, encryption at rest and key custody, threats, known gaps |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each release, and what landed after the last one |
 | [docs/UNRELEASED.md](docs/UNRELEASED.md) | The running queue for the next release, its blockers and its checklist |
 | [docs/decisions/README.md](docs/decisions/README.md) | Architecture decision records for the load-bearing choices |

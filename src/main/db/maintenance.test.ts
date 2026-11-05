@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'

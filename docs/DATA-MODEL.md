@@ -1,6 +1,8 @@
 # Data model
 
-WageRoute stores everything in one SQLite database, `wageroute.db`, using `STRICT` tables, integer cents, UUID text keys and ISO-8601 timestamps. This document describes the schema at version 10, the semantics of each column, the derived values the app computes at read time, and the invariants that keep the ledger coherent.
+WageRoute stores every financial fact in one SQLite database, `wageroute.db`, using `STRICT` tables, integer cents, UUID text keys and ISO-8601 timestamps. This document describes the schema at version 10, the semantics of each column, the derived values the app computes at read time, and the invariants that keep the ledger coherent.
+
+That one file is the ledger, not the whole installation. Beside it live `ledger.key.json` (only the wraps that can produce the ledger's key, when the owner turns encryption on) and, in the app's own folder, `storage.json` (which folder to use) and `backups/` (the daily and pre-upgrade copies). The phone keeps its own copy of these same tables in IndexedDB. Nothing in the schema records any of it — see [Encryption is not schema state](#encryption-is-not-schema-state).
 
 Source of truth: [`src/main/db/migrations.ts`](../src/main/db/migrations.ts). Read model assembly: [`src/main/db/repo/read-models.ts`](../src/main/db/repo/read-models.ts).
 
@@ -14,6 +16,7 @@ Source of truth: [`src/main/db/migrations.ts`](../src/main/db/migrations.ts). Re
 - [Indexes](#indexes)
 - [Derived values](#derived-values)
 - [Settings keys](#settings-keys)
+- [Encryption is not schema state](#encryption-is-not-schema-state)
 - [Migrations](#migrations)
 - [Invariants](#invariants)
 - [Retention and soft deletes](#retention-and-soft-deletes)
@@ -346,7 +349,7 @@ The Priority Wall's receipt for one bill in one month. Added in v7; see [ADR 001
 | `amount_cents` | INTEGER | NOT NULL, CHECK ≥ 0 | The claim, as the wall printed it for that cheque |
 | `state` | TEXT | NOT NULL, default `'reserved'`, CHECK in `reserved,paid` | Flipped by the payment lifecycle |
 | `strategy` | TEXT | NOT NULL, default `'all_checks'`, CHECK in the five strategies | Added in v9. The funding strategy in force when the cheque wrote the claim |
-| `due_day` | INTEGER | NOT NULL, default `1`, CHECK `BETWEEN 1 AND 31` | Added in v9. The bill's due day when the claim was written, so editing the bill later cannot change how an old claim carries |
+| `due_day` | INTEGER | NOT NULL, default `1`, CHECK `BETWEEN 1 AND 31` | Added in v9. The bill's due day when the claim was written, so editing the bill later cannot change how an old claim carries. A database column can never be missing, but a backup written before v9 has no key for it at all: both devices then take the due day from the bill, which is what `mergeBackup` does for its own rows and what the phone's reconcile does before it runs the walk |
 | `settled_by` | TEXT | nullable, partial index | Added in v9. The transaction that closed this claim, so a delete or move re-opens exactly what it paid |
 | `created_at` | TEXT | NOT NULL | |
 | `updated_at` | TEXT | NOT NULL | |
@@ -357,7 +360,7 @@ Semantics:
 
 - A row is written only by `commitPaycheck`, and only when `plan.shortfallCents === 0`; a shortfalling cheque claims nothing so the wall can retry.
 - The cycle is the **calendar month** of the cheque, not a pay period, because `monthlyEquivalentCents` normalises every frequency to a month.
-- `state = 'paid'` is set by a `bill_payment` or `expense` transaction carrying that `bill_id`, and `settled_by` names the payment that completed the claim. States are **derived**, not patched: `reconcileBillReserve` replays every live bill-linked transaction for the bill in date order, offers each payment to its own cycle's claims first (only when `paychecks.received_on <= occurred_on`) and then to earlier carried claims, and accumulates partial coverage per claim. Two 60,000 payments therefore close one 120,000 claim, while a 60,000 payment against two 60,000 instalments closes one. A refund is a positive bill-linked row and takes coverage back from the most recent contribution, so the claim re-opens. Deleting or re-dating any payment replays the rest, and `settled_by` always names the payment that finished the claim.
+- `state = 'paid'` is set by a `bill_payment` or `expense` transaction carrying that `bill_id`, and `settled_by` names the payment that completed the claim. States are **derived**, not patched: the walk lives in `deriveClaimStates` ([`src/shared/claims.ts`](../src/shared/claims.ts)) and `reconcileBillReserve` feeds it the rows and writes back only what disagrees. It offers each payment to its own cycle's claims first (only when `paychecks.received_on <= occurred_on`) and then to earlier carried claims, and accumulates partial coverage per claim. Two 60,000 payments therefore close one 120,000 claim, while a 60,000 payment against two 60,000 instalments closes one. A refund is a positive bill-linked row and takes coverage back from the most recent contribution, so the claim re-opens. Deleting or re-dating any payment replays the rest, and `settled_by` always names the payment that finished the claim. The phone runs the same walk over the copy in its browser, so a payment typed there settles the claim there ([ADR 0028](decisions/0028-both-devices-derive-a-bills-set-aside-from-its-payments.md)).
 - `claimsThisMonthFor` returns the month's open (`reserved`) claims with the strategy that wrote them, and the allocator subtracts them from the month's remaining need. Every open claim counts, whatever strategy wrote it: a cheque tops the month up to its normal share and never sets aside more than remains. `recordBillReserves` caps a month's **open** claims at the bill's monthly equivalent, so switching strategy more than once cannot reserve the same obligation twice, while a claim already closed by a card charge does not block cash the pool still owes.
 - A payment dated in a later cycle first tries that cycle's claim, but only when the cheque that wrote it was already received. Otherwise the replay offers it to the earliest open earlier claims, restricted to claims whose funding cheque fell **after** the bill's due day in their own cycle. That day test is the carry: a 31 January cheque funds a bill due 1 February, whatever the strategy. The comparison uses the claim's stored `due_day`, not the bill's current one. A mid-month cheque funds its own month, so a later payment is paying that month late — moving a March payment to April leaves March `reserved`. A payment is never offered to a claim another payment already paid, so the same money cannot close two months.
 - When a payment lands after an earlier cheque in the month, the remaining need is divided across the real cheques **still to come** in that month, not across the whole month: with an anchor, a fifth weekly or third biweekly cheque later in the same month counts; without one, only the guaranteed slots do. A 120,000 bill with 60,000 paid before the last semimonthly cheque withholds the remaining 60,000, not 30,000.
@@ -508,6 +511,30 @@ A settings key this build does not know is reported as an import issue and skipp
 
 The development demo seed overrides the default splits to `20 / 15 / 15 / 5` and leaves 45% as leisure. Packaged builds keep `DEFAULT_SETTINGS`.
 
+## Encryption is not schema state
+
+Version 10 has no table, no column and no settings key that records whether the ledger is encrypted. That is deliberate, and it is what makes the feature need no migration.
+
+The state lives in two files instead:
+
+| Where | What it holds |
+| --- | --- |
+| The first 16 bytes of `wageroute.db` | Plaintext begins `SQLite format 3\0`; anything else is ciphertext. **The header, not the marker, decides how the file gets opened** |
+| `ledger.key.json` beside it (`0600`) | `version`, `cipher` (`chacha20`), `createdAt`, an optional device wrap, an optional passphrase wrap, and a temporary `pending` promise naming the safety copy of a transition that did not finish. Never the 32-byte data key, never a passphrase |
+
+The cipher is applied per connection — `cipher('chacha20')` then `key(...)` before any other pragma — so every table, index, `PRAGMA user_version` and row reads identically either way. Turning encryption on copies the same pages through the codec and then proves it: `assertTransition` (`src/main/db/encryption.ts`) requires the header to have flipped, the transaction row count and schema version to be unchanged, and `integrity_check` to say `ok`. Rekey's own return value is not trusted, because it has lied twice.
+
+What follows for everything else this document describes:
+
+- The `.db` copies in `backups/` (`daily-`, `pre-upgrade-`, `pre-erase-`, `pre-move-`, `pre-return-`) are taken with `VACUUM INTO`, so each comes out in the state of the ledger it was copied from. A keyed ledger's daily copy is ciphertext, and only that folder's `ledger.key.json` opens it — which is fine for the intended recovery, copying the file back over `wageroute.db` in the same folder.
+- A folder move copies the key file with the ledger (`copyKeyFile`), because the new folder cannot be opened without it. Inspecting a foreign folder whose ledger reads as ciphertext is refused by name (`inspectLedger`): the running session's key belongs to a different file, and trying it here would report a healthy ledger as a corrupt one.
+- **Erase all data** wipes rows and re-seeds; it deletes neither the file nor the marker, so an erased ledger is still keyed.
+- A JSON backup carries no key material. A sealed export wraps that same JSON under a key derived from a passphrase typed at that moment (PBKDF2-HMAC-SHA256, AES-256-GCM — see [IMPORT-EXPORT.md](IMPORT-EXPORT.md)); it is unrelated to the ledger's cipher and does not require encryption at rest to be on.
+- The phone's vault is a sealed record in its own IndexedDB plus a marker in the exported file. No table holds it.
+- Which custody was chosen is also absent from the ledger. The device wrap is machine-bound, so a keyed ledger that moves to another computer opens there only through the passphrase wrap — or not at all.
+
+The one failure this pairing creates is documented in [SECURITY.md](SECURITY.md): the two files must travel together. Move or restore only `wageroute.db` and the launch finds ciphertext with no marker, which is refused by name (`MissingKeyFileError`) before SQLite is involved, with neither file opened or rewritten.
+
 ## Migrations
 
 Migrations run inside a transaction per version and are tracked by `PRAGMA user_version`. They only move forward.
@@ -584,7 +611,7 @@ Settings are the one table where a merge can overwrite. A merge into a ledger wi
 | Text fields | 160 chars default; memo 240; category/color 60/20 | `repo/` |
 | Bill due day | Whole number 1–31; out of range is refused | repository |
 
-Not in the backup: the `users` row (display name, email, legacy currency), the database file itself, the theme cache in `localStorage`, and the `snoozedPrompts` session state.
+Not in the backup: the `users` row (display name, email, legacy currency), the database file itself, the theme cache in `localStorage`, and the `snoozedPrompts` session state. Nor is any key material: the wraps that can produce the ledger's key stay in `ledger.key.json`, and sealing a backup adds an envelope around the same tables rather than a column inside them.
 
 ## Sync-readiness
 
@@ -598,4 +625,4 @@ The schema was designed so a future sync layer can be added without reshaping th
 - money is integer-only;
 - IDs are preserved by JSON import.
 
-Missing pieces for real sync: an auth/identity model, a server, an outbox table, `synced_at` columns, conflict policy beyond last-write-wins, per-device cursors, encryption in transit and at rest, and a migration strategy across devices. None of it is implemented. See [DEPLOYMENT.md](DEPLOYMENT.md#sync-status).
+Missing pieces for real sync: an auth/identity model, a server, an outbox table, `synced_at` columns, conflict policy beyond last-write-wins, per-device cursors, encryption in transit, and a migration strategy across devices. None of it is implemented. Encryption *at rest* is the exception — it exists as an option and changes nothing here, because it is not schema state. See [DEPLOYMENT.md](DEPLOYMENT.md#sync-status).

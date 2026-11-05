@@ -17,7 +17,8 @@
     "verbatimModuleSyntax": true,
     "noEmit": true,
     "paths": {
-      "@shared/*": ["./src/shared/*"]
+      "@shared/*": ["./src/shared/*"],
+      "better-sqlite3-multiple-ciphers": ["./node_modules/better-sqlite3-multiple-ciphers/index.d.ts"]
     },
     "types": ["node"]
   },

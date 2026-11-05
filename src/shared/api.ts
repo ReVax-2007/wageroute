@@ -1,5 +1,11 @@
 import type { AllocationPlan } from './allocator'
 import type {
+  EnableEncryptionRequest,
+  EncryptionChange,
+  EncryptionStatus,
+  KeyCustodyChange
+} from './encryption'
+import type {
   DroppedRow,
   ImportAnswer,
   ImportChoice,
@@ -95,6 +101,19 @@ export interface ImportPreview {
   issues?: ImportIssue[]
 }
 
+/**
+ * The file is a sealed envelope, so nothing can be counted until it opens. The
+ * wizard gets this instead of a preview and asks for the passphrase; the token
+ * is the held file, and `supplyPassphrase` trades it for a real preview.
+ */
+export interface ImportNeedsPassphrase {
+  sealed: true
+  token: string
+  path: string
+  /** Read straight off the header, which is in the clear. Empty when unusable. */
+  exportedAt: string
+}
+
 export interface ImportResult {
   path: string
   format: 'backup' | 'entries'
@@ -143,7 +162,8 @@ export interface AppInfo {
 /**
  * Everything a bug report needs and nothing it does not: no account names, no
  * amounts, no settings. The row counts say whether the ledger is empty, not
- * what is in it.
+ * what is in it. The encryption line is booleans and a cipher name — enough to
+ * tell a refused open from a damaged file, and never a key, a wrap or a phrase.
  */
 export interface AppDiagnostics {
   generatedAt: string
@@ -157,6 +177,7 @@ export interface AppDiagnostics {
   packaged: boolean
   databasePath: string
   databaseBytes: number
+  encryption: EncryptionStatus
   backupsPath: string
   logPath: string
   logTail: string
@@ -228,6 +249,40 @@ export interface FinanceApi {
   /** Returns to the per-user folder this computer keeps, and restarts. */
   useDefaultStorage(): Promise<StorageMoveResult>
 
+  /** What the ledger's own bytes say about encryption, plus who can open it. */
+  getEncryptionStatus(): Promise<EncryptionStatus>
+  /**
+   * Rewrites every page of the ledger, then restarts the app. The transition
+   * cannot run with this session's handle still holding the file, and that
+   * handle is bound to the state it opened in, so there is no continuation
+   * here — only a restart, whichever way the change went.
+   */
+  enableEncryption(request: EnableEncryptionRequest): Promise<EncryptionChange>
+  /** The same journey back to plaintext, with the same restart. */
+  disableEncryption(): Promise<EncryptionChange>
+  /**
+   * Add, remove or replace a way of holding the key. No page moves and nothing
+   * restarts: this re-wraps 32 bytes and answers with the new status.
+   */
+  changeKeyCustody(change: KeyCustodyChange): Promise<EncryptionStatus>
+
+  /** What the ledger's own bytes say about encryption, plus who can open it. */
+  getEncryptionStatus(): Promise<EncryptionStatus>
+  /**
+   * Rewrites every page of the ledger, then restarts the app. The call resolves
+   * only to say a restart is coming: the transition cannot run with this
+   * session's handle still holding the file, and that handle is bound to the
+   * state it opened in.
+   */
+  enableEncryption(request: EnableEncryptionRequest): Promise<EncryptionChange>
+  /** The same journey back to plaintext, with the same restart. */
+  disableEncryption(): Promise<EncryptionChange>
+  /**
+   * Add, remove or replace a way of holding the key. This one does not rewrite
+   * the ledger and does not restart anything: it re-wraps 32 bytes.
+   */
+  changeKeyCustody(change: KeyCustodyChange): Promise<EncryptionStatus>
+
   /** Sets or clears the name used in the Home greeting. */
   setDisplayName(name: string): Promise<WriteResult<void>>
 
@@ -297,10 +352,16 @@ export interface FinanceApi {
   applyPaycheckPlan(paycheckId: string, targets: PlanMoveTarget[]): Promise<WriteResult<AppliedPlan>>
   saveSettings(settings: AppSettings): Promise<WriteResult<void>>
 
-  exportBackup(): Promise<string | null>
+  /**
+   * Writes a full backup and reports the file. A passphrase seals it into an
+   * envelope nobody can open without it; `null` writes the plain JSON backup.
+   */
+  exportBackup(passphrase: string | null): Promise<string | null>
   exportTransactionsCsv(): Promise<string | null>
   /** Opens the file picker and reports what the import would need fixed. */
-  previewImport(): Promise<ImportPreview | null>
+  previewImport(): Promise<ImportPreview | ImportNeedsPassphrase | null>
+  /** The passphrase for a sealed file, traded for the preview it should have had. */
+  supplyPassphrase(token: string, passphrase: string): Promise<ImportPreview>
   /** Runs the import for a preview token, applying the wizard's answers. */
   confirmImport(token: string, answers: ImportAnswer[]): Promise<ImportResult>
   /**

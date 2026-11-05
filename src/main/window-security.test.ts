@@ -20,6 +20,15 @@ test('the dev server is trusted by origin, so a lookalike host is refused', () =
   assert.equal(isTrustedPageUrl('not a url', DEV, PACKAGED), false)
 })
 
+test('the unlock prompt is the only query the app page is allowed to carry', () => {
+  assert.equal(isTrustedPageUrl(`${PACKAGED}?mode=unlock`, undefined, PACKAGED), true)
+  assert.equal(isTrustedPageUrl(`${PACKAGED}?mode=settings`, undefined, PACKAGED), false)
+  assert.equal(isTrustedPageUrl(`${PACKAGED}?mode=unlock&extra=1`, undefined, PACKAGED), false)
+  assert.equal(isTrustedPageUrl(`${PACKAGED}?`, undefined, PACKAGED), false)
+  // A hash is the same document; the renderer only reads the search string.
+  assert.equal(isTrustedPageUrl(`${PACKAGED}?mode=unlock#/anywhere`, undefined, PACKAGED), true)
+})
+
 test('only the support page may open in the system browser', () => {
   assert.equal(isAllowedExternalUrl('https://buymeacoffee.com/revax'), true)
   assert.equal(isAllowedExternalUrl('https://buymeacoffee.com/revax/'), true)

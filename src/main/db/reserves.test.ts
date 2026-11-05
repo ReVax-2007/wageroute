@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import Database from 'better-sqlite3'
+import Database from 'better-sqlite3-multiple-ciphers'
 import test from 'node:test'
 import type { BillFundingStrategy, PayCadence } from '@shared/types'
 import { migrate } from './migrations'

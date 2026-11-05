@@ -1063,3 +1063,37 @@ button.goal-head.tap {
   background: var(--text-muted);
   transform: rotate(-45deg);
 }
+
+/* ---------------------------------------------------- desktop parity bits */
+
+/* A phone can wear a keyboard. Without a ring on the buttons, tabs and swatch
+   row, the only focus style on this device was the text field's, so tabbing
+   stopped being visible the moment the caret left an input. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* A text field already says it is focused, with its own border colour and glow,
+   so it must not collect the ring on top of that. */
+.input:focus-visible {
+  outline: none;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* Same rule the desktop's utilities sheet carries: motion is decoration, so an
+   explicit request to reduce it gets the sheet already open. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

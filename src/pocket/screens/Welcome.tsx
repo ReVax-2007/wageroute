@@ -28,7 +28,7 @@ export function Welcome() {
           <span className="step-icon">
             <RefreshCw size={17} aria-hidden="true" />
           </span>
-          <span>On your computer, open WageRoute → Settings → Export a backup.</span>
+          <span>On your computer, open WageRoute → Settings → Export full backup.</span>
         </li>
         <li>
           <span className="step-icon">
