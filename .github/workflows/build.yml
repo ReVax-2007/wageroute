@@ -268,8 +268,8 @@ jobs:
             # Re-running a tag may refresh a draft, but replacing assets in a
             # live release would invalidate the checksums people already kept.
             if [ "$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft)" != "true" ]; then
-              echo "release $GITHUB_REF_NAME is already published; refusing to replace its assets"
-              exit 1
+              echo "release $GITHUB_REF_NAME is already published; leaving existing assets untouched"
+              exit 0
             fi
           else
             gh release create "$GITHUB_REF_NAME" --draft --title "WageRoute $GITHUB_REF_NAME"
