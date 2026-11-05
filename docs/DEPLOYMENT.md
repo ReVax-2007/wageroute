@@ -183,6 +183,54 @@ It does **not**:
 
 The artifacts are unsigned development builds. macOS Gatekeeper, Windows SmartScreen and some Linux package managers will warn when they are opened on another machine.
 
+### Windows installation and security friction
+
+Because the Windows builds are currently unsigned, Windows and modern web browsers (Microsoft Edge, Google Chrome) apply two successive security gates:
+
+1. **Browser download quarantine (SmartScreen / Safe Browsing):**
+   - When downloading `WageRoute.Setup.<version>.exe`, `WageRoute-<version>.portable.exe`, or `.msi`, Microsoft Edge flags the file:
+     *"WageRoute.Setup.exe was blocked because it could harm your device"*.
+     *Resolution:* Hover over the download item in Edge → select **`...`** (More actions) → click **Keep** → click **Show more** → select **Keep anyway**.
+   - In Google Chrome, click the download warning icon in the top toolbar or downloads list → select **Download suspicious file** (or **Keep anyway**).
+2. **Mark of the Web & Windows SmartScreen:**
+   - Web browsers tag all downloaded files with an NTFS Alternate Data Stream named `Zone.Identifier` (ZoneId=3, Mark of the Web).
+   - When the user runs the `.exe`, Windows Defender SmartScreen blocks execution with a blue dialog:
+     *"Windows protected your PC — Microsoft Defender SmartScreen prevented an unrecognized app from starting."*
+     *Resolution:* Click **More info** → click **Run anyway**.
+   - *Manual file unblock:* Right-click the `.exe` in File Explorer → choose **Properties** → on the **General** tab check the **Unblock** box at the bottom → click **Apply** / **OK**.
+3. **PowerShell / CLI bypass (avoids Mark of the Web):**
+   - Just like `curl` on macOS avoids the Gatekeeper quarantine attribute, downloading through PowerShell or `curl.exe` on Windows does not set the `Zone.Identifier` alternate stream:
+     ```powershell
+     curl.exe -LO https://github.com/ReVax-2007/wageroute/releases/download/v1.2.0/WageRoute.Setup.1.2.0.exe
+     .\WageRoute.Setup.1.2.0.exe
+     ```
+   - If an existing file is already blocked by Windows, it can be unblocked via PowerShell:
+     ```powershell
+     Unblock-File -Path .\WageRoute.Setup.1.2.0.exe
+     ```
+
+### Linux installation, permissions and dependencies
+
+1. **AppImage execution permissions:**
+   - Linux browsers download AppImages without the executable bit set. Launching an AppImage requires:
+     ```bash
+     chmod +x WageRoute-1.2.0-x86_64.AppImage
+     ./WageRoute-1.2.0-x86_64.AppImage
+     ```
+2. **FUSE 2 dependency on modern distributions (Ubuntu 22.04+, Ubuntu 24.04+, Debian 12):**
+   - Standard AppImages require `libfuse.so.2` to mount the internal filesystem image. Modern Ubuntu distributions do not include FUSE 2 by default and will fail with `dlopen(): error loading libfuse.so.2`.
+   - Install the compatibility library:
+     - Ubuntu 24.04 LTS: `sudo apt install libfuse2t64`
+     - Ubuntu 22.04 LTS: `sudo apt install libfuse2`
+   - Alternatively, run without FUSE:
+     ```bash
+     ./WageRoute-1.2.0-x86_64.AppImage --appimage-extract-and-run
+     ```
+3. **Native package manager installations (.deb and .rpm):**
+   - Native packages do not require FUSE and integrate directly into the desktop environment and system launcher:
+     - Debian / Ubuntu / Mint: `sudo apt install ./WageRoute-1.2.0-amd64.deb`
+     - Fedora / RHEL / openSUSE: `sudo dnf install ./WageRoute-1.2.0-x86_64.rpm`
+
 ## Homebrew tap
 
 macOS releases are also published to a custom tap, [`ReVax-2007/homebrew-wageroute`](https://github.com/ReVax-2007/homebrew-wageroute). Homebrew downloads the DMG itself, pins the exact SHA-256 of each installer in the cask, and replaces the app in `/Applications` on upgrade.

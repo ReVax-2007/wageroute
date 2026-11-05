@@ -451,9 +451,32 @@ Secrets belong in CI secret storage (`CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`,
 
 ### Windows
 
-The NSIS installer is unsigned. On first run, SmartScreen shows “Windows protected your PC” and hides the install action behind **More info → Run anyway**. This is expected, not a bug.
+The Windows installers (NSIS, MSI), the portable executable, and the zip archives are currently unsigned. On modern Windows installations, users encounter two separate security checks:
 
-To remove the warning you need an OV or EV code-signing certificate (or a cloud signing service such as Azure Trusted Signing), applied to both the application executables and the installer. EV certificates historically received immediate reputation; OV certificates accumulate reputation over time. Signing must be timestamped so signatures remain valid after the certificate expires.
+1. **Browser download quarantine (Microsoft Edge / Google Chrome):**
+   - Microsoft Edge blocks the download with a warning (*"WageRoute.Setup.exe was blocked because it could harm your device"*).
+   - In Edge, users must hover over the download item → click **`...`** (More actions) → select **Keep** → select **Show more** → click **Keep anyway**.
+   - In Google Chrome, users must select **Download suspicious file** or **Keep anyway** from the downloads alert.
+2. **Mark of the Web & Windows Defender SmartScreen:**
+   - Browsers write the NTFS alternate data stream `Zone.Identifier` (ZoneId=3) onto downloaded executables.
+   - On first launch, SmartScreen displays a blue modal: *"Windows protected your PC — Microsoft Defender SmartScreen prevented an unrecognized app from starting."*
+   - Users click **More info → Run anyway** to proceed.
+   - Alternatively, right-click the executable → **Properties** → check the **Unblock** box under Security → **Apply**.
+   - Downloading via PowerShell (`curl.exe -LO ...` or `Invoke-WebRequest`) avoids setting the Mark of the Web entirely.
+   - Existing blocked files can also be unblocked in PowerShell via `Unblock-File -Path .\WageRoute.Setup.<version>.exe`.
+
+To eliminate both warnings in production:
+- Obtain an EV or OV code-signing certificate, or configure **Azure Trusted Signing** / **SignPath**.
+- Integrate signing in the CI workflow using `signtool.exe` or electron-builder's `win.certificateFile` / `win.certificatePassword` configuration.
+- Sign all nested executables (`WageRoute.exe`, helper binaries), the NSIS setup wrapper, and the MSI payload with an RFC 3161 timestamp server.
+
+### Linux
+
+Linux artifacts (AppImage, deb, rpm) are unsigned:
+- **AppImage execution permissions:** Browsers do not set executable bits on downloaded files. Users must run `chmod +x WageRoute-<version>-x86_64.AppImage` before running.
+- **FUSE 2 requirements:** Modern distributions (Ubuntu 22.04 LTS, Ubuntu 24.04 LTS, Debian 12) do not bundle `libfuse2` by default. AppImages will fail with `dlopen(): error loading libfuse.so.2` unless `libfuse2t64` (Ubuntu 24.04+) or `libfuse2` (Ubuntu 22.04) is installed, or the binary is executed with `./WageRoute-*.AppImage --appimage-extract-and-run`.
+- **Package manager warnings:** Installing `.deb` or `.rpm` through GUI app stores may warn that the package is from an untrusted or unsigned source. Installing via CLI (`sudo apt install ./...deb` or `sudo dnf install ./...rpm`) bypasses GUI prompts and verifies dependencies cleanly.
+- To sign Linux packages in production, configure a GPG key for Debian packages and RPM signing via `rpmsign`.
 
 ### What signing does not solve
 

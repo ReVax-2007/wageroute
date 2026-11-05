@@ -130,9 +130,45 @@ cp -R /tmp/wageroute-dmg/WageRoute.app /Applications/
 hdiutil detach /tmp/wageroute-dmg
 ```
 
-**Windows:** four formats, all unsigned — the NSIS installer (`WageRoute.Setup.<version>.exe`, one file carrying both Intel and ARM), an MSI (`WageRoute-<version>-x64.msi` or `-arm64.msi`) for managed or silent deployment, a portable single-file exe (`WageRoute-<version>.portable.exe`), and an unpack-and-run zip per architecture. SmartScreen shows “Windows protected your PC” on first run — choose **More info → Run anyway**. The MSI and the NSIS installer are separate products: uninstall one before installing the other, or Windows will list both.
+**Windows:** four formats, all unsigned — the NSIS installer (`WageRoute.Setup.<version>.exe`, universal for Intel and ARM), an MSI (`WageRoute-<version>-x64.msi` or `-arm64.msi`) for managed deployment, a portable single-file exe (`WageRoute-<version>.portable.exe`), and an unpack-and-run zip per architecture.
 
-**Linux:** AppImage (no root, works on any distro — `chmod +x` and run), plus `.deb` for Debian/Ubuntu/Mint and `.rpm` for Fedora/RHEL, in x64 and arm64. All unsigned; a distro package manager may ask you to confirm installation.
+Because the executables are currently unsigned, Windows and web browsers apply two layers of security warnings:
+1. **Browser download prompt:**
+   - **Microsoft Edge:** flags the download as untrusted (*"WageRoute.Setup.exe was blocked because it could harm your device"*). Hover over the item in the Downloads list → click **`...`** → **Keep** → click **Show more** → select **Keep anyway**.
+   - **Google Chrome:** click the download warning icon → select **Download suspicious file** (or **Keep**).
+2. **Windows SmartScreen execution check:**
+   - Double-clicking the downloaded `.exe` opens a blue *"Windows protected your PC"* window.
+   - Click **More info** → click **Run anyway**.
+   - Alternatively, right-click the downloaded file → **Properties** → check the **Unblock** box at the bottom → **OK**.
+
+**PowerShell / curl (avoids the browser quarantine and SmartScreen block entirely):**
+```powershell
+curl.exe -LO https://github.com/ReVax-2007/wageroute/releases/download/v1.2.0/WageRoute.Setup.1.2.0.exe
+.\WageRoute.Setup.1.2.0.exe
+```
+
+*Note on MSI vs NSIS:* The MSI and the NSIS installer are separate products. Uninstall one before installing the other, or Windows will list both.
+
+**Linux:** AppImage (standalone, runs on any distro), plus native `.deb` (Debian, Ubuntu, Linux Mint) and `.rpm` (Fedora, RHEL, openSUSE) packages in x64 and arm64.
+
+- **AppImage:** Make the downloaded file executable before launching:
+  ```bash
+  chmod +x WageRoute-1.2.0-x86_64.AppImage
+  ./WageRoute-1.2.0-x86_64.AppImage
+  ```
+  *Note on Ubuntu 22.04+ & 24.04+:* Modern Ubuntu installs do not ship FUSE 2 by default. If the AppImage gives an error loading `libfuse.so.2`, install it with `sudo apt install libfuse2t64` (Ubuntu 24.04+) or `sudo apt install libfuse2` (Ubuntu 22.04), or run with `--appimage-extract-and-run`.
+- **Debian / Ubuntu (.deb):**
+  ```bash
+  sudo apt install ./WageRoute-1.2.0-amd64.deb
+  ```
+- **Fedora / RHEL (.rpm):**
+  ```bash
+  sudo dnf install ./WageRoute-1.2.0-x86_64.rpm
+  ```
+- **curl one-liner (AppImage):**
+  ```bash
+  curl -fsSL https://github.com/ReVax-2007/wageroute/releases/download/v1.2.0/WageRoute-1.2.0-x86_64.AppImage -o WageRoute.AppImage && chmod +x WageRoute.AppImage && ./WageRoute.AppImage
+  ```
 
 Full details, including the Gatekeeper behaviour on each macOS version, are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) and [docs/RELEASING.md](docs/RELEASING.md).
 
