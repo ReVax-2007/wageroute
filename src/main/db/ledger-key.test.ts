@@ -91,7 +91,9 @@ test('the marker round-trips through the file with its mode tightened', () => {
     }
     writeKeyFile(directory, file)
     assert.deepEqual(readKeyFile(directory), file)
-    assert.equal(statSync(keyFilePath(directory)).mode & 0o777, 0o600)
+    if (process.platform !== 'win32') {
+      assert.equal(statSync(keyFilePath(directory)).mode & 0o777, 0o600)
+    }
     assert.equal(readKeyFile(join(directory, 'nope')) ?? null, null)
     assert.equal(hasKeyFile(directory), true)
     removeKeyFile(directory)
