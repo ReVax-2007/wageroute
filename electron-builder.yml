@@ -49,7 +49,7 @@ mac:
   target:
     - dmg
 win:
-  icon: build/icon.png
+  icon: build/icon.ico
   target:
     - nsis
     # MSI for managed deployment (Group Policy, Intune, SCCM). WiX only runs
