@@ -1,6 +1,8 @@
 # WageRoute
-[🌐 Official Website](https://revax-2007.github.io/wageroute/)
+
 **Zero-based paycheck routing for the desktop.**
+
+[Website](https://revax-2007.github.io/wageroute/) · [Download](https://github.com/ReVax-2007/wageroute/releases/latest) · [Homebrew tap](https://github.com/ReVax-2007/homebrew-wageroute) · [Docs](docs/) · [Changelog](CHANGELOG.md)
 
 WageRoute is a local-first personal finance ledger that puts every paycheck through the same order of operations:
 
@@ -10,9 +12,14 @@ WageRoute is a local-first personal finance ledger that puts every paycheck thro
 
 It is a planning and ledger tool, not a bank connection. There is no account linking, no cloud account, no telemetry and no sync. Everything lives in one SQLite file on the machine where you installed it — plus, only if you turn encryption on, a small key file beside it that holds no key in the clear.
 
-> Version 1.3.0 · single user · macOS, Windows and Linux · unsigned release builds
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/home-dark.webp" />
+  <img src="assets/screenshots/home-light.webp" alt="The WageRoute Home screen: money left to spend once bills and goals are set aside, and total wealth across accounts." width="100%" />
+</picture>
 
-> **Read this first if you installed 1.2.0.** The encryption at rest, sealed backups and phone vault described below are **not** in the published `1.2.0`. They are cut as release **1.3.0**: until that tag is published they exist only in this repository's build, and upgrading to it is the way to get them. Either way, an encrypted ledger opened by a build without the cipher is refused as unreadable — take a **plain** JSON backup before switching builds.
+> Version **1.3.1** · single user · macOS, Windows and Linux · unsigned release builds
+
+> **Upgrading from 1.2.0 or older?** Encryption at rest, sealed backups and the phone vault first shipped in **1.3.1** (there was no published 1.3.0). An encrypted ledger cannot be opened by any build before 1.3.1, so if you might go back, keep a **plain** JSON backup first. Fingerprint, face and PIN unlock are on `main` but not in a release yet; they are marked *(next release)* below.
 
 ---
 
@@ -45,17 +52,18 @@ It is a planning and ledger tool, not a bank connection. There is no account lin
 | **Sinking funds** | Named goals with targets, optional deadlines and priorities. The allocator funds them in priority order, then by deadline, then by name. Fully funded goals stop taking money. Unused goal budget sweeps into savings. A goal can be given a dedicated account, whose balance *is* the progress; every other goal counts allocation lines. |
 | **Emergency fund** | A special sinking fund with an automatic target: monthly essentials × 3–6 months. Essentials are the Priority Wall plus, optionally, the average of recent variable expenses. A manual target mode is also available. |
 | **Accounts and credit** | Checking, savings, cash, investment and credit accounts, grouped by institution. Balances are derived from entries. Credit cards store debt as a negative balance and expose a utilization meter against their limit. Each account declares whether it counts as spendable, and can be marked as reserved for one goal. |
-| **Total wealth** | Everything owned on one strip: cash, money parked in dedicated goal accounts and investments, minus credit owed. Shown on the Overview page, as an Accounts summary tile and in the sidebar. All three read the same shared function, so they cannot disagree. A daily snapshot history draws a net-worth sparkline on the Overview once a second day exists. |
+| **Total wealth** | Everything owned on one strip: cash, money parked in dedicated goal accounts and investments, minus credit owed. Shown on the Home page, as an Accounts summary tile and in the sidebar. All three read the same shared function, so they cannot disagree. A daily snapshot history draws a net-worth sparkline on Home once a second day exists. |
 | **Card terms and payoff** | A credit card can carry its APR, minimum payment, statement close day, payment due day and last statement balance. The Accounts row then shows what is due on which date and how long the balance takes to clear at the minimum — or says plainly that the minimum never clears it. |
-| **Categories and spending** | Entries point at a real category row. The grid and the entry dialog complete existing names, renaming a category relabels its entries, and the Overview totals the month's spending by category. |
+| **Categories and spending** | Entries point at a real category row. The grid and the entry dialog complete existing names, renaming a category relabels its entries, and Home totals the month's spending by category. |
 | **Spreadsheet** | A server-queried ledger: search, date range, account, kind, category and sort filters, 100 rows a page, select-and-delete in bulk, and in-place editing of date, account, kind, category, description and amount. A second tab projects bills and goal deadlines over the next 90 days. |
 | **Round-up** | Tangerine-style spare-change sweeps: when an expense is logged against a checking or cash account, the difference to the next $1, $2 or $5 is moved to a savings account as a paired transfer. |
 | **Paired transfers** | Account-to-account moves are written as two linked rows sharing a `transfer_group_id`. Editing an amount, date, memo or category updates both legs. Deleting either leg removes both. |
 | **Chronology prompts** | Active bills past their latest due date with no matching `bill_id` payment are surfaced on the dashboard as “Did this clear?” prompts with one-click logging. A bill marked **autopay** is recorded automatically at the next launch after its due date instead, so the wall clears itself. |
 | **Data portability** | Full or partial JSON backups, a whole-ledger CSV export, and imports that merge either format by row identity. A JSON backup is written either plain — readable by any spreadsheet — or sealed under a passphrase nobody can read without. Bank statements (OFX/QFX, QIF, or a CSV with no account column) import into the account you name; loan and investment statements are read for what they can offer. A bank line that carries a reference is never added twice, and a statement that carries a closing balance can be reconciled against the ledger. |
 | **Data folder** | Optionally keep the ledger in a folder you choose — a NAS share, an external disk, or a synced folder — so several computers read the same data. The default per-user folder is unchanged; a chosen folder is locked to one writer at a time, uses rollback journaling, and keeps a safety copy on every move. With encryption on, the key file travels with the folder. |
-| **Encryption at rest (opt-in)** | Settings can rewrite the ledger as ciphertext — chacha20 through the SQLite cipher driver — and take it back to plaintext from the same screen. The key is held by whoever you choose: this computer's keychain, a passphrase, or either one alone being enough. Changing who holds it re-wraps 32 bytes and touches no page, so custody is adjustable after the fact. Nothing is encrypted unless asked, and a forgotten passphrase has no reset, no escrow and no support path. |
-| **Pocket (phone)** | An optional installable web app that opens a backup and works as a peer of the desktop: it shows Safe to Spend, bills, goals, accounts and the ledger, and edits them offline through the desktop's own validation rules — including a card's owed balance and a card payment. It keeps a full copy of the tables in the browser, reuses the desktop's money functions, and merges with the desktop in both directions by exporting the tables it now holds. Its own copy can be sealed under a phrase of its own. No server, account or upload. |
+| **Encryption at rest (opt-in)** | Settings can rewrite the ledger as ciphertext — chacha20 through the SQLite cipher driver — and take it back to plaintext from the same screen. The key is held by whoever you choose: this computer's keychain, a passphrase, or both. *(Next release:)* an opt-in PIN of six or more digits, which warns that anyone with a copy of the file can try every PIN offline, and fingerprint or face unlock through a passkey where the system supports it (in practice Windows Hello; Mac Touch ID needs a signed build). A passkey is never allowed to be the only way in. Changing who holds the key re-wraps 32 bytes and touches no page, so custody is adjustable after the fact. Nothing is encrypted unless asked, and a forgotten passphrase or PIN has no reset, no escrow and no support path. |
+| **Pocket (phone)** | An optional installable web app that opens a backup and works as a peer of the desktop: it shows Safe to Spend, bills, goals, accounts and the ledger, and edits them offline through the desktop's own validation rules — including a card's owed balance and a card payment. It keeps a full copy of the tables in the browser, reuses the desktop's money functions, and merges with the desktop in both directions by exporting the tables it now holds. Its own copy can be sealed under a phrase of its own, and *(next release)* opened with a PIN or a fingerprint/face passkey as well. No server, account or upload. |
+| **Transfers** | One screen to move money between accounts: pick the two accounts and the amount, see both balances before and after, and save one paired transfer. |
 | **Appearance** | Dark, light or system theme. The resolved palette is cached locally to prevent a flash on launch. Motion is decoration: both devices obey the operating system's reduce-motion request, every control shows a keyboard focus ring, and the phone's browser bar follows the theme the page is actually painting. |
 
 ## Design rules
@@ -77,14 +85,15 @@ These are product and engineering constraints, not aspirations.
 
 | Screen | Purpose | Key formulas |
 | --- | --- | --- |
-| **Overview** | Safe to Spend hero, total wealth strip, accounts, month-to-date donut, last routing, goal progress, recent activity, bill prompts | `spendable pool − monthly wall − pool-funded goals − unsettled routing`; `Σ balances − credit owed` |
-| **Priority Wall** | Bill CRUD, pause/resume, per-paycheck and monthly totals | `amount × bill periods / 12`; `amount × bill periods / pay periods` |
-| **Sinking funds** | Goal CRUD, progress, emergency calculator | `funded / target`; dedicated goals read `account balance`; `essentials × months` |
+| **Home** | Left to spend hero, total wealth strip, accounts, month-to-date donut, last routing, goal progress, recent activity, bill prompts | `spendable pool − monthly wall − pool-funded goals − unsettled routing`; `Σ balances − credit owed` |
+| **Bills** (the Priority Wall) | Bill CRUD, pause/resume, per-paycheck and monthly totals | `amount × bill periods / 12`; `amount × bill periods / pay periods` |
+| **Goals** (sinking funds) | Goal CRUD, progress, emergency calculator | `funded / target`; dedicated goals read `account balance`; `essentials × months` |
 | **Accounts** | Bank-grouped account CRUD, purpose and safe-to-spend choices, balance adjustments, credit payments | `starting + SUM(entries)`; `max(0, −balance)` owed |
+| **Transfers** | Move money between two accounts in one step | two rows sharing one `transfer_group_id` |
 | **Spreadsheet** | Editable ledger and 90-day projection | `next due date`, `advance by frequency` |
-| **Settings** | Theme, round-up, import/export, database path, encryption at rest | `remainder to next increment` |
+| **Settings** | Theme, round-up, import/export, data folder, encryption at rest and key custody, About | `remainder to next increment` |
 
-The **Allocator** is a full-screen wizard available from the sidebar or the Overview page, not a separate navigation tab.
+The paycheck allocator is a full-screen wizard opened with **Route a paycheck** in the sidebar or on Home, not a separate navigation tab.
 
 ## Technology
 
@@ -95,15 +104,33 @@ The **Allocator** is a full-screen wizard available from the sidebar or the Over
 | UI | React 19.3, TypeScript 7 (strict), Zustand 5 |
 | Grid | react-data-grid 7 |
 | Icons | lucide-react |
-| Database | better-sqlite3-multiple-ciphers 13 (the fork of better-sqlite3 that carries the cipher), SQLite in WAL mode |
-| Key custody | Electron `safeStorage` for the device wrap — device-bound, not biometric; scrypt + AES-256-GCM for a passphrase. Opt-in, and only in this build |
+| Database | better-sqlite3-multiple-ciphers 13 (the fork of better-sqlite3 that carries the cipher); SQLite in WAL mode, or rollback journaling in a data folder you choose |
+| Key custody | Opt-in. Electron `safeStorage` for the device wrap (answers to the OS login, not a fingerprint); scrypt + AES-256-GCM for a passphrase, and *(next release)* for a PIN; a WebAuthn PRF passkey for fingerprint or face *(next release)* |
 | Packaging | electron-builder 26 (DMG, NSIS, portable, zip, AppImage, deb, rpm) |
 | Tests | `node:test` through `tsx` |
-| CI | GitHub Actions: `verify` on Ubuntu for every pull request (lint, tests, build, packaging dry run); tag builds produce the macOS, Windows and Linux installers |
+| CI | GitHub Actions: `verify` on Ubuntu for every pull request (lint, tests, build, Pocket build, packaging dry run); a version tag builds the macOS, Windows and Linux installers into a draft release |
 
 The renderer is sandboxed with `contextIsolation: true`, `nodeIntegration: false` and `sandbox: true`. It reaches the main process only through the typed `window.api` bridge.
 
 ## Installing WageRoute
+
+**One command (quickest).** Each script picks the right build for your system, checks it against the release's `SHA256SUMS`, installs it, and clears the "downloaded from the internet" block, so the first launch opens without the Gatekeeper or SmartScreen step.
+
+```bash
+# macOS and Linux
+curl -fsSL https://revax-2007.github.io/wageroute/install.sh | sh
+```
+
+```powershell
+# Windows (PowerShell)
+irm https://revax-2007.github.io/wageroute/install.ps1 | iex
+```
+
+- **macOS:** the Apple Silicon or Intel DMG, copied into `/Applications` (or `~/Applications` if that is not writable).
+- **Linux:** the `.deb` through apt or the `.rpm` through dnf/zypper (asks for your password), otherwise the AppImage in `~/.local/bin` with a menu entry.
+- **Windows:** the Setup installer, silently, for the current user.
+
+Options: `sh -s -- --dry-run` (download and verify only), `--version v1.3.1`, and on Linux `--appimage`. On Windows set `$env:WAGEROUTE_DRY_RUN = '1'` or `$env:WAGEROUTE_VERSION` before piping. Neither script touches your ledger. The manual routes below do the same steps by hand.
 
 The macOS build is ad-hoc signed, not notarized. The first launch of any downloaded copy needs one extra click (right-click the app → **Open** → **Open**); after that it opens normally. Homebrew verifies checksums for you, and the curl one-liner below avoids the prompt entirely because curl never sets the quarantine flag.
 
@@ -117,15 +144,15 @@ brew install --cask wageroute          # first launch still needs right-click �
 brew upgrade --cask wageroute          # future updates
 ```
 
-Homebrew verifies the DMG against a pinned SHA-256 before installing. To drop the Gatekeeper flag after installing, run `sudo xattr -rd com.apple.quarantine /Applications/WageRoute.app`. `brew uninstall --cask wageroute` removes the app but leaves your data in place.
+The tap is updated after each release; `brew info --cask wageroute` shows which version it currently carries. Homebrew verifies the DMG against a pinned SHA-256 before installing. To drop the Gatekeeper flag after installing, run `sudo xattr -rd com.apple.quarantine /Applications/WageRoute.app`. `brew uninstall --cask wageroute` removes the app but leaves your data in place.
 
 **DMG (manual):** download `WageRoute-<version>-arm64.dmg` (Apple Silicon) or `WageRoute-<version>-x64.dmg` (Intel) from [GitHub Releases](https://github.com/ReVax-2007/wageroute/releases), drag to Applications, then right-click → **Open** on first launch. (1.1.0 named its Intel file `WageRoute-1.1.0.dmg`; later releases carry the `-x64` suffix.)
 
-**curl (no Gatekeeper prompt at all):** browsers tag downloads with a quarantine flag that triggers Gatekeeper; curl does not. Replace `v1.2.0` below with the latest version from [GitHub Releases](https://github.com/ReVax-2007/wageroute/releases).
+**curl (no Gatekeeper prompt at all):** browsers tag downloads with a quarantine flag that triggers Gatekeeper; curl does not. The commands below fetch **1.3.1**; for a later release, change the version from [GitHub Releases](https://github.com/ReVax-2007/wageroute/releases). Intel Macs use `-x64.dmg` in place of `-arm64.dmg`.
 
 ```bash
-curl -LO https://github.com/ReVax-2007/wageroute/releases/download/v1.2.0/WageRoute-1.2.0-arm64.dmg
-hdiutil attach -nobrowse -mountpoint /tmp/wageroute-dmg WageRoute-1.2.0-arm64.dmg
+curl -LO https://github.com/ReVax-2007/wageroute/releases/download/v1.3.1/WageRoute-1.3.1-arm64.dmg
+hdiutil attach -nobrowse -mountpoint /tmp/wageroute-dmg WageRoute-1.3.1-arm64.dmg
 cp -R /tmp/wageroute-dmg/WageRoute.app /Applications/
 hdiutil detach /tmp/wageroute-dmg
 ```
@@ -139,12 +166,12 @@ Because the executables are currently unsigned, Windows and web browsers apply t
 2. **Windows SmartScreen execution check:**
    - Double-clicking the downloaded `.exe` opens a blue *"Windows protected your PC"* window.
    - Click **More info** → click **Run anyway**.
-   - Alternatively, right-click the downloaded file → **Properties** → check the **Unblock** box at the bottom → **OK**.
+   - Alternatively, right-click the downloaded file → **Properties** → check the **Unblock** box at the bottom → **OK**, or in PowerShell: `Unblock-File -Path "$env:USERPROFILE\Downloads\WageRoute.Setup.1.3.1.exe"`.
 
 **PowerShell / curl (avoids the browser quarantine and SmartScreen block entirely):**
 ```powershell
-curl.exe -LO https://github.com/ReVax-2007/wageroute/releases/download/v1.2.0/WageRoute.Setup.1.2.0.exe
-.\WageRoute.Setup.1.2.0.exe
+curl.exe -LO https://github.com/ReVax-2007/wageroute/releases/download/v1.3.1/WageRoute.Setup.1.3.1.exe
+.\WageRoute.Setup.1.3.1.exe
 ```
 
 *Note on MSI vs NSIS:* The MSI and the NSIS installer are separate products. Uninstall one before installing the other, or Windows will list both.
@@ -153,21 +180,21 @@ curl.exe -LO https://github.com/ReVax-2007/wageroute/releases/download/v1.2.0/Wa
 
 - **AppImage:** Make the downloaded file executable before launching:
   ```bash
-  chmod +x WageRoute-1.2.0-x86_64.AppImage
-  ./WageRoute-1.2.0-x86_64.AppImage
+  chmod +x WageRoute-1.3.1-x86_64.AppImage
+  ./WageRoute-1.3.1-x86_64.AppImage
   ```
   *Note on Ubuntu 22.04+ & 24.04+:* Modern Ubuntu installs do not ship FUSE 2 by default. If the AppImage gives an error loading `libfuse.so.2`, install it with `sudo apt install libfuse2t64` (Ubuntu 24.04+) or `sudo apt install libfuse2` (Ubuntu 22.04), or run with `--appimage-extract-and-run`.
 - **Debian / Ubuntu (.deb):**
   ```bash
-  sudo apt install ./WageRoute-1.2.0-amd64.deb
+  sudo apt install ./WageRoute-1.3.1-amd64.deb
   ```
 - **Fedora / RHEL (.rpm):**
   ```bash
-  sudo dnf install ./WageRoute-1.2.0-x86_64.rpm
+  sudo dnf install ./WageRoute-1.3.1-x86_64.rpm
   ```
 - **curl one-liner (AppImage):**
   ```bash
-  curl -fsSL https://github.com/ReVax-2007/wageroute/releases/download/v1.2.0/WageRoute-1.2.0-x86_64.AppImage -o WageRoute.AppImage && chmod +x WageRoute.AppImage && ./WageRoute.AppImage
+  curl -fsSL https://github.com/ReVax-2007/wageroute/releases/download/v1.3.1/WageRoute-1.3.1-x86_64.AppImage -o WageRoute.AppImage && chmod +x WageRoute.AppImage && ./WageRoute.AppImage
   ```
 
 Full details, including the Gatekeeper behaviour on each macOS version, are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) and [docs/RELEASING.md](docs/RELEASING.md).
@@ -190,13 +217,13 @@ Pocket is the optional phone app: an installable static web app built from `src/
 
 **Using it** — the full guide is [docs/POCKET.md](docs/POCKET.md):
 
-1. **Put the app on an HTTPS origin.** [`pocket.yml`](.github/workflows/pocket.yml) builds `dist-pocket/` and deploys it to GitHub Pages, or serve that folder from any static host you trust, or run the container the repository ships: `docker build -f docker/pocket.Dockerfile -t wageroute-pocket . && docker run --rm -p 127.0.0.1:8173:80 wageroute-pocket`. On the machine running that container `localhost` counts as a secure origin, so the offline shell is available there — but the `-p 127.0.0.1:` binding means a handset cannot reach that container at all. To serve a phone, republish the port on your LAN address and put TLS in front; plain HTTP on a LAN address gives no service worker, no install prompt and no cipher at all. Publishing is a deliberate owner action: Pages is not enabled on this repository yet, so today this step is yours.
+1. **Put the app on an HTTPS origin.** [`pocket.yml`](.github/workflows/pocket.yml) builds `dist-pocket/` and deploys it to GitHub Pages, or serve that folder from any static host you trust, or run the container the repository ships: `docker build -f docker/pocket.Dockerfile -t wageroute-pocket . && docker run --rm -p 127.0.0.1:8173:80 wageroute-pocket`. On the machine running that container `localhost` counts as a secure origin, so the offline shell is available there — but the `-p 127.0.0.1:` binding means a handset cannot reach that container at all. To serve a phone, republish the port on your LAN address and put TLS in front; plain HTTP on a LAN address gives no service worker, no install prompt and no cipher at all. Publishing is a deliberate owner action. GitHub Pages on this repository already serves the project website from `main`, and `pocket.yml` deploys through GitHub Actions, which would replace that site, so host Pocket on its own static host or one of the containers instead.
 2. **Install it on the phone.** Open the address in Chrome (Android) or Safari (iPhone), then **Install app** from the browser menu, or Share → **Add to Home Screen**. From then on it opens as its own app, with the signal off.
 3. **Give it your ledger.** On the computer: Settings → **Export full backup**. Send that file to the phone and choose it on the welcome screen. A sealed one is offered a passphrase and stays shut without it — nothing about its contents is counted until it opens. The file is checked before it opens — an unknown kind or frequency, or money that is not a whole number of cents, is refused rather than quietly replaced.
 4. **Work in the six tabs.** Home, Bills, Goals, Accounts, Entries, Data. A bill you **Mark paid** here closes its paycheck's set-aside on this phone, in the same keystroke the desktop would; a save the desktop would refuse is refused here, in the same words, and nothing is written.
 5. **Carry the changes back.** Data → **Export a backup**, then import that file on the computer with Settings → **Import data**: rows added on the phone arrive, the phone's newer edits win, its deletions are applied. Opening a newer backup on the phone merges instead of replacing, so entries typed there between files survive.
 
-6. **Seal what it holds, if you want.** Data → **Seal this phone's copy** puts the phone's own tables under a passphrase of its own — separate from the desktop's, and separate from the one on an exported file. **Close it now** shuts the copy between sessions; nothing on it is readable until it is opened again. It is not a screen lock: an unlocked tab holds the same data sealed or not. And the cipher is a privilege of the origin — a page served over plain HTTP has no cipher at all, so sealing and opening are refused there instead of half-working. Serve Pocket over HTTPS, or from the machine it runs on.
+6. **Seal what it holds, if you want.** Data → **Seal this phone's copy** puts the phone's own tables under a passphrase of its own — separate from the desktop's, and separate from the one on an exported file. *(Next release:)* a PIN and a fingerprint or face passkey can open the same sealed copy, while the passphrase always stays as the way back in. **Close it now** shuts the copy between sessions; nothing on it is readable until it is opened again. It is not a screen lock: an unlocked tab holds the same data sealed or not. And the cipher is a privilege of the origin — a page served over plain HTTP has no cipher at all, so sealing and opening are refused there instead of half-working. Serve Pocket over HTTPS, or from the machine it runs on.
 
 Paychecks, allocations, the routing plan, settings and the writing of a paycheck's set-aside stay on the computer and arrive with the next backup; whether that set-aside has been spent is not one of them — the phone derives it from the payments it holds. Merge by hand means one habit matters: carry the file after each session, because the newer row wins and the older edit is dropped without a conflict screen.
 
@@ -215,6 +242,7 @@ npm run typecheck    # main/preload, renderer and Pocket type checks
 npm run build        # typecheck + production bundles in out/
 npm run pocket:dev   # Pocket in a phone-sized browser with hot reload
 npm run pocket:build # static Pocket files in dist-pocket/
+npm run screenshots  # after a build: retake the website's screenshots on the demo profile
 npm run dist:mac     # DMG for arm64 and x64
 npm run dist:win     # NSIS, MSI, portable exe and zip for x64 and arm64 (MSI needs Windows)
 npm run dist:linux   # AppImage, deb and rpm for the host architecture
@@ -236,7 +264,7 @@ SQLite also creates `wageroute.db-wal` and `wageroute.db-shm` while the app is o
 
 With encryption on, the same folder holds one more file: `ledger.key.json`, a few hundred bytes that carry the ledger's key **wrapped** — never in the clear — and are readable only by WageRoute (`0600`). It is the other half of the ledger: a keyed `wageroute.db` copied without its key file opens nowhere, and a key file without its ledger is inert. **Copy the folder, not the file.** Moving the data folder from inside the app carries the key file along with the ledger.
 
-A keyed database is not a SQLite file any older build can read — the published `1.2.0` refuses it as unreadable, so it is a one-way move unless you also keep a **plain** JSON backup, which is the only copy that survives switching builds back.
+A keyed database is not a SQLite file any older build can read — `1.2.0` and earlier refuse it as unreadable, so it is a one-way move unless you also keep a **plain** JSON backup, which is the only copy that survives switching builds back.
 
 The app was previously named **Cash Flow Routing**. On first launch, if the new database does not exist, WageRoute copies `Cash Flow Routing/cash-flow-routing.db` (plus WAL and SHM) into the new folder and leaves the original untouched. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#legacy-data-adoption).
 
@@ -256,7 +284,7 @@ Full format rules, examples and failure modes are in [docs/IMPORT-EXPORT.md](doc
 
 **Encryption is the same kind of local.** It is opt-in, it is reversible from the same screen, and every part of it stays on the machine: a wrapped key in the ledger's own folder, the OS keychain for the device wrap, or the passphrase in the owner's head. There is no hosted key, no escrow, no reset and no support path that can open a locked ledger — losing the only custody there is means the data is gone, and the app says so before it lets you choose it. The transition rewrites every page, and it has now run end to end in the **packaged** macOS app: encrypted from Settings, restarted into the unlock prompt, opened with the passphrase, turned back to plaintext again. What an installed build has still never done is write a **device** wrap, and no Windows or Linux artifact has held a keyed ledger.
 
-**Pocket is static.** Its build is a folder of files with no backend; deployment means publishing those files to a static host. The repository includes a manual GitHub Pages workflow, but enabling Pages and publishing the site are deliberate owner actions and are not part of a release. It has never been installed on a real handset: every screen, refusal and round trip has been proved in a browser against the built bundle.
+**Pocket is static.** Its build is a folder of files with no backend; deployment means publishing those files to a static host. The repository includes a manual GitHub Pages workflow, but this repository's Pages already serves the project website, so Pocket is published somewhere else or not at all; either way it is a deliberate owner action and not part of a release. It has never been installed on a real handset: every screen, refusal and round trip has been proved in a browser against the built bundle.
 
 The CI workflow builds unsigned installers; on a tag it attaches them to a **draft** GitHub Release but never publishes it. Publishing the release is a manual step. Code signing and notarization are not configured.
 
@@ -268,11 +296,17 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full status matrix and the 
 
 ```text
 .
+├── .github/workflows/         CI, release builds, Pocket and container publishing
+├── assets/                    Website CSS, JS, screenshots and link-preview image
 ├── build/                     App icon sources and generated .icns/.png
 ├── docker/                    Pocket nginx image, streamed desktop image, entrypoint, supervisor, edge Caddyfile
 ├── docker-compose.yml         Both images, one command, published to 127.0.0.1; the `edge` profile adds TLS + a login
 ├── docs/                      Documentation (this set)
 ├── examples/                  Example backup used by the importer tests
+├── index.html                 The project website (GitHub Pages serves main's root)
+├── scripts/                   Lint, test-list guard, licence notices, screenshots
+├── sitemap.xml                Sitemap for the website
+├── spikes/                    Measured experiments cited by ADRs (not shipped)
 ├── out/                       electron-vite build output (ignored)
 ├── release/                   electron-builder output (ignored)
 ├── dist-pocket/               Pocket static build output (ignored)
@@ -289,8 +323,9 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full status matrix and the 
 │   │   └── src/
 │   │       ├── components/    Sidebar, grids, prompts, dialogs, shared table
 │   │       ├── lib/           Renderer-side derived finance helpers
-│   │       ├── screens/       Dashboard, Wall, Goals, Accounts,
-│   │       │                  Spreadsheet, Settings, Allocator
+│   │       ├── screens/       Dashboard (Home), PriorityWall (Bills), Goals,
+│   │       │                  Accounts, Transfers, Spreadsheet, Settings,
+│   │       │                  Allocator
 │   │       ├── store/         Zustand slices, actions and selectors
 │   │       └── styles/        tokens, layered sheets, grid theme
 │   ├── pocket/                Static installable phone app

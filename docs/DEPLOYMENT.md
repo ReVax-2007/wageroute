@@ -14,6 +14,7 @@ This document separates what exists from what has been discussed. It also record
 - [Encryption at rest and key custody](#encryption-at-rest-and-key-custody)
 - [Legacy data adoption](#legacy-data-adoption)
 - [Current distribution](#current-distribution)
+- [Install scripts](#install-scripts)
 - [Homebrew tap](#homebrew-tap)
 - [Running WageRoute in a container](#running-wageroute-in-a-container)
 - [Multi-device today](#multi-device-today)
@@ -230,6 +231,22 @@ Because the Windows builds are currently unsigned, Windows and modern web browse
    - Native packages do not require FUSE and integrate directly into the desktop environment and system launcher:
      - Debian / Ubuntu / Mint: `sudo apt install ./WageRoute-1.2.0-amd64.deb`
      - Fedora / RHEL / openSUSE: `sudo dnf install ./WageRoute-1.2.0-x86_64.rpm`
+
+## Install scripts
+
+`install.sh` (macOS and Linux, POSIX `sh`) and `install.ps1` (Windows PowerShell 5.1 and PowerShell 7) live at the repository root, so GitHub Pages serves them at `https://revax-2007.github.io/wageroute/install.sh` and `/install.ps1`.
+
+| Step | `install.sh` | `install.ps1` |
+| --- | --- | --- |
+| Release | latest (the tag `releases/latest` redirects to), or `--version vX.Y.Z` | latest (GitHub API, falling back to the redirect), or `-Version` / `$env:WAGEROUTE_VERSION` |
+| Asset | `WageRoute-<v>-arm64.dmg` / `-x64.dmg`; `-amd64.deb` / `-arm64.deb`; `-x86_64.rpm` / `-aarch64.rpm`; `-x86_64.AppImage` / `-arm64.AppImage` | `WageRoute.Setup.<v>.exe` |
+| Verify | refuses unless the file's SHA-256 matches its line in the release's `SHA256SUMS` | the same, with `Get-FileHash` |
+| Install | macOS: `hdiutil attach` → `ditto` into `/Applications` (or `~/Applications`, or `--dir`) → `xattr -dr com.apple.quarantine` and `com.apple.provenance`. Linux: `apt-get install ./…deb`, else `dnf`/`zypper install ./…rpm`, else (no package manager, no `sudo`, or `--appimage`) the AppImage in `~/.local/bin` plus `~/.local/share/applications/wageroute.desktop`, with the FUSE 2 command printed if `libfuse.so.2` is missing | `Unblock-File`, then the NSIS installer with `/S /currentuser` |
+| Dry run | `--dry-run` | `-DryRun` / `$env:WAGEROUTE_DRY_RUN = '1'` |
+
+Both refuse to run over a running WageRoute (macOS and Windows), never read or write the data folders, and work in a temporary folder they remove on exit. `install.sh` calls its `main` on the last line, so a download cut short runs nothing.
+
+The `install-scripts` job in `.github/workflows/ci.yml` runs them against the real latest release on Ubuntu (`.deb`), macOS (`/Applications`, quarantine flag checked absent, signature verified) and Windows (PowerShell 5.1 install, PowerShell 7 piped dry run) on every pull request.
 
 ## Homebrew tap
 
