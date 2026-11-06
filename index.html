@@ -431,6 +431,31 @@
           <p class="section-desc">Free, standalone releases for macOS, Windows, and Linux.</p>
         </div>
 
+        <h3 class="trust-title">Install with one command</h3>
+        <!-- One command: picks the build, checks SHA256SUMS, installs, clears the block -->
+        <div class="install-grid">
+          <div class="term">
+            <div class="console-bar">
+              <span class="console-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="console-path">macOS &amp; Linux &middot; one command</span>
+              <button class="copy-btn" type="button" data-copy="one-sh">Copy</button>
+            </div>
+            <pre class="term-body" id="one-sh"><span class="p">$</span> curl -fsSL https://revax-2007.github.io/wageroute/install.sh | sh</pre>
+            <p class="term-note">Picks your Mac or Linux build, checks it against the release checksums, installs it and clears the quarantine flag.</p>
+          </div>
+
+          <div class="term">
+            <div class="console-bar">
+              <span class="console-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="console-path">Windows &middot; PowerShell</span>
+              <button class="copy-btn" type="button" data-copy="one-ps">Copy</button>
+            </div>
+            <pre class="term-body" id="one-ps"><span class="p">PS&gt;</span> irm https://revax-2007.github.io/wageroute/install.ps1 | iex</pre>
+            <p class="term-note">Checks the Setup installer against the release checksums, unblocks it and installs it for you only.</p>
+          </div>
+        </div>
+
+        <h3 class="trust-title">Or download the installer yourself</h3>
         <div class="downloads-grid">
           <!-- macOS -->
           <div class="download-box">
@@ -471,31 +496,8 @@
 
         <!-- Terminal install and first-launch unblock, folded so the cards lead -->
         <details class="cli">
-          <summary>Install with one command, from the terminal, or unblock a browser download</summary>
+          <summary>More terminal installs, or unblock a browser download</summary>
           <div class="cli-body">
-          <!-- One command: picks the build, checks SHA256SUMS, installs, clears the block -->
-          <div class="install-grid">
-            <div class="term">
-              <div class="console-bar">
-                <span class="console-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-                <span class="console-path">macOS &amp; Linux &middot; one command</span>
-                <button class="copy-btn" type="button" data-copy="one-sh">Copy</button>
-              </div>
-              <pre class="term-body" id="one-sh"><span class="p">$</span> curl -fsSL https://revax-2007.github.io/wageroute/install.sh | sh</pre>
-              <p class="term-note">Picks your Mac or Linux build, checks it against the release checksums, installs it and clears the quarantine flag.</p>
-            </div>
-
-            <div class="term">
-              <div class="console-bar">
-                <span class="console-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-                <span class="console-path">Windows &middot; PowerShell</span>
-                <button class="copy-btn" type="button" data-copy="one-ps">Copy</button>
-              </div>
-              <pre class="term-body" id="one-ps"><span class="p">PS&gt;</span> irm https://revax-2007.github.io/wageroute/install.ps1 | iex</pre>
-              <p class="term-note">Checks the Setup installer against the release checksums, unblocks it and installs it for you only.</p>
-            </div>
-          </div>
-
           <!-- Quick install from the terminal -->
           <div class="install-grid">
             <div class="term">
