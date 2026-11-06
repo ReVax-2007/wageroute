@@ -7,641 +7,22 @@
   <meta name="description" content="Local-first, zero-based paycheck routing app. Protect fixed bills behind the Priority Wall, route true surplus into goals, and spend the remainder guilt-free with 100% privacy." />
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%23080b11'/><path d='M37 32V21M37 32L27 44M37 32L47 21M27 44L19 54' fill='none' stroke='%233ddc97' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/><circle cx='37' cy='19' r='6' fill='%230b1220' stroke='%234cc2ff' stroke-width='4'/><circle cx='19' cy='28' r='5' fill='%230b1220' stroke='%233ddc97' stroke-width='3.5'/><circle cx='47' cy='28' r='5' fill='%230b1220' stroke='%23f5bd4a' stroke-width='3.5'/></svg>" />
   <meta name="google-site-verification" content="noAlAe-0GRz5_lmbnH0AyjK7IKWAVY7D3XHJ-572YD8" />
-  <style>
-    :root {
-      color-scheme: dark;
-      --bg: #080b11;
-      --bg-glow: #0c1420;
-      --panel: #111826;
-      --panel-2: #16202f;
-      --panel-3: #1c2839;
-      --border: #1f2a3c;
-      --border-strong: #2b3a51;
-      --text: #e9eef8;
-      --text-dim: #a6b1c5;
-      --text-muted: #7f8da4;
-      --accent: #3ddc97;
-      --accent-ink: #04130c;
-      --accent-soft: rgba(61, 220, 151, 0.12);
-      --accent-hover: #52e6a7;
-      --savings: #4cc2ff;
-      --investment: #a78bfa;
-      --goal: #f5bd4a;
-      --debt: #fb923c;
-      --leisure: #f472b6;
-      --danger: #ff6b7a;
-      --bmc-yellow: #ffdd00;
-      --radius: 14px;
-      --radius-sm: 8px;
-      --radius-lg: 20px;
-      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Helvetica Neue", Arial, sans-serif;
-    }
-
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-
-    html {
-      scroll-behavior: smooth;
-    }
-
-    body {
-      background-color: var(--bg);
-      color: var(--text);
-      font-family: var(--font);
-      line-height: 1.6;
-      overflow-x: hidden;
-      -webkit-font-smoothing: antialiased;
-    }
-
-    /* Ambient background gradient */
-    .ambient-glow {
-      position: absolute;
-      top: -120px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 1000px;
-      height: 550px;
-      background: radial-gradient(circle at 50% 30%, rgba(61, 220, 151, 0.08), rgba(76, 194, 255, 0.04) 50%, transparent 70%);
-      pointer-events: none;
-      z-index: 0;
-    }
-
-    .container {
-      max-width: 1140px;
-      margin: 0 auto;
-      padding: 0 24px;
-      position: relative;
-      z-index: 1;
-    }
-
-    /* Top Nav */
-    header {
-      position: sticky;
-      top: 0;
-      backdrop-filter: blur(14px);
-      background: rgba(8, 11, 17, 0.85);
-      border-bottom: 1px solid var(--border);
-      z-index: 100;
-    }
-
-    .nav-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      height: 72px;
-    }
-
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      text-decoration: none;
-      color: var(--text);
-      font-weight: 700;
-      font-size: 1.25rem;
-      letter-spacing: -0.02em;
-    }
-
-    .brand-mark {
-      width: 36px;
-      height: 36px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .brand-badge {
-      font-size: 0.72rem;
-      font-weight: 600;
-      padding: 3px 8px;
-      border-radius: 999px;
-      background: var(--panel-2);
-      border: 1px solid var(--border-strong);
-      color: var(--accent);
-      margin-left: 4px;
-    }
-
-    .nav-links {
-      display: flex;
-      align-items: center;
-      gap: 28px;
-      list-style: none;
-    }
-
-    .nav-links a {
-      color: var(--text-dim);
-      text-decoration: none;
-      font-size: 0.93rem;
-      font-weight: 500;
-      transition: color 0.15s ease;
-    }
-
-    .nav-links a:hover {
-      color: var(--text);
-    }
-
-    .nav-actions {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
-    /* Buttons */
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      font-weight: 600;
-      font-size: 0.92rem;
-      padding: 9px 18px;
-      border-radius: var(--radius-sm);
-      text-decoration: none;
-      transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
-      cursor: pointer;
-      border: 1px solid transparent;
-      white-space: nowrap;
-    }
-
-    .btn-primary {
-      background: var(--accent);
-      color: var(--accent-ink);
-      box-shadow: 0 4px 14px rgba(61, 220, 151, 0.25);
-    }
-
-    .btn-primary:hover {
-      background: var(--accent-hover);
-      transform: translateY(-1px);
-      box-shadow: 0 6px 20px rgba(61, 220, 151, 0.35);
-    }
-
-    .btn-secondary {
-      background: var(--panel-2);
-      color: var(--text);
-      border: 1px solid var(--border);
-    }
-
-    .btn-secondary:hover {
-      background: var(--panel-3);
-      border-color: var(--border-strong);
-      transform: translateY(-1px);
-    }
-
-    .btn-bmc {
-      background: #ffdd00;
-      color: #000000;
-      font-weight: 700;
-      box-shadow: 0 3px 12px rgba(255, 221, 0, 0.25);
-    }
-
-    .btn-bmc:hover {
-      background: #ffe333;
-      transform: translateY(-1px);
-      box-shadow: 0 6px 18px rgba(255, 221, 0, 0.35);
-    }
-
-    .btn-lg {
-      padding: 13px 26px;
-      font-size: 1.02rem;
-      border-radius: 10px;
-    }
-
-    /* Hero Section */
-    .hero {
-      padding: 80px 0 60px;
-      text-align: center;
-    }
-
-    .pill-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 14px;
-      border-radius: 999px;
-      background: var(--accent-soft);
-      border: 1px solid rgba(61, 220, 151, 0.25);
-      color: var(--accent);
-      font-size: 0.82rem;
-      font-weight: 600;
-      margin-bottom: 24px;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-
-    .hero h1 {
-      font-size: 3.5rem;
-      line-height: 1.15;
-      font-weight: 800;
-      letter-spacing: -0.035em;
-      margin-bottom: 22px;
-      background: linear-gradient(180deg, #ffffff 30%, #a6b1c5 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      max-width: 900px;
-      margin-left: auto;
-      margin-right: auto;
-    }
-
-    .hero p {
-      font-size: 1.25rem;
-      line-height: 1.6;
-      color: var(--text-dim);
-      max-width: 720px;
-      margin: 0 auto 36px;
-    }
-
-    .hero-ctas {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 16px;
-      flex-wrap: wrap;
-      margin-bottom: 50px;
-    }
-
-    /* App Interactive / Visual Pipeline Demo */
-    .pipeline-visual {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
-      padding: 32px;
-      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
-      max-width: 980px;
-      margin: 0 auto;
-      text-align: left;
-    }
-
-    .pipeline-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      border-bottom: 1px solid var(--border);
-      padding-bottom: 20px;
-      margin-bottom: 28px;
-    }
-
-    .pipeline-title {
-      font-size: 0.95rem;
-      font-weight: 600;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .pipeline-status {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 0.85rem;
-      font-weight: 600;
-      color: var(--accent);
-      background: var(--accent-soft);
-      padding: 4px 10px;
-      border-radius: 999px;
-    }
-
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--accent);
-      box-shadow: 0 0 8px var(--accent);
-    }
-
-    .pipeline-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 18px;
-      position: relative;
-    }
-
-    .step-card {
-      background: var(--panel-2);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 22px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      position: relative;
-      transition: transform 0.2s ease, border-color 0.2s ease;
-    }
-
-    .step-card:hover {
-      transform: translateY(-2px);
-      border-color: var(--border-strong);
-    }
-
-    .step-number {
-      font-size: 0.76rem;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-
-    .step-number.wall { color: var(--debt); }
-    .step-number.split { color: var(--savings); }
-    .step-number.free { color: var(--accent); }
-
-    .step-card h3 {
-      font-size: 1.15rem;
-      font-weight: 700;
-      color: var(--text);
-    }
-
-    .step-amount {
-      font-size: 1.55rem;
-      font-weight: 800;
-      font-variant-numeric: tabular-nums;
-      margin: 4px 0;
-    }
-
-    .step-card p {
-      font-size: 0.88rem;
-      color: var(--text-dim);
-      line-height: 1.5;
-    }
-
-    .step-meta {
-      margin-top: auto;
-      padding-top: 14px;
-      border-top: 1px solid rgba(255, 255, 255, 0.06);
-      font-size: 0.82rem;
-      color: var(--text-muted);
-      display: flex;
-      justify-content: space-between;
-    }
-
-    /* Section Styles */
-    section {
-      padding: 90px 0;
-    }
-
-    .section-head {
-      text-align: center;
-      max-width: 680px;
-      margin: 0 auto 60px;
-    }
-
-    .section-tag {
-      color: var(--accent);
-      font-weight: 700;
-      font-size: 0.84rem;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      margin-bottom: 12px;
-      display: block;
-    }
-
-    .section-title {
-      font-size: 2.35rem;
-      font-weight: 800;
-      letter-spacing: -0.025em;
-      line-height: 1.25;
-      margin-bottom: 16px;
-    }
-
-    .section-desc {
-      font-size: 1.1rem;
-      color: var(--text-dim);
-    }
-
-    /* Features Grid */
-    .features-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-      gap: 24px;
-    }
-
-    .feature-card {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 28px;
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-      transition: border-color 0.2s ease, transform 0.2s ease;
-    }
-
-    .feature-card:hover {
-      border-color: var(--border-strong);
-      transform: translateY(-3px);
-    }
-
-    .feature-icon-wrap {
-      width: 44px;
-      height: 44px;
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 1.25rem;
-      background: var(--panel-2);
-      border: 1px solid var(--border);
-    }
-
-    .feature-card h4 {
-      font-size: 1.15rem;
-      font-weight: 700;
-      color: var(--text);
-    }
-
-    .feature-card p {
-      font-size: 0.92rem;
-      color: var(--text-dim);
-      line-height: 1.6;
-    }
-
-    /* Privacy Banner */
-    .privacy-card {
-      background: linear-gradient(135deg, #111826 0%, #16202f 100%);
-      border: 1px solid var(--border-strong);
-      border-radius: var(--radius-lg);
-      padding: 48px;
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 40px;
-      align-items: center;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .privacy-card::after {
-      content: "";
-      position: absolute;
-      top: -100px;
-      right: -100px;
-      width: 300px;
-      height: 300px;
-      background: radial-gradient(circle, rgba(61, 220, 151, 0.08) 0%, transparent 70%);
-      pointer-events: none;
-    }
-
-    .privacy-points {
-      list-style: none;
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
-
-    .privacy-points li {
-      display: flex;
-      align-items: flex-start;
-      gap: 12px;
-      font-size: 0.95rem;
-      color: var(--text-dim);
-    }
-
-    .check-icon {
-      color: var(--accent);
-      flex-shrink: 0;
-      margin-top: 3px;
-    }
-
-    /* Downloads section */
-    .downloads-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 24px;
-      margin-bottom: 40px;
-    }
-
-    .download-box {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 28px 24px;
-      text-align: center;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 16px;
-      transition: all 0.2s ease;
-    }
-
-    .download-box:hover {
-      border-color: var(--border-strong);
-      transform: translateY(-2px);
-    }
-
-    .os-icon {
-      font-size: 2.2rem;
-      margin-bottom: 4px;
-    }
-
-    .download-box h3 {
-      font-size: 1.25rem;
-      font-weight: 700;
-    }
-
-    .download-box .ext {
-      font-size: 0.85rem;
-      color: var(--text-muted);
-    }
-
-    .download-box .btn {
-      width: 100%;
-    }
-
-    .install-tip {
-      font-size: 0.8rem;
-      color: var(--text-muted);
-      text-align: center;
-      margin-top: -6px;
-    }
-
-    /* Buy Me a Coffee Support Banner */
-    .support-banner {
-      background: radial-gradient(circle at 50% 50%, rgba(255, 221, 0, 0.08), transparent 75%), var(--panel);
-      border: 1px solid rgba(255, 221, 0, 0.3);
-      border-radius: var(--radius-lg);
-      padding: 48px;
-      text-align: center;
-      margin: 40px 0;
-      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
-    }
-
-    .support-banner h3 {
-      font-size: 1.85rem;
-      font-weight: 800;
-      margin-bottom: 12px;
-      color: #ffffff;
-    }
-
-    .support-banner p {
-      font-size: 1.05rem;
-      color: var(--text-dim);
-      max-width: 650px;
-      margin: 0 auto 28px;
-    }
-
-    .support-actions {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 16px;
-      flex-wrap: wrap;
-    }
-
-    /* Footer */
-    footer {
-      border-top: 1px solid var(--border);
-      padding: 50px 0 40px;
-      background: var(--bg);
-      color: var(--text-muted);
-      font-size: 0.9rem;
-    }
-
-    .footer-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 20px;
-      margin-bottom: 24px;
-    }
-
-    .footer-links {
-      display: flex;
-      gap: 20px;
-      list-style: none;
-    }
-
-    .footer-links a {
-      color: var(--text-dim);
-      text-decoration: none;
-      transition: color 0.15s ease;
-    }
-
-    .footer-links a:hover {
-      color: var(--text);
-    }
-
-    .copy {
-      font-size: 0.85rem;
-      color: var(--text-muted);
-    }
-
-    /* Responsive */
-    @media (max-width: 860px) {
-      .hero h1 { font-size: 2.4rem; }
-      .pipeline-grid { grid-template-columns: 1fr; }
-      .downloads-grid { grid-template-columns: 1fr; }
-      .privacy-card { grid-template-columns: 1fr; gap: 24px; padding: 30px; }
-      .nav-links { display: none; }
-    }
-  </style>
+  <meta name="theme-color" content="#f4f6f9" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#0d1420" media="(prefers-color-scheme: dark)" />
+  <script>
+    // Apply a saved Light/Dark choice before first paint; Auto stores nothing.
+    (function () {
+      try {
+        var t = localStorage.getItem('wageroute-theme');
+        if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="assets/css/site.css" />
 </head>
 <body>
 
-  <div class="ambient-glow"></div>
+  <div class="grid-field" aria-hidden="true"></div>
 
   <!-- Header Nav -->
   <header>
@@ -657,17 +38,30 @@
           </svg>
         </div>
         <span>WageRoute</span>
-        <span class="brand-badge">v1.3.0</span>
+        <span class="brand-badge">v1.3.1</span>
       </a>
 
       <ul class="nav-links">
-        <li><a href="#how-it-works">How It Works</a></li>
+        <li><a href="#pipeline">How It Works</a></li>
+        <li><a href="#screens">Screens</a></li>
         <li><a href="#features">Features</a></li>
         <li><a href="#privacy">Privacy</a></li>
         <li><a href="#downloads">Downloads</a></li>
+        <li><a href="#self-host">Self-host</a></li>
       </ul>
 
       <div class="nav-actions">
+        <div class="theme-switch" role="group" aria-label="Colour theme">
+          <button type="button" data-theme-choice="auto" aria-pressed="true" aria-label="Auto: match system" title="Auto (match system)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+          </button>
+          <button type="button" data-theme-choice="light" aria-pressed="false" aria-label="Light theme" title="Light">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>
+          </button>
+          <button type="button" data-theme-choice="dark" aria-pressed="false" aria-label="Dark theme" title="Dark">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"></path></svg>
+          </button>
+        </div>
         <a href="https://buymeacoffee.com/revax" target="_blank" rel="noopener noreferrer" class="btn btn-bmc" aria-label="Buy me a coffee">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M17 8h1a4 4 0 1 1 0 8h-1"></path>
@@ -691,96 +85,187 @@
   <!-- Hero Section -->
   <main>
     <section class="hero">
-      <div class="container">
-        <div class="pill-badge">
-          <span>🛡️ Local-First &bull; Zero Bank Scraping &bull; 100% Private</span>
-        </div>
-        <h1>Zero-based paycheck routing for the desktop.</h1>
-        <p>
-          WageRoute puts every paycheck through a deterministic order of operations: protect fixed bills, distribute the true surplus into goals and debt payoff, and leave what’s left completely guilt-free.
-        </p>
-
-        <div class="hero-ctas">
-          <a href="#downloads" class="btn btn-primary btn-lg">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-              <polyline points="7 10 12 15 17 10"></polyline>
-              <line x1="12" y1="15" x2="12" y2="3"></line>
-            </svg>
-            Download Free
-          </a>
-          <a href="https://buymeacoffee.com/revax" target="_blank" rel="noopener noreferrer" class="btn btn-bmc btn-lg">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M17 8h1a4 4 0 1 1 0 8h-1"></path>
-              <path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"></path>
-              <line x1="6" y1="2" x2="6" y2="4"></line>
-              <line x1="10" y1="2" x2="10" y2="4"></line>
-              <line x1="14" y1="2" x2="14" y2="4"></line>
-            </svg>
-            Support on Buy Me a Coffee
-          </a>
-          <a href="https://github.com/ReVax-2007/wageroute" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-lg">
-            Star on GitHub
-          </a>
-        </div>
-
-        <!-- Visual Flow / Order of Operations -->
-        <div class="pipeline-visual">
-          <div class="pipeline-header">
-            <div class="pipeline-title">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="12" y1="1" x2="12" y2="23"></line>
-                <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
-              </svg>
-              Standard Routing Pipeline &bull; Semi-Monthly Paycheck ($3,200.00)
-            </div>
-            <div class="pipeline-status">
-              <div class="status-dot"></div>
-              Deterministic Allocation
-            </div>
+      <div class="container hero-grid">
+        <div class="console rise" style="--i: 0;">
+          <div class="console-bar" aria-hidden="true">
+            <span class="console-dots"><i></i><i></i><i></i></span>
+            <span class="console-path">~/wageroute &mdash; route --paycheck</span>
+            <span class="console-state">offline</span>
           </div>
 
-          <div class="pipeline-grid">
-            <div class="step-card">
-              <span class="step-number wall">Step 01 &bull; Priority Wall</span>
-              <h3>Fixed Bills Reserved</h3>
-              <div class="step-amount" style="color: var(--debt);">-$1,425.00</div>
-              <p>Rent, utilities, subscriptions & insurance are smoothed and locked down first. Money can't be touched by goals or leisure.</p>
-              <div class="step-meta">
-                <span>Cadence smoothing</span>
-                <strong>100% Reserved</strong>
-              </div>
+          <div class="console-body">
+            <p class="prompt rise" style="--i: 1;" aria-hidden="true"><span>$</span>wageroute route --deposit 3200.00</p>
+            <h1 class="rise" style="--i: 2;">Zero-based paycheck routing for the desktop.</h1>
+            <p class="lede rise" style="--i: 3;">
+              WageRoute puts every paycheck through a deterministic order of operations: protect fixed bills, distribute the true surplus into goals and debt payoff, and leave what’s left completely guilt-free.
+            </p>
+
+            <div class="hero-ctas rise" style="--i: 4;">
+              <a href="#downloads" class="btn btn-glow btn-lg">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                Download Free
+              </a>
+              <a href="https://github.com/ReVax-2007/wageroute" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-lg">
+                Star on GitHub
+              </a>
             </div>
 
-            <div class="step-card">
-              <span class="step-number split">Step 02 &bull; True Surplus</span>
-              <h3>Sinking Funds & Goals</h3>
-              <div class="step-amount" style="color: var(--savings);">$1,420.00</div>
-              <p>The remaining surplus is divided by percentages: 3-6 month emergency cushion, vacation fund, auto maintenance, and debt acceleration.</p>
-              <div class="step-meta">
-                <span>Surplus: $1,775.00</span>
-                <strong>80% of surplus</strong>
+            <!-- Paycheck split: fills in routing order on load -->
+            <figure class="split rise" style="--i: 5;" aria-label="Example: a $3,200.00 paycheck routed in order. Priority Wall $1,425.00, goals $1,420.00, guilt-free $355.00, unallocated $0.00.">
+              <div class="split-head">
+                <span>Deposit &middot; semi-monthly</span>
+                <strong class="mono">$3,200.00</strong>
               </div>
-            </div>
-
-            <div class="step-card">
-              <span class="step-number free">Step 03 &bull; Residual</span>
-              <h3>Guilt-Free Spending</h3>
-              <div class="step-amount" style="color: var(--accent);">$355.00</div>
-              <p>Leisure is the pure residual. Because steps 1 & 2 have already satisfied every liability, you can spend this without hesitation.</p>
-              <div class="step-meta">
-                <span>Zero-based balance</span>
-                <strong>$0.00 Unallocated</strong>
+              <div class="split-bar">
+                <span class="seg seg-wall" tabindex="0" aria-label="Priority Wall $1,425.00" style="--w: 1425; --c: var(--wall); --d: 0.7s;"></span>
+                <span class="seg seg-route" tabindex="0" aria-label="Goals $1,420.00" style="--w: 1420; --c: var(--route); --d: 1.5s;"></span>
+                <span class="seg seg-free" tabindex="0" aria-label="Guilt-free $355.00" style="--w: 355; --c: var(--accent); --d: 2.3s;"></span>
               </div>
-            </div>
+              <ol class="split-legend">
+                <li class="k-wall" style="--c: var(--wall); --d: 0.9s;">01 Wall <span class="mono">$1,425.00</span></li>
+                <li class="k-route" style="--c: var(--route); --d: 1.7s;">02 Goals <span class="mono">$1,420.00</span></li>
+                <li class="k-free" style="--c: var(--accent); --d: 2.5s;">03 Free <span class="mono">$355.00</span></li>
+                <li class="k-zero" style="--d: 3.1s;">Unallocated <span class="mono">$0.00</span></li>
+              </ol>
+            </figure>
           </div>
         </div>
 
+        <ul class="hero-specs rise" style="--i: 6;">
+          <li>Storage <span class="mono">1 SQLite file</span></li>
+          <li>Network calls <span class="mono">0</span></li>
+          <li>Bank logins <span class="mono">none</span></li>
+          <li>Money <span class="mono">integer cents</span></li>
+          <li>Runs on
+            <span class="platforms">
+              <span class="plat">macOS</span>
+              <span class="plat">Windows</span>
+              <span class="plat">Linux</span>
+              <a class="plat" href="https://github.com/ReVax-2007/wageroute/blob/main/docs/POCKET.md" target="_blank" rel="noopener noreferrer" title="WageRoute Pocket, the optional phone web app">Pocket</a>
+            </span>
+          </li>
+        </ul>
       </div>
     </section>
 
-    <!-- How It Works Section -->
-    <section id="how-it-works">
+    <!-- Routing Pipeline -->
+    <section id="pipeline" class="pipeline">
+      <div class="container">
+        <div class="pipe-head">
+          <div>
+            <span class="section-tag">Order of operations</span>
+            <h2 class="section-title">Three steps, always in this order.</h2>
+          </div>
+          <div class="pipe-meta">
+            Semi-monthly paycheck
+            <strong>$3,200.00</strong>
+          </div>
+        </div>
+
+        <div class="pipe">
+          <div class="pipe-rail" aria-hidden="true"></div>
+
+          <article class="pipe-step s-wall">
+            <span class="node" aria-hidden="true"></span>
+            <span class="step-id">Step 01 &middot; Priority Wall</span>
+            <h3>Fixed bills reserved</h3>
+            <div class="amt">&minus;$1,425.00</div>
+            <p>Rent, utilities, subscriptions and insurance are smoothed and locked down first. Goals and leisure can’t touch this money.</p>
+            <dl class="step-data">
+              <div><dt>Method</dt><dd>Cadence smoothing</dd></div>
+              <div><dt>Status</dt><dd>100% reserved</dd></div>
+            </dl>
+          </article>
+
+          <article class="pipe-step s-route">
+            <span class="node" aria-hidden="true"></span>
+            <span class="step-id">Step 02 &middot; True Surplus</span>
+            <h3>Sinking funds and goals</h3>
+            <div class="amt">$1,420.00</div>
+            <p>The surplus is split by percentage: a 3–6 month emergency cushion, a vacation fund, car maintenance and debt payoff.</p>
+            <dl class="step-data">
+              <div><dt>Surplus</dt><dd>$1,775.00</dd></div>
+              <div><dt>Share routed</dt><dd>80%</dd></div>
+            </dl>
+          </article>
+
+          <article class="pipe-step s-free">
+            <span class="node" aria-hidden="true"></span>
+            <span class="step-id">Step 03 &middot; Residual</span>
+            <h3>Guilt-free spending</h3>
+            <div class="amt">$355.00</div>
+            <p>Leisure is what remains. Steps 1 and 2 have already covered every commitment, so you can spend this without second-guessing.</p>
+            <dl class="step-data">
+              <div><dt>Balance</dt><dd>Zero-based</dd></div>
+              <div><dt>Unallocated</dt><dd>$0.00</dd></div>
+            </dl>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- Features Section -->
+    <!-- Screens: the real app, captured by scripts/screenshots.mjs -->
+    <section id="screens" class="screens">
+      <div class="container">
+        <div class="section-head">
+          <span class="section-tag">The app</span>
+          <h2 class="section-title">What you get on the desktop</h2>
+          <p class="section-desc">Real screens from WageRoute 1.3.1, filled with its built-in demo profile.</p>
+        </div>
+
+        <div class="shots">
+          <figure class="shot">
+            <span class="shot-frame">
+              <img class="shot-dark" src="assets/screenshots/home-dark.webp" width="2560" height="1702" alt="The Home screen: left to spend, the bills and goals already set aside, and total wealth across accounts." loading="lazy" decoding="async" />
+              <img class="shot-light" src="assets/screenshots/home-light.webp" width="2560" height="1702" alt="The Home screen: left to spend, the bills and goals already set aside, and total wealth across accounts." loading="lazy" decoding="async" />
+            </span>
+            <figcaption><strong>Home</strong> &mdash; what is left to spend once bills and goals are covered</figcaption>
+          </figure>
+          <figure class="shot">
+            <span class="shot-frame">
+              <img class="shot-dark" src="assets/screenshots/route-paycheck-dark.webp" width="2560" height="1702" alt="The paycheck wizard with a $3,200.00 deposit entered, about to set aside money for bills." loading="lazy" decoding="async" />
+              <img class="shot-light" src="assets/screenshots/route-paycheck-light.webp" width="2560" height="1702" alt="The paycheck wizard with a $3,200.00 deposit entered, about to set aside money for bills." loading="lazy" decoding="async" />
+            </span>
+            <figcaption><strong>Route a paycheck</strong> &mdash; bills first, then the rest gets a job</figcaption>
+          </figure>
+          <figure class="shot">
+            <span class="shot-frame">
+              <img class="shot-dark" src="assets/screenshots/bills-dark.webp" width="2560" height="1702" alt="The Bills screen listing rent, insurance, utilities and subscriptions with per-paycheck and monthly amounts." loading="lazy" decoding="async" />
+              <img class="shot-light" src="assets/screenshots/bills-light.webp" width="2560" height="1702" alt="The Bills screen listing rent, insurance, utilities and subscriptions with per-paycheck and monthly amounts." loading="lazy" decoding="async" />
+            </span>
+            <figcaption><strong>Bills</strong> &mdash; each bill smoothed into a per-paycheck amount</figcaption>
+          </figure>
+          <figure class="shot">
+            <span class="shot-frame">
+              <img class="shot-dark" src="assets/screenshots/goals-dark.webp" width="2560" height="1702" alt="The Goals screen with an emergency fund target calculated from monthly essentials." loading="lazy" decoding="async" />
+              <img class="shot-light" src="assets/screenshots/goals-light.webp" width="2560" height="1702" alt="The Goals screen with an emergency fund target calculated from monthly essentials." loading="lazy" decoding="async" />
+            </span>
+            <figcaption><strong>Goals</strong> &mdash; an emergency fund worked out from your own numbers</figcaption>
+          </figure>
+          <figure class="shot">
+            <span class="shot-frame">
+              <img class="shot-dark" src="assets/screenshots/accounts-dark.webp" width="2560" height="1702" alt="The Accounts screen grouping savings, checking, brokerage, cash and a credit card by bank." loading="lazy" decoding="async" />
+              <img class="shot-light" src="assets/screenshots/accounts-light.webp" width="2560" height="1702" alt="The Accounts screen grouping savings, checking, brokerage, cash and a credit card by bank." loading="lazy" decoding="async" />
+            </span>
+            <figcaption><strong>Accounts</strong> &mdash; banks, cards and what is left on each limit</figcaption>
+          </figure>
+          <figure class="shot">
+            <span class="shot-frame">
+              <img class="shot-dark" src="assets/screenshots/spreadsheet-dark.webp" width="2560" height="1702" alt="The Spreadsheet screen showing ledger entries with filters and inline editing." loading="lazy" decoding="async" />
+              <img class="shot-light" src="assets/screenshots/spreadsheet-light.webp" width="2560" height="1702" alt="The Spreadsheet screen showing ledger entries with filters and inline editing." loading="lazy" decoding="async" />
+            </span>
+            <figcaption><strong>Spreadsheet</strong> &mdash; every entry, searchable and editable in place</figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <section id="features">
       <div class="container">
         <div class="section-head">
           <span class="section-tag">Philosophy</span>
@@ -792,37 +277,37 @@
 
         <div class="features-grid">
           <div class="feature-card">
-            <div class="feature-icon-wrap" style="color: var(--debt);">🧱</div>
+            <div class="feature-icon-wrap" style="color: var(--debt);"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg></div>
             <h4>The Priority Wall</h4>
             <p>Every recurring commitment—whether paid weekly, monthly, or annually—is converted into an exact per-paycheck reserve so due dates never catch you off guard.</p>
           </div>
 
           <div class="feature-card">
-            <div class="feature-icon-wrap" style="color: var(--savings);">🎯</div>
+            <div class="feature-icon-wrap" style="color: var(--savings);"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg></div>
             <h4>Sinking Funds with Autonomy</h4>
-            <p>Dedicated targets for taxes, gifts, or travel. Once a sinking fund reaches its cap, the allocation automatically sweeps into your main savings or debt snowball.</p>
+            <p>Dedicated targets for taxes, gifts, or travel. Once a sinking fund reaches its cap, it stops taking money, and unused goal budget sweeps into savings.</p>
           </div>
 
           <div class="feature-card">
-            <div class="feature-icon-wrap" style="color: var(--goal);">🛡️</div>
+            <div class="feature-icon-wrap" style="color: var(--goal);"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><path d="m4.93 4.93 4.24 4.24"/><path d="m14.83 9.17 4.24-4.24"/><path d="m14.83 14.83 4.24 4.24"/><path d="m9.17 14.83-4.24 4.24"/></svg></div>
             <h4>Dynamic Emergency Cushion</h4>
             <p>Calculates your 3–6 month safety net automatically based on your real Priority Wall liabilities and essential variable spending.</p>
           </div>
 
           <div class="feature-card">
-            <div class="feature-icon-wrap" style="color: var(--investment);">💳</div>
+            <div class="feature-icon-wrap" style="color: var(--investment);"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg></div>
             <h4>Card APR & Payoff Engine</h4>
             <p>Track real card statement cycles, minimum payments, and APR impact. See how long a balance will take to eliminate and prevent interest traps.</p>
           </div>
 
           <div class="feature-card">
-            <div class="feature-icon-wrap" style="color: var(--accent);">⚡</div>
+            <div class="feature-icon-wrap" style="color: var(--accent);"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></svg></div>
             <h4>One-Step Account Transfers</h4>
             <p>Move funds between checking, savings, and credit accounts with live balance previews, quick contextual chips, and instant atomic ledger records.</p>
           </div>
 
           <div class="feature-card">
-            <div class="feature-icon-wrap" style="color: var(--leisure);">📂</div>
+            <div class="feature-icon-wrap" style="color: var(--leisure);"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="m9 15 2 2 4-4"/></svg></div>
             <h4>Smart Statement Reconciliation</h4>
             <p>Import CSV and QIF bank files with automated deduplication. Matches identical transactions cleanly without duplicating coffees or routine purchases.</p>
           </div>
@@ -852,7 +337,7 @@
             </li>
             <li>
               <span class="check-icon">&#10003;</span>
-              <div><strong>Optional Encryption at Rest:</strong> Lock your data with AES-GCM encryption with Argon2id key derivation.</div>
+              <div><strong>Optional Encryption at Rest:</strong> Turn it on and the ledger is rewritten as chacha20 ciphertext. The key is held by this computer’s keychain, a passphrase, or either one.</div>
             </li>
             <li>
               <span class="check-icon">&#10003;</span>
@@ -860,7 +345,7 @@
             </li>
             <li>
               <span class="check-icon">&#10003;</span>
-              <div><strong>WageRoute Pocket Companion:</strong> Transfer read-only encrypted snapshots to your phone via offline QR code seals.</div>
+              <div><strong>WageRoute Pocket Companion:</strong> An optional phone web app that opens a backup file, edits it offline with the desktop’s own rules, and merges back. Backups can be sealed under a passphrase.</div>
             </li>
           </ul>
         </div>
@@ -872,9 +357,9 @@
       <div class="container">
         <div class="support-banner">
           <div style="font-size: 2.5rem; margin-bottom: 12px;">☕</div>
-          <h3>Support Independent Open-Source Software</h3>
+          <h3>Support Independent Software</h3>
           <p>
-            WageRoute is 100% free with no subscriptions, paid paywalls, or sponsored ads. If it brings clarity and financial order to your paychecks, consider buying me a coffee to fuel new features!
+            WageRoute is free to use, with no subscriptions, paywalls or ads. If it brings clarity and financial order to your paychecks, consider buying me a coffee to fuel new features!
           </p>
           <div class="support-actions">
             <a href="https://buymeacoffee.com/revax" target="_blank" rel="noopener noreferrer" class="btn btn-bmc btn-lg">
@@ -888,7 +373,7 @@
               Buy me a coffee on buymeacoffee.com/revax
             </a>
             <a href="https://github.com/ReVax-2007/wageroute" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-lg">
-              Sponsor on GitHub
+              Star on GitHub
             </a>
           </div>
         </div>
@@ -907,10 +392,10 @@
         <div class="downloads-grid">
           <!-- macOS -->
           <div class="download-box">
-            <div class="os-icon">🍏</div>
+            <div class="os-icon"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 6.528V3a1 1 0 0 1 1-1h0"/><path d="M18.237 21A15 15 0 0 0 22 11a6 6 0 0 0-10-4.472A6 6 0 0 0 2 11a15.1 15.1 0 0 0 3.763 10 3 3 0 0 0 3.648.648 5.5 5.5 0 0 1 5.178 0A3 3 0 0 0 18.237 21"/></svg></div>
             <h3>macOS</h3>
-            <span class="ext">Universal (.dmg / .zip)</span>
-            <p style="font-size: 0.85rem; color: var(--text-dim);">Apple Silicon (M1/M2/M3/M4) &amp; Intel</p>
+            <span class="ext">Disk image (.dmg)</span>
+            <p style="font-size: 0.85rem; color: var(--text-dim);">Separate builds for Apple Silicon &amp; Intel</p>
             <a href="https://github.com/ReVax-2007/wageroute/releases/latest" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">
               Download .dmg
             </a>
@@ -919,9 +404,9 @@
 
           <!-- Windows -->
           <div class="download-box">
-            <div class="os-icon">🪟</div>
+            <div class="os-icon"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></svg></div>
             <h3>Windows</h3>
-            <span class="ext">64-bit Installer (.exe)</span>
+            <span class="ext">Installer, MSI or portable (.exe / .msi)</span>
             <p style="font-size: 0.85rem; color: var(--text-dim);">Windows 10 &amp; Windows 11</p>
             <a href="https://github.com/ReVax-2007/wageroute/releases/latest" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">
               Download Setup .exe
@@ -931,7 +416,7 @@
 
           <!-- Linux -->
           <div class="download-box">
-            <div class="os-icon">🐧</div>
+            <div class="os-icon"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg></div>
             <h3>Linux</h3>
             <span class="ext">AppImage, .deb, .rpm</span>
             <p style="font-size: 0.85rem; color: var(--text-dim);">Ubuntu, Debian, Fedora &amp; Arch</p>
@@ -942,12 +427,160 @@
           </div>
         </div>
 
+        <!-- Terminal install and first-launch unblock, folded so the cards lead -->
+        <details class="cli">
+          <summary>Install from the terminal, or unblock a browser download</summary>
+          <div class="cli-body">
+          <!-- Quick install from the terminal -->
+          <div class="install-grid">
+            <div class="term">
+              <div class="console-bar">
+                <span class="console-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                <span class="console-path">macOS &middot; Homebrew (recommended)</span>
+                <button class="copy-btn" type="button" data-copy="brew-mac">Copy</button>
+              </div>
+              <pre class="term-body" id="brew-mac"><span class="p">$</span> brew tap ReVax-2007/wageroute
+  <span class="p">$</span> brew install --cask wageroute</pre>
+              <p class="term-note">Update later with <code>brew upgrade --cask wageroute</code>. Homebrew checks the DMG against a pinned SHA-256 first.</p>
+            </div>
+
+            <div class="term">
+              <div class="console-bar">
+                <span class="console-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                <span class="console-path">macOS &middot; curl, Apple Silicon</span>
+                <button class="copy-btn" type="button" data-copy="curl-mac">Copy</button>
+              </div>
+              <pre class="term-body" id="curl-mac"><span class="p">$</span> curl -LO https://github.com/ReVax-2007/wageroute/releases/download/v1.3.1/WageRoute-1.3.1-arm64.dmg
+  <span class="p">$</span> hdiutil attach -nobrowse -mountpoint /tmp/wageroute-dmg WageRoute-1.3.1-arm64.dmg
+  <span class="p">$</span> cp -R /tmp/wageroute-dmg/WageRoute.app /Applications/
+  <span class="p">$</span> hdiutil detach /tmp/wageroute-dmg</pre>
+              <p class="term-note">curl never sets the quarantine flag, so there is no Gatekeeper prompt. Intel Macs: use <code>WageRoute-1.3.1-x64.dmg</code>.</p>
+            </div>
+
+            <div class="term">
+              <div class="console-bar">
+                <span class="console-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                <span class="console-path">Linux &middot; AppImage, x86_64</span>
+                <button class="copy-btn" type="button" data-copy="curl-linux">Copy</button>
+              </div>
+              <pre class="term-body" id="curl-linux"><span class="p">$</span> curl -fsSL https://github.com/ReVax-2007/wageroute/releases/download/v1.3.1/WageRoute-1.3.1-x86_64.AppImage -o WageRoute.AppImage
+  <span class="p">$</span> chmod +x WageRoute.AppImage && ./WageRoute.AppImage</pre>
+              <p class="term-note">On Ubuntu 22.04+ install FUSE 2 first (<code>sudo apt install libfuse2t64</code> on 24.04). ARM: <code>WageRoute-1.3.1-arm64.AppImage</code>.</p>
+            </div>
+
+            <div class="term">
+              <div class="console-bar">
+                <span class="console-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                <span class="console-path">Linux &middot; Debian / Ubuntu .deb</span>
+                <button class="copy-btn" type="button" data-copy="deb-linux">Copy</button>
+              </div>
+              <pre class="term-body" id="deb-linux"><span class="p">$</span> curl -fsSLO https://github.com/ReVax-2007/wageroute/releases/download/v1.3.1/WageRoute-1.3.1-amd64.deb
+  <span class="p">$</span> sudo apt install ./WageRoute-1.3.1-amd64.deb</pre>
+              <p class="term-note">Fedora and openSUSE: the <code>.rpm</code> packages are on the release page.</p>
+            </div>
+          </div>
+
+          <!-- First launch of a browser download: clear the OS block once -->
+          <h3 class="trust-title">Downloaded in a browser? Unblock it once.</h3>
+          <div class="install-grid three">
+            <div class="term">
+              <div class="console-bar">
+                <span class="console-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                <span class="console-path">macOS &middot; Terminal</span>
+                <button class="copy-btn" type="button" data-copy="trust-mac">Copy</button>
+              </div>
+              <pre class="term-body" id="trust-mac"><span class="p">$</span> sudo xattr -rd com.apple.quarantine /Applications/WageRoute.app</pre>
+              <p class="term-note">Run after dragging the app to Applications. Without it, use right-click &rarr; Open the first time.</p>
+            </div>
+
+            <div class="term">
+              <div class="console-bar">
+                <span class="console-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                <span class="console-path">Windows &middot; PowerShell</span>
+                <button class="copy-btn" type="button" data-copy="trust-win">Copy</button>
+              </div>
+              <pre class="term-body" id="trust-win"><span class="p">PS&gt;</span> Unblock-File -Path "$env:USERPROFILE\Downloads\WageRoute.Setup.1.3.1.exe"</pre>
+              <p class="term-note">Removes the download mark so SmartScreen does not stop it. Or: Properties &rarr; Unblock.</p>
+            </div>
+
+            <div class="term">
+              <div class="console-bar">
+                <span class="console-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                <span class="console-path">Linux &middot; AppImage</span>
+                <button class="copy-btn" type="button" data-copy="trust-linux">Copy</button>
+              </div>
+              <pre class="term-body" id="trust-linux"><span class="p">$</span> chmod +x ~/Downloads/WageRoute-1.3.1-x86_64.AppImage</pre>
+              <p class="term-note">Browsers drop the executable bit. The .deb and .rpm packages need nothing.</p>
+            </div>
+          </div>
+          </div>
+        </details>
+
+        <ul class="repo-links">
+          <li>
+            <a href="https://github.com/ReVax-2007/wageroute" target="_blank" rel="noopener noreferrer">
+              <span class="mono">github.com/ReVax-2007/wageroute</span>
+              <span>Source, releases and docs &rarr;</span>
+            </a>
+          </li>
+          <li>
+            <a href="https://github.com/ReVax-2007/homebrew-wageroute" target="_blank" rel="noopener noreferrer">
+              <span class="mono">github.com/ReVax-2007/homebrew-wageroute</span>
+              <span>Official Homebrew tap &rarr;</span>
+            </a>
+          </li>
+        </ul>
+
         <div style="text-align: center; color: var(--text-dim); font-size: 0.95rem;">
           Looking for verification checksums or release notes?
           <a href="https://github.com/ReVax-2007/wageroute/releases" target="_blank" rel="noopener noreferrer" style="color: var(--accent); font-weight: 600; text-decoration: none;">
             View all releases on GitHub &rarr;
           </a>
         </div>
+      </div>
+    </section>
+
+    <!-- Docker / Self-hosting -->
+    <section id="self-host" class="self-host">
+      <div class="container">
+        <div class="section-head">
+          <span class="section-tag">Docker / Self-hosting</span>
+          <h2 class="section-title">Run it on your own machine or server</h2>
+          <p class="section-desc">Two containers, built from source: Pocket as a static site behind nginx, and the desktop app streamed to your browser over noVNC.</p>
+        </div>
+
+        <div class="host-grid">
+          <div class="term">
+            <div class="console-bar">
+              <span class="console-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="console-path">Docker Compose</span>
+              <button class="copy-btn" type="button" data-copy="compose-up">Copy</button>
+            </div>
+            <pre class="term-body" id="compose-up"><span class="p">$</span> git clone https://github.com/ReVax-2007/wageroute.git
+<span class="p">$</span> cd wageroute
+<span class="p">$</span> docker compose up -d --build</pre>
+            <p class="term-note">Then open Pocket at <code>http://localhost:8173</code> and the desktop at <code>http://localhost:6080/vnc.html?autoconnect=true</code>. Get the VNC password with <code>docker compose logs desktop</code>.</p>
+          </div>
+
+          <dl class="host-facts">
+            <div>
+              <dt>Local only by default</dt>
+              <dd>Both ports bind to <code>127.0.0.1</code>. To reach a phone, put TLS in front: the compose file’s <code>edge</code> profile adds Caddy and a login.</dd>
+            </div>
+            <div>
+              <dt>Your ledger lives in a volume</dt>
+              <dd><code>wageroute-data</code> holds the database and its key file. <code>docker compose down -v</code> deletes it, so export a backup first.</dd>
+            </div>
+            <div>
+              <dt>Trusted machines only</dt>
+              <dd>Electron runs with its sandbox off inside the container. The installers stay the recommended way to use WageRoute.</dd>
+            </div>
+          </dl>
+        </div>
+
+        <p class="host-more">
+          <a href="https://github.com/ReVax-2007/wageroute/blob/main/docs/DEPLOYMENT.md#running-wageroute-in-a-container" target="_blank" rel="noopener noreferrer">Read the container guide &rarr;</a>
+        </p>
       </div>
     </section>
   </main>
@@ -969,17 +602,19 @@
 
         <ul class="footer-links">
           <li><a href="https://github.com/ReVax-2007/wageroute" target="_blank" rel="noopener noreferrer">GitHub</a></li>
-          <li><a href="https://buymeacoffee.com/revax" target="_blank" rel="noopener noreferrer" style="color: #ffdd00; font-weight: 600;">Buy Me a Coffee</a></li>
+          <li><a href="https://buymeacoffee.com/revax" target="_blank" rel="noopener noreferrer" style="color: var(--bmc-text); font-weight: 600;">Buy Me a Coffee</a></li>
+          <li><a href="https://github.com/ReVax-2007/homebrew-wageroute" target="_blank" rel="noopener noreferrer">Homebrew tap</a></li>
           <li><a href="https://github.com/ReVax-2007/wageroute/blob/main/docs/SECURITY.md" target="_blank" rel="noopener noreferrer">Security</a></li>
           <li><a href="https://github.com/ReVax-2007/wageroute/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">License</a></li>
         </ul>
       </div>
 
       <div class="copy">
-        Created by Xavier Voet (revax). Released under the MIT License. Built with Electron, TypeScript, React, and SQLite.
+        Created by Xavier Voet (revax). Source-available under the WageRoute License. Built with Electron, TypeScript, React, and SQLite.
       </div>
     </div>
   </footer>
 
+  <script src="assets/js/site.js" defer></script>
 </body>
 </html>
