@@ -114,6 +114,24 @@ The renderer is sandboxed with `contextIsolation: true`, `nodeIntegration: false
 
 ## Installing WageRoute
 
+**One command (quickest).** Each script picks the right build for your system, checks it against the release's `SHA256SUMS`, installs it, and clears the "downloaded from the internet" block, so the first launch opens without the Gatekeeper or SmartScreen step.
+
+```bash
+# macOS and Linux
+curl -fsSL https://revax-2007.github.io/wageroute/install.sh | sh
+```
+
+```powershell
+# Windows (PowerShell)
+irm https://revax-2007.github.io/wageroute/install.ps1 | iex
+```
+
+- **macOS:** the Apple Silicon or Intel DMG, copied into `/Applications` (or `~/Applications` if that is not writable).
+- **Linux:** the `.deb` through apt or the `.rpm` through dnf/zypper (asks for your password), otherwise the AppImage in `~/.local/bin` with a menu entry.
+- **Windows:** the Setup installer, silently, for the current user.
+
+Options: `sh -s -- --dry-run` (download and verify only), `--version v1.3.1`, and on Linux `--appimage`. On Windows set `$env:WAGEROUTE_DRY_RUN = '1'` or `$env:WAGEROUTE_VERSION` before piping. Neither script touches your ledger. The manual routes below do the same steps by hand.
+
 The macOS build is ad-hoc signed, not notarized. The first launch of any downloaded copy needs one extra click (right-click the app → **Open** → **Open**); after that it opens normally. Homebrew verifies checksums for you, and the curl one-liner below avoids the prompt entirely because curl never sets the quarantine flag.
 
 **Homebrew (recommended, macOS):**

@@ -37,3 +37,58 @@ jobs:
       # Packaging-only breaks (a bad electron-builder field, a missing resource)
       # must fail here rather than at tag time. --dir stops before installers.
       - run: npx electron-builder --dir --publish never
+
+  # The one-command installers (install.sh, install.ps1) run against the real
+  # latest release on each system they serve, then install it for real.
+  install-scripts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Lint install.sh
+        if: runner.os == 'Linux'
+        run: shellcheck --shell=sh install.sh
+
+      - name: Dry run (download and verify only)
+        if: runner.os != 'Windows'
+        run: sh install.sh --dry-run
+
+      - name: Install the .deb and check it
+        if: runner.os == 'Linux'
+        run: |
+          sh install.sh
+          dpkg -s wageroute | grep -q '^Status: install ok installed'
+          test -x /opt/WageRoute/wageroute
+          sudo apt-get remove -y wageroute
+
+      - name: Install into /Applications and check it
+        if: runner.os == 'macOS'
+        run: |
+          sh install.sh
+          test -d /Applications/WageRoute.app
+          if xattr /Applications/WageRoute.app | grep -q com.apple.quarantine; then
+            echo "quarantine flag still set" >&2; exit 1
+          fi
+          codesign --verify --deep --strict /Applications/WageRoute.app
+
+      - name: Dry run and install on Windows (PowerShell 5.1)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          .\install.ps1 -DryRun
+          .\install.ps1
+          $exe = @("$env:LOCALAPPDATA\Programs\WageRoute\WageRoute.exe", "$env:LOCALAPPDATA\Programs\wageroute\WageRoute.exe") |
+            Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $exe) { Get-ChildItem "$env:LOCALAPPDATA\Programs" -ErrorAction SilentlyContinue; throw 'WageRoute.exe not found after install' }
+          Write-Host "found $exe"
+
+      - name: Piped form on Windows (PowerShell 7, irm | iex)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:WAGEROUTE_DRY_RUN = '1'
+          Get-Content -Raw .\install.ps1 | Invoke-Expression
