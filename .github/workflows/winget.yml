@@ -1,0 +1,16 @@
+name: Publish to WinGet
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  winget:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Submit package to WinGet
+        uses: microsoft/winget-releaser@v2
+        with:
+          identifier: ReVax-2007.WageRoute
+          token: ${{ secrets.WINGET_TOKEN }}
+          installers-regex: 'WageRoute\.Setup\..*\.exe$'
