@@ -11,6 +11,6 @@ jobs:
       - name: Submit package to WinGet
         uses: microsoft/winget-releaser@v2
         with:
-          identifier: ReVax-2007.WagerRoute
+          identifier: ReVax-2007.WageRoute
           token: ${{ secrets.WINGET_TOKEN }}
-          installers-regex: 'WagerRoute\.Setup\..*\.exe$'
+          installers-regex: 'WageRoute\.Setup\..*\.exe$'
