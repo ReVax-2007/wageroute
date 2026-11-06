@@ -1,0 +1,40 @@
+{
+  "ranAt": "2026-11-05T20:37:59.599Z",
+  "electron": "45.1.0",
+  "realPlatform": {
+    "notes": [
+      "loaded http://localhost/passkey",
+      "uvpaa with virtual authenticator: false"
+    ],
+    "error": "PasskeyUnavailableError: This computer cannot hold the ledger’s key with a fingerprint or face: This computer offers no fingerprint or face check to this app. Nothing was changed.\n    at Object.enrolPasskey (/private/var/folders/s6/ghpcwsjx70q8sdfgtz9_48r40000gn/T/wageroute-ceremony-xLKQZs/bundle.cjs:302:25)\n    at async /private/var/folders/s6/ghpcwsjx70q8sdfgtz9_48r40000gn/T/wageroute-ceremony-xLKQZs/main.cjs:46:23"
+  },
+  "platformCheckStubbed": {
+    "notes": [
+      "loaded http://localhost/passkey",
+      "uvpaa with virtual authenticator: false",
+      "loaded http://localhost/passkey",
+      "uvpaa with virtual authenticator: false",
+      "loaded http://localhost/passkey",
+      "uvpaa with virtual authenticator: false"
+    ],
+    "enrol": {
+      "ms": 162,
+      "credentialId": "gKjEPyiw…",
+      "rpId": "localhost",
+      "firstBytes": 32,
+      "sameTwice": true
+    },
+    "provedWithTest": true,
+    "unlockAnswer": {
+      "ok": false,
+      "reason": "unsupported",
+      "detail": "The passkey gave back no secret."
+    },
+    "unlock": {
+      "ms": 121,
+      "returnedBytes": 0,
+      "opensAcrossVirtualAuthenticators": false
+    },
+    "unlockWithNoCredential": "null (falls through to typing)"
+  }
+}

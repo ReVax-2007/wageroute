@@ -1,0 +1,562 @@
+{
+  "ranAt": "2026-11-05T20:12:25.563Z",
+  "node": "v24.22.2",
+  "runs": [
+    {
+      "version": "Chrome/156.0.8078.80",
+      "label": "Chrome (.lan cert untrusted)",
+      "realPlatform": {
+        "origin": "http://localhost:64019",
+        "isSecureContext": true,
+        "hasSubtle": true,
+        "hasPublicKeyCredential": true,
+        "uvpaa": true,
+        "clientCapabilities": {
+          "conditionalCreate": true,
+          "conditionalGet": true,
+          "extension:appid": true,
+          "extension:appidExclude": true,
+          "extension:cmtgKey": false,
+          "extension:credBlob": true,
+          "extension:credProps": true,
+          "extension:credentialProtectionPolicy": true,
+          "extension:crossDeviceFallbackUrl": false,
+          "extension:enforceCredentialProtectionPolicy": true,
+          "extension:getCredBlob": true,
+          "extension:hmacCreateSecret": true,
+          "extension:largeBlob": true,
+          "extension:minPinLength": true,
+          "extension:payment": true,
+          "extension:prf": true,
+          "hybridTransport": true,
+          "immediateGet": true,
+          "passkeyPlatformAuthenticator": true,
+          "relatedOrigins": true,
+          "signalAllAcceptedCredentials": true,
+          "signalCurrentUserDetails": true,
+          "signalUnknownCredential": true,
+          "userVerifyingPlatformAuthenticator": true
+        }
+      },
+      "localhost": {
+        "pbkdf2Ms": 45,
+        "register": {
+          "id": "uPkSJsGpijollVoltlv_zSizPCeZtl4ZV2t4cb-ebMU",
+          "ms": 3,
+          "prfEnabled": true,
+          "prfResultsAtCreate": true
+        },
+        "firstAssertion": {
+          "ms": 2,
+          "userVerified": true,
+          "outputBytes": 32
+        },
+        "deterministic": true,
+        "prfWrapOpens": true,
+        "otherSaltDiffers": true,
+        "otherPasskeyOpens": false,
+        "passphraseWrapOpens": true,
+        "wrongPassphraseOpens": false
+      },
+      "localhostAfterLoss": {
+        "lostPasskeyStillWorks": false,
+        "lostPasskeyError": {
+          "name": "NoAnswer",
+          "message": "no authenticator answered within 5 s"
+        },
+        "passphraseFallbackOpens": true
+      },
+      "rpIdFromLocalhost": {
+        "wageroute.lan": {
+          "ok": false,
+          "name": "SecurityError",
+          "message": "The relying party ID is not a registrable domain suffix of, nor equal to the current domain. Subsequently, an attempt to fetch the .well-known/webauthn resource of the claimed RP ID failed."
+        }
+      },
+      "rpIdFromLoopbackIp": {
+        "capabilities": {
+          "origin": "http://127.0.0.1:64019",
+          "isSecureContext": true,
+          "hasSubtle": true,
+          "hasPublicKeyCredential": true,
+          "uvpaa": true,
+          "clientCapabilities": {
+            "conditionalCreate": true,
+            "conditionalGet": true,
+            "extension:appid": true,
+            "extension:appidExclude": true,
+            "extension:cmtgKey": false,
+            "extension:credBlob": true,
+            "extension:credProps": true,
+            "extension:credentialProtectionPolicy": true,
+            "extension:crossDeviceFallbackUrl": false,
+            "extension:enforceCredentialProtectionPolicy": true,
+            "extension:getCredBlob": true,
+            "extension:hmacCreateSecret": true,
+            "extension:largeBlob": true,
+            "extension:minPinLength": true,
+            "extension:payment": true,
+            "extension:prf": true,
+            "hybridTransport": true,
+            "immediateGet": true,
+            "passkeyPlatformAuthenticator": true,
+            "relatedOrigins": true,
+            "signalAllAcceptedCredentials": true,
+            "signalCurrentUserDetails": true,
+            "signalUnknownCredential": true,
+            "userVerifyingPlatformAuthenticator": true
+          }
+        },
+        "127.0.0.1": {
+          "ok": false,
+          "name": "SecurityError",
+          "message": "This is an invalid domain."
+        }
+      },
+      "lanHttps": {
+        "capabilities": {
+          "thrown": "ReferenceError: spike is not defined\n    at <anonymous>:1:1"
+        },
+        "custody": {
+          "thrown": "ReferenceError: spike is not defined\n    at <anonymous>:1:1"
+        }
+      }
+    },
+    {
+      "version": "Chrome/156.0.8078.80",
+      "label": "Chrome (.lan cert trusted)",
+      "realPlatform": {
+        "origin": "http://localhost:64019",
+        "isSecureContext": true,
+        "hasSubtle": true,
+        "hasPublicKeyCredential": true,
+        "uvpaa": true,
+        "clientCapabilities": {
+          "conditionalCreate": true,
+          "conditionalGet": true,
+          "extension:appid": true,
+          "extension:appidExclude": true,
+          "extension:cmtgKey": false,
+          "extension:credBlob": true,
+          "extension:credProps": true,
+          "extension:credentialProtectionPolicy": true,
+          "extension:crossDeviceFallbackUrl": false,
+          "extension:enforceCredentialProtectionPolicy": true,
+          "extension:getCredBlob": true,
+          "extension:hmacCreateSecret": true,
+          "extension:largeBlob": true,
+          "extension:minPinLength": true,
+          "extension:payment": true,
+          "extension:prf": true,
+          "hybridTransport": true,
+          "immediateGet": true,
+          "passkeyPlatformAuthenticator": true,
+          "relatedOrigins": true,
+          "signalAllAcceptedCredentials": true,
+          "signalCurrentUserDetails": true,
+          "signalUnknownCredential": true,
+          "userVerifyingPlatformAuthenticator": true
+        }
+      },
+      "localhost": {
+        "pbkdf2Ms": 46,
+        "register": {
+          "id": "P5s157Z06_LPBHDNBb3wo7Vn-lqQqcED362c5CJAftc",
+          "ms": 2,
+          "prfEnabled": true,
+          "prfResultsAtCreate": true
+        },
+        "firstAssertion": {
+          "ms": 2,
+          "userVerified": true,
+          "outputBytes": 32
+        },
+        "deterministic": true,
+        "prfWrapOpens": true,
+        "otherSaltDiffers": true,
+        "otherPasskeyOpens": false,
+        "passphraseWrapOpens": true,
+        "wrongPassphraseOpens": false
+      },
+      "localhostAfterLoss": {
+        "lostPasskeyStillWorks": false,
+        "lostPasskeyError": {
+          "name": "NoAnswer",
+          "message": "no authenticator answered within 5 s"
+        },
+        "passphraseFallbackOpens": true
+      },
+      "rpIdFromLocalhost": {
+        "wageroute.lan": {
+          "ok": false,
+          "name": "SecurityError",
+          "message": "The relying party ID is not a registrable domain suffix of, nor equal to the current domain. Subsequently, an attempt to fetch the .well-known/webauthn resource of the claimed RP ID failed."
+        }
+      },
+      "rpIdFromLoopbackIp": {
+        "capabilities": {
+          "origin": "http://127.0.0.1:64019",
+          "isSecureContext": true,
+          "hasSubtle": true,
+          "hasPublicKeyCredential": true,
+          "uvpaa": true,
+          "clientCapabilities": {
+            "conditionalCreate": true,
+            "conditionalGet": true,
+            "extension:appid": true,
+            "extension:appidExclude": true,
+            "extension:cmtgKey": false,
+            "extension:credBlob": true,
+            "extension:credProps": true,
+            "extension:credentialProtectionPolicy": true,
+            "extension:crossDeviceFallbackUrl": false,
+            "extension:enforceCredentialProtectionPolicy": true,
+            "extension:getCredBlob": true,
+            "extension:hmacCreateSecret": true,
+            "extension:largeBlob": true,
+            "extension:minPinLength": true,
+            "extension:payment": true,
+            "extension:prf": true,
+            "hybridTransport": true,
+            "immediateGet": true,
+            "passkeyPlatformAuthenticator": true,
+            "relatedOrigins": true,
+            "signalAllAcceptedCredentials": true,
+            "signalCurrentUserDetails": true,
+            "signalUnknownCredential": true,
+            "userVerifyingPlatformAuthenticator": true
+          }
+        },
+        "127.0.0.1": {
+          "ok": false,
+          "name": "SecurityError",
+          "message": "This is an invalid domain."
+        }
+      },
+      "lanHttps": {
+        "capabilities": {
+          "origin": "https://wageroute.lan:64020",
+          "isSecureContext": true,
+          "hasSubtle": true,
+          "hasPublicKeyCredential": true,
+          "uvpaa": true,
+          "clientCapabilities": {
+            "conditionalCreate": true,
+            "conditionalGet": true,
+            "extension:appid": true,
+            "extension:appidExclude": true,
+            "extension:cmtgKey": false,
+            "extension:credBlob": true,
+            "extension:credProps": true,
+            "extension:credentialProtectionPolicy": true,
+            "extension:crossDeviceFallbackUrl": false,
+            "extension:enforceCredentialProtectionPolicy": true,
+            "extension:getCredBlob": true,
+            "extension:hmacCreateSecret": true,
+            "extension:largeBlob": true,
+            "extension:minPinLength": true,
+            "extension:payment": true,
+            "extension:prf": true,
+            "hybridTransport": true,
+            "immediateGet": true,
+            "passkeyPlatformAuthenticator": true,
+            "relatedOrigins": true,
+            "signalAllAcceptedCredentials": true,
+            "signalCurrentUserDetails": true,
+            "signalUnknownCredential": true,
+            "userVerifyingPlatformAuthenticator": true
+          }
+        },
+        "custody": {
+          "pbkdf2Ms": 48,
+          "register": {
+            "id": "_pJhVUE7H7IqE5xdMn0OIjdCEWyvXHm2bdeGW_rgYLE",
+            "ms": 8,
+            "prfEnabled": true,
+            "prfResultsAtCreate": true
+          },
+          "firstAssertion": {
+            "ms": 2,
+            "userVerified": true,
+            "outputBytes": 32
+          },
+          "deterministic": true,
+          "prfWrapOpens": true,
+          "otherSaltDiffers": true,
+          "otherPasskeyOpens": false,
+          "passphraseWrapOpens": true,
+          "wrongPassphraseOpens": false
+        }
+      }
+    },
+    {
+      "version": "Chrome/156.0.8078.49",
+      "label": "Electron (no configureWebAuthn)",
+      "realPlatform": {
+        "origin": "http://localhost:64019",
+        "isSecureContext": true,
+        "hasSubtle": true,
+        "hasPublicKeyCredential": true,
+        "uvpaa": false,
+        "clientCapabilities": {
+          "conditionalCreate": true,
+          "conditionalGet": true,
+          "extension:appid": true,
+          "extension:appidExclude": true,
+          "extension:cmtgKey": false,
+          "extension:credBlob": true,
+          "extension:credProps": true,
+          "extension:credentialProtectionPolicy": true,
+          "extension:crossDeviceFallbackUrl": false,
+          "extension:enforceCredentialProtectionPolicy": true,
+          "extension:getCredBlob": true,
+          "extension:hmacCreateSecret": true,
+          "extension:largeBlob": true,
+          "extension:minPinLength": true,
+          "extension:payment": true,
+          "extension:prf": true,
+          "hybridTransport": true,
+          "immediateGet": true,
+          "passkeyPlatformAuthenticator": true,
+          "relatedOrigins": true,
+          "signalAllAcceptedCredentials": true,
+          "signalCurrentUserDetails": true,
+          "signalUnknownCredential": true,
+          "userVerifyingPlatformAuthenticator": false
+        }
+      },
+      "localhost": {
+        "pbkdf2Ms": 47,
+        "register": {
+          "id": "e-AYPTEiiYyDxpEI_wM_deNLaq60CRKq-j79r72IdKw",
+          "ms": 14,
+          "prfEnabled": true,
+          "prfResultsAtCreate": true
+        },
+        "firstAssertion": {
+          "ms": 2,
+          "userVerified": true,
+          "outputBytes": 32
+        },
+        "deterministic": true,
+        "prfWrapOpens": true,
+        "otherSaltDiffers": true,
+        "otherPasskeyOpens": false,
+        "passphraseWrapOpens": true,
+        "wrongPassphraseOpens": false
+      },
+      "localhostAfterLoss": {
+        "lostPasskeyStillWorks": false,
+        "lostPasskeyError": {
+          "name": "NoAnswer",
+          "message": "no authenticator answered within 5 s"
+        },
+        "passphraseFallbackOpens": true
+      },
+      "rpIdFromLocalhost": {
+        "wageroute.lan": {
+          "ok": false,
+          "name": "SecurityError",
+          "message": "The relying party ID is not a registrable domain suffix of, nor equal to the current domain. Subsequently, an attempt to fetch the .well-known/webauthn resource of the claimed RP ID failed."
+        }
+      },
+      "rpIdFromLoopbackIp": {
+        "capabilities": {
+          "origin": "http://127.0.0.1:64019",
+          "isSecureContext": true,
+          "hasSubtle": true,
+          "hasPublicKeyCredential": true,
+          "uvpaa": false,
+          "clientCapabilities": {
+            "conditionalCreate": true,
+            "conditionalGet": true,
+            "extension:appid": true,
+            "extension:appidExclude": true,
+            "extension:cmtgKey": false,
+            "extension:credBlob": true,
+            "extension:credProps": true,
+            "extension:credentialProtectionPolicy": true,
+            "extension:crossDeviceFallbackUrl": false,
+            "extension:enforceCredentialProtectionPolicy": true,
+            "extension:getCredBlob": true,
+            "extension:hmacCreateSecret": true,
+            "extension:largeBlob": true,
+            "extension:minPinLength": true,
+            "extension:payment": true,
+            "extension:prf": true,
+            "hybridTransport": true,
+            "immediateGet": true,
+            "passkeyPlatformAuthenticator": true,
+            "relatedOrigins": true,
+            "signalAllAcceptedCredentials": true,
+            "signalCurrentUserDetails": true,
+            "signalUnknownCredential": true,
+            "userVerifyingPlatformAuthenticator": false
+          }
+        },
+        "127.0.0.1": {
+          "ok": false,
+          "name": "SecurityError",
+          "message": "This is an invalid domain."
+        }
+      },
+      "lanHttps": {
+        "capabilities": {
+          "origin": "https://wageroute.lan:64020",
+          "isSecureContext": true,
+          "hasSubtle": true,
+          "hasPublicKeyCredential": true,
+          "uvpaa": false,
+          "clientCapabilities": {
+            "conditionalCreate": true,
+            "conditionalGet": true,
+            "extension:appid": true,
+            "extension:appidExclude": true,
+            "extension:cmtgKey": false,
+            "extension:credBlob": true,
+            "extension:credProps": true,
+            "extension:credentialProtectionPolicy": true,
+            "extension:crossDeviceFallbackUrl": false,
+            "extension:enforceCredentialProtectionPolicy": true,
+            "extension:getCredBlob": true,
+            "extension:hmacCreateSecret": true,
+            "extension:largeBlob": true,
+            "extension:minPinLength": true,
+            "extension:payment": true,
+            "extension:prf": true,
+            "hybridTransport": true,
+            "immediateGet": true,
+            "passkeyPlatformAuthenticator": true,
+            "relatedOrigins": true,
+            "signalAllAcceptedCredentials": true,
+            "signalCurrentUserDetails": true,
+            "signalUnknownCredential": true,
+            "userVerifyingPlatformAuthenticator": false
+          }
+        },
+        "custody": {
+          "pbkdf2Ms": 49,
+          "register": {
+            "id": "X1CqKavP07WBwxLOZnZwqvgB8E3BM5n6ZqibfDVIGrA",
+            "ms": 8,
+            "prfEnabled": true,
+            "prfResultsAtCreate": true
+          },
+          "firstAssertion": {
+            "ms": 2,
+            "userVerified": true,
+            "outputBytes": 32
+          },
+          "deterministic": true,
+          "prfWrapOpens": true,
+          "otherSaltDiffers": true,
+          "otherPasskeyOpens": false,
+          "passphraseWrapOpens": true,
+          "wrongPassphraseOpens": false
+        }
+      },
+      "fileOrigin": {
+        "capabilities": {
+          "origin": "file://",
+          "isSecureContext": true,
+          "hasSubtle": true,
+          "hasPublicKeyCredential": true,
+          "uvpaa": false,
+          "clientCapabilities": {
+            "conditionalCreate": true,
+            "conditionalGet": true,
+            "extension:appid": true,
+            "extension:appidExclude": true,
+            "extension:cmtgKey": false,
+            "extension:credBlob": true,
+            "extension:credProps": true,
+            "extension:credentialProtectionPolicy": true,
+            "extension:crossDeviceFallbackUrl": false,
+            "extension:enforceCredentialProtectionPolicy": true,
+            "extension:getCredBlob": true,
+            "extension:hmacCreateSecret": true,
+            "extension:largeBlob": true,
+            "extension:minPinLength": true,
+            "extension:payment": true,
+            "extension:prf": true,
+            "hybridTransport": true,
+            "immediateGet": true,
+            "passkeyPlatformAuthenticator": true,
+            "relatedOrigins": true,
+            "signalAllAcceptedCredentials": true,
+            "signalCurrentUserDetails": true,
+            "signalUnknownCredential": true,
+            "userVerifyingPlatformAuthenticator": false
+          }
+        },
+        "emptyRpId": {
+          "ok": false,
+          "name": "SecurityError",
+          "message": "Public-key credentials are only available to HTTPS origins with valid certificates, HTTP origins that fall under 'localhost', or pages served from an extension. See https://chromium.googlesource.com/c"
+        },
+        "localhostRpId": {
+          "ok": false,
+          "name": "SecurityError",
+          "message": "Public-key credentials are only available to HTTPS origins with valid certificates, HTTP origins that fall under 'localhost', or pages served from an extension. See https://chromium.googlesource.com/c"
+        }
+      }
+    },
+    {
+      "version": "Chrome/156.0.8078.49",
+      "label": "Electron, http://localhost answered by protocol.handle (no socket)",
+      "capabilities": {
+        "origin": "http://localhost:1",
+        "isSecureContext": true,
+        "hasSubtle": true,
+        "hasPublicKeyCredential": true,
+        "uvpaa": false,
+        "clientCapabilities": {
+          "conditionalCreate": true,
+          "conditionalGet": true,
+          "extension:appid": true,
+          "extension:appidExclude": true,
+          "extension:cmtgKey": false,
+          "extension:credBlob": true,
+          "extension:credProps": true,
+          "extension:credentialProtectionPolicy": true,
+          "extension:crossDeviceFallbackUrl": false,
+          "extension:enforceCredentialProtectionPolicy": true,
+          "extension:getCredBlob": true,
+          "extension:hmacCreateSecret": true,
+          "extension:largeBlob": true,
+          "extension:minPinLength": true,
+          "extension:payment": true,
+          "extension:prf": true,
+          "hybridTransport": true,
+          "immediateGet": true,
+          "passkeyPlatformAuthenticator": true,
+          "relatedOrigins": true,
+          "signalAllAcceptedCredentials": true,
+          "signalCurrentUserDetails": true,
+          "signalUnknownCredential": true,
+          "userVerifyingPlatformAuthenticator": false
+        }
+      },
+      "custody": {
+        "pbkdf2Ms": 48,
+        "register": {
+          "id": "ZTnnt15vk0on0alQCo54UvkJIa73C16CojqM7eQ2_wo",
+          "ms": 11,
+          "prfEnabled": true,
+          "prfResultsAtCreate": true
+        },
+        "firstAssertion": {
+          "ms": 2,
+          "userVerified": true,
+          "outputBytes": 32
+        },
+        "deterministic": true,
+        "prfWrapOpens": true,
+        "otherSaltDiffers": true,
+        "otherPasskeyOpens": false,
+        "passphraseWrapOpens": true,
+        "wrongPassphraseOpens": false
+      }
+    }
+  ]
+}

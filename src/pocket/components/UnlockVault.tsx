@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { LockKeyholeOpen, ShieldCheck } from 'lucide-react'
 import { formatDateLabel, localDateISO } from '@shared/dates'
 import { usePocket, type VaultProblem } from '../lib/store'
+import { isV2, typedKinds } from '../lib/vault'
 import { hasCipher, NO_CIPHER_HERE } from '../lib/webcrypto'
 import { Field } from './Field'
 import { Sheet } from './Sheet'
@@ -25,6 +26,7 @@ export function UnlockVault() {
   const status = usePocket((state) => state.status)
   const marker = usePocket((state) => state.vault)
   const unlock = usePocket((state) => state.unlockVaultWith)
+  const unlockWithPasskey = usePocket((state) => state.unlockVaultWithPasskey)
   const forget = usePocket((state) => state.forget)
   const [phrase, setPhrase] = useState('')
   const [visible, setVisible] = useState(false)
@@ -46,6 +48,20 @@ export function UnlockVault() {
   if (status !== 'locked' || !marker) return null
   const made = formatDateLabel(localDateISO(marker.createdAt))
   const cipher = hasCipher()
+  const kinds = typedKinds(marker)
+  const noun = kinds.passphrase && kinds.pin ? 'passphrase or PIN' : kinds.pin ? 'PIN' : 'passphrase'
+  const hasPasskey = isV2(marker) && Boolean(marker.wraps.passkey)
+  const usePasskey = (): void => {
+    if (opening) return
+    setOpening(true)
+    setProblem(null)
+    void unlockWithPasskey().then((result) => {
+      if (result) {
+        setProblem(result)
+        setOpening(false)
+      }
+    })
+  }
 
   return (
     <div className="screen">
@@ -69,13 +85,19 @@ export function UnlockVault() {
           <ShieldCheck size={18} aria-hidden="true" /> Sealed on {made}
         </h2>
         <p>
-          This phone holds your ledger, but every row of it is under a passphrase. WageRoute can say
+          This phone holds your ledger, but every row of it is under a {noun}. WageRoute can say
           when the copy was sealed and nothing else about what is inside.
         </p>
-        <Field label="Passphrase" error={problem ? problem.message : undefined}>
+        {hasPasskey && cipher ? (
+          <button type="button" className="button primary" disabled={opening} onClick={usePasskey}>
+            <LockKeyholeOpen size={17} aria-hidden="true" /> Use fingerprint or face
+          </button>
+        ) : null}
+        <Field label={noun === 'PIN' ? 'PIN' : noun === 'passphrase' ? 'Passphrase' : 'Passphrase or PIN'} error={problem ? problem.message : undefined}>
           <input
             className="input"
             type={visible ? 'text' : 'password'}
+            inputMode={noun === 'PIN' ? 'numeric' : undefined}
             value={phrase}
             onChange={(event) => {
               setPhrase(event.target.value)
@@ -101,8 +123,8 @@ export function UnlockVault() {
           </p>
         ) : null}
         <p className="hint">
-          WageRoute kept no copy of this phrase. There is no reset and nobody who can open this for
-          you: the phrase is the whole defence, and also the only way back in.
+          WageRoute kept no copy of what you type here. There is no reset and nobody who can open
+          this for you: the {noun} is the whole defence, and also the only way back in.
         </p>
         <div className="card-actions">
           <button

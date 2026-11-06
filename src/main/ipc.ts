@@ -81,8 +81,10 @@ import {
   disableEncryption,
   enableEncryption,
   readEncryptionStatus,
+  type CustodyChange,
   type DeviceKeychain
 } from './db/custody'
+import { enrolPasskey } from './passkey-window'
 import { deviceCustodyAvailable, openWithDevice, sealForDevice } from './db/device-custody'
 import { DB_FILE } from './db/legacy'
 import {
@@ -146,7 +148,15 @@ function encryptionFolder(): { dataDirectory: string; ledgerFile: string } {
 }
 
 function encryptionStatus(): EncryptionStatus {
-  return readEncryptionStatus({ ...encryptionFolder(), deviceAvailable: deviceCustodyAvailable() })
+  return readEncryptionStatus({
+    ...encryptionFolder(),
+    deviceAvailable: deviceCustodyAvailable(),
+    // Windows Hello is reached by Chromium on its own. macOS would need
+    // `app.configureWebAuthn` and an Apple Team ID, which the owner declined, and
+    // Linux has no biometric keystore at all (ADR 0031). This only decides whether
+    // the button is shown; the ceremony itself is the real test.
+    passkeyOffered: process.platform === 'win32'
+  })
 }
 
 const CUSTODY_METHODS: readonly CustodyMethod[] = ['device', 'passphrase', 'both']
@@ -177,10 +187,17 @@ function custodyChangeOf(raw: unknown): KeyCustodyChange {
     case 'add-device':
     case 'remove-device':
     case 'remove-passphrase':
+    case 'remove-pin':
+    case 'add-passkey':
+    case 'remove-passkey':
       return { action }
     case 'add-passphrase':
       return { action, passphrase: text(source.passphrase) }
     case 'change-passphrase':
+      return { action, current: text(source.current), next: text(source.next) }
+    case 'add-pin':
+      return { action, pin: text(source.pin) }
+    case 'change-pin':
       return { action, current: text(source.current), next: text(source.next) }
     default:
       throw new RepositoryError('VALIDATION', 'That is not a way of holding the key.', 'action')
@@ -771,13 +788,18 @@ export function registerIpcHandlers(db: Database.Database): void {
     }
   })
 
-  handle('encryption:custody', (_event, change: unknown) => {
+  handle('encryption:custody', async (event, change: unknown) => {
     // No `closeDatabase`, no restart: re-wrapping the key touches 32 bytes in a
     // sidecar, not a page of the ledger, so the session carries on underneath it.
+    const wire = custodyChangeOf(change)
+    // A passkey is the one change whose secret is not typed: the ceremony runs
+    // here, in its own window, and only its two PRF answers reach the custody code.
+    const resolved: CustodyChange =
+      wire.action === 'add-passkey' ? { action: 'add-passkey', enrolment: await enrolPasskey(ownerWindow(event)) } : wire
     changeKeyCustody({
       ...encryptionFolder(),
       dataKey: ledgerDataKey(),
-      change: custodyChangeOf(change),
+      change: resolved,
       keychain: deviceKeychain
     })
     return encryptionStatus()

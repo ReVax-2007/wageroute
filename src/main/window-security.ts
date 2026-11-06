@@ -11,6 +11,19 @@
 const EXTERNAL_URLS = new Set(['https://buymeacoffee.com/revax'])
 export const UNLOCK_QUERY = 'mode=unlock'
 
+/**
+ * The unlock page's three exact addresses: passphrase only (the plain query, as
+ * before), PIN only, or either. Exact strings rather than a parsed query, so the
+ * trust check below stays a comparison and not a parser.
+ */
+export const UNLOCK_QUERIES = [UNLOCK_QUERY, `${UNLOCK_QUERY}&typed=pin`, `${UNLOCK_QUERY}&typed=either`] as const
+
+export function unlockQueryFor(accepts: { passphrase: boolean; pin: boolean }): string {
+  if (accepts.pin && accepts.passphrase) return UNLOCK_QUERIES[2]
+  if (accepts.pin) return UNLOCK_QUERIES[1]
+  return UNLOCK_QUERIES[0]
+}
+
 export function isAllowedExternalUrl(raw: string): boolean {
   try {
     const url = new URL(raw)
@@ -27,7 +40,7 @@ export function isTrustedPageUrl(
   packagedUrl: string
 ): boolean {
   const page = raw.split('#')[0]
-  if (page === packagedUrl || page === `${packagedUrl}?${UNLOCK_QUERY}`) return true
+  if (page === packagedUrl || UNLOCK_QUERIES.some((query) => page === `${packagedUrl}?${query}`)) return true
   if (!devUrl) return false
   try {
     return new URL(page).origin === new URL(devUrl).origin

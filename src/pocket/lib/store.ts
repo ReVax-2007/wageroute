@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { ImportTables } from '@shared/importRepair'
 import { RepositoryError } from '@shared/errors'
-import { passphraseProblem } from '@shared/encryption'
+import { passphraseProblem, pinProblem } from '@shared/encryption'
 import type { Snapshot } from '@shared/types'
 import { todayISO, isISODate } from '@shared/dates'
 import {
@@ -30,14 +30,24 @@ import { buildSnapshot } from './snapshot'
 import { deleteEntries, insertedEntryIds, reconcileAllBillClaims, type Written } from './write'
 import {
   VaultError,
+  addVaultWrap as wrapAnotherWayIn,
   changeVaultPassphrase as resealUnderNewPassphrase,
+  changeVaultPin as rewrapUnderNewPin,
   createVault,
   lockVault,
   openRecord,
+  removeVaultWrap as unwrapWayIn,
   sealRecord,
   unlockVault,
+  unlockVaultWithPasskey as openWithPasskey,
   type VaultMarker
 } from './vault'
+
+/** What the Data tab can add to a sealed copy. Nobody types a passkey; its secret comes from the ceremony. */
+export type VaultWayIn =
+  | { kind: 'pin'; pin: string; confirm: string }
+  | { kind: 'passphrase'; passphrase: string; confirm: string }
+  | { kind: 'passkey' }
 
 /**
  * `locked` is the copy on this phone that exists but cannot be read: the ledger is
@@ -125,8 +135,18 @@ interface PocketState {
     next: string,
     confirm: string
   ) => Promise<VaultProblem | null>
-  /** Typed at the gate over a locked copy. Null means the ledger is on screen. */
+  /** Typed at the gate over a locked copy — passphrase or PIN. Null means the ledger is on screen. */
   unlockVaultWith: (passphrase: string) => Promise<VaultProblem | null>
+  /** The gate's other door: one fingerprint or face, when the copy has a passkey wrap. */
+  unlockVaultWithPasskey: () => Promise<VaultProblem | null>
+  /**
+   * Add a PIN, a passphrase or a passkey, proving what can be typed now first. On a
+   * v1 copy this is the move to v2, written as one re-seal (ADR 0031).
+   */
+  addVaultWayIn: (current: string, wayIn: VaultWayIn) => Promise<VaultProblem | null>
+  /** Take a way in away, within the rules: something typed stays, and the phrase stays beside a passkey. */
+  removeVaultWayIn: (kind: 'passphrase' | 'pin' | 'passkey') => Promise<VaultProblem | null>
+  changeVaultPin: (current: string, next: string, confirm: string) => Promise<VaultProblem | null>
   /** Closes the key without touching the copy, so the phone can be handed over mid-session. */
   lockNow: () => void
   /** The phone's own copy, as plain JSON or sealed under a phrase the desktop can read. */
@@ -226,6 +246,10 @@ function phraseRule(passphrase: string, confirm: string): string | null {
   )
 }
 
+function pinRule(pin: string, confirm: string): string | null {
+  return pinProblem(pin) ?? (pin === confirm ? null : 'Both boxes must hold the same PIN.')
+}
+
 /** The ledger exactly as this phone holds it, before any cipher gets near it. */
 function ledgerOf(state: PocketState): StoredLedger {
   // Nothing to store is a programming error, not a quiet success: a commit
@@ -316,6 +340,49 @@ export const usePocket = create<PocketState>((set, get) => {
         return
       }
       set({ error: storageMessage(error) })
+    }
+  }
+
+  /**
+   * What any successful unlock does next, whichever door opened it: put back rows a
+   * write kept on screen while the vault was closed, or read the stored copy.
+   */
+  const afterUnlock = async (marker: VaultMarker): Promise<VaultProblem | null> => {
+    // A write that found the vault closed kept its rows on screen rather than
+    // dropping them. Those are worth more than the older copy on disk, so they go
+    // back up before anything is read.
+    if (get().tables) {
+      try {
+        await persist(get())
+        set({ status: 'ready', notice: 'This phone’s copy is open again.' })
+        return null
+      } catch (error) {
+        lockVault()
+        set(stateOfLocked(marker))
+        return vaultProblem(error)
+      }
+    }
+    try {
+      const stored = await readLedger()
+      if (!stored) {
+        // Another tab forgot this phone's copy while the gate was up.
+        lockVault()
+        set({ status: 'empty', vault: null })
+        return null
+      }
+      if (!('vault' in stored)) {
+        // The copy came back plain while this screen was asking, so this page has
+        // to stop sealing with a key no record uses.
+        lockVault()
+        set({ ...stateOfLedger(stored), vault: null })
+        return null
+      }
+      set(stateOfLedger(await openRecord(stored)))
+      return null
+    } catch (error) {
+      lockVault()
+      set(stateOfLocked(marker))
+      return vaultProblem(error)
     }
   }
 
@@ -636,40 +703,90 @@ export const usePocket = create<PocketState>((set, get) => {
       } catch (error) {
         return vaultProblem(error)
       }
-      // A write that found the vault closed kept its rows on screen rather than
-      // dropping them. Those are worth more than the older copy on disk, so they go
-      // back up before anything is read.
-      if (get().tables) {
-        try {
-          await persist(get())
-          set({ status: 'ready', notice: 'This phone’s copy is open again.' })
-          return null
-        } catch (error) {
-          lockVault()
-          set(stateOfLocked(marker))
-          return vaultProblem(error)
-        }
-      }
+      return afterUnlock(marker)
+    },
+
+    unlockVaultWithPasskey: async () => {
+      const marker = get().vault
+      if (!marker) return NO_VAULT
       try {
-        const stored = await readLedger()
-        if (!stored) {
-          // Another tab forgot this phone's copy while the gate was up.
-          lockVault()
-          set({ status: 'empty', vault: null })
-          return null
-        }
-        if (!('vault' in stored)) {
-          // The copy came back plain while this screen was asking, so this page has
-          // to stop sealing with a key no record uses.
-          lockVault()
-          set({ ...stateOfLedger(stored), vault: null })
-          return null
-        }
-        set(stateOfLedger(await openRecord(stored)))
+        await openWithPasskey(marker)
+      } catch (error) {
+        return vaultProblem(error)
+      }
+      return afterUnlock(marker)
+    },
+
+    addVaultWayIn: async (current, wayIn) => {
+      const marker = get().vault
+      if (!marker) return NO_VAULT
+      const problem =
+        wayIn.kind === 'pin'
+          ? pinRule(wayIn.pin, wayIn.confirm)
+          : wayIn.kind === 'passphrase'
+            ? phraseRule(wayIn.passphrase, wayIn.confirm)
+            : null
+      if (problem) return { message: problem, retry: true }
+      try {
+        const next = await wrapAnotherWayIn(
+          marker,
+          current,
+          wayIn.kind === 'pin'
+            ? { kind: 'pin', pin: wayIn.pin }
+            : wayIn.kind === 'passphrase'
+              ? { kind: 'passphrase', passphrase: wayIn.passphrase }
+              : { kind: 'passkey', rpId: location.hostname }
+        )
+        // One write: the record re-sealed under whatever key the marker now names.
+        // On a v1 copy that is a new data key, and this is the whole migration.
+        await writeLedger(await sealRecord(next, ledgerOf(get())))
+        set({
+          vault: next,
+          notice:
+            wayIn.kind === 'passkey'
+              ? 'Your fingerprint or face now opens this phone’s copy. The passphrase still does too.'
+              : wayIn.kind === 'pin'
+                ? 'The PIN now opens this phone’s copy as well.'
+                : 'The passphrase now opens this phone’s copy as well.'
+        })
         return null
       } catch (error) {
-        lockVault()
-        set(stateOfLocked(marker))
+        return vaultProblem(error)
+      }
+    },
+
+    removeVaultWayIn: async (kind) => {
+      const marker = get().vault
+      if (!marker) return NO_VAULT
+      try {
+        const next = unwrapWayIn(marker, kind)
+        await writeLedger(await sealRecord(next, ledgerOf(get())))
+        set({
+          vault: next,
+          notice:
+            kind === 'passkey'
+              ? 'Your fingerprint or face no longer opens this phone’s copy.'
+              : kind === 'pin'
+                ? 'The PIN no longer opens this phone’s copy.'
+                : 'The passphrase no longer opens this phone’s copy. The PIN does.'
+        })
+        return null
+      } catch (error) {
+        return vaultProblem(error)
+      }
+    },
+
+    changeVaultPin: async (current, next, confirm) => {
+      const marker = get().vault
+      if (!marker) return NO_VAULT
+      const problem = pinRule(next, confirm)
+      if (problem) return { message: problem, retry: true }
+      try {
+        const changed = await rewrapUnderNewPin(marker, current, next)
+        await writeLedger(await sealRecord(changed, ledgerOf(get())))
+        set({ vault: changed, notice: 'This phone’s copy now opens with the new PIN. The old one no longer does.' })
+        return null
+      } catch (error) {
         return vaultProblem(error)
       }
     },

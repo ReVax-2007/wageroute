@@ -11,7 +11,14 @@ import type { Db } from './db/repo/common'
 import { seedDemoIfEmpty, seedIfEmpty } from './db/seed'
 import { KeyFileError, NoCustodyError } from './db/ledger-key'
 import { DB_FILE } from './db/legacy'
-import { LedgerLockedError, MissingKeyFileError, openLedgerKey, type LedgerOpening } from './db/unlock'
+import {
+  LedgerLockedError,
+  MissingKeyFileError,
+  openLedgerKey,
+  type LedgerOpening,
+  type TypedKinds
+} from './db/unlock'
+import { assertPasskey } from './passkey-window'
 import { registerIpcHandlers } from './ipc'
 import { installCrashLogging, logCrash, logNote } from './log'
 import {
@@ -264,8 +271,8 @@ function explainOpenFailure(error: unknown): void {
  */
 let unlockPrompt: PassphrasePrompt | null = null
 
-function askForPassphrase(state: { wrong: boolean }): Promise<string | null> {
-  unlockPrompt ??= openPassphrasePrompt()
+function askForPassphrase(state: { wrong: boolean; accepts: TypedKinds }): Promise<string | null> {
+  unlockPrompt ??= openPassphrasePrompt(state.accepts)
   return unlockPrompt.next(state)
 }
 
@@ -289,6 +296,7 @@ async function openLedgerForBoot(): Promise<Db | null> {
     const dataDirectory = resolveDataDirectory(app.getPath('userData')).directory
     opening = await openLedgerKey(dataDirectory, join(dataDirectory, DB_FILE), {
       device: { available: deviceCustodyAvailable, open: openWithDevice },
+      passkey: assertPasskey,
       askForPassphrase
     })
   } catch (error) {

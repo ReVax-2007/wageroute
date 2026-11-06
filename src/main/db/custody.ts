@@ -1,20 +1,33 @@
 import { rmSync } from 'node:fs'
-import { passphraseProblem, type CustodyMethod, type EncryptionStatus, type KeyCustodyChange } from '@shared/encryption'
+import {
+  hasStandingWrap,
+  passphraseProblem,
+  pinProblem,
+  type CustodyMethod,
+  type EncryptionStatus,
+  type KeyCustodyChange,
+  type WrapKind
+} from '@shared/encryption'
 import {
   KEY_FILE,
   LEDGER_CIPHER,
   WrongPassphraseError,
   generateDataKey,
+  openWithPasskey,
   openWithPassphrase,
   readKeyFile,
   removeKeyFile,
+  sealWithPasskey,
   sealWithPassphrase,
+  sealWithPin,
   sameKey,
   writeKeyFile,
   type DeviceWrap,
   type KeyFilePending,
   type LedgerKeyFile,
-  type PassphraseWrap
+  type PasskeyWrap,
+  type PassphraseWrap,
+  type PinWrap
 } from './ledger-key'
 import { decryptLedger, encryptLedger, ledgerLooksEncrypted, type TransitionOutcome } from './encryption'
 
@@ -69,7 +82,7 @@ const NO_KEYCHAIN = 'This system offers WageRoute no keychain to hold a key. Cho
  * reading it wrong is what turns a healthy ledger into an unreadable one.
  */
 export function readEncryptionStatus(
-  options: Folder & { deviceAvailable: boolean }
+  options: Folder & { deviceAvailable: boolean; passkeyOffered?: boolean }
 ): EncryptionStatus {
   const encrypted = ledgerLooksEncrypted(options.ledgerFile)
   const marker = readKeyFile(options.dataDirectory)
@@ -78,9 +91,12 @@ export function readEncryptionStatus(
     cipher: marker?.cipher ?? null,
     device: Boolean(marker?.device),
     passphrase: Boolean(marker?.passphrase),
+    pin: Boolean(marker?.pin),
+    passkey: Boolean(marker?.passkey),
     pending: marker?.pending?.direction ?? null,
     staleKeyFile: encrypted === false && marker !== null,
-    deviceAvailable: options.deviceAvailable
+    deviceAvailable: options.deviceAvailable,
+    passkeyOffered: options.passkeyOffered ?? false
   }
 }
 
@@ -103,7 +119,7 @@ export function enableEncryption(
 
   const dataKey = generateDataKey()
   const wraps = sealCustody(dataKey, options.custody, options.passphrase ?? '', options.keychain)
-  proveReleasable(wraps, dataKey, options.passphrase ?? '', options.keychain)
+  proveReleasable(wraps, dataKey, { passphrase: options.passphrase ?? '' }, options.keychain)
 
   const file: LedgerKeyFile = { version: 1, cipher: LEDGER_CIPHER, ...wraps, createdAt: new Date().toISOString() }
   writeKeyFile(options.dataDirectory, file)
@@ -165,6 +181,26 @@ export function disableEncryption(options: Folder & { dataKey: Buffer | null }):
 }
 
 /**
+ * What the main process hands over after a WebAuthn registration: the PRF output
+ * the wrap is sealed under, and a second, independent assertion's output that must
+ * open it. Two ceremonies, because "the authenticator says it supports PRF" and
+ * "this authenticator gives the same secret back" are different claims, and only
+ * the second one keeps a ledger readable (ADR 0031).
+ */
+export interface PasskeyEnrolment {
+  credentialId: string
+  rpId: string
+  prfSalt: Buffer
+  prfOutput: Buffer
+  testOutput: Buffer
+}
+
+/** The wire's change, with the passkey case carrying what the ceremony produced. */
+export type CustodyChange =
+  | Exclude<KeyCustodyChange, { action: 'add-passkey' }>
+  | { action: 'add-passkey'; enrolment: PasskeyEnrolment }
+
+/**
  * Change who holds the key. No page is rewritten: the data key is the same
  * 32 bytes throughout, which is the whole reason custody can be added, removed
  * or replaced as often as the user likes.
@@ -172,7 +208,7 @@ export function disableEncryption(options: Folder & { dataKey: Buffer | null }):
 export function changeKeyCustody(
   options: Folder & {
     dataKey: Buffer | null
-    change: KeyCustodyChange
+    change: CustodyChange
     keychain?: DeviceKeychain
   }
 ): void {
@@ -187,38 +223,97 @@ export function changeKeyCustody(
   if (file.pending) throw new CustodyError(interrupted(file.pending))
 
   const next = applyChange(file, dataKey, options.change, options.keychain)
+  // The rule the owner set, enforced here rather than in a screen: whatever the
+  // change, something that can hold the ledger on its own must remain, and a
+  // passkey is never that thing.
+  if (!hasStandingWrap(wrapsOf(next))) throw new CustodyError(lastWayIn(options.change, next))
   // What `applyChange` newly sealed is proved against the key before the file is
   // replaced; a change that would leave the ledger shut is no change at all.
-  proveReleasable(newWraps(file, next), dataKey, passphraseHandedTo(options.change), options.keychain)
+  proveReleasable(newWraps(file, next), dataKey, secretsHandedTo(options.change), options.keychain)
   writeKeyFile(options.dataDirectory, next)
 
   const reread = requireKeyFile(options.dataDirectory)
-  if (
-    Boolean(reread.device) !== Boolean(next.device) ||
-    Boolean(reread.passphrase) !== Boolean(next.passphrase)
-  ) {
+  const kept = wrapsOf(reread)
+  const wanted = wrapsOf(next)
+  if (WRAP_KINDS.some((kind) => kept[kind] !== wanted[kind])) {
     throw new CustodyError('The key file did not keep the change — it is still the way it was.')
   }
 }
 
-/** Only the wraps that did not exist a moment ago can be proved with what is in hand. */
-function newWraps(before: LedgerKeyFile, after: LedgerKeyFile) {
+const WRAP_KINDS: readonly WrapKind[] = ['device', 'passphrase', 'pin', 'passkey']
+
+function wrapsOf(file: LedgerKeyFile): Record<WrapKind, boolean> {
   return {
-    device: after.device && before.device !== after.device ? after.device : undefined,
-    passphrase: after.passphrase && before.passphrase !== after.passphrase ? after.passphrase : undefined
+    device: Boolean(file.device),
+    passphrase: Boolean(file.passphrase),
+    pin: Boolean(file.pin),
+    passkey: Boolean(file.passkey)
   }
 }
 
-function passphraseHandedTo(change: KeyCustodyChange): string {
-  if (change.action === 'add-passphrase') return change.passphrase
-  if (change.action === 'change-passphrase') return change.next
-  return ''
+function lastWayIn(change: CustodyChange, next: LedgerKeyFile): string {
+  const passkeyNote = next.passkey
+    ? ' A fingerprint or face is never left as the only way in, because losing it would lose the ledger.'
+    : ''
+  switch (change.action) {
+    case 'remove-device':
+      return `This computer is the only way this ledger opens on its own. Add a passphrase or a PIN before taking it away.${passkeyNote}`
+    case 'remove-passphrase':
+      return `The passphrase is the only way this ledger opens on its own. Add this computer or a PIN first, or turn encryption off.${passkeyNote}`
+    case 'remove-pin':
+      return `The PIN is the only way this ledger opens on its own. Add this computer or a passphrase first, or turn encryption off.${passkeyNote}`
+    default:
+      return `That would leave this ledger with no way in that can stand alone.${passkeyNote}`
+  }
+}
+
+/** Only the wraps that did not exist a moment ago can be proved with what is in hand. */
+function newWraps(before: LedgerKeyFile, after: LedgerKeyFile): Wraps {
+  return {
+    device: after.device && before.device !== after.device ? after.device : undefined,
+    passphrase: after.passphrase && before.passphrase !== after.passphrase ? after.passphrase : undefined,
+    pin: after.pin && before.pin !== after.pin ? after.pin : undefined,
+    passkey: after.passkey && before.passkey !== after.passkey ? after.passkey : undefined
+  }
+}
+
+interface Secrets {
+  passphrase: string
+  pin: string
+  /** The second assertion's PRF output, which must open the wrap the first one made. */
+  passkey: Buffer | null
+}
+
+function secretsHandedTo(change: CustodyChange): Secrets {
+  const secrets: Secrets = { passphrase: '', pin: '', passkey: null }
+  if (change.action === 'add-passphrase') secrets.passphrase = change.passphrase
+  if (change.action === 'change-passphrase') secrets.passphrase = change.next
+  if (change.action === 'add-pin') secrets.pin = change.pin
+  if (change.action === 'change-pin') secrets.pin = change.next
+  if (change.action === 'add-passkey') secrets.passkey = change.enrolment.testOutput
+  return secrets
+}
+
+function without<K extends WrapKind>(file: LedgerKeyFile, kind: K): LedgerKeyFile {
+  const next = { ...file }
+  delete next[kind]
+  return next
+}
+
+/** The current secret is checked, not trusted: this is the screen that can overwrite a way in. */
+function proveCurrent(wrap: PassphraseWrap, typed: string, dataKey: Buffer, what: string): void {
+  try {
+    if (sameKey(openWithPassphrase(wrap, typed), dataKey)) return
+  } catch (error) {
+    if (!(error instanceof WrongPassphraseError)) throw error
+  }
+  throw new CustodyError(`That ${what} does not open this ledger, so nothing was changed.`)
 }
 
 function applyChange(
   file: LedgerKeyFile,
   dataKey: Buffer,
-  change: KeyCustodyChange,
+  change: CustodyChange,
   keychain?: DeviceKeychain
 ): LedgerKeyFile {
   switch (change.action) {
@@ -229,13 +324,7 @@ function applyChange(
     }
     case 'remove-device': {
       if (!file.device) throw new CustodyError('This computer holds no copy of the key to remove.')
-      if (!file.passphrase) {
-        throw new CustodyError(
-          'This computer is the only way this ledger opens. Add a passphrase before taking it away.'
-        )
-      }
-      const { device, ...rest } = file
-      return rest
+      return without(file, 'device')
     }
     case 'add-passphrase': {
       if (file.passphrase) {
@@ -245,31 +334,37 @@ function applyChange(
     }
     case 'remove-passphrase': {
       if (!file.passphrase) throw new CustodyError('This ledger has no passphrase to remove.')
-      if (!file.device) {
-        throw new CustodyError(
-          'The passphrase is the only way this ledger opens. Add this computer first, or turn encryption off.'
-        )
-      }
-      const { passphrase, ...rest } = file
-      return rest
+      return without(file, 'passphrase')
     }
     case 'change-passphrase': {
       if (!file.passphrase) {
         throw new CustodyError('This ledger has no passphrase to change. Add one instead.')
       }
-      // The old phrase is checked, not trusted: this is the screen that can
-      // overwrite the only way in.
-      try {
-        if (!sameKey(openWithPassphrase(file.passphrase, change.current), dataKey)) {
-          throw new WrongPassphraseError()
-        }
-      } catch (error) {
-        if (error instanceof WrongPassphraseError) {
-          throw new CustodyError('That passphrase does not open this ledger, so nothing was changed.')
-        }
-        throw error
-      }
+      proveCurrent(file.passphrase, change.current, dataKey, 'passphrase')
       return { ...file, passphrase: sealPassphrase(dataKey, change.next) }
+    }
+    case 'add-pin': {
+      if (file.pin) throw new CustodyError('This ledger already has a PIN. Change it instead of adding a second.')
+      return { ...file, pin: sealPin(dataKey, change.pin) }
+    }
+    case 'remove-pin': {
+      if (!file.pin) throw new CustodyError('This ledger has no PIN to remove.')
+      return without(file, 'pin')
+    }
+    case 'change-pin': {
+      if (!file.pin) throw new CustodyError('This ledger has no PIN to change. Add one instead.')
+      proveCurrent(file.pin, change.current, dataKey, 'PIN')
+      return { ...file, pin: sealPin(dataKey, change.next) }
+    }
+    case 'add-passkey': {
+      if (file.passkey) {
+        throw new CustodyError('This ledger already opens with a fingerprint or face. Remove that one first.')
+      }
+      return { ...file, passkey: sealWithPasskey(dataKey, change.enrolment) }
+    }
+    case 'remove-passkey': {
+      if (!file.passkey) throw new CustodyError('This ledger has no fingerprint or face to remove.')
+      return without(file, 'passkey')
     }
   }
   return assertNoChange(change)
@@ -285,13 +380,26 @@ function sealPassphrase(dataKey: Buffer, passphrase: string): PassphraseWrap {
   return sealWithPassphrase(dataKey, passphrase)
 }
 
+function sealPin(dataKey: Buffer, pin: string): PinWrap {
+  const problem = pinProblem(pin)
+  if (problem) throw new CustodyError(problem)
+  return sealWithPin(dataKey, pin)
+}
+
+interface Wraps {
+  device?: DeviceWrap
+  passphrase?: PassphraseWrap
+  pin?: PinWrap
+  passkey?: PasskeyWrap
+}
+
 function sealCustody(
   dataKey: Buffer,
   custody: CustodyMethod,
   passphrase: string,
   keychain?: DeviceKeychain
-): { device?: DeviceWrap; passphrase?: PassphraseWrap } {
-  const wraps: { device?: DeviceWrap; passphrase?: PassphraseWrap } = {}
+): Wraps {
+  const wraps: Wraps = {}
   if (custody === 'device' || custody === 'both') {
     if (!keychain?.available()) throw new CustodyError(NO_KEYCHAIN)
     wraps.device = keychain.seal(dataKey)
@@ -312,9 +420,9 @@ function sealCustody(
  * that makes "we wrote a wrap" mean "this ledger can be read again".
  */
 function proveReleasable(
-  wraps: { device?: DeviceWrap; passphrase?: PassphraseWrap },
+  wraps: Wraps,
   dataKey: Buffer,
-  passphrase: string,
+  secrets: Partial<Secrets>,
   keychain?: DeviceKeychain
 ): void {
   if (wraps.device) {
@@ -330,16 +438,27 @@ function proveReleasable(
       )
     }
   }
-  if (wraps.passphrase) {
+  for (const [wrap, typed, what] of [
+    [wraps.passphrase, secrets.passphrase ?? '', 'passphrase'],
+    [wraps.pin, secrets.pin ?? '', 'PIN']
+  ] as const) {
+    if (!wrap) continue
     try {
-      if (!sameKey(openWithPassphrase(wraps.passphrase, passphrase), dataKey)) {
-        throw new WrongPassphraseError()
-      }
+      if (!sameKey(openWithPassphrase(wrap, typed), dataKey)) throw new WrongPassphraseError()
     } catch (error) {
       if (error instanceof WrongPassphraseError) {
-        throw new CustodyError('That passphrase does not open the key it just wrapped, so nothing was changed.')
+        throw new CustodyError(`That ${what} does not open the key it just wrapped, so nothing was changed.`)
       }
       throw error
+    }
+  }
+  if (wraps.passkey) {
+    const opened = secrets.passkey ? openWithPasskey(wraps.passkey, secrets.passkey) : null
+    if (!opened || !sameKey(opened, dataKey)) {
+      throw new CustodyError(
+        'The fingerprint or face check did not give back the same secret twice, so this computer cannot ' +
+          'hold the key that way. Nothing was changed.'
+      )
     }
   }
 }

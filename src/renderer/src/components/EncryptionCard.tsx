@@ -1,7 +1,16 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Lock, LockOpen, ShieldCheck } from 'lucide-react'
-import type { CustodyMethod, EncryptionStatus, KeyCustodyChange } from '@shared/encryption'
-import { CUSTODY_COPY, custodyCopy, custodyInUse, passphraseProblem } from '@shared/encryption'
+import type { CustodyMethod, EncryptionStatus, KeyCustodyChange, WrapKind } from '@shared/encryption'
+import {
+  CUSTODY_COPY,
+  PIN_WARNING,
+  custodyCopy,
+  custodyInUse,
+  hasStandingWrap,
+  passphraseProblem,
+  pinProblem,
+  type CustodyCopy
+} from '@shared/encryption'
 import { apiErrorMessage } from '@shared/errors'
 import { Button, Card, Field, Modal, Segmented } from './ui'
 import { useFinanceStore } from '../store/useFinanceStore'
@@ -20,7 +29,9 @@ import { useFinanceStore } from '../store/useFinanceStore'
  * so it is the one that keeps the screen live and reads its new state back.
  */
 
-type Form = 'enable' | 'passphrase' | null
+type Form = 'enable' | 'passphrase' | 'pin' | null
+
+const ENABLE_CHOICES: readonly CustodyMethod[] = ['device', 'passphrase', 'both']
 
 export function EncryptionCard() {
   const askConfirm = useFinanceStore((state) => state.askConfirm)
@@ -52,10 +63,25 @@ export function EncryptionCard() {
   }, [])
 
   const inUse = status ? custodyInUse(status) : null
-  const copy = inUse ? custodyCopy(inUse) : null
+  // One honesty block per way in: the keychain-and-phrase pair as it always read,
+  // then a PIN and a passkey each with their own three sentences.
+  const copies: CustodyCopy[] = status?.encrypted
+    ? [
+        ...(inUse ? [custodyCopy(inUse)] : []),
+        ...(status.pin ? [custodyCopy('pin')] : []),
+        ...(status.passkey ? [custodyCopy('passkey')] : [])
+      ]
+    : []
   // A machine with no keychain is not a choice, so it is not offered — and the
   // reason is said out loud rather than left as a missing option.
-  const offered = CUSTODY_COPY.filter((entry) => entry.value !== 'device' || status?.deviceAvailable === true)
+  const offered = CUSTODY_COPY.filter(
+    (entry) =>
+      ENABLE_CHOICES.includes(entry.value as CustodyMethod) &&
+      (entry.value !== 'device' || status?.deviceAvailable === true)
+  )
+  /** Whether taking this wrap away still leaves something that can hold the ledger alone (ADR 0031). */
+  const canRemove = (kind: WrapKind): boolean =>
+    status !== null && Boolean(status[kind]) && hasStandingWrap({ ...status, [kind]: false })
   const needsPhrase = custody !== 'device'
   const clearPhrases = (): void => {
     setPassphrase('')
@@ -84,7 +110,7 @@ export function EncryptionCard() {
    * the ledger later, when nobody is around to type the first one.
    */
   const phraseCheck = (): string | null => {
-    const problem = passphraseProblem(passphrase)
+    const problem = form === 'pin' ? pinProblem(passphrase) : passphraseProblem(passphrase)
     if (problem) return problem
     if (passphrase !== again) return 'The two do not match. Type it once more in the second box.'
     return null
@@ -187,22 +213,58 @@ export function EncryptionCard() {
     await applyCustody({ action: 'add-passphrase', passphrase })
   }
 
+  /**
+   * A PIN is saved only after the owner has read, in a question they must answer,
+   * that a copied file can be searched for every PIN offline. That is the
+   * condition the owner set for offering one at all (ADR 0031).
+   */
+  const submitPin = async (): Promise<void> => {
+    const problem = phraseCheck()
+    if (problem) {
+      setFieldError(problem)
+      return
+    }
+    if (status?.pin && current.length === 0) {
+      setFieldError('Type the PIN it uses now, so this cannot overwrite a way in.')
+      return
+    }
+    const ok = await askConfirm({
+      title: 'Save a PIN that can be guessed offline?',
+      body: PIN_WARNING,
+      confirmLabel: 'I understand — save the PIN'
+    })
+    if (!ok) return
+    await applyCustody(
+      status?.pin ? { action: 'change-pin', current, next: passphrase } : { action: 'add-pin', pin: passphrase }
+    )
+  }
+
+  const addPasskey = async (): Promise<void> => {
+    setNotice('Windows will ask for your fingerprint, face or PIN — up to three times, to prove it gives the same key back.')
+    await applyCustody({ action: 'add-passkey' })
+  }
+
   const removeLastWayIn = async (change: KeyCustodyChange, question: { title: string; body: string }): Promise<void> => {
     const ok = await askConfirm({ ...question, confirmLabel: 'Remove it', danger: true })
     if (ok) void applyCustody(change)
   }
 
-  const headline = (
+  const ways = status
+    ? [
+        status.device && 'this computer',
+        status.passkey && 'your fingerprint or face',
+        status.passphrase && 'the passphrase',
+        status.pin && 'the PIN'
+      ].filter((way): way is string => Boolean(way))
+    : []
+  const headline =
     status === null
       ? 'Checking this folder…'
       : !status.encrypted
         ? 'Not encrypted'
-        : status.device && status.passphrase
-          ? 'Encrypted — this computer or the passphrase opens it'
-          : status.device
-            ? 'Encrypted — this computer opens it without asking'
-            : 'Encrypted — only the passphrase opens it'
-  )
+        : ways.length === 1
+          ? `Encrypted — only ${ways[0]} opens it`
+          : `Encrypted — ${ways.slice(0, -1).join(', ')} or ${ways[ways.length - 1]} opens it`
 
   const summary: ReactNode =
     status === null
@@ -242,7 +304,7 @@ export function EncryptionCard() {
           </p>
         )}
 
-        {status?.encrypted && !status.passphrase && !status.deviceAvailable && (
+        {status?.encrypted && !status.passphrase && !status.pin && !status.deviceAvailable && (
           <p className="form-error" role="alert">
             This ledger&apos;s key is held by this computer&apos;s keychain, and this system is not offering
             WageRoute one. If the app is closed before a passphrase is added, this screen cannot be
@@ -250,22 +312,9 @@ export function EncryptionCard() {
           </p>
         )}
 
-        {copy && (
-          <>
-            <p className="field-hint">
-              <strong>It protects against: </strong>
-              {copy.protects}
-            </p>
-            <p className="field-hint">
-              <strong>It does not stop: </strong>
-              {copy.fails}
-            </p>
-            <p className="field-hint">
-              <strong>If you lose it: </strong>
-              {copy.lockout}
-            </p>
-          </>
-        )}
+        {copies.map((copy) => (
+          <HonestyRows key={copy.value} copy={copy} titled={copies.length > 1} />
+        ))}
 
         <div className="data-actions">
           {status && !status.encrypted && status.pending === null && (
@@ -290,15 +339,22 @@ export function EncryptionCard() {
                   Change the passphrase…
                 </Button>
               )}
-              {status.passphrase && status.device && (
+              <Button onClick={() => openForm('pin')} disabled={busy}>
+                {status.pin ? 'Change the PIN…' : 'Add a PIN…'}
+              </Button>
+              {status.passkeyOffered && !status.passkey && (
+                <Button onClick={() => void addPasskey()} disabled={busy}>
+                  Open it with my fingerprint or face
+                </Button>
+              )}
+              {canRemove('passphrase') && (
                 <Button
                   onClick={() =>
                     void removeLastWayIn({ action: 'remove-passphrase' }, {
                       title: 'Remove the passphrase?',
                       body:
-                        'This computer would then be the only way in: anyone signed in as you reads the ' +
-                        'whole ledger, and a copy of the folder opens on this machine and nowhere else. ' +
-                        'If this computer dies, the ledger dies with it.'
+                        'What is left becomes the way in. If that is this computer alone, anyone signed in as ' +
+                        'you reads the whole ledger, and if this computer dies, the ledger dies with it.'
                     })
                   }
                   disabled={busy}
@@ -306,19 +362,47 @@ export function EncryptionCard() {
                   Remove the passphrase
                 </Button>
               )}
-              {status.device && status.passphrase && (
+              {canRemove('device') && (
                 <Button
                   onClick={() =>
                     void removeLastWayIn({ action: 'remove-device' }, {
                       title: 'Stop letting this computer open it?',
                       body:
-                        'Every launch will then ask for the passphrase, including one where you have just ' +
-                        'signed in. The phrase becomes the only way in, and a forgotten one the only way out.'
+                        'Every launch will then ask for what you type, including one where you have just ' +
+                        'signed in. A forgotten phrase or PIN becomes the only way out.'
                     })
                   }
                   disabled={busy}
                 >
                   Stop letting this computer open it
+                </Button>
+              )}
+              {canRemove('pin') && (
+                <Button
+                  onClick={() =>
+                    void removeLastWayIn({ action: 'remove-pin' }, {
+                      title: 'Remove the PIN?',
+                      body: 'The PIN stops opening the ledger. The other ways in keep working as they do now.'
+                    })
+                  }
+                  disabled={busy}
+                >
+                  Remove the PIN
+                </Button>
+              )}
+              {status.passkey && (
+                <Button
+                  onClick={() =>
+                    void removeLastWayIn({ action: 'remove-passkey' }, {
+                      title: 'Stop opening it with your fingerprint or face?',
+                      body:
+                        'The fingerprint or face check stops opening the ledger. The other ways in keep ' +
+                        'working; the passkey itself stays in Windows until you delete it there.'
+                    })
+                  }
+                  disabled={busy}
+                >
+                  Stop using fingerprint or face
                 </Button>
               )}
               <Button variant="danger" onClick={() => void submitDisable()} disabled={busy}>
@@ -342,8 +426,9 @@ export function EncryptionCard() {
         </p>
         <p className="field-hint">
           <strong>This is not a lock: </strong>it is encryption of the file, not a screen that hides your
-          money. Once the key is in hand WageRoute opens the ledger without asking again, and the keychain
-          on this computer answers to your login, not to your fingerprint.
+          money. Once the key is in hand WageRoute opens the ledger without asking again. The keychain on
+          this computer answers to your login, not to your fingerprint; a fingerprint or face, where this
+          computer offers one, is a further way in that releases the same key and is never the only one.
         </p>
 
         {notice && (
@@ -377,7 +462,7 @@ export function EncryptionCard() {
         >
           <Segmented
             label="Who can open the encrypted ledger"
-            options={offered.map((entry) => ({ value: entry.value, label: entry.label }))}
+            options={offered.map((entry) => ({ value: entry.value as CustodyMethod, label: entry.label }))}
             value={custody}
             onChange={setCustody}
           />
@@ -417,6 +502,52 @@ export function EncryptionCard() {
               </p>
             </>
           )}
+        </Modal>
+      )}
+
+      {form === 'pin' && (
+        <Modal
+          title={status?.pin ? 'Change the PIN' : 'Add a PIN'}
+          subtitle="Digits only, at least six — quicker to type, and weaker than a passphrase"
+          onClose={closeForm}
+          footer={
+            <>
+              <Button variant="quiet" onClick={closeForm} disabled={busy} autoFocus>
+                Cancel
+              </Button>
+              <Button variant="primary" onClick={() => void submitPin()} disabled={busy}>
+                {status?.pin ? 'Change it' : 'Add it'}
+              </Button>
+            </>
+          }
+        >
+          <p className="form-error" role="alert">
+            {PIN_WARNING}
+          </p>
+          <p className="field-hint">{custodyCopy('pin').lockout}</p>
+          {status?.pin && (
+            <Field label="The PIN it uses now">
+              <input
+                className="input"
+                type={visible ? 'text' : 'password'}
+                inputMode="numeric"
+                value={current}
+                onChange={(event) => setCurrent(event.target.value)}
+                autoComplete="off"
+              />
+            </Field>
+          )}
+          <PhraseFields
+            visible={visible}
+            onToggle={() => setVisible((now) => !now)}
+            passphrase={passphrase}
+            again={again}
+            onPassphrase={setPassphrase}
+            onAgain={setAgain}
+            error={fieldError ?? undefined}
+            label={status?.pin ? 'The new PIN' : 'PIN'}
+            numeric
+          />
         </Modal>
       )}
 
@@ -482,6 +613,33 @@ export type PhraseField = {
   onAgain: (value: string) => void
   error?: string
   label?: string
+  /** A PIN: the phone keypad, and nothing a spellchecker should touch. */
+  numeric?: boolean
+}
+
+/** The three sentences for one way in. A heading only when there is more than one to tell apart. */
+function HonestyRows({ copy, titled }: { copy: CustodyCopy; titled: boolean }): ReactNode {
+  return (
+    <>
+      {titled && (
+        <p className="field-hint">
+          <strong>{copy.label}</strong>
+        </p>
+      )}
+      <p className="field-hint">
+        <strong>It protects against: </strong>
+        {copy.protects}
+      </p>
+      <p className="field-hint">
+        <strong>It does not stop: </strong>
+        {copy.fails}
+      </p>
+      <p className="field-hint">
+        <strong>If you lose it: </strong>
+        {copy.lockout}
+      </p>
+    </>
+  )
 }
 
 /**
@@ -498,7 +656,8 @@ export function PhraseFields({
   onPassphrase,
   onAgain,
   error,
-  label = 'Passphrase'
+  label = 'Passphrase',
+  numeric = false
 }: PhraseField): ReactNode {
   const type = visible ? 'text' : 'password'
   return (
@@ -510,6 +669,7 @@ export function PhraseFields({
             type={type}
             value={passphrase}
             onChange={(event) => onPassphrase(event.target.value)}
+            inputMode={numeric ? 'numeric' : undefined}
             autoComplete="off"
             spellCheck={false}
           />
@@ -524,6 +684,7 @@ export function PhraseFields({
           type={type}
           value={again}
           onChange={(event) => onAgain(event.target.value)}
+          inputMode={numeric ? 'numeric' : undefined}
           autoComplete="off"
           spellCheck={false}
         />

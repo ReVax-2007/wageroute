@@ -11,7 +11,9 @@ import {
   generateDataKey,
   keyFilePath,
   readKeyFile,
+  sealWithPasskey,
   sealWithPassphrase,
+  sealWithPin,
   writeKeyFile,
   type DeviceWrap,
   type LedgerKeyFile
@@ -118,7 +120,7 @@ test('a keychain that refuses falls through to the passphrase', async () => {
     assert.equal(result?.via, 'passphrase')
     assert.deepEqual(result?.dataKey, key)
     // The first question is not a retry, so the prompt must not show an error.
-    assert.deepEqual(asked, [{ wrong: false }])
+    assert.deepEqual(asked, [{ wrong: false, accepts: { passphrase: true, pin: false } }])
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -366,3 +368,81 @@ test('a plaintext ledger with no key file opens as the plaintext it is', async (
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+/** ADR 0031: the passkey sits between the keychain and the typed prompt. */
+const PRF = Buffer.alloc(32, 9)
+
+function passkeyFile(key: Buffer): LedgerKeyFile {
+  return {
+    ...base(),
+    passphrase: sealWithPassphrase(key, 'right-here'),
+    passkey: sealWithPasskey(key, { credentialId: 'c1', rpId: 'localhost', prfSalt: Buffer.alloc(32, 1), prfOutput: PRF })
+  }
+}
+
+test('a passkey opens the ledger before anything is typed', async () => {
+  const dir = workspace()
+  try {
+    const key = generateDataKey()
+    withKeyFile(dir, passkeyFile(key))
+    let asked = 0
+    const result = await unlockLedger(dir, {
+      passkey: async () => PRF,
+      askForPassphrase: async () => {
+        asked += 1
+        return null
+      }
+    })
+    assert.equal(result?.via, 'passkey')
+    assert.deepEqual(result?.dataKey, key)
+    assert.equal(asked, 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a cancelled, failing or wrong passkey falls through to the typed prompt', async () => {
+  for (const passkey of [
+    async () => null,
+    async () => {
+      throw new Error('Windows Hello is not set up')
+    },
+    async () => Buffer.alloc(32, 3)
+  ]) {
+    const dir = workspace()
+    try {
+      const key = generateDataKey()
+      withKeyFile(dir, passkeyFile(key))
+      const result = await unlockLedger(dir, { passkey, askForPassphrase: async () => 'right-here' })
+      assert.equal(result?.via, 'passphrase')
+      assert.deepEqual(result?.dataKey, key)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+})
+
+test('a PIN typed at the prompt opens a ledger the PIN alone holds, and the prompt is told to ask for one', async () => {
+  const dir = workspace()
+  try {
+    const key = generateDataKey()
+    withKeyFile(dir, { ...base(), pin: sealWithPin(key, '482915') })
+    const states: unknown[] = []
+    const typed = ['482916', '482915']
+    const result = await unlockLedger(dir, {
+      askForPassphrase: async (state) => {
+        states.push(state)
+        return typed.shift() ?? null
+      }
+    })
+    assert.equal(result?.via, 'pin')
+    assert.deepEqual(result?.dataKey, key)
+    assert.deepEqual(states, [
+      { wrong: false, accepts: { passphrase: false, pin: true } },
+      { wrong: true, accepts: { passphrase: false, pin: true } }
+    ])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+

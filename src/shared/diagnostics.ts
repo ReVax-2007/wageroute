@@ -41,7 +41,14 @@ export function describeEncryption(status: EncryptionStatus): string {
   if (!status.encrypted) {
     parts.push(status.staleKeyFile ? 'plaintext, with a leftover key file beside it' : 'plaintext on disk')
   } else {
-    const held = [status.device && 'this computer', status.passphrase && 'a passphrase'].filter(Boolean).join(' and ')
+    const held = [
+      status.device && 'this computer',
+      status.passphrase && 'a passphrase',
+      status.pin && 'a PIN',
+      status.passkey && 'a fingerprint or face'
+    ]
+      .filter(Boolean)
+      .join(' and ')
     parts.push(`encrypted (${status.cipher ?? 'unknown cipher'}), key held by ${held || 'no wrap this build could read'}`)
   }
   // A half-finished decrypt leaves the ledger plaintext with a key file and this

@@ -8,7 +8,17 @@ All notable changes to WageRoute are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
-Nothing has merged since the 1.3.0 cut. Anything added to `main` from now on goes above the line below.
+### Added
+
+- **Fingerprint or face, and an opt-in PIN, as further ways into the same key** ([ADR 0031](docs/decisions/0031-a-fingerprint-is-one-more-way-in.md)). Custody is now a set of wraps of one 32-byte data key — keychain, passphrase, PIN, passkey — and any one opens it. Every wrap is proved before it is written, can be added or removed at any time, and renders its own *protects / does not stop / if you lose it* rows.
+  - **Desktop, PIN:** digits only, at least six, sealed with scrypt at `N = 131 072` (four times the passphrase's memory). It may stand alone as a passphrase does, and before it is saved the card makes the owner confirm that anyone with a copy of the file can try every PIN offline.
+  - **Desktop, fingerprint or face:** a WebAuthn PRF wrap through Electron's built-in WebAuthn, in a small window served on `http://localhost` from memory by `session.protocol.handle` (no port opened). Offered only on Windows (Windows Hello), and only written when a registration returns PRF output and a second assertion opens the wrap. macOS keeps keychain and passphrase (`app.configureWebAuthn` needs an Apple Team ID, which the project does not have); Linux has no biometric keystore. The unlock order is keychain → passkey → typed, and cancelling the fingerprint falls through to the passphrase or PIN prompt, which now names which of the two it wants.
+  - **Phone:** the vault gains a v2 format — a random data key wrapped by the passphrase, a PIN (PBKDF2 at 2 000 000 rounds) and a passkey's PRF output (`rpId` is the page's own hostname). A v1 vault stays readable and becomes v2 only when a PIN or passkey is added, in one re-seal. On v2, changing the phrase is a rewrap. The locked screen gains **Use fingerprint or face**.
+- **A passkey is never the only way in**, on either device: the key file and the vault marker refuse it, and every removal that would leave it alone is refused with a sentence that says why. On the phone, the passphrase stays while a passkey exists.
+
+### Known gaps
+
+- Windows Hello and real handsets have not run any of this. The desktop ceremony window was driven in Electron 45 on macOS with a CDP virtual authenticator; the phone's passkey path is unit-tested with a stand-in ceremony. See ADR 0031 for what was measured and what was not.
 
 ---
 

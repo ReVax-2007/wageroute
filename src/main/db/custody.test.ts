@@ -4,9 +4,12 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync }
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
+import { createHmac } from 'node:crypto'
 import {
   CustodyError,
   changeKeyCustody,
+  type CustodyChange,
+  type PasskeyEnrolment,
   disableEncryption,
   enableEncryption,
   readEncryptionStatus,
@@ -16,6 +19,7 @@ import { encryptLedger, ledgerLooksEncrypted, openLedger } from './encryption'
 import {
   KEY_FILE,
   generateDataKey,
+  openWithPasskey,
   openWithPassphrase,
   readKeyFile,
   sameKey,
@@ -672,9 +676,12 @@ test('the status answers from the file, not from a setting of its own', () => {
       cipher: null,
       device: false,
       passphrase: false,
+      pin: false,
+      passkey: false,
       pending: null,
       staleKeyFile: false,
-      deviceAvailable: true
+      deviceAvailable: true,
+      passkeyOffered: false
     })
 
     enableEncryption({ dataDirectory: dir, ledgerFile: file, custody: 'both', passphrase: PHRASE, keychain: fakeKeychain })
@@ -725,3 +732,174 @@ test('the status answers from the file, not from a setting of its own', () => {
 function rm(dir: string): void {
   rmSync(dir, { recursive: true, force: true })
 }
+
+/**
+ * A platform authenticator stand-in for ADR 0031: the PRF output is an HMAC
+ * under a secret only the "authenticator" holds, over the salt the wrap asks
+ * with — the same contract `hmac-secret` gives. `same: false` is an authenticator
+ * that does not give the same secret back twice.
+ */
+function enrolment(secret = 'authenticator-secret', same = true): PasskeyEnrolment {
+  const prfSalt = Buffer.alloc(32, 7)
+  const prf = (key: string): Buffer => createHmac('sha256', key).update(prfSalt).digest()
+  return {
+    credentialId: 'credential-1',
+    rpId: 'localhost',
+    prfSalt,
+    prfOutput: prf(secret),
+    testOutput: prf(same ? secret : `${secret}-but-different`)
+  }
+}
+
+function change(dir: string, file: string, key: Buffer, custodyChange: CustodyChange): void {
+  changeKeyCustody({ dataDirectory: dir, ledgerFile: file, dataKey: key, change: custodyChange, keychain: fakeKeychain })
+}
+
+const PIN = '482915'
+
+test('a PIN wraps the same key, may stand alone as a passphrase does, and is never removed last', () => {
+  const dir = workspace()
+  try {
+    const file = plainLedger(dir)
+    enableEncryption({ dataDirectory: dir, ledgerFile: file, custody: 'passphrase', passphrase: PHRASE })
+    const key = sessionKey(dir)
+    const before = readFileSync(file)
+    change(dir, file, key, { action: 'add-pin', pin: PIN })
+    assert.equal(Buffer.compare(before, readFileSync(file)), 0, 'adding a PIN moves no page')
+    const pinWrap = readKeyFile(dir)!.pin!
+    assert.ok(sameKey(openWithPassphrase(pinWrap, PIN), key), 'the PIN opens the same data key')
+    assert.ok(pinWrap.params.n > readKeyFile(dir)!.passphrase!.params.n, 'a PIN costs more per guess than a phrase')
+    assert.throws(() => openWithPassphrase(pinWrap, '482916'), /does not open/i)
+
+    // The owner's rule: a PIN may stand alone, exactly as a passphrase does.
+    change(dir, file, key, { action: 'remove-passphrase' })
+    assert.equal(readKeyFile(dir)?.passphrase, undefined)
+    assert.throws(() => change(dir, file, key, { action: 'remove-pin' }), /only way this ledger opens/i)
+    assert.deepEqual(totals(file, openWithPassphrase(readKeyFile(dir)!.pin!, PIN)), { rows: 40, cents: 82000 })
+  } finally {
+    rm(dir)
+  }
+})
+
+test('a PIN is six or more digits, and a refused one changes nothing', () => {
+  const dir = workspace()
+  try {
+    const file = plainLedger(dir)
+    enableEncryption({ dataDirectory: dir, ledgerFile: file, custody: 'passphrase', passphrase: PHRASE })
+    const key = sessionKey(dir)
+    const before = readFileSync(join(dir, KEY_FILE), 'utf8')
+    for (const [pin, reason] of [
+      ['12345', /at least 6 digits/],
+      ['12345a', /digits only/],
+      ['111111', /repeated/]
+    ] as const) {
+      assert.throws(() => change(dir, file, key, { action: 'add-pin', pin }), reason)
+    }
+    assert.equal(readFileSync(join(dir, KEY_FILE), 'utf8'), before, 'the key file is untouched')
+  } finally {
+    rm(dir)
+  }
+})
+
+test('changing a PIN proves the current one first', () => {
+  const dir = workspace()
+  try {
+    const file = plainLedger(dir)
+    enableEncryption({ dataDirectory: dir, ledgerFile: file, custody: 'passphrase', passphrase: PHRASE })
+    const key = sessionKey(dir)
+    change(dir, file, key, { action: 'add-pin', pin: PIN })
+    assert.throws(
+      () => change(dir, file, key, { action: 'change-pin', current: '000001', next: '736251' }),
+      /That PIN does not open this ledger/
+    )
+    change(dir, file, key, { action: 'change-pin', current: PIN, next: '736251' })
+    assert.ok(sameKey(openWithPassphrase(readKeyFile(dir)!.pin!, '736251'), key))
+  } finally {
+    rm(dir)
+  }
+})
+
+test('a passkey wraps the same key and is never left as the only way in', () => {
+  const dir = workspace()
+  try {
+    const file = plainLedger(dir)
+    enableEncryption({ dataDirectory: dir, ledgerFile: file, custody: 'passphrase', passphrase: PHRASE })
+    const key = sessionKey(dir)
+    const enrolled = enrolment()
+    change(dir, file, key, { action: 'add-passkey', enrolment: enrolled })
+    const wrap = readKeyFile(dir)!.passkey!
+    assert.equal(wrap.credentialId, 'credential-1')
+    assert.equal(wrap.rpId, 'localhost')
+    assert.ok(sameKey(openWithPasskey(wrap, enrolled.prfOutput)!, key), 'the PRF output opens the same data key')
+    assert.equal(openWithPasskey(wrap, enrolment('another-authenticator').prfOutput), null, 'another passkey does not')
+    assert.equal(JSON.stringify(readKeyFile(dir)).includes(enrolled.prfOutput.toString('base64')), false, 'the secret is not stored')
+
+    // The owner's rule, on every removal that could leave it alone.
+    assert.throws(() => change(dir, file, key, { action: 'remove-passphrase' }), /never left as the only way in/)
+    // Once the keychain holds it too, the phrase may go: the passkey is not alone.
+    change(dir, file, key, { action: 'add-device' })
+    change(dir, file, key, { action: 'remove-passphrase' })
+    assert.equal(readKeyFile(dir)?.passphrase, undefined)
+    assert.ok(readKeyFile(dir)?.passkey)
+  } finally {
+    rm(dir)
+  }
+})
+
+test('with a passkey beside them, the standing ways in can each go only while another remains', () => {
+  const dir = workspace()
+  try {
+    const file = plainLedger(dir)
+    enableEncryption({ dataDirectory: dir, ledgerFile: file, custody: 'both', passphrase: PHRASE, keychain: fakeKeychain })
+    const key = sessionKey(dir)
+    change(dir, file, key, { action: 'add-passkey', enrolment: enrolment() })
+    change(dir, file, key, { action: 'remove-device' })
+    assert.throws(() => change(dir, file, key, { action: 'remove-passphrase' }), /never left as the only way in/)
+    change(dir, file, key, { action: 'add-pin', pin: PIN })
+    change(dir, file, key, { action: 'remove-passphrase' })
+    assert.throws(() => change(dir, file, key, { action: 'remove-pin' }), /never left as the only way in/)
+    change(dir, file, key, { action: 'remove-passkey' })
+    const left = readKeyFile(dir)!
+    assert.deepEqual(
+      { device: Boolean(left.device), passphrase: Boolean(left.passphrase), pin: Boolean(left.pin), passkey: Boolean(left.passkey) },
+      { device: false, passphrase: false, pin: true, passkey: false }
+    )
+    assert.deepEqual(totals(file, openWithPassphrase(left.pin!, PIN)), { rows: 40, cents: 82000 })
+  } finally {
+    rm(dir)
+  }
+})
+
+test('a passkey that does not give the same secret back twice is never written', () => {
+  const dir = workspace()
+  try {
+    const file = plainLedger(dir)
+    enableEncryption({ dataDirectory: dir, ledgerFile: file, custody: 'passphrase', passphrase: PHRASE })
+    const key = sessionKey(dir)
+    const before = readFileSync(join(dir, KEY_FILE), 'utf8')
+    assert.throws(
+      () => change(dir, file, key, { action: 'add-passkey', enrolment: enrolment('secret', false) }),
+      /same secret twice/
+    )
+    assert.equal(readFileSync(join(dir, KEY_FILE), 'utf8'), before)
+  } finally {
+    rm(dir)
+  }
+})
+
+test('a key file whose only wrap is a passkey is refused as having no way in', () => {
+  const dir = workspace()
+  try {
+    const file = plainLedger(dir)
+    enableEncryption({ dataDirectory: dir, ledgerFile: file, custody: 'passphrase', passphrase: PHRASE })
+    const key = sessionKey(dir)
+    change(dir, file, key, { action: 'add-passkey', enrolment: enrolment() })
+    const { passphrase, ...onlyPasskey } = readKeyFile(dir)!
+    assert.ok(passphrase)
+    writeKeyFile(dir, onlyPasskey)
+    assert.throws(() => readKeyFile(dir), /holds no way to open the ledger/)
+  } finally {
+    rm(dir)
+  }
+})
+
