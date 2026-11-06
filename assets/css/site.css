@@ -221,7 +221,8 @@ header {
 .nav-links {
   display: flex;
   align-items: center;
-  gap: 22px;
+  gap: 18px;
+  margin: 0 28px;
   list-style: none;
   white-space: nowrap;
 }
@@ -234,7 +235,7 @@ header {
 .nav-links a {
   color: var(--text-dim);
   text-decoration: none;
-  font-size: 0.93rem;
+  font-size: 0.9rem;
   font-weight: 500;
   transition: color 0.15s ease;
 }
@@ -247,6 +248,25 @@ header {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+/* Square, icon-only button; its name comes from aria-label */
+.btn-icon {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+}
+
+.btn-icon svg {
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+
+/* Nothing in the nav may squeeze its neighbours */
+.brand,
+.nav-actions {
+  flex-shrink: 0;
 }
 
 /* Theme switch: Auto / Light / Dark */
