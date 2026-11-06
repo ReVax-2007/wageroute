@@ -24,8 +24,10 @@ import {
   openWithPassphrase,
   readKeyFile,
   writeKeyFile,
+  openWithPasskey,
   type DeviceWrap,
-  type LedgerKeyFile
+  type LedgerKeyFile,
+  type PasskeyWrap
 } from './ledger-key'
 import { ledgerLooksEncrypted, reconcilePending } from './encryption'
 
@@ -61,15 +63,29 @@ export interface CustodyAttempts {
   /** The OS keychain. Missing or unavailable means this machine holds no device custody. */
   device?: { available: () => boolean; open: (wrap: DeviceWrap) => Buffer }
   /**
-   * Collect one passphrase. `wrong` says this is a retry; resolving null means
-   * the user closed the prompt instead of typing.
+   * Ask the platform authenticator for this wrap's PRF output. Null means the
+   * person cancelled, or this machine cannot answer; either way the typed prompt
+   * comes next.
    */
-  askForPassphrase?: (state: { wrong: boolean }) => Promise<string | null>
+  passkey?: (wrap: PasskeyWrap) => Promise<Buffer | null>
+  /**
+   * Collect one typed secret. `wrong` says this is a retry, and `accepts` says
+   * which kinds this ledger has, so the prompt can name them; resolving null
+   * means the user closed the prompt instead of typing.
+   */
+  askForPassphrase?: (state: { wrong: boolean; accepts: TypedKinds }) => Promise<string | null>
 }
+
+export interface TypedKinds {
+  passphrase: boolean
+  pin: boolean
+}
+
+export type UnlockedVia = 'device' | 'passkey' | 'passphrase' | 'pin'
 
 export interface Unlocked {
   dataKey: Buffer
-  via: 'device' | 'passphrase'
+  via: UnlockedVia
   /** How many passphrases it took, for the log. The passphrase and key never reach it. */
   attempts: number
 }
@@ -88,26 +104,57 @@ async function unlockFrom(keyFile: LedgerKeyFile, attempts: CustodyAttempts): Pr
   const device = attemptDevice(keyFile, attempts)
   if (device.dataKey) return { dataKey: device.dataKey, via: 'device', attempts: 0 }
 
-  if (!keyFile.passphrase) throw new NoCustodyError(device.failure)
+  const passkey = await attemptPasskey(keyFile, attempts)
+  if (passkey) return { dataKey: passkey, via: 'passkey', attempts: 0 }
+
+  const accepts: TypedKinds = { passphrase: Boolean(keyFile.passphrase), pin: Boolean(keyFile.pin) }
+  if (!accepts.passphrase && !accepts.pin) throw new NoCustodyError(device.failure)
 
   if (!attempts.askForPassphrase) {
     throw new LedgerLockedError(
-      'This ledger is opened by a passphrase and there is no window here to ask for one.'
+      'This ledger is opened by a passphrase or a PIN and there is no window here to ask for one.'
     )
   }
 
   let wrong = false
   for (let tries = 1; ; tries += 1) {
-    const typed = await attempts.askForPassphrase({ wrong })
+    const typed = await attempts.askForPassphrase({ wrong, accepts })
     if (typed === null) {
       throw new LedgerLockedError('WageRoute stayed closed because the ledger stayed locked.')
     }
+    const opened = openTyped(keyFile, typed)
+    if (opened) return { ...opened, attempts: tries }
+    wrong = true
+  }
+}
+
+/**
+ * One typed answer against whichever of the passphrase and the PIN exist. A string
+ * of digits is tried as the PIN first, because that is what it most likely is;
+ * either way both are tried, since a passphrase may be digits too.
+ */
+function openTyped(keyFile: LedgerKeyFile, typed: string): { dataKey: Buffer; via: 'passphrase' | 'pin' } | null {
+  const order: ('passphrase' | 'pin')[] = /^[0-9]+$/.test(typed) ? ['pin', 'passphrase'] : ['passphrase', 'pin']
+  for (const via of order) {
+    const wrap = keyFile[via]
+    if (!wrap) continue
     try {
-      return { dataKey: openWithPassphrase(keyFile.passphrase, typed), via: 'passphrase', attempts: tries }
+      return { dataKey: openWithPassphrase(wrap, typed), via }
     } catch (error) {
       if (!(error instanceof WrongPassphraseError)) throw error
-      wrong = true
     }
+  }
+  return null
+}
+
+/** A cancelled, failed or wrong fingerprint is a fall-through, never an error that stops the launch. */
+async function attemptPasskey(keyFile: LedgerKeyFile, attempts: CustodyAttempts): Promise<Buffer | null> {
+  if (!keyFile.passkey || !attempts.passkey) return null
+  try {
+    const output = await attempts.passkey(keyFile.passkey)
+    return output ? openWithPasskey(keyFile.passkey, output) : null
+  } catch {
+    return null
   }
 }
 
@@ -131,7 +178,7 @@ export type LedgerOpening =
   | {
       state: 'keyed'
       dataKey: Buffer
-      via: 'device' | 'passphrase'
+      via: UnlockedVia
       /** Passphrases it took, for the log. Never the passphrase or the key. */
       attempts: number
       /** The ledger came back from the transition's safety copy. */

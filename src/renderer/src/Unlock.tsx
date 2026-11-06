@@ -9,7 +9,21 @@ import { Button } from './components/ui'
  * and comes back only as "that did not open it" — the answer itself is never
  * echoed, stored or logged, and the window keeps no history of the attempts.
  */
+/** What the main process said this ledger accepts, from the page address it chose. */
+function typedKind(): 'passphrase' | 'pin' | 'either' {
+  const typed = new URLSearchParams(window.location.search).get('typed')
+  return typed === 'pin' || typed === 'either' ? typed : 'passphrase'
+}
+
+const WORDS = {
+  passphrase: { noun: 'passphrase', label: 'Passphrase' },
+  pin: { noun: 'PIN', label: 'PIN' },
+  either: { noun: 'passphrase or PIN', label: 'Passphrase or PIN' }
+} as const
+
 export default function Unlock() {
+  const kind = typedKind()
+  const words = WORDS[kind]
   const [passphrase, setPassphrase] = useState('')
   const [visible, setVisible] = useState(false)
   const [checking, setChecking] = useState(false)
@@ -46,19 +60,20 @@ export default function Unlock() {
     <div className="boot unlock">
       <h1>This ledger is encrypted</h1>
       <p className="unlock-lead">
-        Type the passphrase that holds its key. Nothing in WageRoute opens until you do.
+        Type the {words.noun} that holds its key. Nothing in WageRoute opens until you do.
       </p>
 
       <form onSubmit={(event) => void submit(event)}>
         <div className="field">
           <label className="field-label" htmlFor="unlock-passphrase">
-            Passphrase
+            {words.label}
           </label>
           <div className="unlock-row">
             <input
               id="unlock-passphrase"
               className="input"
               type={visible ? 'text' : 'password'}
+              inputMode={kind === 'pin' ? 'numeric' : undefined}
               value={passphrase}
               onChange={(event) => setPassphrase(event.target.value)}
               autoComplete="off"
@@ -79,7 +94,7 @@ export default function Unlock() {
           </div>
           {wrong && (
             <p id="unlock-wrong" className="field-error" role="alert">
-              That passphrase does not open this ledger.
+              That {words.noun} does not open this ledger.
             </p>
           )}
           {stuck && (
@@ -95,7 +110,7 @@ export default function Unlock() {
       </form>
 
       <p className="boot-hint">
-        Closing this window leaves WageRoute shut and your ledger exactly as it is. If the passphrase
+        Closing this window leaves WageRoute shut and your ledger exactly as it is. If the {words.noun}{' '}
         is gone, a backup exported before encryption is the only way back in.
       </p>
     </div>

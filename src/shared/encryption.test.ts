@@ -6,13 +6,15 @@ import {
   MIN_PASSPHRASE_CHARACTERS,
   custodyCopy,
   custodyInUse,
-  passphraseProblem
+  hasStandingWrap,
+  passphraseProblem,
+  pinProblem
 } from './encryption'
 
 test('every custody option says what it protects, what it does not and how it locks you out', () => {
   assert.deepEqual(
     CUSTODY_COPY.map((copy) => copy.value),
-    ['device', 'passphrase', 'both']
+    ['device', 'passphrase', 'both', 'pin', 'passkey']
   )
   for (const copy of CUSTODY_COPY) {
     assert.ok(copy.label.trim().length > 0, `${copy.value} has no label`)
@@ -55,3 +57,26 @@ test('the status report maps to the option name the screen shows', () => {
   assert.equal(custodyInUse({ device: false, passphrase: true }), 'passphrase')
   assert.equal(custodyInUse({ device: false, passphrase: false }), null)
 })
+
+test('a PIN is digits only and six or more of them, and its row says a copy can try every one', () => {
+  assert.equal(pinProblem('482915'), null)
+  assert.equal(pinProblem('48291573'), null)
+  assert.match(pinProblem('') ?? '', /at least 6 digits/)
+  assert.match(pinProblem('48291') ?? '', /at least 6 digits/)
+  assert.match(pinProblem('4829 15') ?? '', /digits only/)
+  assert.match(pinProblem('pass1234') ?? '', /digits only/)
+  assert.match(pinProblem('000000') ?? '', /repeated/)
+  // The condition the owner set for offering a PIN at all (ADR 0031).
+  assert.match(custodyCopy('pin').fails, /try every PIN offline/)
+  assert.match(custodyCopy('passkey').fails, /PIN/)
+  assert.match(custodyCopy('passkey').lockout, /never lets it be the only way in/)
+})
+
+test('a passkey never counts as a way in that can stand alone', () => {
+  assert.equal(hasStandingWrap({ passkey: true }), false)
+  assert.equal(hasStandingWrap({ passkey: true, pin: true }), true)
+  assert.equal(hasStandingWrap({ passkey: true, passphrase: true }), true)
+  assert.equal(hasStandingWrap({ device: true }), true)
+  assert.equal(hasStandingWrap({}), false)
+})
+

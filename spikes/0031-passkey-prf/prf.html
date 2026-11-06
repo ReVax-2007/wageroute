@@ -1,0 +1,209 @@
+<!doctype html>
+<!--
+  Throwaway spike for ADR 0031. Not part of any build.
+
+  Models the proposed custody shape: one random 32-byte data key, wrapped twice —
+  once under a PBKDF2 passphrase key (what the vault and envelope already use) and
+  once under a key derived from a passkey's WebAuthn PRF output. Every function is
+  called over CDP by run.mjs; nothing here runs on its own.
+-->
+<meta charset="utf-8" />
+<title>PRF spike</title>
+<script>
+  const enc = new TextEncoder()
+  const b64 = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes)))
+  const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0))
+  const rand = (n) => crypto.getRandomValues(new Uint8Array(n))
+
+  // Domain-separated PRF input, so the same passkey used elsewhere yields a different secret.
+  const PRF_SALT = enc.encode('wageroute-vault-prf-v1')
+
+  async function kekFromPrf(prfOutput, salt) {
+    const base = await crypto.subtle.importKey('raw', prfOutput, 'HKDF', false, ['deriveKey'])
+    return crypto.subtle.deriveKey(
+      { name: 'HKDF', hash: 'SHA-256', salt, info: enc.encode('wageroute data-key wrap') },
+      base,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
+    )
+  }
+
+  async function kekFromPassphrase(phrase, salt, iterations) {
+    const base = await crypto.subtle.importKey('raw', enc.encode(phrase), 'PBKDF2', false, ['deriveKey'])
+    return crypto.subtle.deriveKey(
+      { name: 'PBKDF2', hash: 'SHA-256', salt, iterations },
+      base,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
+    )
+  }
+
+  async function wrap(kek, dataKey) {
+    const iv = rand(12)
+    const sealed = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, kek, dataKey)
+    return { iv: b64(iv), sealed: b64(sealed) }
+  }
+
+  async function unwrap(kek, w) {
+    try {
+      return new Uint8Array(
+        await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(w.iv) }, kek, unb64(w.sealed))
+      )
+    } catch {
+      return null
+    }
+  }
+
+  const same = (a, b) => a && b && a.length === b.length && a.every((v, i) => v === b[i])
+
+  async function register(rpId, name) {
+    const started = performance.now()
+    const cred = await navigator.credentials.create({
+      publicKey: {
+        rp: { id: rpId, name: 'WageRoute spike' },
+        user: { id: rand(16), name, displayName: name },
+        challenge: rand(32),
+        pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
+        authenticatorSelection: {
+          authenticatorAttachment: 'platform',
+          residentKey: 'required',
+          userVerification: 'required'
+        },
+        extensions: { prf: { eval: { first: PRF_SALT } } }
+      }
+    })
+    const ext = cred.getClientExtensionResults()
+    return {
+      id: cred.id,
+      ms: Math.round(performance.now() - started),
+      prfEnabled: ext.prf?.enabled ?? null,
+      prfResultsAtCreate: Boolean(ext.prf?.results?.first)
+    }
+  }
+
+  async function prfOutput(rpId, credentialId, salt = PRF_SALT) {
+    const started = performance.now()
+    const assertion = await navigator.credentials.get({
+      publicKey: {
+        rpId,
+        challenge: rand(32),
+        allowCredentials: [{ type: 'public-key', id: unb64url(credentialId) }],
+        userVerification: 'required',
+        extensions: { prf: { eval: { first: salt } } }
+      }
+    })
+    const first = assertion.getClientExtensionResults().prf?.results?.first
+    const uv = (new Uint8Array(assertion.response.authenticatorData)[32] & 0x04) !== 0
+    return {
+      output: first ? new Uint8Array(first) : null,
+      ms: Math.round(performance.now() - started),
+      userVerified: uv
+    }
+  }
+
+  function unb64url(s) {
+    return unb64(s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (s.length % 4)) % 4))
+  }
+
+  const errorOf = (e) => ({ name: e?.name ?? 'Error', message: String(e?.message ?? e).slice(0, 200) })
+
+  window.spike = {
+    async capabilities() {
+      const out = {
+        origin: location.origin,
+        isSecureContext,
+        hasSubtle: typeof crypto?.subtle === 'object',
+        hasPublicKeyCredential: typeof PublicKeyCredential === 'function'
+      }
+      if (out.hasPublicKeyCredential) {
+        out.uvpaa = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().catch(errorOf)
+        out.clientCapabilities =
+          typeof PublicKeyCredential.getClientCapabilities === 'function'
+            ? await PublicKeyCredential.getClientCapabilities().catch(errorOf)
+            : 'getClientCapabilities missing'
+      }
+      return out
+    },
+
+    async tryRpId(rpId) {
+      try {
+        return { ok: true, ...(await register(rpId, 'rpid-probe')) }
+      } catch (e) {
+        return { ok: false, ...errorOf(e) }
+      }
+    },
+
+    // The full custody story, end to end, against whatever authenticator is attached.
+    async custody(rpId) {
+      const r = {}
+      const dataKey = rand(32)
+
+      // Wrap 1: passphrase, exactly as the vault stretches one today.
+      const ppSalt = rand(16)
+      const t0 = performance.now()
+      const ppKek = await kekFromPassphrase('correct horse battery staple', ppSalt, 600000)
+      r.pbkdf2Ms = Math.round(performance.now() - t0)
+      const ppWrap = await wrap(ppKek, dataKey)
+
+      // Wrap 2: passkey PRF.
+      const cred = await register(rpId, 'owner')
+      r.register = cred
+      const a = await prfOutput(rpId, cred.id)
+      r.firstAssertion = { ms: a.ms, userVerified: a.userVerified, outputBytes: a.output?.length ?? 0 }
+      if (!a.output) return { ...r, verdict: 'no PRF output — this authenticator cannot hold a wrap' }
+      const prfSalt = rand(32)
+      const prfWrap = await wrap(await kekFromPrf(a.output, prfSalt), dataKey)
+
+      // Same passkey, same salt, later: the wrap must open to the same 32 bytes.
+      const b = await prfOutput(rpId, cred.id)
+      r.deterministic = same(a.output, b.output)
+      r.prfWrapOpens = same(await unwrap(await kekFromPrf(b.output, prfSalt), prfWrap), dataKey)
+
+      // A different PRF input gives an unrelated secret (domain separation works).
+      const c = await prfOutput(rpId, cred.id, enc.encode('some-other-app'))
+      r.otherSaltDiffers = !same(a.output, c.output)
+
+      // A second passkey for the same site cannot open the first one's wrap.
+      const other = await register(rpId, 'someone-else')
+      const d = await prfOutput(rpId, other.id)
+      r.otherPasskeyOpens = (await unwrap(await kekFromPrf(d.output, prfSalt), prfWrap)) !== null
+
+      // The passphrase wrap opens the same key independently.
+      r.passphraseWrapOpens = same(
+        await unwrap(await kekFromPassphrase('correct horse battery staple', ppSalt, 600000), ppWrap),
+        dataKey
+      )
+      r.wrongPassphraseOpens =
+        (await unwrap(await kekFromPassphrase('wrong horse battery staple', ppSalt, 600000), ppWrap)) !== null
+
+      window.__kept = { credentialId: cred.id, prfSalt, prfWrap, ppSalt, ppWrap, dataKey }
+      return r
+    },
+
+    // Called after run.mjs removes the authenticator: the passkey is "lost".
+    async afterLoss(rpId) {
+      const k = window.__kept
+      const r = {}
+      try {
+        const lost = await Promise.race([
+          prfOutput(rpId, k.credentialId),
+          new Promise((_, reject) =>
+            setTimeout(() => reject({ name: 'NoAnswer', message: 'no authenticator answered within 5 s' }), 5000)
+          )
+        ])
+        r.lostPasskeyStillWorks = Boolean(lost.output)
+      } catch (e) {
+        r.lostPasskeyStillWorks = false
+        r.lostPasskeyError = errorOf(e)
+      }
+      r.passphraseFallbackOpens = same(
+        await unwrap(await kekFromPassphrase('correct horse battery staple', k.ppSalt, 600000), k.ppWrap),
+        k.dataKey
+      )
+      return r
+    }
+  }
+</script>
+<p>PRF spike. Driven by run.mjs over CDP.</p>

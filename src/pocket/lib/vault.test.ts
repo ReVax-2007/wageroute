@@ -5,11 +5,17 @@ import { EnvelopeError, MIN_ITERATIONS, fromBase64 } from '@shared/envelope'
 import type { StoredLedger } from './idb'
 import { deriveKey, hasCipher, NO_CIPHER_HERE, openPart, sealPart } from './webcrypto'
 import { withoutCipher } from './without-cipher'
+import type { PasskeyAnswer, PasskeyRequest } from '@shared/passkey-ceremony'
 import {
   VaultError,
+  addVaultWrap,
   assertMarker,
   changeVaultPassphrase,
+  changeVaultPin,
   createVault,
+  isV2,
+  removeVaultWrap,
+  unlockVaultWithPasskey,
   lockVault,
   looksSealed,
   openRecord,
@@ -194,7 +200,7 @@ test('a marker that does not parse is refused before a key is made from it', asy
   const marker = await createVault(PHRASE, CHEAP)
   const cases: [string, unknown, RegExp][] = [
     ['a foreign format', { ...marker, format: 'other-vault' }, /format WageRoute does not recognise/],
-    ['a newer version', { ...marker, version: 2 }, /newer WageRoute/],
+    ['a newer version', { ...marker, version: 3 }, /newer WageRoute/],
     ['an unknown cipher', { ...marker, cipher: 'AES-128-CBC' }, /cannot open/],
     ['a missing salt', { ...marker, salt: undefined }, /missing its salt/],
     [
@@ -321,3 +327,152 @@ test('a vault neither starts nor opens on a page with no cipher, and says which'
     'the phrase that opens this vault still opens it after a page with no cipher refused'
   )
 })
+
+/*
+ * Vault v2 (ADR 0031): a data key with wraps. Every test below starts from a v1
+ * vault, because that is what every phone already holds.
+ */
+const PIN = '482915'
+const CHEAP_V2 = { iterations: MIN_ITERATIONS, pinIterations: MIN_ITERATIONS }
+
+function bytes(fill: number): string {
+  return Buffer.alloc(32, fill).toString('base64')
+}
+
+/** A platform authenticator stand-in: the same PRF output every time, unless told not to. */
+function ceremony(options: { same?: boolean; cancel?: boolean } = {}) {
+  const seen: PasskeyRequest[] = []
+  const run = async (request: PasskeyRequest): Promise<PasskeyAnswer> => {
+    seen.push(request)
+    if (options.cancel) return { ok: false, reason: 'cancelled', detail: 'NotAllowedError' }
+    if (request.mode === 'register') {
+      return { ok: true, mode: 'register', credentialId: 'cred-1', first: bytes(5), test: bytes(options.same === false ? 6 : 5) }
+    }
+    return { ok: true, mode: 'assert', output: bytes(5) }
+  }
+  return { run, seen }
+}
+
+async function v1WithLedger(): Promise<{ marker: VaultMarker; ledger: StoredLedger }> {
+  const marker = await createVault(PHRASE, CHEAP)
+  await unlockVault(marker, PHRASE)
+  return { marker, ledger: ledgerOf() }
+}
+
+test('a v1 vault stays v1, and still opens, until a PIN is added', async () => {
+  const { marker, ledger } = await v1WithLedger()
+  assert.equal(marker.version, 1)
+  const sealed = await sealRecord(marker, ledger)
+  lockVault()
+  await unlockVault(marker, PHRASE)
+  assert.deepEqual(await openRecord(sealed), ledger)
+})
+
+test('adding a PIN moves a v1 vault to v2 in one re-seal, and both the phrase and the PIN open it', async () => {
+  const { marker, ledger } = await v1WithLedger()
+  const next = await addVaultWrap(marker, PHRASE, { kind: 'pin', pin: PIN }, CHEAP_V2)
+  assert.ok(isV2(next))
+  assert.ok(next.wraps.passphrase && next.wraps.pin && !next.wraps.passkey)
+  assert.equal(next.wraps.passphrase.iterations, MIN_ITERATIONS, 'the phrase keeps the cost it had')
+  // The session moved to the new data key, so the record is re-sealed under the new marker.
+  const resealed = await sealRecord(next, ledger)
+  await assert.rejects(() => sealRecord(marker, ledger), /changed since/, 'the old v1 marker no longer seals')
+  assertMarker(JSON.parse(JSON.stringify(next)))
+
+  for (const typed of [PHRASE, PIN]) {
+    lockVault()
+    await unlockVault(next, typed)
+    assert.deepEqual(await openRecord(resealed), ledger, `${typed === PIN ? 'the PIN' : 'the phrase'} opens it`)
+  }
+  lockVault()
+  await assert.rejects(() => unlockVault(next, '482916'), (error: unknown) => {
+    assert.ok(error instanceof VaultError)
+    assert.equal(error.failure, 'passphrase')
+    return true
+  })
+})
+
+test('the current secret is proved before anything is added', async () => {
+  const { marker } = await v1WithLedger()
+  await assert.rejects(() => addVaultWrap(marker, OTHER, { kind: 'pin', pin: PIN }, CHEAP_V2), /does not open/)
+  await assert.rejects(() => addVaultWrap(marker, PHRASE, { kind: 'pin', pin: '12345' }, CHEAP_V2), /at least 6 digits/)
+})
+
+test('a passkey wraps the same key, opens the vault with nothing typed, and leaves the phrase in place', async () => {
+  const { marker, ledger } = await v1WithLedger()
+  const authenticator = ceremony()
+  const next = await addVaultWrap(marker, PHRASE, { kind: 'passkey', rpId: 'ann.wageroute.lan' }, {
+    ...CHEAP_V2,
+    ceremony: authenticator.run
+  })
+  assert.ok(isV2(next) && next.wraps.passkey && next.wraps.passphrase)
+  assert.equal(next.wraps.passkey.rpId, 'ann.wageroute.lan')
+  assert.equal(JSON.stringify(next).includes(bytes(5)), false, 'the PRF output is not stored')
+  const sealed = await sealRecord(next, ledger)
+
+  lockVault()
+  await unlockVaultWithPasskey(next, authenticator.run)
+  assert.deepEqual(await openRecord(sealed), ledger)
+  const asked = authenticator.seen.at(-1)
+  assert.equal(asked?.mode, 'assert')
+  assert.equal(asked?.mode === 'assert' ? asked.credentialId : null, 'cred-1')
+
+  // A lost passkey: the phrase still opens the same copy.
+  lockVault()
+  await assert.rejects(() => unlockVaultWithPasskey(next, ceremony({ cancel: true }).run), /cancelled/)
+  await unlockVault(next, PHRASE)
+  assert.deepEqual(await openRecord(sealed), ledger)
+})
+
+test('a passkey that does not give the same secret twice is refused and nothing is written', async () => {
+  const { marker } = await v1WithLedger()
+  await assert.rejects(
+    () => addVaultWrap(marker, PHRASE, { kind: 'passkey', rpId: 'localhost' }, { ...CHEAP_V2, ceremony: ceremony({ same: false }).run }),
+    /same secret back twice/
+  )
+})
+
+test('a passkey is never the only way in, and the phrase stays while one exists', async () => {
+  const { marker } = await v1WithLedger()
+  let next: VaultMarker = await addVaultWrap(marker, PHRASE, { kind: 'pin', pin: PIN }, CHEAP_V2)
+  next = await addVaultWrap(next, PIN, { kind: 'passkey', rpId: 'localhost' }, { ...CHEAP_V2, ceremony: ceremony().run })
+  assert.throws(() => removeVaultWrap(next, 'passphrase'), /passphrase stays while a fingerprint/)
+  next = removeVaultWrap(next, 'pin')
+  assert.throws(() => removeVaultWrap(next, 'passphrase'), /passphrase stays/)
+  next = removeVaultWrap(next, 'passkey')
+  assert.ok(isV2(next) && next.wraps.passphrase && !next.wraps.passkey && !next.wraps.pin)
+  assert.throws(() => removeVaultWrap(next, 'passphrase'), /last thing you can type/)
+
+  // Without a passphrase there is no passkey to add.
+  let pinOnly: VaultMarker = await addVaultWrap(next, PHRASE, { kind: 'pin', pin: PIN }, CHEAP_V2)
+  pinOnly = removeVaultWrap(pinOnly, 'passphrase')
+  await assert.rejects(
+    () => addVaultWrap(pinOnly, PIN, { kind: 'passkey', rpId: 'localhost' }, { ...CHEAP_V2, ceremony: ceremony().run }),
+    /Add a passphrase first/
+  )
+})
+
+test('a marker whose only wrap is a passkey is not trusted', async () => {
+  const { marker } = await v1WithLedger()
+  const next = await addVaultWrap(marker, PHRASE, { kind: 'passkey', rpId: 'localhost' }, { ...CHEAP_V2, ceremony: ceremony().run })
+  assert.ok(isV2(next))
+  const tampered = { ...next, wraps: { passkey: next.wraps.passkey } }
+  assert.throws(() => assertMarker(tampered), /nothing typed that opens it/)
+})
+
+test('on v2, changing the phrase or the PIN is a rewrap and the record stays readable', async () => {
+  const { marker, ledger } = await v1WithLedger()
+  const v2 = await addVaultWrap(marker, PHRASE, { kind: 'pin', pin: PIN }, CHEAP_V2)
+  const sealed = await sealRecord(v2, ledger)
+  const phraseChanged = await changeVaultPassphrase(v2, PHRASE, OTHER, CHEAP)
+  const pinChanged = await changeVaultPin(phraseChanged, PIN, '736251', CHEAP)
+  await assert.rejects(() => changeVaultPin(pinChanged, '000001', '111112', CHEAP), /does not open/)
+  lockVault()
+  await assert.rejects(() => unlockVault(pinChanged, PHRASE), /does not open/)
+  await unlockVault(pinChanged, OTHER)
+  assert.deepEqual(await openRecord(sealed), ledger, 'the same record opens: only the wraps moved')
+  lockVault()
+  await unlockVault(pinChanged, '736251')
+  assert.deepEqual(await openRecord(sealed), ledger)
+})
+

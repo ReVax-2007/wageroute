@@ -161,3 +161,35 @@ export async function openPart(key: SessionKey, part: SealedPart): Promise<strin
     return null
   }
 }
+
+/**
+ * A raw 32-byte data key, made usable and then sealed off: non-extractable, so
+ * once imported the bytes cannot be read back out of the key object. The caller
+ * zeroes its copy of the raw bytes as soon as this returns.
+ */
+export async function importDataKey(raw: Uint8Array<ArrayBuffer>, usages: KeyUsage[]): Promise<SessionKey> {
+  return subtle().importKey('raw', raw, { name: 'AES-GCM', length: KEY_BYTES * 8 }, false, usages)
+}
+
+/** The same domain-separation label the desktop's key file uses for a passkey wrap. */
+const PRF_INFO = encoder.encode('wageroute data-key wrap')
+
+/**
+ * Turn a passkey's PRF output into a key that only wraps. HKDF rather than using
+ * the output directly, so the stored salt — not the authenticator — decides which
+ * key a given wrap is under.
+ */
+export async function deriveKeyFromPrf(
+  prfOutput: Uint8Array<ArrayBuffer>,
+  hkdfSalt: Uint8Array<ArrayBuffer>,
+  usages: KeyUsage[]
+): Promise<SessionKey> {
+  const base = await subtle().importKey('raw', prfOutput, 'HKDF', false, ['deriveKey'])
+  return subtle().deriveKey(
+    { name: 'HKDF', hash: 'SHA-256', salt: hkdfSalt, info: PRF_INFO },
+    base,
+    { name: 'AES-GCM', length: KEY_BYTES * 8 },
+    false,
+    usages
+  )
+}

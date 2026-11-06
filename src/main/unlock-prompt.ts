@@ -4,7 +4,8 @@ import { pathToFileURL } from 'node:url'
 import { UNLOCK_RETRY, UNLOCK_SUBMIT } from '@shared/channels'
 import { logCrash, logNote } from './log'
 import { watchDocumentLoad } from './window-load'
-import { UNLOCK_QUERY, isTrustedPageUrl } from './window-security'
+import { isTrustedPageUrl, unlockQueryFor } from './window-security'
+import type { TypedKinds } from './db/unlock'
 
 /**
  * The one window that exists before the ledger is open.
@@ -26,7 +27,7 @@ export interface PassphrasePrompt {
    * Wait for the next passphrase. `wrong` marks this as a retry. Resolves null
    * when the user closes the window instead of typing.
    */
-  next(state: { wrong: boolean }): Promise<string | null>
+  next(state: { wrong: boolean; accepts?: TypedKinds }): Promise<string | null>
   /** Removes the handler and closes the window. Safe to call twice. */
   close(): void
 }
@@ -35,10 +36,11 @@ function packagedPage(): string {
   return pathToFileURL(join(__dirname, '../renderer/index.html')).href
 }
 
-function unlockPageUrl(): string {
+/** The query names what this ledger accepts, so the prompt can say "PIN" when that is what it wants. */
+function unlockPageUrl(accepts: TypedKinds): string {
   const dev = process.env.ELECTRON_RENDERER_URL
   const base = dev ? `${dev.replace(/\/$/, '')}/` : packagedPage()
-  return `${base}?${UNLOCK_QUERY}`
+  return `${base}?${unlockQueryFor(accepts)}`
 }
 
 function isUnlockFrame(event: IpcMainInvokeEvent): boolean {
@@ -51,7 +53,7 @@ function isUnlockFrame(event: IpcMainInvokeEvent): boolean {
   return isTrustedPageUrl(url, process.env.ELECTRON_RENDERER_URL, packagedPage())
 }
 
-export function openPassphrasePrompt(): PassphrasePrompt {
+export function openPassphrasePrompt(accepts: TypedKinds = { passphrase: true, pin: false }): PassphrasePrompt {
   let waiting: ((passphrase: string | null) => void) | null = null
   let settled = false
 
@@ -113,7 +115,7 @@ export function openPassphrasePrompt(): PassphrasePrompt {
   // retry against a window that is gone does its best and says nothing.
   const load = (): void => {
     if (window.isDestroyed()) return
-    void window.loadURL(unlockPageUrl())
+    void window.loadURL(unlockPageUrl(accepts))
   }
   // A prompt that never appears would leave the launch waiting for a passphrase
   // nobody can type. Retrying the load is the fix; giving up is the honest end,

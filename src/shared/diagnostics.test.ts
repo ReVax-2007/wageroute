@@ -9,9 +9,12 @@ const PLAIN: EncryptionStatus = {
   cipher: null,
   device: false,
   passphrase: false,
+  pin: false,
+  passkey: false,
   pending: null,
   staleKeyFile: false,
-  deviceAvailable: true
+  deviceAvailable: true,
+  passkeyOffered: false
 }
 
 function status(overrides: Partial<EncryptionStatus>): EncryptionStatus {
