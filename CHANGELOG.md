@@ -10,6 +10,8 @@ All notable changes to WageRoute are documented here. The format follows [Keep a
 
 ### Added
 
+- **One SVG logo, everywhere it can be.** `build/icon.svg` redraws the WageRoute mark as a vector and is the source of every logo: the website (favicon, nav and footer, which had shown an older, different drawing), Pocket's favicon, welcome mark and manifest, and the desktop sidebar. `npm run icons` renders the macOS, Windows, Linux and phone-install PNG/ICNS/ICO files from it, which also removes the white corners the old app icon carried.
+
 - **One-command installers.** `install.sh` (macOS and Linux) and `install.ps1` (Windows), served from the website: they pick the build for the system, verify it against the release's `SHA256SUMS`, install it (DMG into `/Applications`; `.deb`/`.rpm` through the package manager with the AppImage as fallback; the Setup installer silently per-user) and clear the quarantine or Mark-of-the-Web block. A CI job installs the real latest release with them on Ubuntu, macOS and Windows.
 
 - **Fingerprint or face, and an opt-in PIN, as further ways into the same key** ([ADR 0031](docs/decisions/0031-a-fingerprint-is-one-more-way-in.md)). Custody is now a set of wraps of one 32-byte data key — keychain, passphrase, PIN, passkey — and any one opens it. Every wrap is proved before it is written, can be added or removed at any time, and renders its own *protects / does not stop / if you lose it* rows.
