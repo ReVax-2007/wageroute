@@ -9,7 +9,7 @@ export function Welcome() {
 
   return (
     <div className="welcome screen">
-      <img className="welcome-mark" src="./icon-192.png" alt="" width={76} height={76} />
+      <img className="welcome-mark" src="./favicon.svg" alt="" width={76} height={76} />
       <h1>Your ledger, in your pocket.</h1>
       <p className="welcome-lead">
         WageRoute Pocket opens a backup from WageRoute on your computer. It is a small, quiet app

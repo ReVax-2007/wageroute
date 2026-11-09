@@ -7,8 +7,10 @@ import {
 } from 'lucide-react'
 import { formatDateLabel, todayISO } from '@shared/dates'
 import { entryDeletionWords } from '@shared/deletion'
+import { CREDIT_CARD_SOURCE_REFUSAL } from '@shared/writeRules'
 import { centsToEditable, currencySymbol, formatMoney, parseMoneyToCents } from '@shared/money'
 import type { AccountWithBalance, TransactionRow } from '@shared/types'
+import { CategoryInput } from '../components/CategoryInput'
 import { Button, Card, EmptyState, Field, IconButton, Money, MoneyInput } from '../components/ui'
 import { DataTable } from '../components/DataTable'
 import { accountDisplayBalanceCents } from '../lib/finance'
@@ -44,6 +46,12 @@ export function Transfers() {
     [snapshot]
   )
 
+  // Money only leaves an account that holds it; a card is paid by moving into it.
+  const sourceAccounts = useMemo(
+    () => activeAccounts.filter((account) => account.kind !== 'credit'),
+    [activeAccounts]
+  )
+
   const accountMap = useMemo(
     () => new Map((snapshot?.accounts ?? []).map((account) => [account.id, account])),
     [snapshot]
@@ -54,24 +62,26 @@ export function Transfers() {
   const [amount, setAmount] = useState<string>('')
   const [occurredOn, setOccurredOn] = useState<string>(todayISO())
   const [memo, setMemo] = useState<string>('')
+  // Kept between transfers, so a run of round-ups is labelled once.
+  const [category, setCategory] = useState<{ name: string; id: string | null }>({
+    name: 'Transfer',
+    id: null
+  })
   const [saving, setSaving] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
   const [recentTransfers, setRecentTransfers] = useState<TransactionRow[]>([])
 
-  // Keep selection aligned with available active accounts
+  // Keep the selection on live accounts: the source on one that can send money,
+  // the destination on any other.
   useEffect(() => {
-    if (activeAccounts.length >= 2) {
-      if (!fromId || !accountMap.has(fromId)) {
-        setFromId(activeAccounts[0].id)
-      }
-      if (!toId || !accountMap.has(toId) || toId === (fromId || activeAccounts[0].id)) {
-        const next = activeAccounts.find((a) => a.id !== (fromId || activeAccounts[0].id))
-        if (next) setToId(next.id)
-      }
-    } else if (activeAccounts.length === 1) {
-      if (!fromId) setFromId(activeAccounts[0].id)
+    const source = sourceAccounts.find((a) => a.id === fromId) ?? sourceAccounts[0]
+    if (!source) return
+    if (source.id !== fromId) setFromId(source.id)
+    if (!toId || !accountMap.has(toId) || toId === source.id) {
+      const next = activeAccounts.find((a) => a.id !== source.id)
+      if (next) setToId(next.id)
     }
-  }, [activeAccounts, accountMap, fromId, toId])
+  }, [activeAccounts, sourceAccounts, accountMap, fromId, toId])
 
   // Load recent transfers
   useEffect(() => {
@@ -131,6 +141,10 @@ export function Transfers() {
       setError('Choose two different accounts')
       return
     }
+    if (fromAccount?.kind === 'credit') {
+      setError(CREDIT_CARD_SOURCE_REFUSAL)
+      return
+    }
     if (amountCents <= 0) {
       setError('Enter a transfer amount')
       return
@@ -149,7 +163,8 @@ export function Transfers() {
         amountCents,
         occurredOn,
         memo: memo.trim() || `Transfer to ${toAccount.name}`,
-        category: 'Transfer'
+        category: category.name.trim() || 'Transfer',
+        categoryId: category.name.trim() ? category.id : null
       })
       if (ok) {
         setAmount('')
@@ -179,7 +194,7 @@ export function Transfers() {
     }
   }
 
-  if (activeAccounts.length < 2) {
+  if (activeAccounts.length < 2 || sourceAccounts.length === 0) {
     return (
       <>
         <header className="page-head">
@@ -195,7 +210,7 @@ export function Transfers() {
           <EmptyState
             icon={<ArrowRightLeft size={24} />}
             title="Need at least two accounts"
-            body="You need at least two active accounts to transfer money between them."
+            body="You need two active accounts, and at least one that is not a credit card, to move money between them."
             action={
               <Button variant="primary" icon={<Plus size={16} />} onClick={() => go('accounts')}>
                 Add an account
@@ -238,7 +253,7 @@ export function Transfers() {
                     value={fromId}
                     onChange={(event) => setFromId(event.target.value)}
                   >
-                    {activeAccounts.map((account) => (
+                    {sourceAccounts.map((account) => (
                       <option key={account.id} value={account.id}>
                         {account.name} (
                         {account.kind === 'credit'
@@ -254,8 +269,13 @@ export function Transfers() {
                   <button
                     type="button"
                     className="transfer-swap-btn"
-                    title="Swap from and to accounts"
+                    title={
+                      toAccount?.kind === 'credit'
+                        ? 'A credit card can only receive a transfer'
+                        : 'Swap from and to accounts'
+                    }
                     aria-label="Swap accounts"
+                    disabled={toAccount?.kind === 'credit'}
                     onClick={swapAccounts}
                   >
                     <ArrowRightLeft size={16} />
@@ -379,14 +399,28 @@ export function Transfers() {
                 </Field>
               </div>
 
-              <Field label="Description / Memo" hint="Optional label saved with both transaction legs">
-                <input
-                  className="input"
-                  value={memo}
-                  placeholder={toAccount ? `Transfer to ${toAccount.name}` : 'Transfer'}
-                  onChange={(event) => setMemo(event.target.value)}
-                />
-              </Field>
+              <div className="form-grid">
+                <Field
+                  label="Category"
+                  hint="Pick one you use, or type a new one like Round-up"
+                >
+                  <CategoryInput
+                    listId="transfer-category-options"
+                    value={category.name}
+                    placeholder="Transfer"
+                    onChange={(name, id) => setCategory({ name, id })}
+                  />
+                </Field>
+
+                <Field label="Description" hint="Optional, saved on both accounts">
+                  <input
+                    className="input"
+                    value={memo}
+                    placeholder={toAccount ? `Transfer to ${toAccount.name}` : 'Transfer'}
+                    onChange={(event) => setMemo(event.target.value)}
+                  />
+                </Field>
+              </div>
 
               {amountCents > 0 && fromAccount && toAccount && fromId !== toId && (
                 <div className="transfer-summary-box">
@@ -459,7 +493,9 @@ export function Transfers() {
                           <span className="transfer-route-arrow">➔</span>
                           <span>{destName}</span>
                         </div>
-                        {item.memo && <div className="cell-sub">{item.memo}</div>}
+                        <div className="cell-sub">
+                          {[item.category, item.memo].filter(Boolean).join(' · ')}
+                        </div>
                       </td>
                       <td className="right">
                         <Money cents={magnitude} currency={currency} className="cell-strong" />

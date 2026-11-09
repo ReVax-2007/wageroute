@@ -164,7 +164,7 @@ export function insertPaycheckRecord(
       amountCents: input.incomeCents,
       occurredOn: input.receivedOn,
       memo: input.source,
-      category: 'Paycheck',
+      category: 'Income',
       paycheckId
     })
   }

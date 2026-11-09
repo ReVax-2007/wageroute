@@ -470,7 +470,7 @@ Available on live credit accounts only, on either device.
 
 - Source accounts come from `cardPaymentSources` in `src/shared/accounts.ts`: active, non-credit, non-investment accounts. With none of them, the form names the problem and the button stays off.
 - The default amount is the current amount owed.
-- The action posts a paired `transfer`: negative leg on the source, positive leg on the card, memo `Payment · <card name>`, category `Credit payment` (which both writers fold into the internal **Debt** category).
+- The action posts a paired `transfer`: negative leg on the source, positive leg on the card, memo `Payment · <card name>`, category **Debt**.
 - Paying more than owed is allowed; the card balance becomes positive and displays as zero owed.
 
 ### Which accounts a picker offers
@@ -608,12 +608,13 @@ The dedicated **Transfers** screen (`transfers`) moves money between two account
 
 ### Capabilities
 
-- **Single-step movement**: Select source and destination accounts, amount, date and an optional memo.
-- **Account swap**: A one-click swap button inverts the from and to accounts.
+- **Single-step movement**: Select source and destination accounts, amount, date, a category and an optional description. The category box suggests the ledger's categories and takes a new name (`Round-up`, say). Both legs are filed under it, and it stays filled in for the next transfer. A small labelled move, like a round-up, is therefore one entry ([ADR 0032](decisions/0032-a-typed-category-is-the-persons-label.md)).
+- **Account swap**: A one-click swap button inverts the from and to accounts. It is disabled when the destination is a credit card.
+- **A card only receives**: credit cards are left out of **From account**, and both devices' writers refuse a transfer out of one. Paying a card is a transfer into it; spending on it is an expense.
 - **Live balance previews**: Previews the current balance and the post-transfer balance on both accounts simultaneously (including debt reduction for credit card accounts).
 - **Quick-amount presets**: One-click chips for common increments (`+$50`, `+$100`, `+$250`, `+$500`) plus contextual shortcuts to pay a card in full or transfer the entire available balance.
 - **Ledger-backed**: Records two linked transaction legs with a shared `transfer_group_id` atomically.
-- **Recent transfers table**: Displays recent transfers with date, route (source ➔ destination), amount, and deletion actions that remove both legs together.
+- **Recent transfers table**: Displays recent transfers with date, route (source ➔ destination), category and description, amount, and deletion actions that remove both legs together.
 
 ---
 

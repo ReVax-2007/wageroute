@@ -103,6 +103,19 @@ export function assertOneOf<T extends string>(value: unknown, allowed: readonly 
   return value as T
 }
 
+/** The sentence both devices give, and the forms show, for a card as a source. */
+export const CREDIT_CARD_SOURCE_REFUSAL =
+  'Money can’t be transferred out of a credit card. To pay a card, transfer into it'
+
+/**
+ * A transfer moves money the person holds. A credit card holds none: paying it
+ * is a transfer into it, and spending on it is an expense, so a card is never
+ * the side a transfer leaves from.
+ */
+export function assertTransferSource(kind: AccountKind): void {
+  if (kind === 'credit') throw new RepositoryError('VALIDATION', CREDIT_CARD_SOURCE_REFUSAL)
+}
+
 export function assertDate(value: unknown, label: string): string {
   if (!isISODate(value)) throw new RepositoryError('VALIDATION', `${label} must be a date in YYYY-MM-DD form`)
   return value

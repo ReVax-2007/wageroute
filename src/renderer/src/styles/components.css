@@ -68,8 +68,16 @@
   padding: 20px 16px 18px;
   background: linear-gradient(180deg, var(--bg-deep-2) 0%, var(--bg-deep) 100%);
   border-right: 1px solid var(--border);
-  overflow: hidden;
+  /* A short window scrolls the sidebar rather than squeezing its blocks:
+     a flex child with overflow hidden can shrink below its text and clip it. */
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
   -webkit-app-region: drag;
+}
+
+.sidebar > * {
+  flex-shrink: 0;
 }
 
 .is-mac .sidebar {
@@ -78,7 +86,9 @@
 
 .sidebar button,
 .sidebar a,
-.sidebar input {
+.sidebar input,
+.sidebar-stat,
+.sidebar-foot {
   -webkit-app-region: no-drag;
 }
 

@@ -59,6 +59,7 @@ npm run postinstall
 | `npm run lint` | `node scripts/lint.mjs` | Repository-local checks: no `debugger`, no `console.log`/`console.debug`, no `@ts-ignore`/`@ts-expect-error`, no `any` cast and no `: any` annotation |
 | `npm test` | `node --import tsx --test` (seventy-three files listed explicitly) | Domain, cadence, categories, credit, payoff, history, accounts, importer, statements, QIF, backup-example, export round-trip, merge, write rules, migration, maintenance, entries, files, the crash log's two writers, the window's document-load watch, seed, users, product model, reconciliation, paycheck plan, device round-trip, allocator property, dashboard selectors, finance maths, dialog focus and save guard, reconciliation dialog, wall chips and next-check, bill-prompt dates, entry-dialog links, preload bridge, window security, repository tests, the encryption layer (key wraps, the ledger transition, the launch decision, the sealed export in both directions, the diagnostics report), the phone's vault and its no-cipher guard, and the Pocket snapshot/backup/write parity cases |
 | `npm run notices` | `node scripts/third-party-notices.mjs` | Regenerate `THIRD-PARTY-NOTICES.txt` from the production tree in `package-lock.json`; also runs as `prebuild` |
+| `npm run icons` | `electron scripts/icons.mjs` | Render every logo and app icon from the one SVG master, `build/icon.svg`: copies it to the website, Pocket and the desktop sidebar, and writes the PNG, ICNS and ICO files platforms require (the `.icns` needs macOS) |
 | `npm run screenshots` | `node scripts/screenshots.mjs` | Launch the built app (`out/`, so run `npm run build` first) on the demo profile in a throwaway home folder and write the landing page's dark and light screenshots to `assets/screenshots/`; never opens a real ledger |
 | `npm run typecheck` | node + web + pocket type checks | All three TypeScript projects |
 | `npm run typecheck:node` | `tsc --noEmit -p tsconfig.node.json` | Main, preload, shared, config |
@@ -68,10 +69,11 @@ npm run postinstall
 | `npm run pocket:dev` | `vite --config src/pocket/vite.config.ts` | Pocket with hot reload, normally in a phone-sized browser window |
 | `npm run pocket:build` | `vite build --config src/pocket/vite.config.ts` | Static shell in `dist-pocket/` (manifest, service worker, icons, hashed assets) |
 | `npm run pocket:preview` | `vite preview --config src/pocket/vite.config.ts` | Serve the built Pocket shell locally; use `-- --port 4175` to pick a port |
-| `npm run dist` | build + `electron-builder --publish never` | Current platform |
-| `npm run dist:mac` | build + `electron-builder --mac --x64 --arm64 --publish never` | DMG, arm64 + x64 |
-| `npm run dist:win` | build + `electron-builder --win --x64 --arm64 --publish never` | NSIS + MSI + portable + zip (MSI needs Windows: WiX) |
-| `npm run dist:linux` | build + `electron-builder --linux --publish never` | AppImage + deb + rpm |
+| `npm run dist` | build + `electron-builder --publish never`, version stamped `-dev` | Current platform |
+| `npm run dist:local` | build + `electron-builder --dir`, version stamped `-dev` | Unpacked app for this machine in `release/`, for installing a local build |
+| `npm run dist:mac` | build + `electron-builder --mac --x64 --arm64 --publish never`, version stamped `-dev` | DMG, arm64 + x64 |
+| `npm run dist:win` | build + `electron-builder --win --x64 --arm64 --publish never`, version stamped `-dev` | NSIS + MSI + portable + zip (MSI needs Windows: WiX) |
+| `npm run dist:linux` | build + `electron-builder --linux --publish never`, version stamped `-dev` | AppImage + deb + rpm |
 
 Architectures are passed as flags, not as `arch` lists in `electron-builder.yml`: electron-builder merges a target's declared arches into every build, so a declared list overrides `--x64`.
 
