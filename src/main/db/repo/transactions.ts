@@ -28,7 +28,7 @@ import {
   updateRow,
   type Db
 } from './common'
-import { TRANSACTION_KINDS } from '@shared/writeRules'
+import { TRANSACTION_KINDS, assertTransferSource } from '@shared/writeRules'
 import { ensureCategory } from './categories'
 import { reconcileBillReserve } from './bills'
 import { accountBalanceOn } from './accounts'
@@ -455,6 +455,7 @@ export function createTransaction(db: Db, userId: string, input: TransactionInpu
     if (input.counterAccountId === input.accountId) {
       throw new RepositoryError('VALIDATION', 'Choose two different accounts')
     }
+    assertTransferSource(account.kind)
     requireAccount(db, userId, input.counterAccountId)
     const counterAccountId = input.counterAccountId
 

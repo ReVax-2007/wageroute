@@ -21,6 +21,7 @@ All notable changes to WageRoute are documented here. The format follows [Keep a
 ### Changed
 
 - **Transfers take a category** ([ADR 0032](docs/decisions/0032-a-typed-category-is-the-persons-label.md)). The Transfers screen has a Category box next to the description, with the ledger's categories suggested and new names accepted. A round-up or small sweep between accounts is now one labelled entry instead of a transfer plus a relabel. The category stays filled in between transfers, and the recent list shows it.
+- **A transfer can no longer leave a credit card**, on either device. The Transfers screen leaves cards out of the **From account** list and disables the swap when the destination is a card. The entry dialog and Pocket's entry sheet refuse a card as the source, and both writers refuse it with the same sentence from `src/shared/writeRules.ts`. Paying a card, which is a transfer into it, works as before. Transfers already in a ledger are not touched, and neither are imports or merges.
 - **A typed category is kept as typed** on both devices. `Round-up`, `Credit payment` and `Paycheck` are no longer renamed to `Transfer`, `Debt` and `Income`. The app's own sweep, card-payment and paycheck rows still go to those seeded categories, so they are unchanged. There is no schema change.
 
 ### Fixed

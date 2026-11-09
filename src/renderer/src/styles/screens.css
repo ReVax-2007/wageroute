@@ -2049,7 +2049,12 @@ span.wizard-step-chip {
   transition: all 0.15s ease;
 }
 
-.transfer-swap-btn:hover {
+.transfer-swap-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.transfer-swap-btn:hover:not(:disabled) {
   background: var(--panel-3);
   color: var(--text);
   border-color: var(--border-strong);

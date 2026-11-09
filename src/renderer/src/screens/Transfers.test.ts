@@ -80,7 +80,17 @@ const ACCOUNT_2 = {
   cashCents: 1000000
 }
 
-function makeSnapshot(accounts = [ACCOUNT_1, ACCOUNT_2]) {
+const CARD = {
+  ...ACCOUNT_2,
+  id: 'acc-card',
+  name: 'Visa',
+  kind: 'credit' as const,
+  creditLimitCents: 500000,
+  balanceCents: -20000,
+  cashCents: 0
+}
+
+function makeSnapshot(accounts: unknown[] = [ACCOUNT_1, ACCOUNT_2]) {
   return {
     user: {
       id: 'user-1',
@@ -238,6 +248,61 @@ test('Transfers screen mounts with accounts and records a transfer in one step',
   assert.equal(recorded.category, 'Round-up')
   assert.equal(recorded.categoryId, null, 'a new name has no row yet; the ledger makes one')
 
+  root.unmount()
+  host.remove()
+})
+
+test('a credit card is never offered as the account money leaves', async () => {
+  const { useFinanceStore } = await import('../store/useFinanceStore')
+  const { parseSettings } = await import('@shared/settings')
+  const { Transfers } = await import('./Transfers')
+  const { createRoot } = await import('react-dom/client')
+
+  // The card is listed first, so a default of "the first account" would pick it.
+  useFinanceStore.setState({
+    snapshot: makeSnapshot([{ ...CARD, sortOrder: 0 }, ACCOUNT_1]) as never,
+    settings: parseSettings({ currency: 'USD' }),
+    queryTransactions: async () => ({ rows: [], total: 0 })
+  })
+
+  const host = window.document.createElement('div')
+  window.document.body.appendChild(host)
+  const root = createRoot(host)
+  await act(async () => {
+    root.render(createElement(Transfers))
+  })
+
+  const [from, to] = [...host.querySelectorAll<HTMLSelectElement>('select')]
+  assert.deepEqual([...from.options].map((option) => option.value), [ACCOUNT_1.id])
+  assert.equal(from.value, ACCOUNT_1.id)
+  assert.ok([...to.options].some((option) => option.value === CARD.id), 'a card can still be paid')
+  assert.equal(to.value, CARD.id)
+  const swap = host.querySelector<HTMLButtonElement>('button[aria-label="Swap accounts"]')
+  assert.ok(swap?.disabled, 'swapping would make the card the source')
+
+  root.unmount()
+  host.remove()
+})
+
+test('with only cards there is nothing to transfer from', async () => {
+  const { useFinanceStore } = await import('../store/useFinanceStore')
+  const { parseSettings } = await import('@shared/settings')
+  const { Transfers } = await import('./Transfers')
+  const { createRoot } = await import('react-dom/client')
+
+  useFinanceStore.setState({
+    snapshot: makeSnapshot([CARD, { ...CARD, id: 'acc-card-2', name: 'Mastercard' }]) as never,
+    settings: parseSettings({ currency: 'USD' }),
+    queryTransactions: async () => ({ rows: [], total: 0 })
+  })
+
+  const host = window.document.createElement('div')
+  window.document.body.appendChild(host)
+  const root = createRoot(host)
+  await act(async () => {
+    root.render(createElement(Transfers))
+  })
+  assert.match(host.textContent ?? '', /not a credit card/)
   root.unmount()
   host.remove()
 })

@@ -121,6 +121,27 @@ test('a transfer leg keeps its account and kind, and edits mirror onto its twin'
   assert.deepEqual(legs, [-30_000, 30_000])
 })
 
+test('a transfer cannot leave a credit card, but can pay one', () => {
+  const db = freshDb()
+  const chequing = account(db, 'Chequing')
+  const card = account(db, 'Visa', 'credit')
+
+  assert.throws(
+    () => entry(db, card, { kind: 'transfer', amountCents: 5_000, counterAccountId: chequing }),
+    /can’t be transferred out of a credit card/
+  )
+  assert.equal(listTransactions(db, USER_ID).length, 0, 'a refused transfer writes neither leg')
+
+  entry(db, chequing, { kind: 'transfer', amountCents: 5_000, counterAccountId: card })
+  const legs = listTransactions(db, USER_ID)
+    .map((row) => [row.accountId, row.amountCents])
+    .sort((a, b) => Number(a[1]) - Number(b[1]))
+  assert.deepEqual(legs, [
+    [chequing, -5_000],
+    [card, 5_000]
+  ])
+})
+
 test('a labelled transfer is one entry and both legs carry the name as typed', () => {
   const db = freshDb()
   const chequing = account(db, 'Chequing')

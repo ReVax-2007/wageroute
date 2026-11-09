@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { todayISO } from '@shared/dates'
+import { CREDIT_CARD_SOURCE_REFUSAL } from '@shared/writeRules'
 import { parseMoneyToCents } from '@shared/money'
 import type { TransactionInput, TransactionKind } from '@shared/types'
 import { CategoryInput } from '../CategoryInput'
@@ -64,6 +65,10 @@ export function EntryDialog({ onClose }: { onClose: () => void }) {
       }
       if (form.counterAccountId === form.accountId) {
         setError('Choose two different accounts')
+        return
+      }
+      if (accounts.find((account) => account.id === form.accountId)?.kind === 'credit') {
+        setError(CREDIT_CARD_SOURCE_REFUSAL)
         return
       }
     }

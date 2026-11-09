@@ -1029,6 +1029,7 @@ export function createEntry(tables: ImportTables, input: TransactionInput): Writ
     if (input.counterAccountId === input.accountId) {
       throw new RepositoryError('VALIDATION', 'Choose two different accounts')
     }
+    rules.assertTransferSource(text(account, 'kind') as AccountKind)
     requireAccountRow(resolved.tables, input.counterAccountId)
     const groupId = crypto.randomUUID()
     const legs = transferLegs(amountCents)

@@ -5,6 +5,7 @@ import { formatDateLabel, todayISO } from '@shared/dates'
 import { entryDeletionWords } from '@shared/deletion'
 import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
 import type { TransactionInput, TransactionKind, TransactionRow } from '@shared/types'
+import { CREDIT_CARD_SOURCE_REFUSAL } from '@shared/writeRules'
 import { TRANSACTION_KIND_LABEL } from '../../renderer/src/lib/finance'
 import { Field } from '../components/Field'
 import { DeleteConfirm } from '../components/DeleteConfirm'
@@ -135,6 +136,12 @@ function EntrySheet({ row, onClose }: { row: TransactionRow | null; onClose: () 
       }
       if (form.counterAccountId === form.accountId) {
         setError('Choose two different accounts')
+        return
+      }
+      // Only a new transfer is checked: an existing pair's receiving leg may
+      // stand on a card, and its accounts are locked anyway.
+      if (!row && accounts.some((account) => text(account, 'id') === form.accountId && text(account, 'kind') === 'credit')) {
+        setError(CREDIT_CARD_SOURCE_REFUSAL)
         return
       }
     }
