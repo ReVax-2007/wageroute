@@ -1249,6 +1249,9 @@ footer {
   display: flex;
   gap: 20px;
   list-style: none;
+  flex-wrap: wrap;
+  row-gap: 8px;
+  max-width: 100%;
 }
 
 .footer-links a {
