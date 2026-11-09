@@ -28,7 +28,7 @@ import {
   updateRow,
   type Db
 } from './common'
-import { TRANSACTION_KINDS } from '@shared/writeRules'
+import { TRANSACTION_KINDS, assertTransferSource } from '@shared/writeRules'
 import { ensureCategory } from './categories'
 import { reconcileBillReserve } from './bills'
 import { accountBalanceOn } from './accounts'
@@ -313,16 +313,6 @@ export interface NewTransactionInput {
   roundUpSourceId?: string | null
 }
 
-/**
- * Labels the app writes itself belong to a seeded category, so the list stays
- * short instead of gaining one row per internal payment type.
- */
-const INTERNAL_CATEGORY_ALIASES: Record<string, string> = {
-  'round-up': 'Transfer',
-  'credit payment': 'Debt',
-  paycheck: 'Income'
-}
-
 function resolveCategory(
   db: Db,
   userId: string,
@@ -338,8 +328,10 @@ function resolveCategory(
     if (!row) throw new RepositoryError('NOT_FOUND', 'Category not found')
     return { id: row.id, name: row.name }
   }
-  const raw = optionalText(input.category, 'Category', 60) ?? 'Uncategorized'
-  const name = INTERNAL_CATEGORY_ALIASES[raw.toLocaleLowerCase()] ?? raw
+  // A typed name is the person's own label and is kept as typed. The app's own
+  // writers (a round-up sweep, a card payment, a paycheck) name a seeded
+  // category directly, so nothing here has to translate them.
+  const name = optionalText(input.category, 'Category', 60) ?? 'Uncategorized'
   return { id: ensureCategory(db, userId, name, kind), name }
 }
 
@@ -422,7 +414,7 @@ function applyRoundUp(
     amountCents: -sweepCents,
     occurredOn: input.occurredOn,
     memo,
-    category: 'Round-up',
+    category: 'Transfer',
     counterAccountId: settings.roundUpAccountId,
     transferGroupId: groupId,
     roundUpSourceId: input.sourceId
@@ -433,7 +425,7 @@ function applyRoundUp(
     amountCents: sweepCents,
     occurredOn: input.occurredOn,
     memo,
-    category: 'Round-up',
+    category: 'Transfer',
     counterAccountId: input.accountId,
     transferGroupId: groupId,
     roundUpSourceId: input.sourceId
@@ -463,10 +455,14 @@ export function createTransaction(db: Db, userId: string, input: TransactionInpu
     if (input.counterAccountId === input.accountId) {
       throw new RepositoryError('VALIDATION', 'Choose two different accounts')
     }
+    assertTransferSource(account.kind)
     requireAccount(db, userId, input.counterAccountId)
     const counterAccountId = input.counterAccountId
 
     return db.transaction(() => {
+      // Resolved once so both legs carry the same category row, whatever text
+      // came with the id.
+      const resolved = resolveCategory(db, userId, kind, { category, categoryId })
       const legs = transferLegs(amountCents)
       const groupId = randomUUID()
       const outId = insertTransactionRow(db, userId, {
@@ -475,8 +471,8 @@ export function createTransaction(db: Db, userId: string, input: TransactionInpu
         amountCents: legs.outCents,
         occurredOn,
         memo,
-        category,
-        categoryId,
+        category: resolved.name,
+        categoryId: resolved.id,
         counterAccountId,
         transferGroupId: groupId,
         paycheckId: input.paycheckId ?? null
@@ -487,7 +483,8 @@ export function createTransaction(db: Db, userId: string, input: TransactionInpu
         amountCents: legs.inCents,
         occurredOn,
         memo,
-        category,
+        category: resolved.name,
+        categoryId: resolved.id,
         counterAccountId: input.accountId,
         transferGroupId: groupId,
         paycheckId: input.paycheckId ?? null

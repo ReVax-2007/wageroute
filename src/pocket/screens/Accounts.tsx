@@ -718,7 +718,7 @@ function PayCardSheet({
             amountCents: typed,
             occurredOn,
             memo: `Payment · ${card.name}`,
-            category: 'Credit payment'
+            category: 'Debt'
           }),
         'Card payment recorded.'
       )

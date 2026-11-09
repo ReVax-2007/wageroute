@@ -539,6 +539,61 @@ test('the account question counts the rows in the other accounts too', () => {
   assert.equal(entries(removed).length, 0, 'no half-pair or lone sweep is left behind')
 })
 
+test('the phone refuses a transfer out of a card with the desktop’s sentence', () => {
+  const tables = ledger()
+  const refused = refusal(() =>
+    createEntry(tables, {
+      accountId: 'card',
+      kind: 'transfer',
+      amountCents: 5_000,
+      occurredOn: todayISO(),
+      memo: '',
+      category: 'Transfer',
+      counterAccountId: 'chk'
+    })
+  )
+  assert.equal(refused.code, 'VALIDATION')
+  assert.match(refused.message, /can’t be transferred out of a credit card/)
+
+  const paid = createEntry(tables, {
+    accountId: 'chk',
+    kind: 'transfer',
+    amountCents: 5_000,
+    occurredOn: todayISO(),
+    memo: '',
+    category: 'Debt',
+    counterAccountId: 'card'
+  })
+  assert.deepEqual(
+    entries(paid.tables).map((row) => [text(row, 'account_id'), cents(row, 'amount_cents')]),
+    [
+      ['chk', -5_000],
+      ['card', 5_000]
+    ]
+  )
+})
+
+test('a transfer keeps the category name the person typed, as the desktop does', () => {
+  const moved = createEntry(ledger(), {
+    accountId: 'chk',
+    kind: 'transfer',
+    amountCents: 37,
+    occurredOn: todayISO(),
+    memo: 'Coffee change',
+    category: 'Round-up',
+    counterAccountId: 'sav'
+  })
+  const legs = entries(moved.tables)
+  assert.deepEqual(
+    legs.map((leg) => text(leg, 'category')),
+    ['Round-up', 'Round-up']
+  )
+  assert.ok(
+    moved.tables.categories.some((row) => isLive(row) && text(row, 'name') === 'Round-up'),
+    'the new name becomes a category the desktop will list'
+  )
+})
+
 test('a transfer is two legs the phone cannot pull apart', () => {
   const tables = ledger()
   const moved = createEntry(tables, {
