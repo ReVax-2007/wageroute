@@ -17,7 +17,7 @@ import {
 import { totalWealthCents } from '@shared/accounts'
 import { formatMoneyCompact } from '@shared/money'
 import type { AppSettings } from '@shared/types'
-import mark from '../assets/wageroute-mark.png'
+import mark from '../assets/wageroute-mark.svg'
 import { cashOnHand } from '../lib/finance'
 import { useFinanceStore, type Screen } from '../store/useFinanceStore'
 import { Button } from './ui'
