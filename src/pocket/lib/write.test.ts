@@ -539,6 +539,27 @@ test('the account question counts the rows in the other accounts too', () => {
   assert.equal(entries(removed).length, 0, 'no half-pair or lone sweep is left behind')
 })
 
+test('a transfer keeps the category name the person typed, as the desktop does', () => {
+  const moved = createEntry(ledger(), {
+    accountId: 'chk',
+    kind: 'transfer',
+    amountCents: 37,
+    occurredOn: todayISO(),
+    memo: 'Coffee change',
+    category: 'Round-up',
+    counterAccountId: 'sav'
+  })
+  const legs = entries(moved.tables)
+  assert.deepEqual(
+    legs.map((leg) => text(leg, 'category')),
+    ['Round-up', 'Round-up']
+  )
+  assert.ok(
+    moved.tables.categories.some((row) => isLive(row) && text(row, 'name') === 'Round-up'),
+    'the new name becomes a category the desktop will list'
+  )
+})
+
 test('a transfer is two legs the phone cannot pull apart', () => {
   const tables = ledger()
   const moved = createEntry(tables, {

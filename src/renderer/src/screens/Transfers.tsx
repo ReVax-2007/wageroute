@@ -9,6 +9,7 @@ import { formatDateLabel, todayISO } from '@shared/dates'
 import { entryDeletionWords } from '@shared/deletion'
 import { centsToEditable, currencySymbol, formatMoney, parseMoneyToCents } from '@shared/money'
 import type { AccountWithBalance, TransactionRow } from '@shared/types'
+import { CategoryInput } from '../components/CategoryInput'
 import { Button, Card, EmptyState, Field, IconButton, Money, MoneyInput } from '../components/ui'
 import { DataTable } from '../components/DataTable'
 import { accountDisplayBalanceCents } from '../lib/finance'
@@ -54,6 +55,11 @@ export function Transfers() {
   const [amount, setAmount] = useState<string>('')
   const [occurredOn, setOccurredOn] = useState<string>(todayISO())
   const [memo, setMemo] = useState<string>('')
+  // Kept between transfers, so a run of round-ups is labelled once.
+  const [category, setCategory] = useState<{ name: string; id: string | null }>({
+    name: 'Transfer',
+    id: null
+  })
   const [saving, setSaving] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
   const [recentTransfers, setRecentTransfers] = useState<TransactionRow[]>([])
@@ -149,7 +155,8 @@ export function Transfers() {
         amountCents,
         occurredOn,
         memo: memo.trim() || `Transfer to ${toAccount.name}`,
-        category: 'Transfer'
+        category: category.name.trim() || 'Transfer',
+        categoryId: category.name.trim() ? category.id : null
       })
       if (ok) {
         setAmount('')
@@ -379,14 +386,28 @@ export function Transfers() {
                 </Field>
               </div>
 
-              <Field label="Description / Memo" hint="Optional label saved with both transaction legs">
-                <input
-                  className="input"
-                  value={memo}
-                  placeholder={toAccount ? `Transfer to ${toAccount.name}` : 'Transfer'}
-                  onChange={(event) => setMemo(event.target.value)}
-                />
-              </Field>
+              <div className="form-grid">
+                <Field
+                  label="Category"
+                  hint="Pick one you use, or type a new one like Round-up"
+                >
+                  <CategoryInput
+                    listId="transfer-category-options"
+                    value={category.name}
+                    placeholder="Transfer"
+                    onChange={(name, id) => setCategory({ name, id })}
+                  />
+                </Field>
+
+                <Field label="Description" hint="Optional, saved on both accounts">
+                  <input
+                    className="input"
+                    value={memo}
+                    placeholder={toAccount ? `Transfer to ${toAccount.name}` : 'Transfer'}
+                    onChange={(event) => setMemo(event.target.value)}
+                  />
+                </Field>
+              </div>
 
               {amountCents > 0 && fromAccount && toAccount && fromId !== toId && (
                 <div className="transfer-summary-box">
@@ -459,7 +480,9 @@ export function Transfers() {
                           <span className="transfer-route-arrow">➔</span>
                           <span>{destName}</span>
                         </div>
-                        {item.memo && <div className="cell-sub">{item.memo}</div>}
+                        <div className="cell-sub">
+                          {[item.category, item.memo].filter(Boolean).join(' · ')}
+                        </div>
                       </td>
                       <td className="right">
                         <Money cents={magnitude} currency={currency} className="cell-strong" />

@@ -18,6 +18,15 @@ All notable changes to WageRoute are documented here. The format follows [Keep a
   - **Phone:** the vault gains a v2 format — a random data key wrapped by the passphrase, a PIN (PBKDF2 at 2 000 000 rounds) and a passkey's PRF output (`rpId` is the page's own hostname). A v1 vault stays readable and becomes v2 only when a PIN or passkey is added, in one re-seal. On v2, changing the phrase is a rewrap. The locked screen gains **Use fingerprint or face**.
 - **A passkey is never the only way in**, on either device: the key file and the vault marker refuse it, and every removal that would leave it alone is refused with a sentence that says why. On the phone, the passphrase stays while a passkey exists.
 
+### Changed
+
+- **Transfers take a category** ([ADR 0032](docs/decisions/0032-a-typed-category-is-the-persons-label.md)). The Transfers screen has a Category box next to the description, with the ledger's categories suggested and new names accepted. A round-up or small sweep between accounts is now one labelled entry instead of a transfer plus a relabel. The category stays filled in between transfers, and the recent list shows it.
+- **A typed category is kept as typed** on both devices. `Round-up`, `Credit payment` and `Paycheck` are no longer renamed to `Transfer`, `Debt` and `Income`. The app's own sweep, card-payment and paycheck rows still go to those seeded categories, so they are unchanged. There is no schema change.
+
+### Fixed
+
+- A desktop transfer posted with a `categoryId` filed its receiving leg by the accompanying text instead of the id. Both legs now get the same resolved category.
+
 ### Known gaps
 
 - Windows Hello and real handsets have not run any of this. The desktop ceremony window was driven in Electron 45 on macOS with a CDP virtual authenticator; the phone's passkey path is unit-tested with a stand-in ceremony. See ADR 0031 for what was measured and what was not.

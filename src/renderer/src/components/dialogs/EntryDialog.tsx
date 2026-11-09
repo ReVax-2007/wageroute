@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { categoryKey } from '@shared/categories'
 import { todayISO } from '@shared/dates'
 import { parseMoneyToCents } from '@shared/money'
 import type { TransactionInput, TransactionKind } from '@shared/types'
+import { CategoryInput } from '../CategoryInput'
 import { Button, Field, Modal, MoneyInput } from '../ui'
 import { TRANSACTION_KIND_LABEL } from '../../lib/finance'
 import { useFinanceStore } from '../../store/useFinanceStore'
@@ -17,7 +17,6 @@ export function EntryDialog({ onClose }: { onClose: () => void }) {
   const createTransaction = useFinanceStore((state) => state.createTransaction)
 
   const accounts = (snapshot?.accounts ?? []).filter((account) => !account.isArchived)
-  const categories = snapshot?.categories ?? []
   const bills = snapshot?.bills ?? []
   const goals = (snapshot?.goals ?? []).filter((goal) => !goal.isArchived)
   const [form, setForm] = useState({
@@ -38,11 +37,6 @@ export function EntryDialog({ onClose }: { onClose: () => void }) {
   // the reference its meaning, and a hidden stale id would be posted silently.
   const setKind = (kind: TransactionKind) => {
     setForm((current) => ({ ...current, kind, billId: '', goalId: '' }))
-  }
-
-  const setCategory = (value: string) => {
-    const match = categories.find((category) => categoryKey(category.name) === categoryKey(value))
-    setForm((current) => ({ ...current, category: value, categoryId: match?.id ?? null }))
   }
 
   const submit = async () => {
@@ -229,17 +223,11 @@ export function EntryDialog({ onClose }: { onClose: () => void }) {
           label="Category"
           hint="Pick one you already use, or name a new one"
         >
-          <input
-            className="input"
-            list="entry-category-options"
+          <CategoryInput
+            listId="entry-category-options"
             value={form.category}
-            onChange={(event) => setCategory(event.target.value)}
+            onChange={(category, categoryId) => setForm({ ...form, category, categoryId })}
           />
-          <datalist id="entry-category-options">
-            {categories.map((category) => (
-              <option key={category.id} value={category.name} />
-            ))}
-          </datalist>
         </Field>
         <Field label="Description" hint="Shown in the ledger and the dashboard feed">
           <input

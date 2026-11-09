@@ -191,6 +191,18 @@ test('Transfers screen mounts with accounts and records a transfer in one step',
   assert.match(host.textContent ?? '', /High Interest Savings/)
   assert.match(host.textContent ?? '', /Savings boost/)
 
+  assert.match(host.textContent ?? '', /Transfer · Savings boost/, 'a recent transfer shows its category')
+
+  // Label it the way the person files these
+  const categoryBox = host.querySelector<HTMLInputElement>('input[list="transfer-category-options"]')
+  assert.ok(categoryBox, 'the transfer form has a category box')
+  assert.equal(categoryBox.value, 'Transfer')
+  await act(async () => {
+    const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!
+    setValue.call(categoryBox, 'Round-up')
+    categoryBox.dispatchEvent(new window.Event('input', { bubbles: true }))
+  })
+
   // Click quick add +$50 chip
   const quick50 = [...host.querySelectorAll('button')].find(
     (el) => el.textContent?.trim() === '+$50'
@@ -216,11 +228,15 @@ test('Transfers screen mounts with accounts and records a transfer in one step',
     counterAccountId: string
     kind: string
     amountCents: number
+    category: string
+    categoryId: string | null
   }
   assert.equal(recorded.accountId, ACCOUNT_1.id)
   assert.equal(recorded.counterAccountId, ACCOUNT_2.id)
   assert.equal(recorded.kind, 'transfer')
   assert.equal(recorded.amountCents, 5000)
+  assert.equal(recorded.category, 'Round-up')
+  assert.equal(recorded.categoryId, null, 'a new name has no row yet; the ledger makes one')
 
   root.unmount()
   host.remove()

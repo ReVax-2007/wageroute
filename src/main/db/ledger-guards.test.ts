@@ -20,6 +20,7 @@ import {
   deleteTransactions,
   doomedAccountDeletionIds,
   doomedDeletionIds,
+  ensureCategory,
   getSnapshot,
   listAccounts,
   listBillPaymentsSince,
@@ -118,6 +119,60 @@ test('a transfer leg keeps its account and kind, and edits mirror onto its twin'
     .map((row) => row.amountCents)
     .sort((a, b) => a - b)
   assert.deepEqual(legs, [-30_000, 30_000])
+})
+
+test('a labelled transfer is one entry and both legs carry the name as typed', () => {
+  const db = freshDb()
+  const chequing = account(db, 'Chequing')
+  const savings = account(db, 'Savings', 'savings')
+
+  createTransaction(db, USER_ID, {
+    accountId: chequing,
+    counterAccountId: savings,
+    kind: 'transfer',
+    amountCents: 37,
+    occurredOn: '2026-03-01',
+    category: 'Round-up',
+    memo: 'Coffee change'
+  })
+
+  const legs = listTransactions(db, USER_ID).filter((row) => row.kind === 'transfer')
+  assert.equal(legs.length, 2)
+  assert.deepEqual(
+    legs.map((leg) => leg.category),
+    ['Round-up', 'Round-up'],
+    'a typed name is the person’s label, not an internal alias'
+  )
+  assert.ok(legs[0].categoryId)
+  assert.equal(legs[0].categoryId, legs[1].categoryId)
+})
+
+test('a transfer filed by category id puts both legs under that row', () => {
+  const db = freshDb()
+  const chequing = account(db, 'Chequing')
+  const savings = account(db, 'Savings', 'savings')
+  const savingsCategory = { id: ensureCategory(db, USER_ID, 'Savings', 'transfer')! }
+
+  // The id decides; stale text that came with it must not split the pair.
+  createTransaction(db, USER_ID, {
+    accountId: chequing,
+    counterAccountId: savings,
+    kind: 'transfer',
+    amountCents: 5_00,
+    occurredOn: '2026-03-01',
+    category: 'Transfer',
+    categoryId: savingsCategory.id,
+    memo: ''
+  })
+
+  const legs = listTransactions(db, USER_ID).filter((row) => row.kind === 'transfer')
+  assert.deepEqual(
+    legs.map((leg) => [leg.category, leg.categoryId]),
+    [
+      ['Savings', savingsCategory.id],
+      ['Savings', savingsCategory.id]
+    ]
+  )
 })
 
 test('an account with entries cannot be deleted without saying so', () => {
@@ -478,6 +533,7 @@ test('a round-up sweep memo stays inside the memo limit', () => {
   const sweeps = listTransactions(db, USER_ID).filter((row) => row.memo.startsWith('Round-up'))
   assert.equal(sweeps.length, 2, 'both legs of the sweep posted')
   for (const sweep of sweeps) {
+    assert.equal(sweep.category, 'Transfer', 'the app files its own sweep under the seeded category')
     assert.ok(sweep.memo.length <= 240)
     assert.ok(sweep.memo.endsWith('…'))
   }

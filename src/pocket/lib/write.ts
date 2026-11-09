@@ -852,13 +852,6 @@ export function deleteAccount(tables: ImportTables, id: string, options: DeleteA
 
 // ------------------------------------------------------------ transactions
 
-/** Labels the app writes itself belong to a seeded category. */
-const INTERNAL_CATEGORY_ALIASES: Record<string, string> = {
-  'round-up': 'Transfer',
-  'credit payment': 'Debt',
-  paycheck: 'Income'
-}
-
 interface EntryFields extends Columns {
   account_id: string
   kind: TransactionKind
@@ -920,8 +913,9 @@ function resolveEntryCategory(
     if (!row) throw new RepositoryError('NOT_FOUND', 'Category not found')
     return { tables, id: text(row, 'id'), name: text(row, 'name') }
   }
-  const raw = rules.optionalText(input.category, 'Category', 60) ?? 'Uncategorized'
-  const name = INTERNAL_CATEGORY_ALIASES[raw.toLocaleLowerCase()] ?? raw
+  // A typed name is kept as typed, as on the desktop: the app's own writers name
+  // a seeded category directly.
+  const name = rules.optionalText(input.category, 'Category', 60) ?? 'Uncategorized'
   const ensured = ensureCategoryRow(tables, name, kind)
   return { tables: ensured.tables, id: ensured.id, name: ensured.name }
 }
