@@ -10,6 +10,7 @@ All notable changes to WageRoute are documented here. The format follows [Keep a
 
 ### Added
 
+- **Privacy Policy and Terms of Use, in English and French** (`PRIVACY.md`, `PRIVACY.fr.md`, `TERMS.md`, `TERMS.fr.md`). They state that the app, Pocket and the website collect no personal information, name the third-party services that deliver WageRoute, name the person in charge under Quebec's Law 25, and set out the not-financial-advice notice, consumer-rights carve-out and Quebec governing law. Linked from the website footer and the README.
 - **One SVG logo, everywhere it can be.** `build/icon.svg` redraws the WageRoute mark as a vector and is the source of every logo: the website (favicon, nav and footer, which had shown an older, different drawing), Pocket's favicon, welcome mark and manifest, and the desktop sidebar. `npm run icons` renders the macOS, Windows, Linux and phone-install PNG/ICNS/ICO files from it, which also removes the white corners the old app icon carried.
 
 - **One-command installers.** `install.sh` (macOS and Linux) and `install.ps1` (Windows), served from the website: they pick the build for the system, verify it against the release's `SHA256SUMS`, install it (DMG into `/Applications`; `.deb`/`.rpm` through the package manager with the AppImage as fallback; the Setup installer silently per-user) and clear the quarantine or Mark-of-the-Web block. A CI job installs the real latest release with them on Ubuntu, macOS and Windows.

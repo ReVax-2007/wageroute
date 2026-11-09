@@ -367,6 +367,8 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full status matrix and the 
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each release, and what landed after the last one |
 | [docs/UNRELEASED.md](docs/UNRELEASED.md) | The running queue for the next release, its blockers and its checklist |
 | [docs/decisions/README.md](docs/decisions/README.md) | Architecture decision records for the load-bearing choices |
+| [PRIVACY.md](PRIVACY.md) · [français](PRIVACY.fr.md) | Privacy policy: what the app, Pocket and the website collect (nothing), third-party services, your rights, the person in charge under Quebec's Law 25 |
+| [TERMS.md](TERMS.md) · [français](TERMS.fr.md) | Terms of use: the licence, not financial advice, your data and backups, warranty and liability, consumer rights, Quebec governing law |
 
 Related repositories: [ReVax-2007/homebrew-wageroute](https://github.com/ReVax-2007/homebrew-wageroute) — the official Homebrew tap (cask, install/update docs); bumped to each release per [docs/RELEASING.md](docs/RELEASING.md#release-checklist).
 
@@ -382,4 +384,4 @@ Work on a separate branch and open a pull request; never push directly to `main`
 
 ## License
 
-WageRoute is **source-available, not open-source**. See [LICENSE](LICENSE). You may use, study and modify it, including commercially, on machines you control, and keep your modifications private. You may not sell it, sublicense it, or distribute builds or modified versions — only the licensor ships WageRoute. Contributions may be pushed on a separate branch and are accepted through a pull request; submitting one grants the licensor permission to include it.
+WageRoute is **source-available, not open-source**. See [LICENSE](LICENSE), and the [Terms of Use](TERMS.md) and [Privacy Policy](PRIVACY.md) (both also [in French](TERMS.fr.md)). You may use, study and modify it, including commercially, on machines you control, and keep your modifications private. You may not sell it, sublicense it, or distribute builds or modified versions — only the licensor ships WageRoute. Contributions may be pushed on a separate branch and are accepted through a pull request; submitting one grants the licensor permission to include it.
