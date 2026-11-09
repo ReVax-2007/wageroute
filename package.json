@@ -35,10 +35,11 @@
     "pocket:build": "vite build --config src/pocket/vite.config.ts",
     "pocket:preview": "vite preview --config src/pocket/vite.config.ts",
     "build": "npm run typecheck && electron-vite build",
-    "dist": "npm run build && electron-builder --publish never",
-    "dist:mac": "npm run build && electron-builder --mac --x64 --arm64 --publish never",
-    "dist:win": "npm run build && electron-builder --win --x64 --arm64 --publish never",
-    "dist:linux": "npm run build && electron-builder --linux --publish never",
+    "dist": "npm run build && node scripts/dist.mjs",
+    "dist:local": "npm run build && node scripts/dist.mjs --dir",
+    "dist:mac": "npm run build && node scripts/dist.mjs --mac --x64 --arm64",
+    "dist:win": "npm run build && node scripts/dist.mjs --win --x64 --arm64",
+    "dist:linux": "npm run build && node scripts/dist.mjs --linux",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
