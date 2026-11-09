@@ -68,10 +68,11 @@ npm run postinstall
 | `npm run pocket:dev` | `vite --config src/pocket/vite.config.ts` | Pocket with hot reload, normally in a phone-sized browser window |
 | `npm run pocket:build` | `vite build --config src/pocket/vite.config.ts` | Static shell in `dist-pocket/` (manifest, service worker, icons, hashed assets) |
 | `npm run pocket:preview` | `vite preview --config src/pocket/vite.config.ts` | Serve the built Pocket shell locally; use `-- --port 4175` to pick a port |
-| `npm run dist` | build + `electron-builder --publish never` | Current platform |
-| `npm run dist:mac` | build + `electron-builder --mac --x64 --arm64 --publish never` | DMG, arm64 + x64 |
-| `npm run dist:win` | build + `electron-builder --win --x64 --arm64 --publish never` | NSIS + MSI + portable + zip (MSI needs Windows: WiX) |
-| `npm run dist:linux` | build + `electron-builder --linux --publish never` | AppImage + deb + rpm |
+| `npm run dist` | build + `electron-builder --publish never`, version stamped `-dev` | Current platform |
+| `npm run dist:local` | build + `electron-builder --dir`, version stamped `-dev` | Unpacked app for this machine in `release/`, for installing a local build |
+| `npm run dist:mac` | build + `electron-builder --mac --x64 --arm64 --publish never`, version stamped `-dev` | DMG, arm64 + x64 |
+| `npm run dist:win` | build + `electron-builder --win --x64 --arm64 --publish never`, version stamped `-dev` | NSIS + MSI + portable + zip (MSI needs Windows: WiX) |
+| `npm run dist:linux` | build + `electron-builder --linux --publish never`, version stamped `-dev` | AppImage + deb + rpm |
 
 Architectures are passed as flags, not as `arch` lists in `electron-builder.yml`: electron-builder merges a target's declared arches into every build, so a declared list overrides `--x64`.
 

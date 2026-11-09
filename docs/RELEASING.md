@@ -172,7 +172,7 @@ npm run dist:linux          # build + AppImage, deb and rpm
 npm run dist                # build + installers for the current platform
 ```
 
-`npm run dist:*` runs `npm run build` first, so a type error stops the release.
+`npm run dist:*` runs `npm run build` first, so a type error stops the release. It stamps the version `-dev` (`1.3.1-dev`) so a local build never passes for a release; set `WAGEROUTE_RELEASE=1` when you are assembling a release by hand.
 
 ### Script reference
 
@@ -534,7 +534,7 @@ On Windows:
 npm run dist:win
 ```
 
-Or let CI build both after the tag. Local builds are for verification and for a release you are assembling by hand.
+Or let CI build both after the tag. Local builds are for verification and carry a `-dev` version; for a release you are assembling by hand, prefix the command with `WAGEROUTE_RELEASE=1`.
 
 ### 5. Test the packaged artifacts
 
