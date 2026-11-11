@@ -11,10 +11,20 @@ import { CREDIT_CARD_SOURCE_REFUSAL } from '@shared/writeRules'
 import { centsToEditable, currencySymbol, formatMoney, parseMoneyToCents } from '@shared/money'
 import type { AccountWithBalance, TransactionRow } from '@shared/types'
 import { CategoryInput } from '../components/CategoryInput'
-import { Button, Card, EmptyState, Field, IconButton, Money, MoneyInput } from '../components/ui'
+import {
+  Button,
+  Card,
+  EmptyState,
+  Field,
+  IconButton,
+  Money,
+  MoneyInput,
+  Segmented
+} from '../components/ui'
 import { DataTable } from '../components/DataTable'
 import { accountDisplayBalanceCents } from '../lib/finance'
 import { useFinanceStore } from '../store/useFinanceStore'
+import { SplitTransferForm } from './SplitTransferForm'
 
 const QUICK_AMOUNTS = [50_00, 100_00, 250_00, 500_00]
 
@@ -67,6 +77,7 @@ export function Transfers() {
     name: 'Transfer',
     id: null
   })
+  const [mode, setMode] = useState<'single' | 'split'>('single')
   const [saving, setSaving] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
   const [recentTransfers, setRecentTransfers] = useState<TransactionRow[]>([])
@@ -243,213 +254,236 @@ export function Transfers() {
         <section className="transfer-main">
           <Card
             title="New transfer"
-            subtitle="Choose the source and destination accounts to move funds in one step"
+            subtitle={
+              mode === 'split'
+                ? 'Send one amount to several accounts and see the total to move'
+                : 'Choose the source and destination accounts to move funds in one step'
+            }
+            actions={
+              <Segmented
+                label="Transfer to"
+                value={mode}
+                onChange={setMode}
+                options={[
+                  { value: 'single', label: 'One account' },
+                  { value: 'split', label: 'Several accounts' }
+                ]}
+              />
+            }
           >
-            <div className="transfer-card">
-              <div className="transfer-accounts-grid">
-                <Field label="From account">
-                  <select
-                    className="select"
-                    value={fromId}
-                    onChange={(event) => setFromId(event.target.value)}
-                  >
-                    {sourceAccounts.map((account) => (
-                      <option key={account.id} value={account.id}>
-                        {account.name} (
-                        {account.kind === 'credit'
-                          ? `${formatMoney(accountDisplayBalanceCents(account), currency)} owed`
-                          : `${formatMoney(account.balanceCents, currency)} avail`}
-                        )
-                      </option>
-                    ))}
-                  </select>
-                </Field>
+            {mode === 'split' ? (
+              <SplitTransferForm
+                activeAccounts={activeAccounts}
+                sourceAccounts={sourceAccounts}
+                currency={currency}
+              />
+            ) : (
+              <div className="transfer-card">
+                <div className="transfer-accounts-grid">
+                  <Field label="From account">
+                    <select
+                      className="select"
+                      value={fromId}
+                      onChange={(event) => setFromId(event.target.value)}
+                    >
+                      {sourceAccounts.map((account) => (
+                        <option key={account.id} value={account.id}>
+                          {account.name} (
+                          {account.kind === 'credit'
+                            ? `${formatMoney(accountDisplayBalanceCents(account), currency)} owed`
+                            : `${formatMoney(account.balanceCents, currency)} avail`}
+                          )
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
 
-                <div className="transfer-swap-container">
-                  <button
-                    type="button"
-                    className="transfer-swap-btn"
-                    title={
-                      toAccount?.kind === 'credit'
-                        ? 'A credit card can only receive a transfer'
-                        : 'Swap from and to accounts'
-                    }
-                    aria-label="Swap accounts"
-                    disabled={toAccount?.kind === 'credit'}
-                    onClick={swapAccounts}
+                  <div className="transfer-swap-container">
+                    <button
+                      type="button"
+                      className="transfer-swap-btn"
+                      title={
+                        toAccount?.kind === 'credit'
+                          ? 'A credit card can only receive a transfer'
+                          : 'Swap from and to accounts'
+                      }
+                      aria-label="Swap accounts"
+                      disabled={toAccount?.kind === 'credit'}
+                      onClick={swapAccounts}
+                    >
+                      <ArrowRightLeft size={16} />
+                    </button>
+                  </div>
+
+                  <Field label="To account">
+                    <select
+                      className="select"
+                      value={toId}
+                      onChange={(event) => setToId(event.target.value)}
+                    >
+                      {activeAccounts.map((account) => (
+                        <option key={account.id} value={account.id}>
+                          {account.name} (
+                          {account.kind === 'credit'
+                            ? `${formatMoney(accountDisplayBalanceCents(account), currency)} owed`
+                            : `${formatMoney(account.balanceCents, currency)} avail`}
+                          )
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                </div>
+
+                {fromAccount && toAccount && (
+                  <div className="transfer-preview-box">
+                    <div className="transfer-preview-acc">
+                      <span className="transfer-preview-name">
+                        <span
+                          className={`account-dot kind-${fromAccount.kind}`}
+                          style={fromAccount.color ? { background: fromAccount.color } : undefined}
+                        />
+                        {fromAccount.name}
+                      </span>
+                      <span className="transfer-preview-bal">
+                        Now: {formatMoney(accountDisplayBalanceCents(fromAccount), currency)}{' '}
+                        {fromAccount.kind === 'credit' ? 'owed' : 'avail'}
+                      </span>
+                      {amountCents > 0 && (
+                        <span className="transfer-preview-diff negative">
+                          After: {formatMoney(fromPreview.displayCents, currency)}{' '}
+                          {fromPreview.label} (-{formatMoney(amountCents, currency)})
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="transfer-preview-arrow">
+                      <ArrowRight size={18} />
+                    </div>
+
+                    <div className="transfer-preview-acc">
+                      <span className="transfer-preview-name">
+                        <span
+                          className={`account-dot kind-${toAccount.kind}`}
+                          style={toAccount.color ? { background: toAccount.color } : undefined}
+                        />
+                        {toAccount.name}
+                      </span>
+                      <span className="transfer-preview-bal">
+                        Now: {formatMoney(accountDisplayBalanceCents(toAccount), currency)}{' '}
+                        {toAccount.kind === 'credit' ? 'owed' : 'avail'}
+                      </span>
+                      {amountCents > 0 && (
+                        <span className="transfer-preview-diff positive">
+                          After: {formatMoney(toPreview.displayCents, currency)}{' '}
+                          {toPreview.label} (+{formatMoney(amountCents, currency)})
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div className="form-grid">
+                  <Field label="Amount to transfer">
+                    <MoneyInput
+                      autoFocus
+                      value={amount}
+                      placeholder="0.00"
+                      onValueChange={setAmount}
+                    />
+                    <div className="transfer-chips">
+                      {QUICK_AMOUNTS.map((quickCents) => (
+                        <button
+                          key={quickCents}
+                          type="button"
+                          className="transfer-chip"
+                          onClick={() => handleQuickAdd(quickCents)}
+                        >
+                          +{currencySymbol(currency)}{(quickCents / 100).toLocaleString()}
+                        </button>
+                      ))}
+                      {toAccount?.kind === 'credit' && toOwedCents > 0 && (
+                        <button
+                          type="button"
+                          className="transfer-chip preset-action"
+                          onClick={() => setAmount(centsToEditable(toOwedCents))}
+                        >
+                          Pay card ({formatMoney(toOwedCents, currency)})
+                        </button>
+                      )}
+                      {fromCashCents > 0 && (
+                        <button
+                          type="button"
+                          className="transfer-chip preset-action"
+                          onClick={() => setAmount(centsToEditable(fromCashCents))}
+                        >
+                          All cash ({formatMoney(fromCashCents, currency)})
+                        </button>
+                      )}
+                    </div>
+                  </Field>
+
+                  <Field label="Transfer date">
+                    <input
+                      className="input"
+                      type="date"
+                      value={occurredOn}
+                      onChange={(event) => setOccurredOn(event.target.value)}
+                    />
+                  </Field>
+                </div>
+
+                <div className="form-grid">
+                  <Field
+                    label="Category"
+                    hint="Pick one you use, or type a new one like Round-up"
                   >
+                    <CategoryInput
+                      listId="transfer-category-options"
+                      value={category.name}
+                      placeholder="Transfer"
+                      onChange={(name, id) => setCategory({ name, id })}
+                    />
+                  </Field>
+
+                  <Field label="Description" hint="Optional, saved on both accounts">
+                    <input
+                      className="input"
+                      value={memo}
+                      placeholder={toAccount ? `Transfer to ${toAccount.name}` : 'Transfer'}
+                      onChange={(event) => setMemo(event.target.value)}
+                    />
+                  </Field>
+                </div>
+
+                {amountCents > 0 && fromAccount && toAccount && fromId !== toId && (
+                  <div className="transfer-summary-box">
                     <ArrowRightLeft size={16} />
-                  </button>
-                </div>
+                    <span>
+                      Moving <strong>{formatMoney(amountCents, currency)}</strong> from{' '}
+                      <strong>{fromAccount.name}</strong> into <strong>{toAccount.name}</strong> on{' '}
+                      <strong>{formatDateLabel(occurredOn)}</strong>.
+                    </span>
+                  </div>
+                )}
 
-                <Field label="To account">
-                  <select
-                    className="select"
-                    value={toId}
-                    onChange={(event) => setToId(event.target.value)}
+                {error && <div className="form-error">{error}</div>}
+
+                <div>
+                  <Button
+                    variant="primary"
+                    icon={<ArrowRightLeft size={16} />}
+                    disabled={saving || amountCents <= 0 || fromId === toId}
+                    onClick={submit}
                   >
-                    {activeAccounts.map((account) => (
-                      <option key={account.id} value={account.id}>
-                        {account.name} (
-                        {account.kind === 'credit'
-                          ? `${formatMoney(accountDisplayBalanceCents(account), currency)} owed`
-                          : `${formatMoney(account.balanceCents, currency)} avail`}
-                        )
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              </div>
-
-              {fromAccount && toAccount && (
-                <div className="transfer-preview-box">
-                  <div className="transfer-preview-acc">
-                    <span className="transfer-preview-name">
-                      <span
-                        className={`account-dot kind-${fromAccount.kind}`}
-                        style={fromAccount.color ? { background: fromAccount.color } : undefined}
-                      />
-                      {fromAccount.name}
-                    </span>
-                    <span className="transfer-preview-bal">
-                      Now: {formatMoney(accountDisplayBalanceCents(fromAccount), currency)}{' '}
-                      {fromAccount.kind === 'credit' ? 'owed' : 'avail'}
-                    </span>
-                    {amountCents > 0 && (
-                      <span className="transfer-preview-diff negative">
-                        After: {formatMoney(fromPreview.displayCents, currency)}{' '}
-                        {fromPreview.label} (-{formatMoney(amountCents, currency)})
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="transfer-preview-arrow">
-                    <ArrowRight size={18} />
-                  </div>
-
-                  <div className="transfer-preview-acc">
-                    <span className="transfer-preview-name">
-                      <span
-                        className={`account-dot kind-${toAccount.kind}`}
-                        style={toAccount.color ? { background: toAccount.color } : undefined}
-                      />
-                      {toAccount.name}
-                    </span>
-                    <span className="transfer-preview-bal">
-                      Now: {formatMoney(accountDisplayBalanceCents(toAccount), currency)}{' '}
-                      {toAccount.kind === 'credit' ? 'owed' : 'avail'}
-                    </span>
-                    {amountCents > 0 && (
-                      <span className="transfer-preview-diff positive">
-                        After: {formatMoney(toPreview.displayCents, currency)}{' '}
-                        {toPreview.label} (+{formatMoney(amountCents, currency)})
-                      </span>
-                    )}
-                  </div>
+                    {saving
+                      ? 'Recording transfer…'
+                      : amountCents > 0
+                        ? `Transfer ${formatMoney(amountCents, currency)} now`
+                        : 'Record transfer'}
+                  </Button>
                 </div>
-              )}
-
-              <div className="form-grid">
-                <Field label="Amount to transfer">
-                  <MoneyInput
-                    autoFocus
-                    value={amount}
-                    placeholder="0.00"
-                    onValueChange={setAmount}
-                  />
-                  <div className="transfer-chips">
-                    {QUICK_AMOUNTS.map((quickCents) => (
-                      <button
-                        key={quickCents}
-                        type="button"
-                        className="transfer-chip"
-                        onClick={() => handleQuickAdd(quickCents)}
-                      >
-                        +{currencySymbol(currency)}{(quickCents / 100).toLocaleString()}
-                      </button>
-                    ))}
-                    {toAccount?.kind === 'credit' && toOwedCents > 0 && (
-                      <button
-                        type="button"
-                        className="transfer-chip preset-action"
-                        onClick={() => setAmount(centsToEditable(toOwedCents))}
-                      >
-                        Pay card ({formatMoney(toOwedCents, currency)})
-                      </button>
-                    )}
-                    {fromCashCents > 0 && (
-                      <button
-                        type="button"
-                        className="transfer-chip preset-action"
-                        onClick={() => setAmount(centsToEditable(fromCashCents))}
-                      >
-                        All cash ({formatMoney(fromCashCents, currency)})
-                      </button>
-                    )}
-                  </div>
-                </Field>
-
-                <Field label="Transfer date">
-                  <input
-                    className="input"
-                    type="date"
-                    value={occurredOn}
-                    onChange={(event) => setOccurredOn(event.target.value)}
-                  />
-                </Field>
               </div>
-
-              <div className="form-grid">
-                <Field
-                  label="Category"
-                  hint="Pick one you use, or type a new one like Round-up"
-                >
-                  <CategoryInput
-                    listId="transfer-category-options"
-                    value={category.name}
-                    placeholder="Transfer"
-                    onChange={(name, id) => setCategory({ name, id })}
-                  />
-                </Field>
-
-                <Field label="Description" hint="Optional, saved on both accounts">
-                  <input
-                    className="input"
-                    value={memo}
-                    placeholder={toAccount ? `Transfer to ${toAccount.name}` : 'Transfer'}
-                    onChange={(event) => setMemo(event.target.value)}
-                  />
-                </Field>
-              </div>
-
-              {amountCents > 0 && fromAccount && toAccount && fromId !== toId && (
-                <div className="transfer-summary-box">
-                  <ArrowRightLeft size={16} />
-                  <span>
-                    Moving <strong>{formatMoney(amountCents, currency)}</strong> from{' '}
-                    <strong>{fromAccount.name}</strong> into <strong>{toAccount.name}</strong> on{' '}
-                    <strong>{formatDateLabel(occurredOn)}</strong>.
-                  </span>
-                </div>
-              )}
-
-              {error && <div className="form-error">{error}</div>}
-
-              <div>
-                <Button
-                  variant="primary"
-                  icon={<ArrowRightLeft size={16} />}
-                  disabled={saving || amountCents <= 0 || fromId === toId}
-                  onClick={submit}
-                >
-                  {saving
-                    ? 'Recording transfer…'
-                    : amountCents > 0
-                      ? `Transfer ${formatMoney(amountCents, currency)} now`
-                      : 'Record transfer'}
-                </Button>
-              </div>
-            </div>
+            )}
           </Card>
         </section>
 

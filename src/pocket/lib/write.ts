@@ -12,6 +12,7 @@ import { normalizeSignedCents, signedAmountError } from '@shared/kinds'
 import { parseSettings } from '@shared/settings'
 import { incomingWins } from '@shared/tableMerge'
 import { roundUpRemainderCents, transferLegs } from '@shared/transfers'
+import { planSplitTransfer } from '@shared/splitTransfer'
 import type {
   AccountInput,
   AccountKind,
@@ -19,6 +20,7 @@ import type {
   CategoryInput,
   Frequency,
   GoalInput,
+  SplitTransferInput,
   TransactionInput,
   TransactionKind
 } from '@shared/types'
@@ -1117,6 +1119,27 @@ function sweepIdsFor(tables: ImportTables, sourceId: string): string[] {
   return tables.transactions
     .filter((row) => isLive(row) && nullableText(row, 'round_up_source_id') === sourceId)
     .map((row) => text(row, 'id'))
+}
+
+/**
+ * The desktop's split transfer: one source to several accounts, as the ordinary
+ * transfers the shared plan lists, each through `createEntry`. Every write here
+ * returns new tables, so a refusal on any line throws before the store keeps
+ * any of them — all or nothing, the way the desktop's one SQL transaction is.
+ */
+export function createSplitTransfer(tables: ImportTables, input: SplitTransferInput): Written {
+  const transfers = planSplitTransfer(input, (id) => {
+    const row = tables.accounts.find((candidate) => isLive(candidate) && text(candidate, 'id') === id)
+    return row ? { kind: text(row, 'kind') as AccountKind, name: text(row, 'name') } : undefined
+  })
+  let next = tables
+  let firstId = ''
+  for (const transfer of transfers) {
+    const written = createEntry(next, transfer)
+    next = written.tables
+    firstId ||= written.id
+  }
+  return { tables: next, id: firstId }
 }
 
 /**

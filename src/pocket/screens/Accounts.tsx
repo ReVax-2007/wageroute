@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Pencil, Plus } from 'lucide-react'
+import { ArrowRightLeft, Pencil, Plus } from 'lucide-react'
 import {
   cardOwedCents,
   cardPaymentSources,
@@ -30,6 +30,7 @@ import { DeleteConfirm } from '../components/DeleteConfirm'
 import { MoneyInput, PercentInput } from '../components/MoneyInput'
 import { Sheet } from '../components/Sheet'
 import { useSheetSave } from '../components/useSheetSave'
+import { SplitTransferSheet } from './SplitTransferSheet'
 import { pocketView } from '../lib/compute'
 import { usePocket, useSnapshot } from '../lib/store'
 import {
@@ -986,6 +987,7 @@ export function Accounts() {
   const [form, setForm] = useState<AccountWithBalance | 'new' | null>(null)
   const [adjusting, setAdjusting] = useState<AccountWithBalance | null>(null)
   const [paying, setPaying] = useState<AccountWithBalance | null>(null)
+  const [splitting, setSplitting] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<AccountWithBalance | null>(null)
   if (!snapshot) return null
 
@@ -1013,9 +1015,16 @@ export function Accounts() {
           <span className="eyebrow">Total wealth</span>
           <p className="hero-number">{formatMoney(view.wealthCents, currency)}</p>
         </div>
-        <button type="button" className="button primary compact" onClick={() => setForm('new')}>
-          <Plus size={17} aria-hidden="true" /> Add
-        </button>
+        <div className="head-actions">
+          {active.length >= 2 && active.some((account) => account.kind !== 'credit') ? (
+            <button type="button" className="button compact" onClick={() => setSplitting(true)}>
+              <ArrowRightLeft size={17} aria-hidden="true" /> Split
+            </button>
+          ) : null}
+          <button type="button" className="button primary compact" onClick={() => setForm('new')}>
+            <Plus size={17} aria-hidden="true" /> Add
+          </button>
+        </div>
       </header>
       <p className="muted small">
         {formatMoney(cashOnHand(active), currency)} you have
@@ -1166,6 +1175,10 @@ export function Accounts() {
           currency={currency}
           onClose={() => setPaying(null)}
         />
+      ) : null}
+
+      {splitting ? (
+        <SplitTransferSheet accounts={active} currency={currency} onClose={() => setSplitting(false)} />
       ) : null}
 
       {pendingDelete && deleteWords ? (

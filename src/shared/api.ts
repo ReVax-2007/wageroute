@@ -26,6 +26,7 @@ import type {
   PlanMoveTarget,
   Snapshot,
   SnapshotPatch,
+  SplitTransferInput,
   TransactionInput,
   TransactionPage,
   TransactionPatch,
@@ -331,6 +332,8 @@ export interface FinanceApi {
   archiveGoal(id: string, archived: boolean): Promise<WriteResult<void>>
 
   createTransaction(input: TransactionInput): Promise<WriteResult<string>>
+  /** One source to several accounts, written as ordinary transfers all at once. */
+  createSplitTransfer(input: SplitTransferInput): Promise<WriteResult<string[]>>
   updateTransaction(id: string, input: TransactionPatch): Promise<WriteResult<void>>
   deleteTransaction(id: string): Promise<WriteResult<void>>
   /** Deletes a selection, removing both legs of any transfer it touches. */

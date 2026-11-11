@@ -5,12 +5,14 @@ import { normalizeSignedCents, signedAmountError } from '@shared/kinds'
 import { parseSettings } from '@shared/settings'
 import { ledgerStatementCents } from '@shared/statements'
 import { roundUpRemainderCents, transferLegs } from '@shared/transfers'
+import { planSplitTransfer, type SplitAccount } from '@shared/splitTransfer'
 import type {
   AccountKind,
   BillPaymentEntry,
   BillPaymentTotal,
   LedgerQuery,
   LedgerSort,
+  SplitTransferInput,
   TransactionInput,
   TransactionKind,
   TransactionPage,
@@ -526,6 +528,24 @@ export function createTransaction(db: Db, userId: string, input: TransactionInpu
     }
     return id
   })()
+}
+
+/**
+ * A split transfer: one source sending money to several accounts. It is the
+ * ordinary transfers `planSplitTransfer` lists, each written through
+ * `createTransaction` with every one of its checks, inside one SQL transaction
+ * so a refusal on any line leaves nothing behind (ADR 0033). Returns the
+ * outgoing leg of each transfer, in order.
+ */
+export function createSplitTransfer(db: Db, userId: string, input: SplitTransferInput): string[] {
+  const lookup = db.prepare(
+    'SELECT kind, name FROM accounts WHERE id = ? AND user_id = ? AND deleted_at IS NULL'
+  )
+  const transfers = planSplitTransfer(
+    input,
+    (id) => lookup.get(id, userId) as SplitAccount | undefined
+  )
+  return db.transaction(() => transfers.map((transfer) => createTransaction(db, userId, transfer)))()
 }
 
 interface TransferGroupRow {
