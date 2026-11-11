@@ -5,6 +5,8 @@ import type {
   PaycheckWithAllocations,
   TransactionRow
 } from './types'
+import { formatMoney } from './money'
+import { FLOOR_KINDS } from './writeRules'
 
 /**
  * Kinds whose balance a user can spend without thinking about it. Investment
@@ -41,9 +43,97 @@ export function countsInSafeToSpend(account: AccountWithBalance): boolean {
  */
 export function safeToSpendPoolCents(accounts: readonly AccountWithBalance[]): number {
   return accounts.reduce(
-    (total, account) => (countsInSafeToSpend(account) ? total + account.cashCents : total),
+    (total, account) =>
+      countsInSafeToSpend(account) ? total + usableCents(account, account.cashCents) : total,
     0
   )
+}
+
+/**
+ * How much of the spendable accounts' cash their floors keep out of the pool,
+ * so a screen can say why "cash you can spend" is less than the balances.
+ */
+export function floorHeldCents(accounts: readonly AccountWithBalance[]): number {
+  return accounts.reduce(
+    (total, account) =>
+      countsInSafeToSpend(account)
+        ? total + account.cashCents - usableCents(account, account.cashCents)
+        : total,
+    0
+  )
+}
+
+type FloorAccount = Pick<AccountWithBalance, 'kind' | 'floorCents'>
+
+/**
+ * The floor that applies to an account, or null when it has none (ADR 0035).
+ * A floor stored on a kind that cannot carry one is ignored, never enforced.
+ */
+export function accountFloorCents(account: FloorAccount): number | null {
+  return account.floorCents !== null && FLOOR_KINDS.has(account.kind) ? account.floorCents : null
+}
+
+/**
+ * What the app may offer as spendable from one account: the balance minus its
+ * floor, never below zero. An account without a floor reads exactly as it did
+ * before floors existed, overdraft included. The balance itself never changes.
+ */
+export function usableCents(
+  account: FloorAccount & Pick<AccountWithBalance, 'balanceCents'>,
+  balanceCents: number = account.balanceCents
+): number {
+  const floor = accountFloorCents(account)
+  return floor === null ? balanceCents : Math.max(0, balanceCents - floor)
+}
+
+/** "$110.00 usable · $90.00 floor", or null for an account without a floor. */
+export function usableLabel(
+  account: FloorAccount & Pick<AccountWithBalance, 'balanceCents'>,
+  currency: string,
+  balanceCents: number = account.balanceCents
+): string | null {
+  const floor = accountFloorCents(account)
+  if (floor === null) return null
+  return `${formatMoney(usableCents(account, balanceCents), currency)} usable · ${formatMoney(floor, currency)} floor`
+}
+
+/**
+ * Whether moving `deltaCents` would leave a balance under a floor. Only money
+ * leaving counts: a deposit into an account already under its floor helps.
+ */
+export function breachesFloor(floorCents: number | null, balanceCents: number, deltaCents: number): boolean {
+  return floorCents !== null && deltaCents < 0 && balanceCents + deltaCents < floorCents
+}
+
+export interface FloorBreach {
+  accountName: string
+  floorCents: number
+  afterCents: number
+}
+
+/** The breach a write by the owner would cause, so the screen can ask first. */
+export function floorBreach(
+  account: FloorAccount & Pick<AccountWithBalance, 'balanceCents' | 'name'>,
+  deltaCents: number
+): FloorBreach | null {
+  const floor = accountFloorCents(account)
+  if (floor === null || !breachesFloor(floor, account.balanceCents, deltaCents)) return null
+  return { accountName: account.name, floorCents: floor, afterCents: account.balanceCents + deltaCents }
+}
+
+/** The one question both devices ask before a write goes under a floor. */
+export function floorBreachQuestion(
+  breach: FloorBreach,
+  currency: string
+): { title: string; body: string; confirmLabel: string } {
+  return {
+    title: `Go under the ${breach.accountName} floor?`,
+    body:
+      `This leaves ${breach.accountName} at ${formatMoney(breach.afterCents, currency)}, ` +
+      `below the ${formatMoney(breach.floorCents, currency)} you set as its floor. ` +
+      'Save anyway, or cancel and change the amount.',
+    confirmLabel: 'Save anyway'
+  }
 }
 
 /**

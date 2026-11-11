@@ -24,7 +24,8 @@ import {
   flagColumn,
   nowISO,
   optionalText,
-  validateAccountForm
+  validateAccountForm,
+  floorColumn
 } from './writeRules'
 
 /** Run a rule and return the sentence it refuses with, or null when it accepted. */
@@ -199,6 +200,7 @@ const BLANK_ACCOUNT_FORM: AccountFormText = {
   name: '',
   startingBalance: '',
   creditLimit: '',
+  floor: '',
   apr: '',
   minimumPayment: '',
   lastStatementBalance: '',
@@ -314,4 +316,21 @@ test('several bad fields are all reported at once', () => {
   const read = validateAccountForm(accountForm({ name: '', creditLimit: 'lots', statementDay: '99' }))
   assert.equal(Object.keys(read.problems).length, 3)
   assert.equal(read.parsed, null)
+})
+
+test('an account form reads a floor, and blank means no floor', () => {
+  assert.equal(validateAccountForm(accountForm({ floor: '90' })).parsed?.floorCents, 90_00)
+  assert.equal(validateAccountForm(accountForm({ floor: '' })).parsed?.floorCents, null)
+  assert.equal(validateAccountForm(accountForm({ floor: '0' })).parsed?.floorCents, 0)
+  assert.equal(validateAccountForm(accountForm({ floor: 'lots' })).problems.floor, 'Floor must be a number')
+  assert.equal(validateAccountForm(accountForm({ floor: '-5' })).problems.floor, 'Floor cannot be negative')
+})
+
+test('the floor column keeps a deposit account\'s floor and drops any other kind\'s', () => {
+  assert.equal(floorColumn('checking', 90_00), 90_00)
+  assert.equal(floorColumn('savings', null), null)
+  assert.equal(floorColumn(undefined, undefined), undefined, 'an unrelated patch leaves it alone')
+  assert.equal(floorColumn('credit', 90_00), null)
+  assert.equal(floorColumn('investment', 90_00), null)
+  assert.throws(() => floorColumn('cash', -1), /Floor/)
 })

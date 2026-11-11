@@ -29,8 +29,8 @@ The `[1.2.0]` block in [CHANGELOG.md](../CHANGELOG.md) is the inventory; it is r
 | Field | Value |
 | --- | --- |
 | App version | **`1.3.0`** — bumped in `package.json` and `package-lock.json` on the release branch 2026-11-04. No tag exists yet, so nothing is published: `1.2.0` is still the only downloadable release until the tag is cut, built and published |
-| Database schema | `11`, forward-only; the new migrations make the next release at least a minor bump |
-| Backup format | writes `11`, accepts `2`–`11` |
+| Database schema | `12`, forward-only; the new migrations make the next release at least a minor bump |
+| Backup format | writes `12`, accepts `2`–`12` |
 | Encryption at rest | **Opt-in, off by default** — `chacha20`, custody device / passphrase / both, key wraps in `ledger.key.json` beside the ledger; reversible in both directions. The whole plain → keyed → plain transition has now run in the packaged macOS build with passphrase custody (2026-11-04); a shipped build has never written a **device** wrap — see the open item in the checklist |
 | Sealed export and phone vault | `wageroute-envelope` v1 and `wageroute-vault` v1. An encrypted `.db` does not open in `1.2.0`; only a **plain** JSON export survives a downgrade |
 | Self-host shapes | `docker compose up` stays on `127.0.0.1`; the `edge` profile adds Caddy with TLS and a forward-auth login in front of one container per person. A worked example at the proxy, never a login in the app ([ADR 0030](decisions/0030-self-hosting-puts-identity-at-the-edge.md)) — two tenants were run side by side on 2026-11-04 and their isolation measured, but no real identity provider and no handset has run it |
@@ -576,6 +576,15 @@ Work merged to `main` after `v1.2.0`. None of it is in a **published** installer
 - `styles/glass.css`: the shell becomes one inset pane over `assets/glass-scene.svg` (a room drawn for WageRoute). The pane's blur sits on `.app-shell::before`, because a `backdrop-filter` on the shell would become the containing block of every fixed dialog and toast inside it. The sidebar becomes an icon rail: the CTA is a round outlined plus, Settings sits at the foot, and each label shows as a dark pill on hover or keyboard focus while staying in the accessibility tree. Cards are neutral glass with a soft blue corner light, stat tiles lift 3px on hover (tiles only, for the same containing-block reason), buttons and inputs are pills, the primary button is white, and screens enter block by block out of a 10px blur (`animation-fill-mode: backwards`, so nothing lingers). Motion is skipped under `prefers-reduced-motion`.
 - `app:info` reports `nativeTheme.prefersReducedTransparency`; the renderer sets `.reduce-transparency`, which swaps Glass to solid panels and drops every blur.
 - Checked in the built app on a throwaway profile against frames of the clip: Home, Bills, Goals, Accounts, Settings, the Add a bill dialog (its backdrop covers the full window) and the rail's hover label; Dark is unchanged. Not checked: Windows and Linux compositors, and Reduce transparency switched on for real.
+### Batch 64 — an optional floor: money the app will not offer
+
+- **What this batch is.** The owner keeps $90 in an account and wants $200 to read "$110 usable", with the floor entirely optional. `accounts.floor_cents` (schema 12, nullable) holds it for checking, savings and cash; cards and investments store none ([ADR 0035](decisions/0035-a-floor-is-money-the-app-will-not-offer.md)).
+- **One rule, both devices.** `src/shared/accounts.ts` owns `accountFloorCents`, `usableCents` (balance − floor, never below zero; no floor reads exactly as before), `usableLabel`, `floorBreach`, `floorBreachQuestion` and `floorHeldCents`. `safeToSpendPoolCents` now counts each account's usable cash, so Safe to Spend drops by the floors on both devices and the breakdown says how much.
+- **Where it shows.** Account rows (Dashboard, Accounts, Pocket Home and Accounts), the Transfers and split pickers and their "after" lines, the entry dialog's account hint, Pay card, goal funding pickers and dedicated-account lists.
+- **Asked, not refused.** New entries, transfers, splits, card payments, bill payments (desktop prompts and Pocket's **Mark paid**) and plan moves that would go under a floor ask first. The desktop uses its confirm dialog; Pocket shows the warning in the sheet and turns the button into **Save anyway** for a second tap. Round-up sweeps that would go under it are skipped on both devices. Grid edits of existing entries do not ask.
+- **Schema 12 is a migration**, forward-only. Backups write version 12 (`KNOWN_BACKUP_VERSION` on the phone too) with `floor_cents`; files without it read as no floor.
+- **Gates.** Lint 230 files clean, **813/813** tests, all three type checks and `npm run build` clean. New tests: `src/main/db/account-floor.test.ts` (store/clear, cards drop it, sweep skipped, JSON backup round trip, phone → desktop merge, pre-v12 file), the v12 case in `migrations.test.ts`, and floor cases in `src/shared/accounts.test.ts`, `src/shared/writeRules.test.ts` and `src/pocket/lib/write.test.ts`.
+- **Not proved here.** The dialogs and sheets are covered through their shared rules, not by component tests.
 
 ### Before the next build
 

@@ -2,10 +2,16 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { buildAllocationPlan } from './allocator'
 import {
+  accountFloorCents,
   cardOwedCents,
   cardPaymentSources,
   countsInSafeToSpend,
+  floorBreach,
+  floorBreachQuestion,
+  floorHeldCents,
   isUsableAccount,
+  usableCents,
+  usableLabel,
   poolEarmarkedGoalsCents,
   safeToSpendPoolCents,
   totalWealthCents,
@@ -51,6 +57,7 @@ function account(overrides: Partial<AccountWithBalance> = {}): AccountWithBalanc
     color: null,
     isArchived: false,
     isLocked: false,
+    floorCents: null,
     sortOrder: 0,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
@@ -421,4 +428,72 @@ test('a card payment may only leave a real spendable balance', () => {
     sources.map((source) => source.id),
     ['chequing', 'wallet']
   )
+})
+
+// ---------------------------------------------------------------- floors (ADR 0035)
+
+test('usable is balance minus floor, never below zero, and the owner\'s example reads $110', () => {
+  const chequing = account({ balanceCents: 200_00, floorCents: 90_00 })
+  assert.equal(usableCents(chequing), 110_00)
+  assert.equal(usableLabel(chequing, 'USD'), '$110.00 usable · $90.00 floor')
+  assert.equal(usableCents(account({ balanceCents: 50_00, floorCents: 90_00 })), 0)
+  assert.equal(usableCents(account({ balanceCents: 90_00, floorCents: 0 })), 90_00)
+  assert.equal(usableCents(account({ balanceCents: -5_00, floorCents: 0 })), 0, 'a zero floor clamps an overdraft')
+  assert.equal(chequing.balanceCents, 200_00, 'the balance itself is untouched')
+})
+
+test('no floor means today\'s behaviour exactly, overdraft included', () => {
+  assert.equal(usableCents(account({ balanceCents: 200_00 })), 200_00)
+  assert.equal(usableCents(account({ balanceCents: -40_00 })), -40_00)
+  assert.equal(usableLabel(account({ balanceCents: 200_00 }), 'USD'), null)
+})
+
+test('a floor on a card or a holding is ignored, never enforced', () => {
+  const card = account({ kind: 'credit', balanceCents: -100_00, floorCents: 90_00 })
+  const holding = account({ kind: 'investment', balanceCents: 1_000_00, floorCents: 90_00 })
+  assert.equal(accountFloorCents(card), null)
+  assert.equal(accountFloorCents(holding), null)
+  assert.equal(usableCents(holding), 1_000_00)
+  assert.equal(floorBreach(card, -500_00), null)
+})
+
+test('Safe to Spend counts only the money above each floor; net worth counts it all', () => {
+  const accounts = [
+    account({ id: 'a', balanceCents: 200_00, floorCents: 90_00 }),
+    account({ id: 'b', balanceCents: 300_00 }),
+    account({ id: 'c', balanceCents: 40_00, floorCents: 90_00 })
+  ]
+  assert.equal(safeToSpendPoolCents(accounts), 110_00 + 300_00 + 0)
+  assert.equal(floorHeldCents(accounts), 90_00 + 40_00)
+  assert.equal(totalWealthCents(accounts), 540_00, 'a floor never hides money from wealth')
+})
+
+test('the pool reads a floor against settled cash, not a paycheck dated next week', () => {
+  const chequing = account({ balanceCents: 1_200_00, cashCents: 150_00, floorCents: 90_00 })
+  assert.equal(safeToSpendPoolCents([chequing]), 60_00)
+})
+
+test('only money leaving below the floor is a breach', () => {
+  const chequing = account({ name: 'Chequing', balanceCents: 200_00, floorCents: 90_00 })
+  assert.equal(floorBreach(chequing, -110_00), null, 'landing exactly on the floor is fine')
+  assert.equal(floorBreach(chequing, 50_00), null, 'money in is never a breach')
+  assert.equal(floorBreach(account({ balanceCents: 200_00 }), -500_00), null, 'no floor, no question')
+  assert.deepEqual(floorBreach(chequing, -150_00), {
+    accountName: 'Chequing',
+    floorCents: 90_00,
+    afterCents: 50_00
+  })
+  const below = account({ name: 'Chequing', balanceCents: 40_00, floorCents: 90_00 })
+  assert.equal(floorBreach(below, 10_00), null, 'a deposit into an account under its floor only helps')
+  assert.ok(floorBreach(below, -1), 'spending further under it still asks')
+})
+
+test('the floor question names the account, where it lands and the floor', () => {
+  const question = floorBreachQuestion(
+    { accountName: 'Chequing', floorCents: 90_00, afterCents: 50_00 },
+    'USD'
+  )
+  assert.equal(question.title, 'Go under the Chequing floor?')
+  assert.match(question.body, /leaves Chequing at \$50\.00, below the \$90\.00 you set as its floor/)
+  assert.equal(question.confirmLabel, 'Save anyway')
 })

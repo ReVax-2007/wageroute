@@ -12,6 +12,7 @@ import {
   Target,
   Trash2
 } from 'lucide-react'
+import { usableLabel } from '@shared/accounts'
 import { formatDateLong, monthsUntil, todayISO } from '@shared/dates'
 import { goalDeletionWords } from '@shared/deletion'
 import {
@@ -51,6 +52,13 @@ export function Goals() {
   const [editing, setEditing] = useState<GoalWithProgress | null | 'new'>(null)
 
   if (!snapshot) return null
+  // A floor never lowers a goal's progress (ADR 0035); it is shown so the owner
+  // knows how much of that money the app will still offer for spending.
+  const floorNote = (accountId: string): string => {
+    const account = snapshot.accounts.find((item) => item.id === accountId)
+    const label = account ? usableLabel(account, settings.currency) : null
+    return label ? ` · ${label}` : ''
+  }
   const currency = settings.currency
   const activeGoals = snapshot.goals.filter((goal) => !goal.isArchived)
   const archivedGoals = snapshot.goals.filter((goal) => goal.isArchived)
@@ -167,6 +175,7 @@ export function Goals() {
                         <span className="goal-account-name">{account.name}</span>
                         <span className="goal-account-balance num muted">
                           {formatMoney(account.balanceCents, currency)}
+                          {floorNote(account.id)}
                         </span>
                       </li>
                     ))}

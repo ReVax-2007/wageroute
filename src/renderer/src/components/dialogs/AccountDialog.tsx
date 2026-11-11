@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { centsToEditable, formatMoney } from '@shared/money'
 import type { AccountKind, AccountInput, AccountWithBalance } from '@shared/types'
-import { validateAccountForm } from '@shared/writeRules'
+import { FLOOR_KINDS, validateAccountForm } from '@shared/writeRules'
 import type { AccountFormProblems } from '@shared/writeRules'
 import { Button, Field, Modal, MoneyInput, PercentInput } from '../ui'
 import { ACCOUNT_KIND_LABEL, accountDisplayBalanceCents } from '../../lib/finance'
@@ -56,6 +56,7 @@ export function AccountDialog({
     startingBalance: account ? centsToEditable(Math.abs(account.startingBalanceCents)) : '',
     creditLimit:
       account && account.creditLimitCents !== null ? centsToEditable(account.creditLimitCents) : '',
+    floor: account && account.floorCents !== null ? centsToEditable(account.floorCents) : '',
     // Stored in basis points; the form speaks percent because that is what a
     // statement prints.
     apr:
@@ -85,6 +86,7 @@ export function AccountDialog({
     setFieldErrors((current) => ({ ...current, [field]: undefined }))
 
   const isCredit = form.kind === 'credit'
+  const takesFloor = FLOOR_KINDS.has(form.kind)
   const dedicatedGoals = useMemo(() => goals.filter((goal) => !goal.isArchived), [goals])
   const owedNowCents = account ? accountDisplayBalanceCents(account) : 0
   const limitNowCents = account?.creditLimitCents ?? null
@@ -102,7 +104,13 @@ export function AccountDialog({
 
     const dedicatedGoalId = form.dedicatedGoalId || null
     const inSafeToSpend = form.safeToSpend === 'auto' ? null : form.safeToSpend === 'in'
-    const purposeFields = { dedicatedGoalId, inSafeToSpend, color: form.color || null }
+    const purposeFields = {
+      dedicatedGoalId,
+      inSafeToSpend,
+      color: form.color || null,
+      // Blank is "no floor"; a kind without floors never sends one.
+      floorCents: takesFloor ? parsed.floorCents : null
+    }
 
     // Terms only mean something on a card; switching a draft away from credit
     // must not leave the old numbers behind.
@@ -235,6 +243,23 @@ export function AccountDialog({
               onValueChange={(startingBalance) => {
                 clearField('startingBalance')
                 setForm({ ...form, startingBalance })
+              }}
+            />
+          </Field>
+        )}
+
+        {takesFloor && (
+          <Field
+            label="Floor (optional)"
+            hint="The least this account should ever hold. Leave blank for no floor."
+            error={fieldErrors.floor}
+          >
+            <MoneyInput
+              value={form.floor}
+              placeholder="90.00"
+              onValueChange={(floor) => {
+                clearField('floor')
+                setForm({ ...form, floor })
               }}
             />
           </Field>

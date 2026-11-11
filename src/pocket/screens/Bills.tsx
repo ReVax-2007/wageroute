@@ -20,7 +20,15 @@ import { type BillLine, billLines, pocketView } from '../lib/compute'
 import { entryAccounts } from '../lib/entry'
 import { flag, text } from '../lib/rows'
 import { usePocket, useSnapshot } from '../lib/store'
-import { billDeletionSummary, createBill, deleteBill, patchBill, payBill } from '../lib/write'
+import {
+  billDeletionSummary,
+  billPaymentPlan,
+  createBill,
+  deleteBill,
+  patchBill,
+  payBill
+} from '../lib/write'
+import { FloorWarning, useFloorGate } from '../components/FloorWarning'
 
 const STATE_LABEL: Record<BillLine['state'], string> = {
   paid: 'Paid',
@@ -288,8 +296,25 @@ function BillSheet({
   const edit = usePocket((state) => state.edit)
   const snapshot = useSnapshot()
   const currency = snapshot ? pocketView(snapshot).settings.currency : 'USD'
-  const { saving, error, run } = useSheetSave(onClose)
+  const { saving, error, setError, run } = useSheetSave(onClose)
   const paid = line.state === 'paid'
+  const tables = usePocket((state) => state.tables)
+  const floorGate = useFloorGate(currency)
+
+  const markPaid = () => {
+    if (!tables) return
+    // Ask before a payment takes its account under a floor (ADR 0035). A plan
+    // that cannot be made is left to payBill, which refuses with its reason.
+    try {
+      const plan = billPaymentPlan(tables, line.bill.id)
+      const account = snapshot?.accounts.find((item) => item.id === plan.accountId)
+      if (!floorGate.allow(account, plan.amountCents)) return
+    } catch {
+      // payBill below names the problem.
+    }
+    setError(null)
+    void run(() => add((current) => payBill(current, line.bill.id), 'Payment saved on this phone.'))
+  }
 
   return (
     <Sheet
@@ -312,6 +337,7 @@ function BillSheet({
           {error}
         </p>
       ) : null}
+      <FloorWarning text={floorGate.warning} />
 
       <div className="card-actions">
         {!paid ? (
@@ -319,13 +345,9 @@ function BillSheet({
             type="button"
             className="button primary compact"
             disabled={saving}
-            onClick={() =>
-              void run(() =>
-                add((current) => payBill(current, line.bill.id), 'Payment saved on this phone.')
-              )
-            }
+            onClick={markPaid}
           >
-            Mark paid
+            {floorGate.confirmLabel ?? 'Mark paid'}
           </button>
         ) : null}
         <button

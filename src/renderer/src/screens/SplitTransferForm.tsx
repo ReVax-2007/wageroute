@@ -10,7 +10,8 @@ import {
 import type { AccountWithBalance, SplitTransferInput } from "@shared/types";
 import { CategoryInput } from "../components/CategoryInput";
 import { Button, Field, IconButton, MoneyInput } from "../components/ui";
-import { accountDisplayBalanceCents } from "../lib/finance";
+import { accountAvailLabel, confirmFloor } from "../lib/finance";
+import { usableLabel } from "@shared/accounts";
 import { useFinanceStore } from "../store/useFinanceStore";
 
 interface DraftLine {
@@ -52,12 +53,6 @@ function LineField({
   );
 }
 
-function balanceWords(account: AccountWithBalance, currency: string): string {
-  return account.kind === "credit"
-    ? `${formatMoney(accountDisplayBalanceCents(account), currency)} owed`
-    : `${formatMoney(account.balanceCents, currency)} avail`;
-}
-
 /**
  * One source sending money to several accounts at once (ADR 0033). The total
  * is added up while typing, so the person knows how much to move between banks,
@@ -75,6 +70,7 @@ export function SplitTransferForm({
   const createSplitTransfer = useFinanceStore(
     (state) => state.createSplitTransfer,
   );
+  const askConfirm = useFinanceStore((state) => state.askConfirm);
 
   const accountMap = useMemo(
     () => new Map(activeAccounts.map((account) => [account.id, account])),
@@ -140,6 +136,8 @@ export function SplitTransferForm({
   const submit = async () => {
     setAttempted(true);
     if (problem) return;
+    // Only the source can end lower: a "through" account receives the total first.
+    if (!(await confirmFloor(askConfirm, source, -totalCents, currency))) return;
     setSaving(true);
     try {
       const ok = await createSplitTransfer(input);
@@ -171,7 +169,7 @@ export function SplitTransferForm({
           >
             {sourceAccounts.map((account) => (
               <option key={account.id} value={account.id}>
-                {account.name} ({balanceWords(account, currency)})
+                {account.name} ({accountAvailLabel(account, currency)})
               </option>
             ))}
           </select>
@@ -290,6 +288,8 @@ export function SplitTransferForm({
           {source && (
             <span className="muted">
               {source.name} after: {formatMoney(sourceAfterCents, currency)}
+              {usableLabel(source, currency, sourceAfterCents) !== null &&
+                ` · ${usableLabel(source, currency, sourceAfterCents)}`}
             </span>
           )}
         </div>
