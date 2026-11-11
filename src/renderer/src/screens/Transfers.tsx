@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { isUsableAccount } from '@shared/accounts'
+import { accountFloorCents, isUsableAccount, usableCents } from '@shared/accounts'
 import {
   ArrowRight,
   ArrowRightLeft,
@@ -23,7 +23,7 @@ import {
   Segmented
 } from '../components/ui'
 import { DataTable } from '../components/DataTable'
-import { accountDisplayBalanceCents } from '../lib/finance'
+import { accountAvailLabel, accountDisplayBalanceCents, confirmFloor } from '../lib/finance'
 import { useFinanceStore } from '../store/useFinanceStore'
 import { SplitTransferForm } from './SplitTransferForm'
 import { splitTransferSizes, summarizeSplit, type SplitSummary } from '@shared/splitTransfer'
@@ -45,6 +45,10 @@ function previewBalance(
   const newRaw = account.balanceCents + deltaCents
   if (isCredit) {
     return { displayCents: Math.max(0, -newRaw), label: 'owed' }
+  }
+  // A floored account shows what stays usable above its floor (ADR 0035).
+  if (accountFloorCents(account) !== null) {
+    return { displayCents: usableCents(account, newRaw), label: 'usable' }
   }
   return { displayCents: newRaw, label: 'available' }
 }
@@ -181,6 +185,7 @@ export function Transfers() {
       setError('Selected account was not found')
       return
     }
+    if (!(await confirmFloor(askConfirm, fromAccount, -amountCents, currency))) return
 
     setSaving(true)
     try {
@@ -253,7 +258,8 @@ export function Transfers() {
   const fromPreview = previewBalance(fromAccount, -amountCents)
   const toPreview = previewBalance(toAccount, amountCents)
   const toOwedCents = toAccount ? accountDisplayBalanceCents(toAccount) : 0
-  const fromCashCents = fromAccount && fromAccount.kind !== 'credit' ? fromAccount.balanceCents : 0
+  const fromCashCents = fromAccount && fromAccount.kind !== 'credit' ? usableCents(fromAccount) : 0
+  const fromFloored = fromAccount ? accountFloorCents(fromAccount) !== null : false
 
   return (
     <>
@@ -305,11 +311,7 @@ export function Transfers() {
                     >
                       {sourceAccounts.map((account) => (
                         <option key={account.id} value={account.id}>
-                          {account.name} (
-                          {account.kind === 'credit'
-                            ? `${formatMoney(accountDisplayBalanceCents(account), currency)} owed`
-                            : `${formatMoney(account.balanceCents, currency)} avail`}
-                          )
+                          {account.name} ({accountAvailLabel(account, currency)})
                         </option>
                       ))}
                     </select>
@@ -340,11 +342,7 @@ export function Transfers() {
                     >
                       {activeAccounts.map((account) => (
                         <option key={account.id} value={account.id}>
-                          {account.name} (
-                          {account.kind === 'credit'
-                            ? `${formatMoney(accountDisplayBalanceCents(account), currency)} owed`
-                            : `${formatMoney(account.balanceCents, currency)} avail`}
-                          )
+                          {account.name} ({accountAvailLabel(account, currency)})
                         </option>
                       ))}
                     </select>
@@ -362,8 +360,7 @@ export function Transfers() {
                         {fromAccount.name}
                       </span>
                       <span className="transfer-preview-bal">
-                        Now: {formatMoney(accountDisplayBalanceCents(fromAccount), currency)}{' '}
-                        {fromAccount.kind === 'credit' ? 'owed' : 'avail'}
+                        Now: {accountAvailLabel(fromAccount, currency)}
                       </span>
                       {amountCents > 0 && (
                         <span className="transfer-preview-diff negative">
@@ -386,8 +383,7 @@ export function Transfers() {
                         {toAccount.name}
                       </span>
                       <span className="transfer-preview-bal">
-                        Now: {formatMoney(accountDisplayBalanceCents(toAccount), currency)}{' '}
-                        {toAccount.kind === 'credit' ? 'owed' : 'avail'}
+                        Now: {accountAvailLabel(toAccount, currency)}
                       </span>
                       {amountCents > 0 && (
                         <span className="transfer-preview-diff positive">
@@ -433,7 +429,7 @@ export function Transfers() {
                           className="transfer-chip preset-action"
                           onClick={() => setAmount(centsToEditable(fromCashCents))}
                         >
-                          All cash ({formatMoney(fromCashCents, currency)})
+                          {fromFloored ? 'All usable' : 'All cash'} ({formatMoney(fromCashCents, currency)})
                         </button>
                       )}
                     </div>

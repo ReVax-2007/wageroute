@@ -12,6 +12,7 @@ import { Field } from '../components/Field'
 import { DeleteConfirm } from '../components/DeleteConfirm'
 import { MoneyInput } from '../components/MoneyInput'
 import { Sheet } from '../components/Sheet'
+import { FloorWarning, useFloorGate } from '../components/FloorWarning'
 import { useSheetSave } from '../components/useSheetSave'
 import { categoryMatch, entryAccounts, entryBills, entryCategories, entryGoals } from '../lib/entry'
 import { pocketView } from '../lib/compute'
@@ -86,6 +87,9 @@ function EntrySheet({ row, onClose }: { row: TransactionRow | null; onClose: () 
   const add = usePocket((state) => state.add)
   const editEntry = usePocket((state) => state.edit)
   const accounts = tables ? entryAccounts(tables) : []
+  const snapshot = useSnapshot()
+  const currency = snapshot?.settings.currency ?? 'USD'
+  const floorGate = useFloorGate(currency)
   const categories = tables ? entryCategories(tables) : []
   const bills = tables ? entryBills(tables) : []
   const goals = tables ? entryGoals(tables) : []
@@ -174,6 +178,11 @@ function EntrySheet({ row, onClose }: { row: TransactionRow | null; onClose: () 
       )
       return
     }
+
+    // A new entry that lowers a floored account asks first (ADR 0035). The
+    // transfer's sign is set by the writer, so its source leg is money out.
+    const floored = snapshot?.accounts.find((account) => account.id === form.accountId)
+    if (!floorGate.allow(floored, form.kind === 'transfer' ? -amountCents : amountCents)) return
 
     const input: TransactionInput = {
       accountId: form.accountId,
@@ -360,12 +369,14 @@ function EntrySheet({ row, onClose }: { row: TransactionRow | null; onClose: () 
         </p>
       ) : null}
 
+      <FloorWarning text={floorGate.warning} />
+
       <div className="sheet-actions">
         <button type="button" className="button" onClick={onClose}>
           Cancel
         </button>
         <button type="button" className="button primary" disabled={saving} onClick={submit}>
-          {saving ? 'Saving…' : row ? 'Save entry' : 'Add entry'}
+          {saving ? 'Saving…' : row ? 'Save entry' : (floorGate.confirmLabel ?? 'Add entry')}
         </button>
       </div>
     </Sheet>

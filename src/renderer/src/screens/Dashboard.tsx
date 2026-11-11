@@ -1,7 +1,7 @@
 import { CalendarClock, CreditCard, HandCoins, Plus, ShieldCheck, Sparkles, Target, Wallet } from 'lucide-react'
 import { useState } from 'react'
 import { formatDateLabel, formatDateLong, formatMonthLong, todayISO } from '@shared/dates'
-import { wealthBuckets } from '@shared/accounts'
+import { floorHeldCents, usableLabel, wealthBuckets } from '@shared/accounts'
 import { spendingByCategory } from '@shared/categories'
 import { netWorthSeries } from '@shared/history'
 import { formatMoney } from '@shared/money'
@@ -84,6 +84,9 @@ export function Dashboard() {
   const recent = snapshot.transactions.slice(0, 6)
 
   const committed = Math.max(0, pool - safeToSpend)
+  // What account floors keep out of the pool (ADR 0035), so the gap between
+  // the balances and "cash you can spend" is never a mystery.
+  const floorsHeld = snapshot ? floorHeldCents(snapshot.accounts) : 0
   const committedShare = pool > 0 ? committed / pool : 0
   const committedPercent = Math.round(committedShare * 100)
   // With no spendable cash the percentage has no meaning: saying "0%" while
@@ -220,7 +223,15 @@ export function Dashboard() {
 
         <dl className="safe-breakdown">
           <div>
-            <dt>Cash you can spend</dt>
+            <dt>
+              Cash you can spend
+              {floorsHeld > 0 && (
+                <span className="alloc-note">
+                  {' '}
+                  (after {formatMoney(floorsHeld, currency)} kept as floors)
+                </span>
+              )}
+            </dt>
             <dd>
               <Money cents={pool} currency={currency} />
             </dd>
@@ -489,6 +500,9 @@ export function Dashboard() {
                         ? `${account.institution} · ${ACCOUNT_KIND_LABEL[account.kind]}`
                         : ACCOUNT_KIND_LABEL[account.kind]}
                       {isCredit ? ' · owed' : ''}
+                      {usableLabel(account, currency) !== null
+                        ? ` · ${usableLabel(account, currency)}`
+                        : ''}
                     </span>
                   </div>
                   <Money

@@ -6,6 +6,7 @@ import { parseSettings } from '@shared/settings'
 import { ledgerStatementCents } from '@shared/statements'
 import { roundUpRemainderCents, transferLegs } from '@shared/transfers'
 import { planSplitTransfer, type SplitAccount } from '@shared/splitTransfer'
+import { accountFloorCents, breachesFloor } from '@shared/accounts'
 import type {
   AccountKind,
   BillPaymentEntry,
@@ -410,6 +411,22 @@ function applyRoundUp(
 
   const sweepCents = roundUpRemainderCents(input.amountCents, settings.roundUpToCents)
   if (sweepCents <= 0) return
+
+  // The app never takes an account under its floor on its own (ADR 0035): a
+  // sweep that would is skipped, since there is no one to ask at this point.
+  const source = db
+    .prepare(
+      `SELECT a.kind, a.floor_cents AS floorCents,
+              a.starting_balance_cents + COALESCE((
+                SELECT SUM(t.amount_cents) FROM transactions t
+                WHERE t.account_id = a.id AND t.deleted_at IS NULL
+              ), 0) AS balanceCents
+         FROM accounts a WHERE a.id = ? AND a.user_id = ?`
+    )
+    .get(input.accountId, userId) as
+    | { kind: AccountKind; floorCents: number | null; balanceCents: number }
+    | undefined
+  if (source && breachesFloor(accountFloorCents(source), source.balanceCents, -sweepCents)) return
 
   const groupId = randomUUID()
   // The composed memo has to fit the same 240-character column as any other.

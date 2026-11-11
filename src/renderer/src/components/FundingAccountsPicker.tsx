@@ -1,3 +1,4 @@
+import { usableLabel } from '@shared/accounts'
 import { useState } from 'react'
 import { formatMoney } from '@shared/money'
 import type { AccountWithBalance, GoalWithProgress } from '@shared/types'
@@ -69,6 +70,7 @@ export function FundingAccountsPicker({
                   <span className="funding-account-name">{account.name}</span>
                   <span className="funding-account-balance num muted">
                     {formatMoney(Math.max(0, account.balanceCents), currency)}
+                    {usableLabel(account, currency) !== null && ` · ${usableLabel(account, currency)}`}
                   </span>
                 </label>
               ))}
@@ -86,6 +88,7 @@ export function FundingAccountsPicker({
               return (
                 <option key={account.id} value={account.id}>
                   {account.name} · {formatMoney(Math.max(0, account.balanceCents), currency)}
+                  {usableLabel(account, currency) !== null && ` · ${usableLabel(account, currency)}`}
                   {funded ? ` (funds ${funded})` : ''}
                 </option>
               )

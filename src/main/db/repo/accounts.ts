@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { todayISO } from '@shared/dates'
 import { RepositoryError } from '@shared/errors'
 import type { AccountInput, AccountKind, AccountWithBalance } from '@shared/types'
-import { ACCOUNT_KINDS } from '@shared/writeRules'
+import { ACCOUNT_KINDS, floorColumn } from '@shared/writeRules'
 import {
   assertCents,
   assertOneOf,
@@ -45,6 +45,7 @@ export function listAccounts(db: Db, userId: string): AccountWithBalance[] {
       `SELECT a.id, a.user_id AS userId, a.name, a.kind, a.institution,
               a.starting_balance_cents AS startingBalanceCents,
               a.credit_limit_cents AS creditLimitCents,
+              a.floor_cents AS floorCents,
               a.color,
               a.dedicated_goal_id AS dedicatedGoalId,
               a.in_safe_to_spend AS inSafeToSpend,
@@ -112,11 +113,11 @@ export function createAccount(db: Db, userId: string, input: AccountInput): stri
   db.prepare(
     `INSERT INTO accounts
        (id, user_id, name, kind, institution, starting_balance_cents, credit_limit_cents,
-        color, dedicated_goal_id, in_safe_to_spend,
+        floor_cents, color, dedicated_goal_id, in_safe_to_spend,
         apr_bps, minimum_payment_cents, statement_day, payment_due_day,
         last_statement_balance_cents,
         is_archived, sort_order, created_at, updated_at, deleted_at, revision)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, NULL, 1)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, NULL, 1)`
   ).run(
     id,
     userId,
@@ -130,6 +131,7 @@ export function createAccount(db: Db, userId: string, input: AccountInput): stri
     input.creditLimitCents === undefined || input.creditLimitCents === null
       ? null
       : assertCents(input.creditLimitCents, 'Credit limit', { allowZero: true }),
+    floorColumn(input.kind, input.floorCents) ?? null,
     optionalText(input.color, 'Color', 30),
     dedicatedGoalId,
     flagColumn(input.inSafeToSpend),
@@ -172,6 +174,7 @@ export function updateAccount(
         : patch.creditLimitCents === null
           ? null
           : assertCents(patch.creditLimitCents, 'Credit limit', { allowZero: true }),
+    floor_cents: floorColumn(patch.kind, patch.floorCents),
     color:
       patch.color === undefined
         ? undefined

@@ -726,6 +726,15 @@ a {
   border-radius: var(--radius-sm);
 }
 
+/* A floor warning (ADR 0035): the save still goes through on a second tap. */
+.form-warning {
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border-radius: var(--radius-sm);
+}
+
 .segmented {
   display: grid;
   grid-template-columns: 1fr 1fr;

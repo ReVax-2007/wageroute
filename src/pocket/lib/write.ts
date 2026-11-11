@@ -25,6 +25,7 @@ import type {
   TransactionKind
 } from '@shared/types'
 import * as rules from '@shared/writeRules'
+import { accountFloorCents, breachesFloor } from '@shared/accounts'
 import {
   cents,
   flag,
@@ -456,11 +457,15 @@ export function reconcileAllBillClaims(tables: ImportTables): ImportTables {
  * The desktop's own "did this clear?" answer: one bill payment for whatever the
  * month still owes, from the bill's account, dated no later than today.
  */
-export function payBill(
+/**
+ * The account and amount "Mark paid" would post, without posting it, so the
+ * sheet can ask about a floor first (ADR 0035). `payBill` writes exactly this.
+ */
+export function billPaymentPlan(
   tables: ImportTables,
   billId: string,
   options: { occurredOn?: string; accountId?: string } = {}
-): Written {
+): { accountId: string; amountCents: number; occurredOn: string } {
   const bill = requireBillRow(tables, billId)
   const today = todayISO()
   const occurredOn = rules.assertDate(options.occurredOn ?? today, 'Date')
@@ -481,12 +486,21 @@ export function payBill(
 
   const remaining = cents(bill, 'amount_cents') - billPaidThisMonthCents(tables, billId, occurredOn)
   if (remaining <= 0) throw new RepositoryError('STATE', 'This bill is already paid for the month')
+  return { accountId, amountCents: -remaining, occurredOn }
+}
 
+export function payBill(
+  tables: ImportTables,
+  billId: string,
+  options: { occurredOn?: string; accountId?: string } = {}
+): Written {
+  const bill = requireBillRow(tables, billId)
+  const plan = billPaymentPlan(tables, billId, options)
   return createEntry(tables, {
-    accountId,
+    accountId: plan.accountId,
     kind: 'bill_payment',
-    amountCents: -remaining,
-    occurredOn,
+    amountCents: plan.amountCents,
+    occurredOn: plan.occurredOn,
     memo: text(bill, 'name'),
     category: text(bill, 'category') || 'Bills',
     billId
@@ -695,6 +709,7 @@ export function createAccount(tables: ImportTables, input: AccountInput): Writte
       input.creditLimitCents === undefined || input.creditLimitCents === null
         ? null
         : rules.assertCents(input.creditLimitCents, 'Credit limit', { allowZero: true }),
+    floor_cents: rules.floorColumn(input.kind, input.floorCents) ?? null,
     color: rules.optionalText(input.color, 'Color', 30),
     dedicated_goal_id: dedicatedGoalId,
     in_safe_to_spend: rules.flagColumn(input.inSafeToSpend),
@@ -731,6 +746,7 @@ export function patchAccount(
             allowZero: true
           }),
     credit_limit_cents: rules.optionalCents(patch.creditLimitCents, 'Credit limit', { allowZero: true }),
+    floor_cents: rules.floorColumn(patch.kind, patch.floorCents),
     color:
       patch.color === undefined
         ? undefined
@@ -957,6 +973,16 @@ function insertEntryRow(tables: ImportTables, fields: EntryFields): Written {
  * remainder from the spending account to the destination, with both legs
  * carrying the id of the purchase that caused them.
  */
+/** An account row's ledger balance: its opening balance plus every live entry in it. */
+function rowBalanceCents(tables: ImportTables, account: Row): number {
+  const id = text(account, 'id')
+  return tables.transactions.reduce(
+    (total, row) =>
+      isLive(row) && text(row, 'account_id') === id ? total + cents(row, 'amount_cents') : total,
+    cents(account, 'starting_balance_cents')
+  )
+}
+
 function applyRoundUp(
   tables: ImportTables,
   input: {
@@ -987,6 +1013,16 @@ function applyRoundUp(
 
   const sweepCents = roundUpRemainderCents(input.amountCents, settings.roundUpToCents)
   if (sweepCents <= 0) return tables
+
+  // The app never takes an account under its floor on its own (ADR 0035).
+  const source = tables.accounts.find((row) => isLive(row) && text(row, 'id') === input.accountId)
+  if (source) {
+    const floor = accountFloorCents({
+      kind: text(source, 'kind') as AccountKind,
+      floorCents: nullableInteger(source, 'floor_cents')
+    })
+    if (breachesFloor(floor, rowBalanceCents(tables, source), -sweepCents)) return tables
+  }
 
   const groupId = crypto.randomUUID()
   const composed = input.memo ? `Round-up · ${input.memo}` : 'Round-up sweep'

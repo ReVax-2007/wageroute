@@ -40,7 +40,7 @@ export const TABLE_COLUMNS: Record<BackupTable, readonly string[]> = {
     'credit_limit_cents', 'apr_bps', 'minimum_payment_cents', 'statement_day',
     'payment_due_day', 'last_statement_balance_cents', 'color',
     'dedicated_goal_id', 'in_safe_to_spend',
-    'is_archived', 'is_locked', 'sort_order', 'created_at', 'updated_at',
+    'is_archived', 'is_locked', 'floor_cents', 'sort_order', 'created_at', 'updated_at',
     'deleted_at', 'revision'
   ],
   balance_snapshots: [

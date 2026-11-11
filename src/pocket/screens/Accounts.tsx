@@ -4,7 +4,8 @@ import {
   cardOwedCents,
   cardPaymentSources,
   countsInSafeToSpend,
-  isUsableAccount
+  isUsableAccount,
+  usableLabel
 } from '@shared/accounts'
 import {
   ADJUST_MODES,
@@ -17,9 +18,10 @@ import { formatDateLabel, todayISO } from '@shared/dates'
 import { accountDeletionWords, archiveVsDeleteHint } from '@shared/deletion'
 import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
 import type { AccountKind, AccountWithBalance } from '@shared/types'
-import { validateAccountForm, type AccountFormProblems } from '@shared/writeRules'
+import { FLOOR_KINDS, validateAccountForm, type AccountFormProblems } from '@shared/writeRules'
 import {
   ACCOUNT_KIND_LABEL,
+  accountAvailLabel,
   accountDisplayBalanceCents,
   cardStatus,
   cashOnHand,
@@ -30,6 +32,7 @@ import { Field } from '../components/Field'
 import { DeleteConfirm } from '../components/DeleteConfirm'
 import { MoneyInput, PercentInput } from '../components/MoneyInput'
 import { Sheet } from '../components/Sheet'
+import { FloorWarning, useFloorGate } from '../components/FloorWarning'
 import { useSheetSave } from '../components/useSheetSave'
 import { SplitTransferSheet } from './SplitTransferSheet'
 import { pocketView } from '../lib/compute'
@@ -97,6 +100,7 @@ interface AccountForm {
   institution: string
   startingBalance: string
   creditLimit: string
+  floor: string
   apr: string
   minimumPayment: string
   lastStatementBalance: string
@@ -117,6 +121,7 @@ function formFor(account: AccountWithBalance | null): AccountForm {
     startingBalance: account ? centsToEditable(Math.abs(account.startingBalanceCents)) : '',
     creditLimit:
       account && account.creditLimitCents !== null ? centsToEditable(account.creditLimitCents) : '',
+    floor: account && account.floorCents !== null ? centsToEditable(account.floorCents) : '',
     apr: account && account.aprBps !== null ? String(Number((account.aprBps / 100).toFixed(2))) : '',
     minimumPayment:
       account && account.minimumPaymentCents !== null
@@ -171,6 +176,7 @@ function AccountFormSheet({
   const { saving, error, run } = useSheetSave(onClose)
 
   const isCredit = form.kind === 'credit'
+  const takesFloor = FLOOR_KINDS.has(form.kind)
   const clearField = (field: keyof AccountFormProblems) =>
     setFieldErrors((current) => ({ ...current, [field]: undefined }))
 
@@ -182,7 +188,9 @@ function AccountFormSheet({
     const purposeFields = {
       dedicatedGoalId: form.dedicatedGoalId || null,
       inSafeToSpend: choiceToFlag(form.safeToSpend),
-      color: form.color || null
+      color: form.color || null,
+      // Blank is "no floor"; a kind without floors never sends one (ADR 0035).
+      floorCents: takesFloor ? parsed.floorCents : null
     }
     // Terms only mean something on a card; switching a draft away from credit
     // must not leave the old numbers behind.
@@ -314,6 +322,23 @@ function AccountFormSheet({
             onValueChange={(startingBalance) => {
               clearField('startingBalance')
               setForm({ ...form, startingBalance })
+            }}
+          />
+        </Field>
+      )}
+
+      {takesFloor && (
+        <Field
+          label="Floor (optional)"
+          hint="The least this account should ever hold. Leave blank for no floor."
+          error={fieldErrors.floor}
+        >
+          <MoneyInput
+            value={form.floor}
+            placeholder="90.00"
+            onValueChange={(floor) => {
+              clearField('floor')
+              setForm({ ...form, floor })
             }}
           />
         </Field>
@@ -700,6 +725,7 @@ function PayCardSheet({
   const [fromId, setFromId] = useState(sources[0]?.id ?? '')
   const [amount, setAmount] = useState(centsToEditable(owed))
   const [occurredOn, setOccurredOn] = useState(todayISO())
+  const floorGate = useFloorGate(currency)
 
   const submit = () => {
     if (!fromId) {
@@ -711,6 +737,7 @@ function PayCardSheet({
       setError('Enter a payment amount')
       return
     }
+    if (!floorGate.allow(sources.find((account) => account.id === fromId), -typed)) return
     void run(() =>
       add(
         (current) =>
@@ -746,7 +773,7 @@ function PayCardSheet({
           >
             {sources.map((account) => (
               <option key={account.id} value={account.id}>
-                {account.name}
+                {account.name} ({accountAvailLabel(account, currency)})
               </option>
             ))}
           </select>
@@ -781,6 +808,8 @@ function PayCardSheet({
         </p>
       ) : null}
 
+      <FloorWarning text={floorGate.warning} />
+
       <div className="sheet-actions">
         <button type="button" className="button" disabled={saving} onClick={onClose}>
           Cancel
@@ -791,7 +820,7 @@ function PayCardSheet({
           disabled={saving || sources.length === 0}
           onClick={submit}
         >
-          {saving ? 'Recording…' : 'Record payment'}
+          {saving ? 'Recording…' : (floorGate.confirmLabel ?? 'Record payment')}
         </button>
       </div>
     </Sheet>
@@ -907,6 +936,12 @@ function AccountSheet({
           <div>
             <dt>Mine only for</dt>
             <dd>{goalName}</dd>
+          </div>
+        ) : null}
+        {usableLabel(account, currency) !== null ? (
+          <div>
+            <dt>Floor</dt>
+            <dd>{usableLabel(account, currency)}</dd>
           </div>
         ) : null}
         <div>
@@ -1092,6 +1127,9 @@ export function Accounts() {
                       {account.institution ? ` · ${account.institution}` : ''}
                       {dedicated ? ` · only for ${dedicated}` : ''}
                     </span>
+                    {usableLabel(account, currency) !== null ? (
+                      <span className="muted small">{usableLabel(account, currency)}</span>
+                    ) : null}
                   </div>
                   <div className="row-end">
                     <span className={account.kind === 'credit' ? 'amount owed' : 'amount'}>

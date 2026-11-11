@@ -11,7 +11,7 @@ import {
   SlidersHorizontal,
   Trash2
 } from 'lucide-react'
-import { countsInSafeToSpend, totalWealthCents } from '@shared/accounts'
+import { countsInSafeToSpend, totalWealthCents, usableLabel } from '@shared/accounts'
 import { formatDateLabel, todayISO } from '@shared/dates'
 import { formatMoney } from '@shared/money'
 import type { AccountWithBalance } from '@shared/types'
@@ -195,6 +195,9 @@ export function Accounts() {
                               : ''}
                             {account.dedicatedGoalId !== null
                               ? ` · only for ${goalNames.get(account.dedicatedGoalId) ?? 'a removed goal'}`
+                              : ''}
+                            {usableLabel(account, currency) !== null && !account.isArchived
+                              ? ` · ${usableLabel(account, currency)}`
                               : ''}
                             {account.isLocked
                               ? ' · locked: nothing moves in or out'

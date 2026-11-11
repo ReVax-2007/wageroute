@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Pencil, Plus } from 'lucide-react'
-import { isUsableAccount } from '@shared/accounts'
+import { isUsableAccount, usableLabel } from '@shared/accounts'
 import { formatDateLong } from '@shared/dates'
 import { goalDeletionWords } from '@shared/deletion'
 import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
@@ -158,7 +158,11 @@ function GoalFormSheet({ goal, onClose }: { goal: GoalWithProgress | null; onClo
             {fundable.map((account) => (
               <Checkbox
                 key={account.id}
-                label={`${account.name} · ${formatMoney(account.balanceCents, snapshot?.user.currency ?? 'USD')}`}
+                label={`${account.name} · ${formatMoney(account.balanceCents, snapshot?.user.currency ?? 'USD')}${
+                  usableLabel(account, snapshot?.user.currency ?? 'USD') !== null
+                    ? ` · ${usableLabel(account, snapshot?.user.currency ?? 'USD')}`
+                    : ''
+                }`}
                 checked={form.fundingIds.includes(account.id)}
                 onChange={(checked) =>
                   setForm({
