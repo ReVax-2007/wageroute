@@ -72,6 +72,11 @@ export interface Account extends SyncMeta {
   /** null means "derive from the account kind". */
   inSafeToSpend: boolean | null
   isArchived: boolean
+  /**
+   * Frozen: the account keeps its balance and its place in total wealth, but
+   * takes no new entry, edit or transfer and is never spendable (ADR 0034).
+   */
+  isLocked: boolean
   sortOrder: number
   /** Debt terms, meaningful on a credit account (and on a loan-like account). */
   aprBps: number | null
@@ -162,6 +167,8 @@ export interface Transaction extends SyncMeta {
   paycheckId: string | null
   counterAccountId: string | null
   transferGroupId: string | null
+  /** Shared by every leg of one split transfer, so they show and leave together. */
+  splitGroupId: string | null
 }
 
 export interface TransactionRow extends Transaction {

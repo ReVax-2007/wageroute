@@ -463,6 +463,17 @@ ALTER TABLE goals ADD COLUMN funding_pace TEXT NOT NULL DEFAULT 'asap'
   CHECK (funding_pace IN ('asap','by_date','paused'));
 `
 
+// v11: an account can be locked (frozen, ADR 0034), and the transfers one split
+// writes share a group so they show and leave together (ADR 0033).
+const SCHEMA_V11 = `
+ALTER TABLE accounts ADD COLUMN is_locked INTEGER NOT NULL DEFAULT 0
+  CHECK (is_locked IN (0,1));
+ALTER TABLE transactions ADD COLUMN split_group_id TEXT;
+
+CREATE INDEX idx_transactions_split_group
+  ON transactions(split_group_id) WHERE split_group_id IS NOT NULL;
+`
+
 function isoDay(): string {
   const now = new Date()
   const pad = (value: number): string => String(value).padStart(2, '0')
@@ -607,6 +618,12 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 10,
     up: (db) => {
       db.exec(SCHEMA_V10)
+    }
+  },
+  {
+    version: 11,
+    up: (db) => {
+      db.exec(SCHEMA_V11)
     }
   }
 ]

@@ -81,6 +81,7 @@ export interface IpcContract {
   'account:update': { args: [string, Partial<AccountInput>]; result: WriteResult<void> }
   'account:delete': { args: [string, { withEntries?: boolean }?]; result: WriteResult<void> }
   'account:archive': { args: [string, boolean]; result: WriteResult<void> }
+  'account:lock': { args: [string, boolean]; result: WriteResult<void> }
   'account:count-deletion': { args: [string]; result: number }
 
   'bill:create': { args: [BillInput]; result: WriteResult<string> }
@@ -158,6 +159,7 @@ export const CHANNELS = [
   'account:update',
   'account:delete',
   'account:archive',
+  'account:lock',
   'account:count-deletion',
   'bill:create',
   'bill:update',

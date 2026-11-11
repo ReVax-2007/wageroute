@@ -866,6 +866,11 @@ export function registerIpcHandlers(db: Database.Database): void {
       repo.setAccountArchived(db, userId(), requireId(id), archived === true)
     )
   )
+  handle('account:lock', (_event, id: unknown, locked: unknown) =>
+    write(db, userId, ['accounts', 'settings'], () =>
+      repo.setAccountLocked(db, userId(), requireId(id), locked === true)
+    )
+  )
   handle('account:count-deletion', (_event, id: unknown) =>
     repo.doomedAccountDeletionIds(db, userId(), requireId(id)).length
   )

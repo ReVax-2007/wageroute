@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { isUsableAccount } from '@shared/accounts'
 import { Check, Clock } from 'lucide-react'
 import { dueBillPrompts, type BillPrompt } from '@shared/billPrompts'
 import { formatDateLabel, formatMonthLong, isISODate, todayISO } from '@shared/dates'
@@ -36,7 +37,7 @@ export function BillPrompts() {
 
   if (prompts.length === 0) return null
 
-  const openAccounts = snapshot.accounts.filter((account) => !account.isArchived)
+  const openAccounts = snapshot.accounts.filter(isUsableAccount)
   const activeIds = new Set(openAccounts.map((account) => account.id))
   const fallbackAccount =
     openAccounts.find((account) => account.kind === 'checking') ?? openAccounts[0] ?? null

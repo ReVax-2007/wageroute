@@ -9,7 +9,10 @@ import { flag, isLive, text, type Row } from './rows'
  */
 
 export function entryAccounts(tables: ImportTables): Row[] {
-  return tables.accounts.filter((row) => isLive(row) && !flag(row, 'is_archived'))
+  // Archived and locked accounts take no new money (ADR 0034).
+  return tables.accounts.filter(
+    (row) => isLive(row) && !flag(row, 'is_archived') && !flag(row, 'is_locked')
+  )
 }
 
 export function entryCategories(tables: ImportTables): Row[] {

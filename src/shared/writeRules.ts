@@ -103,6 +103,9 @@ export function assertOneOf<T extends string>(value: unknown, allowed: readonly 
   return value as T
 }
 
+/** The sentence both devices give for any write that would touch a locked account. */
+export const LOCKED_ACCOUNT_REFUSAL = 'That account is locked — unlock it before using it here'
+
 /** The sentence both devices give, and the forms show, for a card as a source. */
 export const CREDIT_CARD_SOURCE_REFUSAL =
   'Money can’t be transferred out of a credit card. To pay a card, transfer into it'

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { isUsableAccount } from '@shared/accounts'
 import {
   ArrowRight,
   ArrowRightLeft,
@@ -25,8 +26,15 @@ import { DataTable } from '../components/DataTable'
 import { accountDisplayBalanceCents } from '../lib/finance'
 import { useFinanceStore } from '../store/useFinanceStore'
 import { SplitTransferForm } from './SplitTransferForm'
+import { splitTransferSizes, summarizeSplit, type SplitSummary } from '@shared/splitTransfer'
 
 const QUICK_AMOUNTS = [50_00, 100_00, 250_00, 500_00]
+
+interface RecentTransfer {
+  /** The row a delete is aimed at; a split's delete takes every leg with it. */
+  row: TransactionRow
+  split: (SplitSummary & { transfers: number }) | null
+}
 
 function previewBalance(
   account: AccountWithBalance | undefined,
@@ -52,7 +60,7 @@ export function Transfers() {
   const go = useFinanceStore((state) => state.go)
 
   const activeAccounts = useMemo(
-    () => (snapshot?.accounts ?? []).filter((account) => !account.isArchived),
+    () => (snapshot?.accounts ?? []).filter(isUsableAccount),
     [snapshot]
   )
 
@@ -80,7 +88,7 @@ export function Transfers() {
   const [mode, setMode] = useState<'single' | 'split'>('single')
   const [saving, setSaving] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
-  const [recentTransfers, setRecentTransfers] = useState<TransactionRow[]>([])
+  const [recentTransfers, setRecentTransfers] = useState<RecentTransfer[]>([])
 
   // Keep the selection on live accounts: the source on one that can send money,
   // the destination on any other.
@@ -106,17 +114,26 @@ export function Transfers() {
       .then((page) => {
         if (cancelled) return
         const seen = new Set<string>()
-        const list: TransactionRow[] = []
+        const list: RecentTransfer[] = []
         for (const row of page.rows) {
-          const key = row.transferGroupId ?? row.id
-          if (!seen.has(key)) {
-            seen.add(key)
-            // Use the outgoing leg (amountCents < 0) as the primary record
-            const outLeg = page.rows.find(
-              (r) => (r.transferGroupId ?? r.id) === key && r.amountCents < 0
-            )
-            list.push(outLeg ?? row)
+          // A split shows as one line: it was saved as one movement and leaves as one.
+          const key = row.splitGroupId ?? row.transferGroupId ?? row.id
+          if (seen.has(key)) continue
+          seen.add(key)
+          if (row.splitGroupId) {
+            const legs = page.rows.filter((r) => r.splitGroupId === row.splitGroupId)
+            const summary = summarizeSplit(legs)
+            if (summary) {
+              const transfers = splitTransferSizes(legs).get(row.splitGroupId) ?? 1
+              list.push({ row: legs.find((r) => r.amountCents < 0) ?? row, split: { ...summary, transfers } })
+              continue
+            }
           }
+          // Use the outgoing leg (amountCents < 0) as the primary record
+          const outLeg = page.rows.find(
+            (r) => (r.transferGroupId ?? r.id) === key && r.amountCents < 0
+          )
+          list.push({ row: outLeg ?? row, split: null })
         }
         setRecentTransfers(list)
       })
@@ -510,13 +527,17 @@ export function Transfers() {
                   { key: 'actions', label: '', className: 'right' }
                 ]}
               >
-                {recentTransfers.map((item) => {
-                  const sourceName = item.accountName
-                  const destAccount = item.counterAccountId
-                    ? accountMap.get(item.counterAccountId)
-                    : null
-                  const destName = destAccount?.name ?? 'Account'
-                  const magnitude = Math.abs(item.amountCents)
+                {recentTransfers.map(({ row: item, split }) => {
+                  const nameOf = (id: string | null) =>
+                    (id ? accountMap.get(id)?.name : undefined) ?? 'Account'
+                  const sourceName = split ? nameOf(split.sourceAccountId) : item.accountName
+                  const destName = split
+                    ? split.destinationIds.map(nameOf).join(', ')
+                    : nameOf(item.counterAccountId)
+                  const magnitude = split ? split.totalCents : Math.abs(item.amountCents)
+                  const detail = split
+                    ? `Split · ${split.transfers} ${split.transfers === 1 ? 'transfer' : 'transfers'}`
+                    : [item.category, item.memo].filter(Boolean).join(' · ')
 
                   return (
                     <tr key={item.id}>
@@ -527,16 +548,14 @@ export function Transfers() {
                           <span className="transfer-route-arrow">➔</span>
                           <span>{destName}</span>
                         </div>
-                        <div className="cell-sub">
-                          {[item.category, item.memo].filter(Boolean).join(' · ')}
-                        </div>
+                        <div className="cell-sub">{detail}</div>
                       </td>
                       <td className="right">
                         <Money cents={magnitude} currency={currency} className="cell-strong" />
                       </td>
                       <td className="right">
                         <IconButton
-                          label="Delete transfer"
+                          label={split ? 'Delete split transfer' : 'Delete transfer'}
                           danger
                           onClick={() => void handleDelete(item)}
                         >

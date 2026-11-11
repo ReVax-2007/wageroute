@@ -165,6 +165,7 @@ test('Transfers screen mounts with accounts and records a transfer in one step',
           accountId: ACCOUNT_1.id,
           counterAccountId: ACCOUNT_2.id,
           transferGroupId: 'grp-1',
+          splitGroupId: null,
           kind: 'transfer',
           amountCents: -5000,
           occurredOn: '2026-11-04',
@@ -404,6 +405,71 @@ test('a split transfer adds up its lines and saves them in one step', async () =
       [CARD.id, 25_50]
     ]
   )
+
+  root.unmount()
+  host.remove()
+})
+
+test('a split shows in recent transfers as one line with its total', async () => {
+  const { useFinanceStore } = await import('../store/useFinanceStore')
+  const { parseSettings } = await import('@shared/settings')
+  const { Transfers } = await import('./Transfers')
+  const { createRoot } = await import('react-dom/client')
+
+  const TRAVEL = { ...ACCOUNT_2, id: 'acc-travel', name: 'Travel', sortOrder: 2 }
+  const leg = (id: string, accountId: string, counter: string, amountCents: number, pair: string) => ({
+    id,
+    userId: 'user-1',
+    accountId,
+    counterAccountId: counter,
+    transferGroupId: pair,
+    splitGroupId: 'split-1',
+    kind: 'transfer',
+    amountCents,
+    occurredOn: '2026-11-10',
+    memo: '',
+    category: 'Transfer',
+    categoryId: null,
+    externalId: null,
+    billId: null,
+    goalId: null,
+    paycheckId: null,
+    createdAt: '2026-11-10T00:00:00.000Z',
+    updatedAt: '2026-11-10T00:00:00.000Z',
+    deletedAt: null,
+    revision: 1,
+    accountName: accountId,
+    accountInstitution: null,
+    billName: null,
+    goalName: null
+  })
+  useFinanceStore.setState({
+    snapshot: makeSnapshot([ACCOUNT_1, ACCOUNT_2, TRAVEL]) as never,
+    settings: parseSettings({ currency: 'USD' }),
+    queryTransactions: async () => ({
+      rows: [
+        leg('l1', ACCOUNT_1.id, ACCOUNT_2.id, -100_00, 'p1'),
+        leg('l2', ACCOUNT_2.id, ACCOUNT_1.id, 100_00, 'p1'),
+        leg('l3', ACCOUNT_1.id, TRAVEL.id, -40_00, 'p2'),
+        leg('l4', TRAVEL.id, ACCOUNT_1.id, 40_00, 'p2')
+      ] as never,
+      total: 4
+    })
+  })
+
+  const host = window.document.createElement('div')
+  window.document.body.appendChild(host)
+  const root = createRoot(host)
+  await act(async () => {
+    root.render(createElement(Transfers))
+  })
+
+  const rows = [...host.querySelectorAll('.transfer-side tbody tr')]
+  assert.equal(rows.length, 1, 'two transfers, one split, one line')
+  assert.match(rows[0].textContent ?? '', /Chequing➔High Interest Savings, Travel/)
+  assert.match(rows[0].textContent ?? '', /Split · 2 transfers/)
+  assert.match(rows[0].textContent ?? '', /\$140\.00/)
+  assert.ok(rows[0].querySelector('button[aria-label="Delete split transfer"]'))
 
   root.unmount()
   host.remove()

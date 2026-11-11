@@ -3,6 +3,8 @@ import {
   Archive,
   ArrowRightLeft,
   Landmark,
+  Lock,
+  LockOpen,
   Pencil,
   Plus,
   RotateCcw,
@@ -32,6 +34,7 @@ export function Accounts() {
   const snapshot = useFinanceStore((state) => state.snapshot)
   const settings = useFinanceStore((state) => state.settings)
   const archiveAccount = useFinanceStore((state) => state.archiveAccount)
+  const lockAccount = useFinanceStore((state) => state.lockAccount)
   const go = useFinanceStore((state) => state.go)
   const [editing, setEditing] = useState<AccountWithBalance | 'new' | null>(null)
   const [adjusting, setAdjusting] = useState<AccountWithBalance | null>(null)
@@ -193,9 +196,11 @@ export function Accounts() {
                             {account.dedicatedGoalId !== null
                               ? ` · only for ${goalNames.get(account.dedicatedGoalId) ?? 'a removed goal'}`
                               : ''}
-                            {!countsInSafeToSpend(account) && !account.isArchived
-                              ? ' · not counted as spending money'
-                              : ''}
+                            {account.isLocked
+                              ? ' · locked: nothing moves in or out'
+                              : !countsInSafeToSpend(account) && !account.isArchived
+                                ? ' · not counted as spending money'
+                                : ''}
                           </span>
                           {isCredit && limit !== null && limit > 0 && (
                             <span className="credit-meter">
@@ -254,16 +259,27 @@ export function Accounts() {
                           </span>
                         </div>
                         <div className="account-actions">
-                          {isCredit && (
+                          {isCredit && !account.isLocked && (
                             <IconButton label="Pay this card" onClick={() => setPaying(account)}>
                               <ArrowRightLeft size={14} />
                             </IconButton>
                           )}
+                          {!account.isLocked && (
+                            <IconButton
+                              label="Adjust balance"
+                              onClick={() => setAdjusting(account)}
+                            >
+                              <SlidersHorizontal size={14} />
+                            </IconButton>
+                          )}
                           <IconButton
-                            label="Adjust balance"
-                            onClick={() => setAdjusting(account)}
+                            label={
+                              account.isLocked ? `Unlock ${account.name}` : `Lock ${account.name}`
+                            }
+                            aria-pressed={account.isLocked}
+                            onClick={() => void lockAccount(account.id, !account.isLocked)}
                           >
-                            <SlidersHorizontal size={14} />
+                            {account.isLocked ? <Lock size={14} /> : <LockOpen size={14} />}
                           </IconButton>
                           <IconButton label="Edit account" onClick={() => setEditing(account)}>
                             <Pencil size={14} />

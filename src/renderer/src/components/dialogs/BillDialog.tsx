@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { isUsableAccount } from '@shared/accounts'
 import { todayISO } from '@shared/dates'
 import {
   BILL_FUNDING_STRATEGY_LABEL,
@@ -25,13 +26,13 @@ export function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () =
   const updateBill = useFinanceStore((state) => state.updateBill)
 
   // An archived account can still hold old bills, but it cannot take new money.
-  const accounts = (snapshot?.accounts ?? []).filter((account) => !account.isArchived)
+  const accounts = (snapshot?.accounts ?? []).filter(isUsableAccount)
   // A bill saved before its account was archived keeps that pointer. Showing it
   // as a disabled option keeps the select honest instead of displaying some
   // other account while the bill still points at the archived one.
   const archivedAccount = bill
     ? (snapshot?.accounts ?? []).find(
-        (account) => account.id === bill.accountId && account.isArchived
+        (account) => account.id === bill.accountId && !isUsableAccount(account)
       )
     : undefined
   const [form, setForm] = useState({

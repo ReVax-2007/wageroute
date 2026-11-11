@@ -13,6 +13,7 @@ export {
   accountEntryCount,
   deleteAccount,
   setAccountArchived,
+  setAccountLocked,
   type AccountOnDate,
   type DeleteAccountOptions
 } from './repo/accounts'

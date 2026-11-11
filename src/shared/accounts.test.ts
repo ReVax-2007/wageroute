@@ -5,6 +5,7 @@ import {
   cardOwedCents,
   cardPaymentSources,
   countsInSafeToSpend,
+  isUsableAccount,
   poolEarmarkedGoalsCents,
   safeToSpendPoolCents,
   totalWealthCents,
@@ -49,6 +50,7 @@ function account(overrides: Partial<AccountWithBalance> = {}): AccountWithBalanc
     lastStatementBalanceCents: null,
     color: null,
     isArchived: false,
+    isLocked: false,
     sortOrder: 0,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
@@ -121,6 +123,15 @@ test('archived accounts count for nothing', () => {
   assert.equal(totalWealthCents([archived]), 0)
 })
 
+test('a locked account is wealth, never spending money, and takes no new money', () => {
+  const locked = account({ isLocked: true, inSafeToSpend: true, balanceCents: 500_00 })
+  assert.equal(countsInSafeToSpend(locked), false, 'an explicit opt-in does not unlock it')
+  assert.equal(totalWealthCents([locked]), 500_00)
+  assert.equal(isUsableAccount(locked), false)
+  assert.equal(isUsableAccount(account()), true)
+  assert.deepEqual(cardPaymentSources([locked]), [])
+})
+
 test('the Safe-to-spend pool is the chosen accounts, not all cash', () => {
   const accounts = [
     account({ id: 'a', kind: 'checking', balanceCents: 50_000 }),
@@ -188,6 +199,7 @@ function entry(
     paycheckId,
     counterAccountId: null,
     transferGroupId: null,
+    splitGroupId: null,
     createdAt: `${occurredOn}T00:00:00.000Z`,
     updatedAt: `${occurredOn}T00:00:00.000Z`,
     deletedAt: null,

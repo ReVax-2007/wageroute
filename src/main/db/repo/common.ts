@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3-multiple-ciphers'
 import { RepositoryError } from '@shared/errors'
 import type { AccountKind } from '@shared/types'
-import { nowISO } from '@shared/writeRules'
+import { LOCKED_ACCOUNT_REFUSAL, nowISO } from '@shared/writeRules'
 
 export type Db = Database.Database
 
@@ -71,15 +71,22 @@ export function requireAccount(
   db: Db,
   userId: string,
   accountId: string,
-  options: { allowArchived?: boolean } = {}
+  options: { allowArchived?: boolean; allowLocked?: boolean } = {}
 ): { id: string; kind: AccountKind } {
   const row = db
     .prepare(
-      `SELECT id, kind, is_archived AS isArchived FROM accounts
+      `SELECT id, kind, is_archived AS isArchived, is_locked AS isLocked FROM accounts
        WHERE id = ? AND user_id = ? AND deleted_at IS NULL`
     )
-    .get(accountId, userId) as { id: string; kind: AccountKind; isArchived: number } | undefined
+    .get(accountId, userId) as
+    | { id: string; kind: AccountKind; isArchived: number; isLocked: number }
+    | undefined
   if (!row) throw new RepositoryError('NOT_FOUND', 'Account not found')
+  // A locked account is frozen on purpose (ADR 0034): no entry, transfer, bill,
+  // paycheck or goal may start using it until it is unlocked.
+  if (row.isLocked === 1 && options.allowLocked !== true) {
+    throw new RepositoryError('STATE', LOCKED_ACCOUNT_REFUSAL)
+  }
   // An archived account is out of every total and every picker on purpose.
   // Posting new money to it would change a balance nobody is looking at.
   if (row.isArchived === 1 && options.allowArchived !== true) {

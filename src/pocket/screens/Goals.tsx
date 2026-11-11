@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Pencil, Plus } from 'lucide-react'
+import { isUsableAccount } from '@shared/accounts'
 import { formatDateLong } from '@shared/dates'
 import { goalDeletionWords } from '@shared/deletion'
 import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
@@ -54,7 +55,7 @@ function GoalFormSheet({ goal, onClose }: { goal: GoalWithProgress | null; onClo
   const edit = usePocket((state) => state.edit)
   const add = usePocket((state) => state.add)
   const fundable = snapshot ? fundableAccounts(snapshot.accounts) : []
-  const deposits = snapshot ? snapshot.accounts.filter((account) => !account.isArchived) : []
+  const deposits = snapshot ? snapshot.accounts.filter(isUsableAccount) : []
   const [form, setForm] = useState<GoalForm>(() => formFor(goal))
   const { saving, error, setError, run } = useSheetSave(onClose)
 

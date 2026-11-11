@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { isUsableAccount } from '@shared/accounts'
 import { formatMoney } from '@shared/money'
 import type {
   AccountKind,
@@ -37,7 +38,7 @@ function buildLines(
     counterAccountId: string | null
   }[]
 ): MoveLine[] {
-  const live = accounts.filter((account) => !account.isArchived)
+  const live = accounts.filter(isUsableAccount)
   const posted = transactions.filter(
     (entry) => entry.paycheckId === paycheck.id && entry.kind === 'transfer' && entry.counterAccountId
   )

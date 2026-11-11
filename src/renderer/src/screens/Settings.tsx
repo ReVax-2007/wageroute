@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { isUsableAccount } from '@shared/accounts'
 import {
   ClipboardCheck,
   Coffee,
@@ -123,7 +124,7 @@ export function Settings() {
 
   const currency = settings.currency
   const savingsAccounts = snapshot.accounts.filter(
-    (account) => account.kind === 'savings' && !account.isArchived
+    (account) => account.kind === 'savings' && isUsableAccount(account)
   )
   // A paycheck cannot land on a credit card or a brokerage account, so the
   // default-deposit list only offers accounts money can actually be paid into.

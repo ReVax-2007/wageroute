@@ -77,7 +77,9 @@ function BillFormSheet({
   const archivedAccount =
     bill && tables
       ? tables.accounts.find(
-          (row) => text(row, 'id') === bill.accountId && flag(row, 'is_archived')
+          (row) =>
+            text(row, 'id') === bill.accountId &&
+            (flag(row, 'is_archived') || flag(row, 'is_locked'))
         )
       : undefined
   const [form, setForm] = useState<BillForm>(() =>

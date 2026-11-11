@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { isUsableAccount } from '@shared/accounts'
 import { todayISO } from '@shared/dates'
 import { CREDIT_CARD_SOURCE_REFUSAL } from '@shared/writeRules'
 import { parseMoneyToCents } from '@shared/money'
@@ -17,7 +18,7 @@ export function EntryDialog({ onClose }: { onClose: () => void }) {
   const snapshot = useFinanceStore((state) => state.snapshot)
   const createTransaction = useFinanceStore((state) => state.createTransaction)
 
-  const accounts = (snapshot?.accounts ?? []).filter((account) => !account.isArchived)
+  const accounts = (snapshot?.accounts ?? []).filter(isUsableAccount)
   const bills = snapshot?.bills ?? []
   const goals = (snapshot?.goals ?? []).filter((goal) => !goal.isArchived)
   const [form, setForm] = useState({

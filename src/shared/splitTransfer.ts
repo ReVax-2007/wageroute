@@ -134,3 +134,49 @@ export function planSplitTransfer(
       .map((line) => transfer(viaId, line.accountId, line.amountCents, line)),
   ];
 }
+
+interface SplitLeg {
+  accountId: string
+  amountCents: number
+  transferGroupId: string | null
+  splitGroupId: string | null
+}
+
+/** How many transfers each split on screen wrote, keyed by its split group. */
+export function splitTransferSizes(rows: readonly SplitLeg[]): Map<string, number> {
+  const pairs = new Map<string, Set<string>>()
+  for (const row of rows) {
+    if (!row.splitGroupId) continue
+    const set = pairs.get(row.splitGroupId) ?? new Set<string>()
+    set.add(row.transferGroupId ?? row.accountId)
+    pairs.set(row.splitGroupId, set)
+  }
+  return new Map([...pairs].map(([id, set]) => [id, set.size]))
+}
+
+export interface SplitSummary {
+  sourceAccountId: string
+  /** Every account the split moved money into, the through account first. */
+  destinationIds: string[]
+  /** What left the source: the figure moved between banks. */
+  totalCents: number
+}
+
+/**
+ * One split read back from its legs. The source is the account that only
+ * sends; the total is what left it, so a split through another account is not
+ * counted twice.
+ */
+export function summarizeSplit(legs: readonly SplitLeg[]): SplitSummary | null {
+  const receiving = new Set(legs.filter((leg) => leg.amountCents > 0).map((leg) => leg.accountId))
+  const sourceLeg = legs.find((leg) => leg.amountCents < 0 && !receiving.has(leg.accountId))
+  if (!sourceLeg) return null
+  const destinationIds: string[] = []
+  for (const leg of legs) {
+    if (leg.amountCents > 0 && !destinationIds.includes(leg.accountId)) destinationIds.push(leg.accountId)
+  }
+  const totalCents = legs
+    .filter((leg) => leg.amountCents < 0 && leg.accountId === sourceLeg.accountId)
+    .reduce((sum, leg) => sum - leg.amountCents, 0)
+  return { sourceAccountId: sourceLeg.accountId, destinationIds, totalCents }
+}
