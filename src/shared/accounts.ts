@@ -24,6 +24,8 @@ const BUCKET_ORDER = ['Cash', 'Saved for goals', 'Invested', 'Credit owed'] as c
  */
 export function countsInSafeToSpend(account: AccountWithBalance): boolean {
   if (account.isArchived) return false
+  // Locked money still counts as wealth, but it cannot be moved, so it is not spendable.
+  if (account.isLocked) return false
   if (account.inSafeToSpend !== null) return account.inSafeToSpend
   if (account.dedicatedGoalId !== null) return false
   return SAFE_TO_SPEND_DEFAULT.has(account.kind)
@@ -45,6 +47,14 @@ export function safeToSpendPoolCents(accounts: readonly AccountWithBalance[]): n
 }
 
 /**
+ * Whether new money can be posted to or from an account: live, not archived,
+ * not locked. Every account picker that leads to a write uses this.
+ */
+export function isUsableAccount(account: { isArchived: boolean; isLocked: boolean }): boolean {
+  return !account.isArchived && !account.isLocked
+}
+
+/**
  * A card's balance read as money owed: positive when the user owes, negative
  * when the card is overpaid. Display badges clamp at zero; an edit form must
  * not, or the credit it is about to change silently starts at zero.
@@ -62,7 +72,7 @@ export function cardPaymentSources(
   accounts: readonly AccountWithBalance[]
 ): AccountWithBalance[] {
   return accounts.filter(
-    (account) => !account.isArchived && account.kind !== 'credit' && account.kind !== 'investment'
+    (account) => isUsableAccount(account) && account.kind !== 'credit' && account.kind !== 'investment'
   )
 }
 

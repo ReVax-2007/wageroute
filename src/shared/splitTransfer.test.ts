@@ -5,7 +5,9 @@ import {
   SPLIT_TRANSFER_MAX_LINES,
   planSplitTransfer,
   splitTransferProblem,
+  splitTransferSizes,
   splitTransferTotalCents,
+  summarizeSplit,
   type SplitAccount
 } from './splitTransfer'
 import type { SplitTransferInput } from './types'
@@ -147,4 +149,29 @@ test('paying a card is a line like any other', () => {
   )
   assert.deepEqual([plan[0].accountId, plan[0].counterAccountId], ['a1', 'visa'])
   assert.equal(splitTransferProblem(split(), lookup), null)
+})
+
+test('a split reads back as its source, its accounts and what left the source', () => {
+  const leg = (accountId: string, amountCents: number, pair: string) => ({
+    accountId,
+    amountCents,
+    transferGroupId: pair,
+    splitGroupId: 'split-1'
+  })
+  // Through b1: a1 → b1 for the total, then b1 → b2 and b1 → b3.
+  const legs = [
+    leg('a1', -150_00, 'p1'),
+    leg('b1', 150_00, 'p1'),
+    leg('b1', -100_00, 'p2'),
+    leg('b2', 100_00, 'p2'),
+    leg('b1', -25_00, 'p3'),
+    leg('b3', 25_00, 'p3')
+  ]
+  assert.deepEqual(summarizeSplit(legs), {
+    sourceAccountId: 'a1',
+    destinationIds: ['b1', 'b2', 'b3'],
+    totalCents: 150_00
+  })
+  assert.equal(splitTransferSizes(legs).get('split-1'), 3)
+  assert.equal(splitTransferSizes([{ ...legs[0], splitGroupId: null }]).size, 0)
 })

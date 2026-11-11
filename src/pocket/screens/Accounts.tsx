@@ -3,7 +3,8 @@ import { ArrowRightLeft, Pencil, Plus } from 'lucide-react'
 import {
   cardOwedCents,
   cardPaymentSources,
-  countsInSafeToSpend
+  countsInSafeToSpend,
+  isUsableAccount
 } from '@shared/accounts'
 import {
   ADJUST_MODES,
@@ -39,7 +40,8 @@ import {
   deleteAccount,
   doomedAccountEntryIds,
   patchAccount,
-  setAccountArchived
+  setAccountArchived,
+  setAccountLocked
 } from '../lib/write'
 
 const KINDS: AccountKind[] = ['checking', 'savings', 'cash', 'credit', 'investment']
@@ -921,7 +923,13 @@ function AccountSheet({
         </div>
         <div>
           <dt>State</dt>
-          <dd>{account.isArchived ? 'Archived' : 'Active'}</dd>
+          <dd>
+            {account.isArchived
+              ? 'Archived'
+              : account.isLocked
+                ? 'Locked: nothing moves in or out'
+                : 'Active'}
+          </dd>
         </div>
       </dl>
 
@@ -932,7 +940,7 @@ function AccountSheet({
       ) : null}
 
       <div className="card-actions">
-        {!account.isArchived ? (
+        {!account.isArchived && !account.isLocked ? (
           <>
             <button type="button" className="button compact" disabled={saving} onClick={onAdjust}>
               Adjust balance
@@ -947,6 +955,24 @@ function AccountSheet({
         <button type="button" className="button compact" disabled={saving} onClick={onEdit}>
           <Pencil size={15} aria-hidden="true" /> Edit
         </button>
+        {!account.isArchived ? (
+          <button
+            type="button"
+            className="button compact"
+            aria-pressed={account.isLocked}
+            disabled={saving}
+            onClick={() =>
+              void run(() =>
+                edit(
+                  (current) => setAccountLocked(current, account.id, !account.isLocked),
+                  account.isLocked ? 'Account unlocked.' : 'Account locked.'
+                )
+              )
+            }
+          >
+            {account.isLocked ? 'Unlock' : 'Lock'}
+          </button>
+        ) : null}
         <button
           type="button"
           className="button compact"
@@ -1016,7 +1042,8 @@ export function Accounts() {
           <p className="hero-number">{formatMoney(view.wealthCents, currency)}</p>
         </div>
         <div className="head-actions">
-          {active.length >= 2 && active.some((account) => account.kind !== 'credit') ? (
+          {active.filter(isUsableAccount).length >= 2 &&
+          active.some((account) => isUsableAccount(account) && account.kind !== 'credit') ? (
             <button type="button" className="button compact" onClick={() => setSplitting(true)}>
               <ArrowRightLeft size={17} aria-hidden="true" /> Split
             </button>
@@ -1178,7 +1205,7 @@ export function Accounts() {
       ) : null}
 
       {splitting ? (
-        <SplitTransferSheet accounts={active} currency={currency} onClose={() => setSplitting(false)} />
+        <SplitTransferSheet accounts={active.filter(isUsableAccount)} currency={currency} onClose={() => setSplitting(false)} />
       ) : null}
 
       {pendingDelete && deleteWords ? (

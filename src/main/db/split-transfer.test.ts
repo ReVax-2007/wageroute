@@ -1,14 +1,19 @@
 import assert from 'node:assert/strict'
 import Database from 'better-sqlite3-multiple-ciphers'
 import test from 'node:test'
-import { CREDIT_CARD_SOURCE_REFUSAL } from '@shared/writeRules'
+import { CREDIT_CARD_SOURCE_REFUSAL, LOCKED_ACCOUNT_REFUSAL } from '@shared/writeRules'
 import { migrate } from './migrations'
 import {
   createAccount,
   createSplitTransfer,
+  createTransaction,
+  deleteTransaction,
+  doomedDeletionIds,
   listAccounts,
   listTransactions,
-  setAccountArchived
+  setAccountArchived,
+  setAccountLocked,
+  updateTransaction
 } from './repositories'
 
 const USER_ID = '11111111-2222-3333-4444-555555555555'
@@ -116,4 +121,104 @@ test('a card is never the source or the account a split passes through', () => {
     )
   }
   assert.equal(listTransactions(db, USER_ID).length, 0)
+})
+
+test('a split is one group: every leg shares it and a delete of any leg takes them all', () => {
+  const db = freshDb()
+  const a1 = open(db, 'A chequing', 'checking', 1_000_00)
+  const b1 = open(db, 'B chequing', 'checking')
+  const b2 = open(db, 'B savings', 'savings')
+  const b3 = open(db, 'B travel', 'savings')
+  const before = createTransaction(db, USER_ID, {
+    accountId: a1,
+    counterAccountId: b1,
+    kind: 'transfer',
+    amountCents: 5_00,
+    occurredOn: '2026-11-09',
+    memo: 'Lone transfer',
+    category: 'Transfer'
+  })
+
+  createSplitTransfer(db, USER_ID, {
+    sourceAccountId: a1,
+    viaAccountId: b1,
+    occurredOn: '2026-11-10',
+    lines: [
+      { accountId: b2, amountCents: 100_00 },
+      { accountId: b3, amountCents: 50_00 }
+    ]
+  })
+  const split = listTransactions(db, USER_ID).filter((row) => row.splitGroupId !== null)
+  assert.equal(split.length, 6)
+  assert.equal(new Set(split.map((row) => row.splitGroupId)).size, 1)
+  assert.equal(
+    listTransactions(db, USER_ID).find((row) => row.id === before)?.splitGroupId,
+    null,
+    'a transfer entered alone is in no split'
+  )
+
+  const onward = split.find((row) => row.accountId === b3)!
+  assert.equal(doomedDeletionIds(db, USER_ID, [onward.id]).length, 6)
+  deleteTransaction(db, USER_ID, onward.id)
+  const left = listTransactions(db, USER_ID)
+  assert.ok(left.every((row) => row.splitGroupId === null))
+  assert.equal(left.length, 2, 'only the lone transfer is left')
+  assert.equal(balances(db)['A chequing'], 995_00)
+})
+
+test('a locked account keeps its balance but nothing moves in or out of it', () => {
+  const db = freshDb()
+  const a1 = open(db, 'A chequing', 'checking', 1_000_00)
+  const b1 = open(db, 'B savings', 'savings', 200_00)
+  const entry = createTransaction(db, USER_ID, {
+    accountId: b1,
+    kind: 'expense',
+    amountCents: 10_00,
+    occurredOn: '2026-11-01',
+    memo: 'Fee',
+    category: 'Fees'
+  })
+  setAccountLocked(db, USER_ID, b1, true)
+
+  const locked = listAccounts(db, USER_ID).find((account) => account.id === b1)!
+  assert.equal(locked.isLocked, true)
+  assert.equal(locked.balanceCents, 190_00, 'its balance still stands')
+
+  const refusals: (() => unknown)[] = [
+    () =>
+      createTransaction(db, USER_ID, {
+        accountId: a1,
+        counterAccountId: b1,
+        kind: 'transfer',
+        amountCents: 1_00,
+        occurredOn: '2026-11-10',
+        memo: '',
+        category: 'Transfer'
+      }),
+    () =>
+      createTransaction(db, USER_ID, {
+        accountId: b1,
+        kind: 'income',
+        amountCents: 1_00,
+        occurredOn: '2026-11-10',
+        memo: '',
+        category: 'Income'
+      }),
+    () =>
+      createSplitTransfer(db, USER_ID, {
+        sourceAccountId: a1,
+        occurredOn: '2026-11-10',
+        lines: [{ accountId: b1, amountCents: 1_00 }]
+      }),
+    () => updateTransaction(db, USER_ID, entry, { memo: 'Changed' }),
+    () => deleteTransaction(db, USER_ID, entry)
+  ]
+  for (const refuse of refusals) {
+    assert.throws(refuse, (error: Error) => error.message === LOCKED_ACCOUNT_REFUSAL)
+  }
+  assert.equal(listTransactions(db, USER_ID).length, 1, 'nothing was written or removed')
+
+  setAccountLocked(db, USER_ID, b1, false)
+  updateTransaction(db, USER_ID, entry, { memo: 'Changed' })
+  assert.equal(listTransactions(db, USER_ID)[0].memo, 'Changed', 'unlocking makes it usable again')
 })

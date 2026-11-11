@@ -1,6 +1,6 @@
 # Data model
 
-WageRoute stores every financial fact in one SQLite database, `wageroute.db`, using `STRICT` tables, integer cents, UUID text keys and ISO-8601 timestamps. This document describes the schema at version 10, the semantics of each column, the derived values the app computes at read time, and the invariants that keep the ledger coherent.
+WageRoute stores every financial fact in one SQLite database, `wageroute.db`, using `STRICT` tables, integer cents, UUID text keys and ISO-8601 timestamps. This document describes the schema at version 11, the semantics of each column, the derived values the app computes at read time, and the invariants that keep the ledger coherent.
 
 That one file is the ledger, not the whole installation. Beside it live `ledger.key.json` (only the wraps that can produce the ledger's key, when the owner turns encryption on) and, in the app's own folder, `storage.json` (which folder to use) and `backups/` (the daily and pre-upgrade copies). The phone keeps its own copy of these same tables in IndexedDB. Nothing in the schema records any of it — see [Encryption is not schema state](#encryption-is-not-schema-state).
 
@@ -142,6 +142,7 @@ Writes use `INSERT ... ON CONFLICT(user_id, key) DO UPDATE`. Reads return the ra
 | `payment_due_day` | INTEGER | nullable, CHECK 1–31 | Added in v8. Day the payment is due; resolved after the close date |
 | `last_statement_balance_cents` | INTEGER | nullable, CHECK null or ≥ 0 | Added in v8. What the last statement asked for |
 | `is_archived` | INTEGER | NOT NULL, default 0, CHECK 0/1 | |
+| `is_locked` | INTEGER | NOT NULL, default 0, CHECK 0/1 | Added in v11; frozen: no new entry, edit, delete or transfer touches it, and it is never spending money ([ADR 0034](decisions/0034-a-locked-account-is-frozen-money.md)) |
 | `sort_order` | INTEGER | NOT NULL, default 0 | |
 | `created_at` | TEXT | NOT NULL | |
 | `updated_at` | TEXT | NOT NULL | |
@@ -389,6 +390,7 @@ The ledger. Every balance in the app is derived from this table.
 | `paycheck_id` | TEXT | nullable, FK paychecks | Links the income entry |
 | `counter_account_id` | TEXT | nullable, FK accounts | Other side of a transfer |
 | `transfer_group_id` | TEXT | nullable | Added in v3; shared by both legs |
+| `split_group_id` | TEXT | nullable | Added in v11; shared by every leg of one split transfer ([ADR 0033](decisions/0033-a-split-transfer-is-ordinary-transfers-saved-together.md)) |
 | `round_up_source_id` | TEXT | nullable, partial index | Added in v7; the expense that produced this sweep leg |
 | `created_at` | TEXT | NOT NULL | |
 | `updated_at` | TEXT | NOT NULL | |
@@ -403,7 +405,7 @@ Transfer rules:
 - Editing a paired leg may change amount magnitude, date, memo and category. It may not change account or kind; the UI edits the sibling leg in the same transaction.
 - Deleting either leg soft-deletes the whole group.
 - Round-up sweeps use the same paired-transfer structure, so deleting a round-up leg deletes both.
-- A split transfer is a list of these pairs written in one SQL transaction (on the phone, one commit). There is no extra column or grouping id, and each pair keeps its own `transfer_group_id` ([ADR 0033](decisions/0033-a-split-transfer-is-ordinary-transfers-saved-together.md)).
+- A split transfer is a list of these pairs written in one SQL transaction (on the phone, one commit). Each pair keeps its own `transfer_group_id`, and every leg also carries the split's `split_group_id`. Deleting any leg soft-deletes the whole split ([ADR 0033](decisions/0033-a-split-transfer-is-ordinary-transfers-saved-together.md)).
 
 Category and external-id rules:
 
@@ -552,8 +554,9 @@ Migrations run inside a transaction per version and are tracked by `PRAGMA user_
 | **8** | Adds `transactions.category_id` and `transactions.external_id` with their indexes, the five card columns on `accounts`, and the `categories` and `balance_snapshots` tables; then, in JS, seeds `DEFAULT_CATEGORIES`, links every distinct category text to a row by its normalised key, and writes today's balance for every live account | Categories need an identity to group by; a statement re-import needs the bank's own line id; the card rows need their terms; and net worth needs a history. The backfill only adds rows and sets `category_id` — no existing text, amount or date is rewritten, so every number on an upgraded database is unchanged |
 | **9** | Adds `bill_reserves.strategy` (NOT NULL, default `'all_checks'`, CHECKed enum), `bill_reserves.due_day` (NOT NULL, default `1`, CHECKed) and `bill_reserves.settled_by` with a partial index, then backfills each live row's strategy and due day from its bill | A claim must remember how it was written: a strategy change must not double-reserve, and editing the bill's due day must not rewrite an old carry. The payment link lets a delete or move re-open exactly the row it closed instead of guessing by cycle. Pre-v9 rows take their bill's current strategy and due day, which is the best available reading and moves no money |
 | **10** | Adds `goals.funding_pace` (NOT NULL, default `'asap'`, CHECKed enum) | The sinking fund needs an explicit answer to “what should happen to this goal on payday”: fund it now, spread it to its target date, or leave it alone. Existing goals default to `asap`, which is exactly the pre-v10 behaviour, so an upgraded database funds the same goals on the same cheque |
+| **11** | Adds `accounts.is_locked` (NOT NULL, default 0, CHECK 0/1), `transactions.split_group_id` (nullable) and the partial index `idx_transactions_split_group` | A locked account is frozen money ([ADR 0034](decisions/0034-a-locked-account-is-frozen-money.md)), and the transfers one split writes show and leave together ([ADR 0033](decisions/0033-a-split-transfer-is-ordinary-transfers-saved-together.md)). Existing accounts start unlocked and existing entries belong to no split, so an upgraded ledger behaves exactly as before |
 
-`SCHEMA_VERSION` is derived from the last migration and is reported in JSON backups. Backups with a higher version are rejected. Backups older than version 2 are rejected; every version from 2 through 10 is accepted.
+`SCHEMA_VERSION` is derived from the last migration and is reported in JSON backups. Backups with a higher version are rejected. Backups older than version 2 are rejected; every version from 2 through 11 is accepted.
 
 Migration procedure for future work is in [DEVELOPMENT.md](DEVELOPMENT.md#adding-a-schema-migration).
 
@@ -564,7 +567,7 @@ These should hold after every successful mutation.
 1. **Plan balance.** For a committed paycheck:
    `priority_cents + savings + investment + goal allocations + debt + leisure === amount_cents`.
 2. **Paycheck income.** `priority_cents + surplus_cents === amount_cents`; `leisure_cents` is the unallocated part of the surplus.
-3. **Transfer pairing.** Every row with a `transfer_group_id` has exactly one sibling with the same group and the opposite sign, unless one leg has been soft-deleted (both are deleted together by the app).
+3. **Transfer pairing.** Every row with a `transfer_group_id` has exactly one sibling with the same group and the opposite sign, unless one leg has been soft-deleted (both are deleted together by the app). Every live row with a `split_group_id` is a transfer leg, and a split's legs are live or deleted together.
 4. **Amount sign.** Income is positive and expenses/bill payments are negative when created through the UI; adjustments and manual ledger edits may use either sign.
 5. **Positive targets.** `bills.amount_cents > 0` and `goals.target_cents > 0` are enforced by the schema.
 6. **Non-negative allocation.** `allocations.amount_cents >= 0`.

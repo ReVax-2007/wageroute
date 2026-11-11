@@ -40,7 +40,9 @@ export function entryDeletionWords(
   const count = Math.max(1, Math.trunc(doomed))
   const memo = options.memo?.trim() ?? ''
 
-  if (options.isTransferLeg) {
+  // A leg of a split transfer takes every transfer the split wrote, so it counts
+  // more than its own pair and reads as the plural question below.
+  if (options.isTransferLeg && count <= 2) {
     return {
       title: 'Delete both legs of this transfer?',
       body: `“${memo || 'This transfer'}” is one movement of money; removing it also removes the matching leg.`,
@@ -50,7 +52,7 @@ export function entryDeletionWords(
   if (count > 1) {
     return {
       title: `Delete ${grouped(count)} entries?`,
-      body: `${grouped(count)} entries disappear from the ledger and every balance they touch. A purchase takes the round-up it caused, and a transfer takes its matching leg.`,
+      body: `${grouped(count)} entries disappear from the ledger and every balance they touch. A purchase takes the round-up it caused, a transfer takes its matching leg, and a split transfer takes every transfer it wrote.`,
       confirmLabel: `Delete ${grouped(count)}`
     }
   }

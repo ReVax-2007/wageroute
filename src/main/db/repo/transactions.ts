@@ -30,7 +30,7 @@ import {
   updateRow,
   type Db
 } from './common'
-import { TRANSACTION_KINDS, assertTransferSource } from '@shared/writeRules'
+import { LOCKED_ACCOUNT_REFUSAL, TRANSACTION_KINDS, assertTransferSource } from '@shared/writeRules'
 import { ensureCategory } from './categories'
 import { reconcileBillReserve } from './bills'
 import { accountBalanceOn } from './accounts'
@@ -95,6 +95,7 @@ const TRANSACTION_SELECT = `
          t.category_id AS categoryId, t.external_id AS externalId,
          t.bill_id AS billId, t.goal_id AS goalId, t.paycheck_id AS paycheckId,
          t.counter_account_id AS counterAccountId, t.transfer_group_id AS transferGroupId,
+         t.split_group_id AS splitGroupId,
          t.created_at AS createdAt,
          t.updated_at AS updatedAt, t.deleted_at AS deletedAt, t.revision,
          a.name AS accountName, a.institution AS accountInstitution,
@@ -270,6 +271,7 @@ export function queryTransactions(db: Db, userId: string, query: LedgerQuery): T
               t.bill_id AS billId, t.goal_id AS goalId, t.paycheck_id AS paycheckId,
               t.counter_account_id AS counterAccountId,
               t.transfer_group_id AS transferGroupId,
+              t.split_group_id AS splitGroupId,
               t.created_at AS createdAt, t.updated_at AS updatedAt,
               t.deleted_at AS deletedAt, t.revision,
               a.name AS accountName, a.institution AS accountInstitution,
@@ -312,6 +314,7 @@ export interface NewTransactionInput {
   paycheckId?: string | null
   counterAccountId?: string | null
   transferGroupId?: string | null
+  splitGroupId?: string | null
   roundUpSourceId?: string | null
 }
 
@@ -345,8 +348,9 @@ export function insertTransactionRow(db: Db, userId: string, input: NewTransacti
     `INSERT INTO transactions
        (id, user_id, account_id, kind, amount_cents, occurred_on, memo, category,
         category_id, external_id, bill_id, goal_id, paycheck_id, counter_account_id,
-        transfer_group_id, round_up_source_id, created_at, updated_at, deleted_at, revision)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1)`
+        transfer_group_id, split_group_id, round_up_source_id, created_at, updated_at,
+        deleted_at, revision)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1)`
   ).run(
     id,
     userId,
@@ -363,6 +367,7 @@ export function insertTransactionRow(db: Db, userId: string, input: NewTransacti
     input.paycheckId ?? null,
     input.counterAccountId ?? null,
     input.transferGroupId ?? null,
+    input.splitGroupId ?? null,
     input.roundUpSourceId ?? null,
     ts,
     ts
@@ -398,7 +403,7 @@ function applyRoundUp(
   const destination = db
     .prepare(
       `SELECT kind FROM accounts
-       WHERE id = ? AND user_id = ? AND deleted_at IS NULL AND is_archived = 0`
+       WHERE id = ? AND user_id = ? AND deleted_at IS NULL AND is_archived = 0 AND is_locked = 0`
     )
     .get(settings.roundUpAccountId, userId) as { kind: AccountKind } | undefined
   if (!destination || destination.kind === 'credit' || destination.kind === 'investment') return
@@ -434,7 +439,16 @@ function applyRoundUp(
   })
 }
 
-export function createTransaction(db: Db, userId: string, input: TransactionInput): string {
+/**
+ * `splitGroupId` is set only by `createSplitTransfer`: it is the app's own tag
+ * for the transfers one split wrote, never something a caller over IPC sends.
+ */
+export function createTransaction(
+  db: Db,
+  userId: string,
+  input: TransactionInput,
+  options: { splitGroupId?: string } = {}
+): string {
   const kind = assertOneOf(input.kind, TRANSACTION_KINDS, 'transaction kind')
   // The kind decides the sign: income can never post negative and an expense
   // can never post positive, whatever the caller typed.
@@ -477,6 +491,7 @@ export function createTransaction(db: Db, userId: string, input: TransactionInpu
         categoryId: resolved.id,
         counterAccountId,
         transferGroupId: groupId,
+        splitGroupId: options.splitGroupId ?? null,
         paycheckId: input.paycheckId ?? null
       })
       insertTransactionRow(db, userId, {
@@ -489,6 +504,7 @@ export function createTransaction(db: Db, userId: string, input: TransactionInpu
         categoryId: resolved.id,
         counterAccountId: input.accountId,
         transferGroupId: groupId,
+        splitGroupId: options.splitGroupId ?? null,
         paycheckId: input.paycheckId ?? null
       })
       return outId
@@ -534,7 +550,8 @@ export function createTransaction(db: Db, userId: string, input: TransactionInpu
  * A split transfer: one source sending money to several accounts. It is the
  * ordinary transfers `planSplitTransfer` lists, each written through
  * `createTransaction` with every one of its checks, inside one SQL transaction
- * so a refusal on any line leaves nothing behind (ADR 0033). Returns the
+ * so a refusal on any line leaves nothing behind (ADR 0033). Every leg shares
+ * one `split_group_id`, so the split is shown and deleted as one. Returns the
  * outgoing leg of each transfer, in order.
  */
 export function createSplitTransfer(db: Db, userId: string, input: SplitTransferInput): string[] {
@@ -545,7 +562,40 @@ export function createSplitTransfer(db: Db, userId: string, input: SplitTransfer
     input,
     (id) => lookup.get(id, userId) as SplitAccount | undefined
   )
-  return db.transaction(() => transfers.map((transfer) => createTransaction(db, userId, transfer)))()
+  const splitGroupId = randomUUID()
+  return db.transaction(() =>
+    transfers.map((transfer) => createTransaction(db, userId, transfer, { splitGroupId }))
+  )()
+}
+
+/** Every live leg of one split transfer. */
+function splitGroupIds(db: Db, userId: string, splitGroupId: string): string[] {
+  return (
+    db
+      .prepare(
+        `SELECT id FROM transactions
+         WHERE split_group_id = ? AND user_id = ? AND deleted_at IS NULL`
+      )
+      .all(splitGroupId, userId) as { id: string }[]
+  ).map((row) => row.id)
+}
+
+/**
+ * Refuses a change to entries recorded in a locked account. A locked account
+ * is frozen: its history neither grows, changes nor shrinks until it is unlocked
+ * (ADR 0034).
+ */
+function assertEntriesUnlocked(db: Db, userId: string, ids: readonly string[]): void {
+  if (ids.length === 0) return
+  const locked = db
+    .prepare(
+      `SELECT 1 FROM transactions t JOIN accounts a ON a.id = t.account_id
+       WHERE t.user_id = ? AND a.is_locked = 1
+         AND t.id IN (${ids.map(() => '?').join(', ')})
+       LIMIT 1`
+    )
+    .get(userId, ...ids)
+  if (locked) throw new RepositoryError('STATE', LOCKED_ACCOUNT_REFUSAL)
 }
 
 interface TransferGroupRow {
@@ -595,6 +645,8 @@ export function updateTransaction(
       }
     | undefined
   if (!existing) throw new RepositoryError('NOT_FOUND', 'Entry not found')
+  // An edit touches the row, its twin and its sweep; none may sit in a locked account.
+  assertEntriesUnlocked(db, userId, doomedDeletionIds(db, userId, [id], { splits: false }))
 
   if (existing.roundUpSourceId) {
     // A sweep is derived: its amount, date and account are whatever the purchase
@@ -756,7 +808,8 @@ export function roundUpSweepIds(db: Db, userId: string, sourceId: string): strin
 export function deleteTransaction(db: Db, userId: string, id: string): void {
   const existing = db
     .prepare(
-      `SELECT transfer_group_id AS groupId, round_up_source_id AS roundUpSourceId,
+      `SELECT transfer_group_id AS groupId, split_group_id AS splitGroupId,
+              round_up_source_id AS roundUpSourceId,
               bill_id AS billId, occurred_on AS occurredOn
        FROM transactions
        WHERE id = ? AND user_id = ? AND deleted_at IS NULL`
@@ -764,6 +817,7 @@ export function deleteTransaction(db: Db, userId: string, id: string): void {
     .get(id, userId) as
     | {
         groupId: string | null
+        splitGroupId: string | null
         roundUpSourceId: string | null
         billId: string | null
         occurredOn: string
@@ -772,6 +826,18 @@ export function deleteTransaction(db: Db, userId: string, id: string): void {
 
   if (!existing) throw new RepositoryError('NOT_FOUND', 'Entry not found')
   const row = existing
+  assertEntriesUnlocked(db, userId, doomedDeletionIds(db, userId, [id]))
+
+  if (row.splitGroupId) {
+    // A split was saved as one movement and leaves as one: every leg of every
+    // transfer it wrote.
+    db.transaction(() => {
+      for (const legId of splitGroupIds(db, userId, row.splitGroupId!)) {
+        softDelete(db, 'transactions', legId, userId)
+      }
+    })()
+    return
+  }
 
   if (row.groupId) {
     db.transaction(() => {
@@ -797,7 +863,12 @@ export function deleteTransaction(db: Db, userId: string, id: string): void {
  * this before the write so its question can name the number of rows leaving the
  * ledger instead of the number of rows the person picked.
  */
-export function doomedDeletionIds(db: Db, userId: string, ids: readonly string[]): string[] {
+export function doomedDeletionIds(
+  db: Db,
+  userId: string,
+  ids: readonly string[],
+  options: { splits?: boolean } = {}
+): string[] {
   const unique = [...new Set(ids)]
   if (unique.length === 0) return []
 
@@ -806,12 +877,18 @@ export function doomedDeletionIds(db: Db, userId: string, ids: readonly string[]
   )
   const isLive = (id: string): boolean => statement.get(id, userId) !== undefined
   const groupOf = db.prepare(
-    'SELECT transfer_group_id AS groupId FROM transactions WHERE id = ? AND user_id = ? AND deleted_at IS NULL'
+    `SELECT transfer_group_id AS groupId, split_group_id AS splitGroupId
+     FROM transactions WHERE id = ? AND user_id = ? AND deleted_at IS NULL`
   )
 
   const candidates = new Set<string>(unique.filter(isLive))
   for (const id of [...candidates]) {
-    const group = groupOf.get(id, userId) as { groupId: string | null } | undefined
+    const group = groupOf.get(id, userId) as
+      | { groupId: string | null; splitGroupId: string | null }
+      | undefined
+    if (group?.splitGroupId && options.splits !== false) {
+      for (const legId of splitGroupIds(db, userId, group.splitGroupId)) candidates.add(legId)
+    }
     if (group?.groupId) {
       for (const leg of transferGroupRows(db, userId, group.groupId)) candidates.add(leg.id)
     }

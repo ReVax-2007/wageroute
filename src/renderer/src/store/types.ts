@@ -80,6 +80,7 @@ export interface DataSlice {
   updateAccount: (id: string, input: Partial<AccountInput>) => Promise<boolean>
   deleteAccount: (id: string, withEntries?: boolean) => Promise<boolean>
   archiveAccount: (id: string, archived: boolean) => Promise<boolean>
+  lockAccount: (id: string, locked: boolean) => Promise<boolean>
   /** Live entries a delete of this account retires, or null when the read failed. */
   countAccountDeletion: (id: string) => Promise<number | null>
   adjustAccountBalance: (

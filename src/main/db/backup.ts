@@ -40,7 +40,7 @@ export const TABLE_COLUMNS: Record<BackupTable, readonly string[]> = {
     'credit_limit_cents', 'apr_bps', 'minimum_payment_cents', 'statement_day',
     'payment_due_day', 'last_statement_balance_cents', 'color',
     'dedicated_goal_id', 'in_safe_to_spend',
-    'is_archived', 'sort_order', 'created_at', 'updated_at',
+    'is_archived', 'is_locked', 'sort_order', 'created_at', 'updated_at',
     'deleted_at', 'revision'
   ],
   balance_snapshots: [
@@ -79,7 +79,7 @@ export const TABLE_COLUMNS: Record<BackupTable, readonly string[]> = {
   transactions: [
     'id', 'user_id', 'account_id', 'kind', 'amount_cents', 'occurred_on', 'memo',
     'category', 'category_id', 'external_id', 'bill_id', 'goal_id', 'paycheck_id',
-    'counter_account_id', 'transfer_group_id', 'round_up_source_id',
+    'counter_account_id', 'transfer_group_id', 'split_group_id', 'round_up_source_id',
     'created_at', 'updated_at', 'deleted_at', 'revision'
   ],
   settings: ['user_id', 'key', 'value', 'updated_at']
@@ -124,6 +124,7 @@ export const TABLE_DEFAULTS: Record<BackupTable, Record<string, SqlValue>> = {
   accounts: {
     starting_balance_cents: 0,
     is_archived: 0,
+    is_locked: 0,
     sort_order: 0
   },
   balance_snapshots: {},

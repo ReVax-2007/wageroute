@@ -165,10 +165,13 @@ export function insertedEntryIds(before: ImportTables, after: ImportTables): str
 export function requireAccountRow(
   tables: ImportTables,
   accountId: string,
-  options: { allowArchived?: boolean } = {}
+  options: { allowArchived?: boolean; allowLocked?: boolean } = {}
 ): Row {
   const row = tables.accounts.find((candidate) => isLive(candidate) && text(candidate, 'id') === accountId)
   if (!row) throw new RepositoryError('NOT_FOUND', 'Account not found')
+  if (flag(row, 'is_locked') && options.allowLocked !== true) {
+    throw new RepositoryError('STATE', rules.LOCKED_ACCOUNT_REFUSAL)
+  }
   if (flag(row, 'is_archived') && options.allowArchived !== true) {
     throw new RepositoryError('STATE', 'That account is archived — restore it before using it here')
   }
@@ -645,7 +648,7 @@ function applyFundingAccounts(
       : row
   )
   for (const accountId of keep) {
-    requireAccountRow(tables, accountId, { allowArchived: true })
+    requireAccountRow(tables, accountId, { allowArchived: true, allowLocked: true })
     const index = accounts.findIndex((row) => isLive(row) && text(row, 'id') === accountId)
     if (index === -1 || flag(accounts[index], 'is_archived')) {
       throw new RepositoryError('STATE', 'Archived accounts cannot fund a goal')
@@ -760,6 +763,12 @@ export function setAccountArchived(tables: ImportTables, id: string, archived: b
   return archived ? disableRoundUpAt(patched, id) : patched
 }
 
+/** The desktop's lock (ADR 0034): the account is frozen, and a sweep into it stops. */
+export function setAccountLocked(tables: ImportTables, id: string, locked: boolean): ImportTables {
+  const patched = patchRow(tables, 'accounts', id, { is_locked: locked ? 1 : 0 })
+  return locked ? disableRoundUpAt(patched, id) : patched
+}
+
 /** A sweep can only land in a live account, so archiving its destination stops it. */
 function disableRoundUpAt(tables: ImportTables, accountId: string): ImportTables {
   const settings = parseSettings(settingRecord(tables.settings))
@@ -867,6 +876,7 @@ interface EntryFields extends Columns {
   paycheck_id?: string | null
   counter_account_id?: string | null
   transfer_group_id?: string | null
+  split_group_id?: string | null
   round_up_source_id?: string | null
 }
 
@@ -937,6 +947,7 @@ function insertEntryRow(tables: ImportTables, fields: EntryFields): Written {
     paycheck_id: fields.paycheck_id ?? null,
     counter_account_id: fields.counter_account_id ?? null,
     transfer_group_id: fields.transfer_group_id ?? null,
+    split_group_id: fields.split_group_id ?? null,
     round_up_source_id: fields.round_up_source_id ?? null
   })
 }
@@ -964,7 +975,11 @@ function applyRoundUp(
   if (input.accountKind !== 'checking' && input.accountKind !== 'cash') return tables
 
   const destination = tables.accounts.find(
-    (row) => isLive(row) && !flag(row, 'is_archived') && text(row, 'id') === settings.roundUpAccountId
+    (row) =>
+      isLive(row) &&
+      !flag(row, 'is_archived') &&
+      !flag(row, 'is_locked') &&
+      text(row, 'id') === settings.roundUpAccountId
   )
   if (!destination) return tables
   const destinationKind = text(destination, 'kind') as AccountKind
@@ -1003,7 +1018,11 @@ function applyRoundUp(
   return next
 }
 
-export function createEntry(tables: ImportTables, input: TransactionInput): Written {
+export function createEntry(
+  tables: ImportTables,
+  input: TransactionInput,
+  options: { splitGroupId?: string } = {}
+): Written {
   const kind = rules.assertOneOf(input.kind, rules.TRANSACTION_KINDS, 'transaction kind')
   // The kind decides the sign: income can never post negative and an expense can
   // never post positive, whatever the caller typed.
@@ -1045,6 +1064,7 @@ export function createEntry(tables: ImportTables, input: TransactionInput): Writ
       category_id: resolved.id,
       counter_account_id: input.counterAccountId,
       transfer_group_id: groupId,
+      split_group_id: options.splitGroupId ?? null,
       paycheck_id: input.paycheckId ?? null
     })
     // The receiving leg carries the text but no pointer, exactly as the desktop
@@ -1059,6 +1079,7 @@ export function createEntry(tables: ImportTables, input: TransactionInput): Writ
       category_id: null,
       counter_account_id: input.accountId,
       transfer_group_id: groupId,
+      split_group_id: options.splitGroupId ?? null,
       paycheck_id: input.paycheckId ?? null
     })
     return { tables: back.tables, id: out.id }
@@ -1132,10 +1153,12 @@ export function createSplitTransfer(tables: ImportTables, input: SplitTransferIn
     const row = tables.accounts.find((candidate) => isLive(candidate) && text(candidate, 'id') === id)
     return row ? { kind: text(row, 'kind') as AccountKind, name: text(row, 'name') } : undefined
   })
+  // Every leg shares one split group, so the split shows and leaves as one.
+  const splitGroupId = crypto.randomUUID()
   let next = tables
   let firstId = ''
   for (const transfer of transfers) {
-    const written = createEntry(next, transfer)
+    const written = createEntry(next, transfer, { splitGroupId })
     next = written.tables
     firstId ||= written.id
   }
@@ -1150,6 +1173,11 @@ export function createSplitTransfer(tables: ImportTables, input: SplitTransferIn
 export function patchEntry(tables: ImportTables, id: string, patch: EntryPatch): ImportTables {
   if (patch.accountId) requireAccountRow(tables, patch.accountId)
   const existing = requireLiveRow(tables, 'transactions', id)
+  // An edit touches the row, its twin and its sweep; none may sit in a locked account.
+  const touched = new Set([id, ...sweepIdsFor(tables, id)])
+  const pairId = nullableText(existing, 'transfer_group_id')
+  if (pairId) for (const leg of groupRows(tables, pairId)) touched.add(text(leg, 'id'))
+  assertEntriesUnlocked(tables, touched)
   const existingGroupId = nullableText(existing, 'transfer_group_id')
   const existingKind = text(existing, 'kind') as TransactionKind
   const billId = nullableText(existing, 'bill_id')
@@ -1296,6 +1324,19 @@ export function patchEntry(tables: ImportTables, id: string, patch: EntryPatch):
   return patched
 }
 
+/** The desktop's refusal for a change to entries recorded in a locked account. */
+function assertEntriesUnlocked(tables: ImportTables, ids: ReadonlySet<string>): void {
+  const locked = new Set(
+    tables.accounts.filter((row) => isLive(row) && flag(row, 'is_locked')).map((row) => text(row, 'id'))
+  )
+  if (locked.size === 0) return
+  for (const row of tables.transactions) {
+    if (isLive(row) && ids.has(text(row, 'id')) && locked.has(text(row, 'account_id'))) {
+      throw new RepositoryError('STATE', rules.LOCKED_ACCOUNT_REFUSAL)
+    }
+  }
+}
+
 /**
  * The rows a removal takes with it: a transfer's twin leg and a purchase's
  * sweep, so no half-pair is left behind reading as money that moved on its own.
@@ -1306,6 +1347,14 @@ export function expandDeletion(tables: ImportTables, ids: Iterable<string>): Set
     const row = findTransaction(tables, id)
     if (!row || !isLive(row)) continue
     doomed.add(id)
+    const split = nullableText(row, 'split_group_id')
+    if (split) {
+      for (const leg of tables.transactions) {
+        if (!isLive(leg) || nullableText(leg, 'split_group_id') !== split) continue
+        doomed.add(text(leg, 'id'))
+        for (const twin of groupRows(tables, text(leg, 'transfer_group_id'))) doomed.add(text(twin, 'id'))
+      }
+    }
     const group = nullableText(row, 'transfer_group_id')
     if (group) {
       for (const leg of groupRows(tables, group)) doomed.add(text(leg, 'id'))
@@ -1331,6 +1380,7 @@ export function deleteEntries(
   ids: Iterable<string>
 ): { tables: ImportTables; removed: string[] } {
   const doomed = expandDeletion(tables, ids)
+  assertEntriesUnlocked(tables, doomed)
   const paidFor = billsPaidBy(tables, doomed)
   let next = tombstoneRows(tables, 'transactions', doomed)
   // Deleting the row that paid a bill takes the settlement with it: the claim it

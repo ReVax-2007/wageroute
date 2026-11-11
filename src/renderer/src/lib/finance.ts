@@ -1,4 +1,5 @@
 import { monthlyEquivalentCents, reservePerPaycheckCents } from '@shared/cadence'
+import { isUsableAccount } from '@shared/accounts'
 import { creditAmountDue, creditCycle, previousCloseDate } from '@shared/credit'
 import { addDaysISO, daysBetweenISO } from '@shared/dates'
 import { nextBillOccurrence } from '@shared/occurrences'
@@ -233,7 +234,7 @@ export function ordinal(value: number): string {
 export function fundableAccounts(accounts: readonly AccountWithBalance[]): AccountWithBalance[] {
   return accounts.filter(
     (account) =>
-      !account.isArchived &&
+      isUsableAccount(account) &&
       (account.kind === 'savings' || account.kind === 'checking' || account.kind === 'cash')
   )
 }

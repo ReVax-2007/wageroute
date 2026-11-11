@@ -298,6 +298,8 @@ export interface FinanceApi {
     options?: { withEntries?: boolean }
   ): Promise<WriteResult<void>>
   archiveAccount(id: string, archived: boolean): Promise<WriteResult<void>>
+  /** Freezes or thaws an account (ADR 0034); its balance and entries stay. */
+  lockAccount(id: string, locked: boolean): Promise<WriteResult<void>>
   /**
    * How many live entries deleting this account would retire. It is larger than
    * the rows recorded in the account whenever a transfer's twin or a purchase's

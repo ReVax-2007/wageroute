@@ -70,8 +70,8 @@ test('v6 rebuilds bills, keeps every row and restores enforcement', () => {
   const db = v5Database()
   migrate(db)
 
-  assert.equal(SCHEMA_VERSION, 10)
-  assert.equal(db.pragma('user_version', { simple: true }), 10)
+  assert.equal(SCHEMA_VERSION, 11)
+  assert.equal(db.pragma('user_version', { simple: true }), 11)
   assert.equal(db.pragma('foreign_keys', { simple: true }), 1, 'enforcement is back on')
   assert.deepEqual(db.pragma('foreign_key_check'), [])
   assert.equal(db.pragma('integrity_check', { simple: true }), 'ok')
@@ -273,6 +273,34 @@ test('v10 gives existing goals a pace and refuses an unknown one', () => {
     () => db.prepare("UPDATE goals SET funding_pace = 'whenever' WHERE id = 'goal-1'").run(),
     /CHECK/i
   )
+  db.close()
+})
+
+test('v11 leaves every account unlocked and every entry outside a split', () => {
+  const db = new Database(':memory:')
+  db.pragma('foreign_keys = ON')
+  migrateThrough(db, 10)
+  db.prepare(
+    `INSERT INTO users (id, display_name, created_at, updated_at)
+     VALUES (?, 'Tester', ?, ?)`
+  ).run(USER_ID, TS, TS)
+  db.prepare(
+    `INSERT INTO accounts (id, user_id, name, kind, created_at, updated_at)
+     VALUES ('acc-1', ?, 'Chequing', 'checking', ?, ?)`
+  ).run(USER_ID, TS, TS)
+  db.prepare(
+    `INSERT INTO transactions (id, user_id, account_id, kind, amount_cents, occurred_on, created_at, updated_at)
+     VALUES ('tx-1', ?, 'acc-1', 'expense', -500, '2026-11-01', ?, ?)`
+  ).run(USER_ID, TS, TS)
+
+  migrate(db)
+
+  assert.equal(db.pragma('user_version', { simple: true }), SCHEMA_VERSION)
+  assert.deepEqual(db.prepare("SELECT is_locked FROM accounts WHERE id = 'acc-1'").get(), { is_locked: 0 })
+  assert.deepEqual(db.prepare("SELECT split_group_id FROM transactions WHERE id = 'tx-1'").get(), {
+    split_group_id: null
+  })
+  assert.throws(() => db.prepare("UPDATE accounts SET is_locked = 2 WHERE id = 'acc-1'").run(), /CHECK/i)
   db.close()
 })
 

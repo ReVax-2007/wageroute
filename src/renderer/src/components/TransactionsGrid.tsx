@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
+import { splitTransferSizes } from '@shared/splitTransfer'
 import 'react-data-grid/lib/styles.css'
 // The grid's own theme and editor rules travel with the grid, so the rest of
 // the app never loads them.
@@ -99,6 +100,9 @@ export function TransactionsGrid({
     }
   }
 
+  // A split transfer's legs carry one tag, so the transfers it wrote read as one.
+  const splitSizes = useMemo(() => splitTransferSizes(rows), [rows])
+
   const columns = useMemo<Column<TransactionRow>[]>(
     () => [
       ...(onSelectedChange ? [SelectColumn as Column<TransactionRow>] : []),
@@ -188,6 +192,14 @@ export function TransactionsGrid({
                 {row.goalName}
               </span>
             )}
+            {row.splitGroupId && (
+              <span
+                className="grid-link"
+                title="Part of a split transfer. Deleting any part removes the whole split."
+              >
+                Split ×{splitSizes.get(row.splitGroupId) ?? 1}
+              </span>
+            )}
           </span>
         ),
         renderEditCell: renderTextEditor
@@ -243,7 +255,7 @@ export function TransactionsGrid({
         }
       }
     ],
-    [accounts, askConfirm, categories, countEntryDeletion, currency, deleteTransaction, onSelectedChange, pending, refresh, updateTransaction]
+    [accounts, askConfirm, categories, countEntryDeletion, currency, deleteTransaction, onSelectedChange, pending, refresh, splitSizes, updateTransaction]
   )
 
   return (

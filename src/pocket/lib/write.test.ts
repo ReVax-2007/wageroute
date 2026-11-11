@@ -3,6 +3,7 @@ import test from 'node:test'
 import { todayISO } from '@shared/dates'
 import { RepositoryError } from '@shared/errors'
 import type { ImportTables } from '@shared/importRepair'
+import { LOCKED_ACCOUNT_REFUSAL } from '@shared/writeRules'
 import type { AccountInput, BillInput, CategoryInput, GoalInput } from '@shared/types'
 import { emptyTables } from './backup'
 import { cents, flag, isLive, nullableText, text } from './rows'
@@ -22,6 +23,7 @@ import {
   deleteEntries,
   deleteGoal,
   doomedAccountEntryIds,
+  expandDeletion,
   insertedEntryIds,
   ledgerUserId,
   patchAccount,
@@ -33,6 +35,7 @@ import {
   reconcileAllBillClaims,
   requireLiveRow,
   setAccountArchived,
+  setAccountLocked,
   setGoalArchived,
   stampAfter
 } from './write'
@@ -951,4 +954,41 @@ test('a split transfer writes every line as a pair, or nothing', () => {
   )
   assert.match(refused.message, /can’t be transferred out of a credit card/)
   assert.equal(entries(tables).length, 0, 'the ledger it started from is untouched')
+})
+
+test('a split leaves as one, and a locked account takes nothing on the phone', () => {
+  const split = createSplitTransfer(ledger(), {
+    sourceAccountId: 'chk',
+    occurredOn: todayISO(),
+    lines: [
+      { accountId: 'sav', amountCents: 20_00 },
+      { accountId: 'card', amountCents: 5_00 }
+    ]
+  })
+  const legs = entries(split.tables)
+  assert.equal(new Set(legs.map((row) => nullableText(row, 'split_group_id'))).size, 1)
+  assert.ok(nullableText(legs[0], 'split_group_id'))
+  assert.equal(expandDeletion(split.tables, [text(legs[3], 'id')]).size, 4)
+  assert.equal(entries(deleteEntries(split.tables, [text(legs[3], 'id')]).tables).length, 0)
+
+  const locked = setAccountLocked(split.tables, 'sav', true)
+  assert.equal(flag(rowOf(locked, 'sav'), 'is_locked'), true)
+  for (const write of [
+    () =>
+      createEntry(locked, {
+        accountId: 'chk',
+        counterAccountId: 'sav',
+        kind: 'transfer',
+        amountCents: 1_00,
+        occurredOn: todayISO(),
+        memo: '',
+        category: 'Transfer'
+      }),
+    () => patchEntry(locked, text(legs[0], 'id'), { memo: 'Changed' }),
+    () => deleteEntries(locked, [text(legs[0], 'id')])
+  ]) {
+    assert.equal(refusal(write).message, LOCKED_ACCOUNT_REFUSAL)
+  }
+  const unlocked = setAccountLocked(locked, 'sav', false)
+  assert.equal(entries(deleteEntries(unlocked, [text(legs[0], 'id')]).tables).length, 0)
 })

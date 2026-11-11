@@ -50,6 +50,7 @@ function account(
     dedicatedGoalId: null,
     inSafeToSpend: null,
     isArchived: false,
+    isLocked: false,
     sortOrder: 0,
     aprBps: null,
     minimumPaymentCents: null,

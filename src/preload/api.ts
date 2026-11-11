@@ -29,6 +29,7 @@ export function createFinanceApi(call: IpcCaller): FinanceApi {
     updateAccount: (id, input) => call('account:update', id, input),
     deleteAccount: (id, options) => call('account:delete', id, options),
     archiveAccount: (id, archived) => call('account:archive', id, archived),
+    lockAccount: (id, locked) => call('account:lock', id, locked),
     countAccountDeletion: (id) => call('account:count-deletion', id),
 
     createBill: (input) => call('bill:create', input),

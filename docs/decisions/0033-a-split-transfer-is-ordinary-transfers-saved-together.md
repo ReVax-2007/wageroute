@@ -1,6 +1,6 @@
 # 0033. A split transfer is ordinary transfers saved together
 
-- **Status:** Accepted
+- **Status:** Accepted, amended 2026-11-10 (split grouping)
 - **Date:** 2026-11-10
 - **Deciders:** Project owner
 - **Related:** [ADR 0025](0025-the-phone-writes-through-the-desktops-own-rules.md), [ADR 0032](0032-a-typed-category-is-the-persons-label.md), [FEATURES.md](../FEATURES.md#transfers), [DATA-MODEL.md](../DATA-MODEL.md)
@@ -11,9 +11,11 @@ The owner banks at two banks. Each month they move one lump sum from an account 
 
 ## Decision
 
-- **A split transfer is ordinary transfers, not a new kind of row.** `planSplitTransfer` in `src/shared/splitTransfer.ts` turns the split into a list of `transfer` entries. Each is written by the existing writer with all of its checks, as a normal linked pair. No column, table or schema version changes, and every screen, report, export and merge already reads these rows correctly.
+- **A split transfer is ordinary transfers, not a new kind of row.** `planSplitTransfer` in `src/shared/splitTransfer.ts` turns the split into a list of `transfer` entries. Each is written by the existing writer with all of its checks, as a normal linked pair. No new kind of row, and every screen, report, export and merge already reads these rows correctly.
 - **All or nothing.** The desktop writes the list inside one SQL transaction (`createSplitTransfer` in `src/main/db/repo/transactions.ts`, over IPC `transaction:create-split`). The phone folds the list over its pure `createEntry` and commits once (`createSplitTransfer` in `src/pocket/lib/write.ts`). A refusal on any line leaves the ledger untouched on both devices.
-- **No shared grouping id.** `transfer_group_id` stays "exactly two legs" (DATA-MODEL integrity rule 3), and a third id would need a migration and a delete-together rule for little gain. Once saved, each transfer is listed, edited and deleted on its own, exactly as if it had been entered by hand. Undoing a split means deleting its transfers.
+- **One split group, beside the pairs.** *Amended 2026-11-10, at the owner's request.* The first version wrote no grouping id. Schema 11 adds `transactions.split_group_id`, which every leg of every transfer one split wrote shares. `transfer_group_id` keeps its "exactly two legs" rule (DATA-MODEL integrity rule 3). Each transfer is still an ordinary pair, and its amount, date, note and category can be edited on its own. The group decides two things:
+  - **Shown together.** Recent transfers shows a split as one line: the source, every account it reached, the total that left the source and *Split · N transfers*. The spreadsheet tags each leg *Split ×N*, and Pocket's entries say *split transfer*.
+  - **Deleted together.** Deleting any leg deletes every leg of the split on both devices (`doomedDeletionIds`, `expandDeletion`), and the confirmation counts all of them.
 - **The hop through bank B is the owner's choice, made per split.** The form has an optional **Through** account.
   - Left empty, each line is one transfer straight from the source. This is the net result and the right record when the bank sends the pieces directly.
   - When set, the total moves source → through account first, and each other line then moves on from there. This matches what happens at the banks when the lump sum lands in one bank-B account before it is split, so the bank-B account's history reconciles against its statement. A line naming the through account is the share that stays there, and its category and description label the first leg.
@@ -23,6 +25,6 @@ The owner banks at two banks. Each month they move one lump sum from an account 
 
 ## Consequences
 
-- There is no migration, and a build from before this change reads a split's rows as the ordinary transfers they are.
-- A split is not shown as a unit after saving. The recent-transfers list shows its transfers one by one. If the owner later wants them shown or deleted together, that needs a grouping column and is a separate decision.
+- The grouping column is schema 11 (shared with [ADR 0034](0034-a-locked-account-is-frozen-money.md)). A build from before it ignores `split_group_id` and reads a split's rows as the ordinary transfers they are, deleting them one pair at a time.
+- A split cut by the 50-row window of Recent transfers can show only some of its legs. Its total is read from the legs on screen.
 - With **Through**, the through account shows money arriving and leaving on the same day. That is the record the bank shows too, and its balance only keeps the share that stays.

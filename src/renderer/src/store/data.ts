@@ -190,6 +190,11 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
         () => window.api.archiveAccount(id, archived),
         archived ? 'Account archived' : 'Account restored'
       ),
+    lockAccount: (id, locked) =>
+      run(
+        () => window.api.lockAccount(id, locked),
+        locked ? 'Account locked — nothing can move in or out' : 'Account unlocked'
+      ),
     adjustAccountBalance: async (
       account,
       targetBalanceCents,

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { isUsableAccount } from '@shared/accounts'
 import { categoryKey } from '@shared/categories'
 import { todayISO } from '@shared/dates'
 import { parseMoneyToCents } from '@shared/money'
@@ -17,7 +18,7 @@ export function IncomeDialog({ onClose }: { onClose: () => void }) {
 
   const accounts = (snapshot?.accounts ?? []).filter(
     (account) =>
-      !account.isArchived && (account.kind === 'checking' || account.kind === 'savings' || account.kind === 'cash')
+      isUsableAccount(account) && (account.kind === 'checking' || account.kind === 'savings' || account.kind === 'cash')
   )
   const incomeCategory =
     snapshot?.categories.find((category) => categoryKey(category.name) === categoryKey('Income')) ??

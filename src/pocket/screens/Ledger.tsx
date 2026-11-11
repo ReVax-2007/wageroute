@@ -448,6 +448,7 @@ export function Ledger() {
                     <span className="row-title">{row.memo || row.category}</span>
                     <span className="muted small">
                       {TRANSACTION_KIND_LABEL[row.kind]} · {row.category} · {row.accountName}
+                      {row.splitGroupId ? ' · split transfer' : ''}
                       {local.has(row.id) ? ' · on this phone' : ''}
                     </span>
                   </div>

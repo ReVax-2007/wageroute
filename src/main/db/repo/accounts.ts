@@ -23,16 +23,18 @@ import { readSettings, writeSettings } from './settings'
 import { reconcileBillReserve } from './bills'
 import { doomedAccountDeletionIds } from './transactions'
 
-type AccountRow = Omit<AccountWithBalance, 'isArchived' | 'inSafeToSpend'> & {
+type AccountRow = Omit<AccountWithBalance, 'isArchived' | 'isLocked' | 'inSafeToSpend'> & {
   isArchived: number
+  isLocked: number
   inSafeToSpend: number | null
 }
 
 function mapAccount(row: AccountRow): AccountWithBalance {
-  const { isArchived, inSafeToSpend, ...rest } = row
+  const { isArchived, isLocked, inSafeToSpend, ...rest } = row
   return {
     ...rest,
     isArchived: isArchived === 1,
+    isLocked: isLocked === 1,
     inSafeToSpend: inSafeToSpend === null ? null : inSafeToSpend === 1
   }
 }
@@ -51,7 +53,7 @@ export function listAccounts(db: Db, userId: string): AccountWithBalance[] {
               a.statement_day AS statementDay,
               a.payment_due_day AS paymentDueDay,
               a.last_statement_balance_cents AS lastStatementBalanceCents,
-              a.is_archived AS isArchived, a.sort_order AS sortOrder,
+              a.is_archived AS isArchived, a.is_locked AS isLocked, a.sort_order AS sortOrder,
               a.created_at AS createdAt, a.updated_at AS updatedAt,
               a.deleted_at AS deletedAt, a.revision,
               a.starting_balance_cents + COALESCE((
@@ -296,6 +298,19 @@ export function setAccountArchived(
   db.transaction(() => {
     updateRow(db, 'accounts', id, userId, { is_archived: archived ? 1 : 0 })
     if (archived) disableRoundUpAt(db, userId, id)
+  })()
+}
+
+/**
+ * Locks or unlocks an account (ADR 0034). A locked account keeps its entries
+ * and its place in total wealth; every write that would touch it is refused
+ * until it is unlocked. A round-up sweep pointed at it is switched off, the
+ * same way archiving does, so unlocking never quietly restarts sweeps.
+ */
+export function setAccountLocked(db: Db, userId: string, id: string, locked: boolean): void {
+  db.transaction(() => {
+    updateRow(db, 'accounts', id, userId, { is_locked: locked ? 1 : 0 })
+    if (locked) disableRoundUpAt(db, userId, id)
   })()
 }
 

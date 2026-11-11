@@ -138,3 +138,10 @@ test('forgetting the phone warns about the rows it wrote, not about what the com
   assert.doesNotMatch(one.body, /never seen/)
   assert.match(phoneCopyWords(12, 7).body, /including 7 entries this phone wrote/)
 })
+
+test('a leg of a split transfer counts every transfer the split wrote', () => {
+  const words = entryDeletionWords(6, { isTransferLeg: true, memo: 'Transfer to Savings' })
+  assert.equal(words.title, 'Delete 6 entries?')
+  assert.equal(words.confirmLabel, 'Delete 6')
+  assert.match(words.body, /split transfer takes every transfer it wrote/)
+})

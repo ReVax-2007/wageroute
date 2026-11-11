@@ -129,7 +129,7 @@ function applyFundingAccounts(
   for (const accountId of keep) {
     // The UPDATE below already filters archived rows, and its own message says
     // why; this call only proves the account exists in this ledger.
-    requireAccount(db, userId, accountId, { allowArchived: true })
+    requireAccount(db, userId, accountId, { allowArchived: true, allowLocked: true })
     if (link.run(goalId, ts, accountId, userId).changes === 0) {
       throw new RepositoryError('STATE', 'Archived accounts cannot fund a goal')
     }
