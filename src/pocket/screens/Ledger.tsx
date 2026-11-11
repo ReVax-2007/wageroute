@@ -3,6 +3,7 @@ import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { SNAPSHOT_TRANSACTION_LIMIT } from '@shared/api'
 import { formatDateLabel, todayISO } from '@shared/dates'
 import { entryDeletionWords } from '@shared/deletion'
+import { ledgerWindowStart } from '@shared/settings'
 import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
 import type { TransactionInput, TransactionKind, TransactionRow } from '@shared/types'
 import { CREDIT_CARD_SOURCE_REFUSAL } from '@shared/writeRules'
@@ -13,6 +14,7 @@ import { MoneyInput } from '../components/MoneyInput'
 import { Sheet } from '../components/Sheet'
 import { useSheetSave } from '../components/useSheetSave'
 import { categoryMatch, entryAccounts, entryBills, entryCategories, entryGoals } from '../lib/entry'
+import { pocketView } from '../lib/compute'
 import { flag, text } from '../lib/rows'
 import { usePocket, useSnapshot } from '../lib/store'
 import type { EntryPatch } from '../lib/write'
@@ -377,11 +379,20 @@ export function Ledger() {
   const deleteEntry = usePocket((state) => state.deleteEntry)
   const [editing, setEditing] = useState<TransactionRow | 'new' | null>(null)
   const [pendingDelete, setPendingDelete] = useState<TransactionRow | null>(null)
+  // The desktop's Show window, read from the shared settings; this visit can widen it.
+  const [showOlder, setShowOlder] = useState(false)
   const currency = snapshot?.user.currency ?? 'USD'
   const local = new Set(localIds)
 
   if (!snapshot) return null
-  const groups = groupByDate(snapshot.transactions)
+  const windowStart = showOlder
+    ? null
+    : ledgerWindowStart(pocketView(snapshot).settings.ledgerWindow, todayISO())
+  const shown = windowStart
+    ? snapshot.transactions.filter((row) => row.occurredOn >= windowStart)
+    : snapshot.transactions
+  const hiddenCount = snapshot.transactions.length - shown.length
+  const groups = groupByDate(shown)
 
   // Removing one row can retire more than it: the matching leg of a transfer,
   // and the two sweep rows a rounded-up purchase caused. The question has to
@@ -406,8 +417,18 @@ export function Ledger() {
         </button>
       </header>
 
+      {windowStart && hiddenCount > 0 ? (
+        <p className="fine">
+          Showing entries from {formatDateLabel(windowStart)}. {hiddenCount}{' '}
+          {hiddenCount === 1 ? 'older entry is' : 'older entries are'} hidden, not deleted.{' '}
+          <button type="button" className="button compact" onClick={() => setShowOlder(true)}>
+            Show older
+          </button>
+        </p>
+      ) : null}
+
       {groups.length === 0 ? (
-        <p className="empty-line">No entries yet.</p>
+        <p className="empty-line">{hiddenCount > 0 ? 'Nothing recent.' : 'No entries yet.'}</p>
       ) : (
         groups.map(([date, rows]) => (
           <section key={date} className="section">

@@ -1,8 +1,9 @@
-import { isISODate } from './dates'
+import { addDaysISO, addMonthsISO, isISODate } from './dates'
 import { clampPercent } from './money'
 import type {
   AppSettings,
   EmergencyMode,
+  LedgerWindow,
   PayCadence,
   RoundUpIncrementCents,
   ThemePreference
@@ -28,13 +29,39 @@ export const DEFAULT_SETTINGS: AppSettings = {
   emergencyIncludeVariable: true,
   emergencyManualTargetCents: 0,
   emergencyBufferCents: 0,
-  emergencyActive: true
+  emergencyActive: true,
+  ledgerWindow: '90d'
 }
 
 const PAY_CADENCES: readonly PayCadence[] = ['weekly', 'biweekly', 'semimonthly', 'monthly']
 const THEMES: readonly ThemePreference[] = ['dark', 'light', 'system']
 const ROUND_UP_INCREMENTS: readonly RoundUpIncrementCents[] = [100, 200, 500]
 const EMERGENCY_MODES: readonly EmergencyMode[] = ['auto', 'manual']
+
+/** The choices of the ledger's Show box, in the order it lists them. */
+export const LEDGER_WINDOWS: readonly { value: LedgerWindow; label: string }[] = [
+  { value: '30d', label: 'Last 30 days' },
+  { value: '90d', label: 'Last 90 days' },
+  { value: '1y', label: 'Last 12 months' },
+  { value: 'all', label: 'Everything' }
+]
+
+/**
+ * The first day a ledger window shows, or null for everything. Hiding is only
+ * a view: nothing older is deleted, and every balance still counts it.
+ */
+export function ledgerWindowStart(window: LedgerWindow, today: string): string | null {
+  switch (window) {
+    case '30d':
+      return addDaysISO(today, -29)
+    case '90d':
+      return addDaysISO(today, -89)
+    case '1y':
+      return addMonthsISO(today, -12)
+    default:
+      return null
+  }
+}
 
 /**
  * Three capital letters are not a currency: `NumberFormat` accepts `ZZZ` and
@@ -135,7 +162,12 @@ export function parseSettings(record: Record<string, string>): AppSettings {
       Number.isFinite(buffer) && buffer > 0
         ? Math.round(buffer)
         : DEFAULT_SETTINGS.emergencyBufferCents,
-    emergencyActive: bool('emergencyActive', DEFAULT_SETTINGS.emergencyActive)
+    emergencyActive: bool('emergencyActive', DEFAULT_SETTINGS.emergencyActive),
+    ledgerWindow: choice(
+      'ledgerWindow',
+      LEDGER_WINDOWS.map((option) => option.value),
+      DEFAULT_SETTINGS.ledgerWindow
+    )
   }
 }
 
@@ -160,6 +192,7 @@ export function settingsToRecord(settings: AppSettings): Record<string, string> 
     emergencyIncludeVariable: String(settings.emergencyIncludeVariable),
     emergencyManualTargetCents: String(settings.emergencyManualTargetCents),
     emergencyBufferCents: String(settings.emergencyBufferCents),
-    emergencyActive: String(settings.emergencyActive)
+    emergencyActive: String(settings.emergencyActive),
+    ledgerWindow: settings.ledgerWindow
   }
 }

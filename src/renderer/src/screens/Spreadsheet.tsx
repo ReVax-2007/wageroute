@@ -1,9 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Landmark, Plus, Sheet, Trash2 } from 'lucide-react'
-import { todayISO } from '@shared/dates'
+import { addDaysISO, formatDateLabel, todayISO } from '@shared/dates'
 import { entryDeletionWords } from '@shared/deletion'
 import { projectUpcoming } from '@shared/projections'
-import type { LedgerFilter, LedgerQuery, LedgerSort, TransactionPage } from '@shared/types'
+import { LEDGER_WINDOWS, ledgerWindowStart } from '@shared/settings'
+import type {
+  LedgerFilter,
+  LedgerQuery,
+  LedgerSort,
+  LedgerWindow,
+  TransactionPage
+} from '@shared/types'
 import { Button, EmptyState, Segmented } from '../components/ui'
 import { EntryDialog } from '../components/dialogs/EntryDialog'
 import { ProjectionsGrid } from '../components/ProjectionsGrid'
@@ -54,6 +61,7 @@ export function Spreadsheet() {
   const countEntryDeletion = useFinanceStore((state) => state.countEntryDeletion)
   const askConfirm = useFinanceStore((state) => state.askConfirm)
   const notify = useFinanceStore((state) => state.notify)
+  const saveSettings = useFinanceStore((state) => state.saveSettings)
   const [tab, setTab] = useState<SheetTab>('ledger')
   const [adding, setAdding] = useState(false)
 
@@ -64,6 +72,7 @@ export function Spreadsheet() {
   const [pageData, setPageData] = useState<TransactionPage | null>(null)
   const [loading, setLoading] = useState(false)
   const [selected, setSelected] = useState<string[]>([])
+  const [hiddenCount, setHiddenCount] = useState(0)
 
   const projections = useMemo(() => {
     if (!snapshot) return []
@@ -86,18 +95,59 @@ export function Spreadsheet() {
   // that the page in hand may no longer match the database.
   const ledgerVersion = snapshot?.transactions
 
+  // The Show window hides older entries from view only; a From date typed in
+  // the filter bar is a deliberate look and wins over it.
+  const windowStart = filters.from ? null : ledgerWindowStart(settings.ledgerWindow, todayISO())
+
   // The text is debounced separately, so only its settled value reaches SQL.
   const queryFilter = useMemo<LedgerFilter>(
     () => ({
       text: debouncedText.trim() || undefined,
-      from: filters.from || null,
+      from: filters.from || windowStart,
       to: filters.to || null,
       accountId: filters.accountId || null,
       kind: filters.kind ? (filters.kind as LedgerFilter['kind']) : null,
       categoryId: filters.categoryId || null
     }),
-    [debouncedText, filters.from, filters.to, filters.accountId, filters.kind, filters.categoryId]
+    [
+      debouncedText,
+      filters.from,
+      windowStart,
+      filters.to,
+      filters.accountId,
+      filters.kind,
+      filters.categoryId
+    ]
   )
+
+  // How many entries the window is keeping out of sight, with the same
+  // filters, so the note under the bar can say so and offer them back.
+  useEffect(() => {
+    if (tab !== 'ledger' || !snapshot || !windowStart) {
+      setHiddenCount(0)
+      return
+    }
+    let cancelled = false
+    const before = addDaysISO(windowStart, -1)
+    const to = queryFilter.to && queryFilter.to < before ? queryFilter.to : before
+    queryTransactions({ filter: { ...queryFilter, from: null, to }, sort: 'date_desc', limit: 1, offset: 0 })
+      .then((data) => {
+        if (!cancelled) setHiddenCount(data.total)
+      })
+      .catch(() => {
+        if (!cancelled) setHiddenCount(0)
+      })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, Boolean(snapshot), ledgerVersion, queryFilter, windowStart, queryTransactions])
+
+  const chooseWindow = (ledgerWindow: LedgerWindow) => {
+    setPage(0)
+    setSelected([])
+    void saveSettings({ ...settings, ledgerWindow })
+  }
 
   useEffect(() => {
     if (tab !== 'ledger' || !snapshot) return
@@ -307,12 +357,37 @@ export function Spreadsheet() {
                 </option>
               ))}
             </select>
+            <select
+              className="select"
+              aria-label="Show entries from"
+              value={settings.ledgerWindow}
+              disabled={Boolean(filters.from)}
+              title={filters.from ? 'The From date you chose is used instead' : undefined}
+              onChange={(event) => chooseWindow(event.target.value as LedgerWindow)}
+            >
+              {LEDGER_WINDOWS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
             {filtering && (
               <Button size="sm" variant="quiet" onClick={clearFilters}>
                 Clear
               </Button>
             )}
           </div>
+        )}
+
+        {tab === 'ledger' && windowStart && hiddenCount > 0 && (
+          <p className="ledger-window-note" role="status">
+            Showing entries from {formatDateLabel(windowStart)}.{' '}
+            {hiddenCount.toLocaleString()} older {hiddenCount === 1 ? 'entry is' : 'entries are'}{' '}
+            hidden, not deleted: every balance still counts {hiddenCount === 1 ? 'it' : 'them'}.{' '}
+            <Button size="sm" variant="quiet" onClick={() => chooseWindow('all')}>
+              Show everything
+            </Button>
+          </p>
         )}
 
         {tab === 'ledger' && selected.length > 0 && (
@@ -348,7 +423,14 @@ export function Spreadsheet() {
                 }
               />
             ) : rows.length === 0 ? (
-              filtering ? (
+              !filtering && hiddenCount > 0 ? (
+                <EmptyState
+                  icon={<Sheet size={20} />}
+                  title="Nothing recent"
+                  body="No entries fall in the window you chose. The older ones are hidden, not deleted."
+                  action={<Button onClick={() => chooseWindow('all')}>Show everything</Button>}
+                />
+              ) : filtering ? (
                 <EmptyState
                   icon={<Sheet size={20} />}
                   title="No entries match"

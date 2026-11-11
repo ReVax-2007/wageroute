@@ -405,6 +405,18 @@
   grid-column: 1 / -1;
 }
 
+/* The Show window's note: how many older entries are out of sight, and the way back. */
+.ledger-window-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 0;
+  padding: 6px 18px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
 .ledger-bulk {
   display: flex;
   flex-wrap: wrap;

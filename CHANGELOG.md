@@ -10,6 +10,7 @@ All notable changes to WageRoute are documented here. The format follows [Keep a
 
 ### Added
 
+- **Older entries out of sight.** The spreadsheet's new **Show** box (last 30 days, 90 days, 12 months or everything, saved as a setting, default 90 days) hides older entries from the grid. A note says how many are hidden, with **Show everything** beside it. Nothing is deleted or archived, and every balance still counts the hidden entries. Pocket's entries list follows the same window, with **Show older**.
 - **Privacy Policy and Terms of Use, in English and French** (`PRIVACY.md`, `PRIVACY.fr.md`, `TERMS.md`, `TERMS.fr.md`). They state that the app, Pocket and the website collect no personal information, name the third-party services that deliver WageRoute, name the person in charge under Quebec's Law 25, and set out the not-financial-advice notice, consumer-rights carve-out and Quebec governing law. Linked from the website footer and the README.
 - **One SVG logo, everywhere it can be.** `build/icon.svg` redraws the WageRoute mark as a vector and is the source of every logo: the website (favicon, nav and footer, which had shown an older, different drawing), Pocket's favicon, welcome mark and manifest, and the desktop sidebar. `npm run icons` renders the macOS, Windows, Linux and phone-install PNG/ICNS/ICO files from it, which also removes the white corners the old app icon carried.
 
