@@ -51,6 +51,7 @@ function account(
     inSafeToSpend: null,
     isArchived: false,
     isLocked: false,
+    floorCents: null,
     sortOrder: 0,
     aprBps: null,
     minimumPaymentCents: null,

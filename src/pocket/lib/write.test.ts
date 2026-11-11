@@ -6,11 +6,13 @@ import type { ImportTables } from '@shared/importRepair'
 import { LOCKED_ACCOUNT_REFUSAL } from '@shared/writeRules'
 import type { AccountInput, BillInput, CategoryInput, GoalInput } from '@shared/types'
 import { emptyTables } from './backup'
+import { buildSnapshot } from './snapshot'
 import { cents, flag, isLive, nullableText, text } from './rows'
 import {
   accountEntryCount,
   billDeletionSummary,
   billPaidThisMonthCents,
+  billPaymentPlan,
   createAccount,
   createBill,
   createCategory,
@@ -991,4 +993,74 @@ test('a split leaves as one, and a locked account takes nothing on the phone', (
   }
   const unlocked = setAccountLocked(locked, 'sav', false)
   assert.equal(entries(deleteEntries(unlocked, [text(legs[0], 'id')]).tables).length, 0)
+})
+
+// ---------------------------------------------------------------- floors (ADR 0035)
+
+test('the phone stores, clears and drops a floor by the desktop\'s rules', () => {
+  const made = createAccount(ledger(), {
+    name: 'Bills chequing',
+    kind: 'checking',
+    institution: '',
+    startingBalanceCents: 200_00,
+    floorCents: 90_00
+  })
+  assert.equal(rowOf(made.tables, made.id).floor_cents, 90_00)
+  const snapshot = buildSnapshot(made.tables, todayISO())
+  assert.equal(snapshot.accounts.find((item) => item.id === made.id)?.floorCents, 90_00)
+
+  const cleared = patchAccount(made.tables, made.id, { floorCents: null })
+  assert.equal(rowOf(cleared, made.id).floor_cents, null)
+  assert.equal(refusal(() => patchAccount(made.tables, made.id, { floorCents: -1 })).code, 'VALIDATION')
+
+  const card = createAccount(ledger(), {
+    name: 'Store card',
+    kind: 'credit',
+    institution: '',
+    startingBalanceCents: 0,
+    floorCents: 90_00
+  })
+  assert.equal(rowOf(card.tables, card.id).floor_cents, null, 'a card never keeps a floor')
+})
+
+test('a file without floors reads as no floor on the phone', () => {
+  const snapshot = buildSnapshot(ledger(), todayISO())
+  assert.ok(snapshot.accounts.every((item) => item.floorCents === null))
+})
+
+test('the phone skips a round-up sweep that would take the account under its floor', () => {
+  const tables = ledger()
+  tables.accounts = tables.accounts.map((row) =>
+    text(row, 'id') === 'chk' ? { ...row, starting_balance_cents: 90_30, floor_cents: 90_00 } : row
+  )
+  tables.settings = [
+    lifecycle({ id: 'roundUpEnabled', key: 'roundUpEnabled', value: 'true' }),
+    lifecycle({ id: 'roundUpAccountId', key: 'roundUpAccountId', value: 'sav' }),
+    lifecycle({ id: 'roundUpToCents', key: 'roundUpToCents', value: '100' })
+  ]
+  const coffee = createEntry(tables, {
+    accountId: 'chk',
+    kind: 'expense',
+    amountCents: 30,
+    occurredOn: todayISO(),
+    memo: 'Coffee',
+    category: 'Food'
+  })
+  assert.equal(entries(coffee.tables).length, 1, 'the coffee is saved; the 70¢ sweep is not')
+
+  const roomy = createEntry(
+    { ...tables, accounts: tables.accounts.map((row) => (text(row, 'id') === 'chk' ? { ...row, floor_cents: null } : row)) },
+    { accountId: 'chk', kind: 'expense', amountCents: 30, occurredOn: todayISO(), memo: 'Coffee', category: 'Food' }
+  )
+  assert.equal(entries(roomy.tables).length, 3, 'without a floor the sweep runs as before')
+})
+
+test('Mark paid can be previewed, so the sheet can ask about the floor first', () => {
+  const tables = ledger()
+  const plan = billPaymentPlan(tables, 'rent')
+  assert.deepEqual(plan, { accountId: 'chk', amountCents: -120_000, occurredOn: todayISO() })
+  const paid = payBill(tables, 'rent')
+  const row = rowOf(paid.tables, paid.id)
+  assert.equal(text(row, 'account_id'), plan.accountId)
+  assert.equal(cents(row, 'amount_cents'), plan.amountCents, 'payBill posts exactly the plan')
 })

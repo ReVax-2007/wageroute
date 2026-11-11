@@ -9,7 +9,7 @@ import type {
   PlanMoveTarget
 } from '@shared/types'
 import { Button, Modal } from '../ui'
-import { ACCOUNT_KIND_LABEL } from '../../lib/finance'
+import { ACCOUNT_KIND_LABEL, confirmFloor } from '../../lib/finance'
 import { useFinanceStore } from '../../store/useFinanceStore'
 
 /** The account kind each routed bucket may land in; goals are handled apart. */
@@ -101,6 +101,7 @@ export function MovePlanDialog({
   const snapshot = useFinanceStore((state) => state.snapshot)
   const settings = useFinanceStore((state) => state.settings)
   const applyPaycheckPlan = useFinanceStore((state) => state.applyPaycheckPlan)
+  const askConfirm = useFinanceStore((state) => state.askConfirm)
   const go = useFinanceStore((state) => state.go)
 
   const lines = useMemo(
@@ -133,6 +134,9 @@ export function MovePlanDialog({
       setError('There is nothing left to move')
       return
     }
+    // Every planned move leaves the account the paycheck landed in.
+    const deposit = snapshot?.accounts.find((account) => account.id === paycheck.depositAccountId)
+    if (!(await confirmFloor(askConfirm, deposit, -pendingCents, settings.currency))) return
     setSaving(true)
     setError(null)
     try {

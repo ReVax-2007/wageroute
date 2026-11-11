@@ -11,6 +11,9 @@ import type { AccountWithBalance, SplitTransferInput } from '@shared/types'
 import { Field } from '../components/Field'
 import { MoneyInput } from '../components/MoneyInput'
 import { Sheet } from '../components/Sheet'
+import { FloorWarning, useFloorGate } from '../components/FloorWarning'
+import { usableLabel } from '@shared/accounts'
+import { accountAvailLabel } from '../../renderer/src/lib/finance'
 import { useSheetSave } from '../components/useSheetSave'
 import { categoryMatch, entryCategories } from '../lib/entry'
 import { text } from '../lib/rows'
@@ -45,6 +48,7 @@ export function SplitTransferSheet({
   const tables = usePocket((state) => state.tables)
   const add = usePocket((state) => state.add)
   const { saving, error, setError, run } = useSheetSave(onClose)
+  const floorGate = useFloorGate(currency)
   const sources = accounts.filter((account) => account.kind !== 'credit')
   const byId = new Map(accounts.map((account) => [account.id, account]))
   const categories = tables ? entryCategories(tables) : []
@@ -82,6 +86,8 @@ export function SplitTransferSheet({
       setError(problem)
       return
     }
+    // Only the source can end lower: a "through" account receives the total first.
+    if (!floorGate.allow(source, -totalCents)) return
     void run(() =>
       add((current) => createSplitTransfer(current, input), 'Split transfer recorded.')
     )
@@ -104,7 +110,7 @@ export function SplitTransferSheet({
         >
           {sources.map((account) => (
             <option key={account.id} value={account.id}>
-              {account.name}
+              {account.name} ({accountAvailLabel(account, currency)})
             </option>
           ))}
         </select>
@@ -200,7 +206,11 @@ export function SplitTransferSheet({
       <p className="fine" aria-live="polite">
         Total to move: <strong>{formatMoney(totalCents, currency)}</strong>
         {source ? ` · ${source.name} after: ${formatMoney(source.balanceCents - totalCents, currency)}` : ''}
+        {source && usableLabel(source, currency, source.balanceCents - totalCents) !== null
+          ? ` · ${usableLabel(source, currency, source.balanceCents - totalCents)}`
+          : ''}
       </p>
+      <FloorWarning text={floorGate.warning} />
       {error ? (
         <p className="form-error" role="alert">
           {error}
@@ -217,7 +227,7 @@ export function SplitTransferSheet({
           disabled={saving || totalCents <= 0}
           onClick={submit}
         >
-          {saving ? 'Recording…' : `Split ${formatMoney(totalCents, currency)}`}
+          {saving ? 'Recording…' : (floorGate.confirmLabel ?? `Split ${formatMoney(totalCents, currency)}`)}
         </button>
       </div>
     </Sheet>

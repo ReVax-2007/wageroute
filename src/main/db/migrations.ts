@@ -474,6 +474,13 @@ CREATE INDEX idx_transactions_split_group
   ON transactions(split_group_id) WHERE split_group_id IS NOT NULL;
 `
 
+// v12: an optional floor, the least a deposit account should ever hold
+// (ADR 0035). NULL is "no floor", which every existing account keeps.
+const SCHEMA_V12 = `
+ALTER TABLE accounts ADD COLUMN floor_cents INTEGER
+  CHECK (floor_cents IS NULL OR (typeof(floor_cents) = 'integer' AND floor_cents >= 0));
+`
+
 function isoDay(): string {
   const now = new Date()
   const pad = (value: number): string => String(value).padStart(2, '0')
@@ -624,6 +631,12 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 11,
     up: (db) => {
       db.exec(SCHEMA_V11)
+    }
+  },
+  {
+    version: 12,
+    up: (db) => {
+      db.exec(SCHEMA_V12)
     }
   }
 ]

@@ -104,6 +104,7 @@ export function buildSnapshot(
         inSafeToSpend: inSafe === null ? null : inSafe === 1,
         isArchived: flag(row, 'is_archived'),
         isLocked: flag(row, 'is_locked'),
+        floorCents: nullableInteger(row, 'floor_cents'),
         sortOrder: integer(row, 'sort_order'),
         aprBps: nullableInteger(row, 'apr_bps'),
         minimumPaymentCents: nullableInteger(row, 'minimum_payment_cents'),

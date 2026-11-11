@@ -5,6 +5,7 @@ import { dueBillPrompts, type BillPrompt } from '@shared/billPrompts'
 import { formatDateLabel, formatMonthLong, isISODate, todayISO } from '@shared/dates'
 import { formatMoney } from '@shared/money'
 import { Button } from './ui'
+import { confirmFloor } from '../lib/finance'
 import { useFinanceStore } from '../store/useFinanceStore'
 
 const promptKey = (prompt: BillPrompt) => `${prompt.billId}:${prompt.dueOn}`
@@ -16,6 +17,7 @@ export function BillPrompts() {
   const snoozePrompt = useFinanceStore((state) => state.snoozePrompt)
   const unsnoozePrompt = useFinanceStore((state) => state.unsnoozePrompt)
   const createTransaction = useFinanceStore((state) => state.createTransaction)
+  const askConfirm = useFinanceStore((state) => state.askConfirm)
   const [pendingKey, setPendingKey] = useState<string | null>(null)
   // A bill that came due last month cannot be logged at its due date without
   // reaching back a month, so those rows let the user say when it really left.
@@ -64,6 +66,8 @@ export function BillPrompts() {
     const key = promptKey(prompt)
     const occurredOn = dateFor(prompt)
     if (!isISODate(occurredOn) || occurredOn > today) return
+    const account = openAccounts.find((item) => item.id === accountId)
+    if (!(await confirmFloor(askConfirm, account, -remainingCents, settings.currency))) return
     setPendingKey(key)
     await createTransaction({
       accountId,

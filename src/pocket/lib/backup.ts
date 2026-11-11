@@ -24,7 +24,7 @@ export interface PocketBackup {
 }
 
 /** The newest schema this build can name; newer files still open, with a note. */
-export const KNOWN_BACKUP_VERSION = 11
+export const KNOWN_BACKUP_VERSION = 12
 
 export const MAX_BACKUP_BYTES = 24 * 1024 * 1024
 
@@ -72,6 +72,7 @@ const RULES: Partial<Record<ImportTable, readonly FieldRule[]>> = {
     enumRule('kind', 'account kind', ACCOUNT_KINDS),
     integerRule('starting_balance_cents', 'starting balance'),
     integerRule('credit_limit_cents', 'credit limit'),
+    integerRule('floor_cents', 'floor'),
     integerRule('sort_order', 'sort order'),
     integerRule('apr_bps', 'APR'),
     integerRule('minimum_payment_cents', 'minimum payment'),

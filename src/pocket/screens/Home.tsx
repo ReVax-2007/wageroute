@@ -2,6 +2,7 @@ import { CalendarDays, ChevronRight, Wallet } from 'lucide-react'
 import { accountDisplayBalanceCents, ACCOUNT_KIND_LABEL } from '../../renderer/src/lib/finance'
 import { formatDateLabel, formatDateLong, localDateISO } from '@shared/dates'
 import { formatMoney } from '@shared/money'
+import { floorHeldCents, usableLabel } from '@shared/accounts'
 import { usePocket, useSnapshot } from '../lib/store'
 import { billLines, dueSoon, pocketView } from '../lib/compute'
 import type { Tab } from '../components/Nav'
@@ -41,7 +42,12 @@ export function Home({ go }: { go: (tab: Tab) => void }) {
         </p>
         <ul className="hero-breakdown">
           <li>
-            <span>Spendable accounts</span>
+            <span>
+              Spendable accounts
+              {floorHeldCents(snapshot.accounts) > 0
+                ? ` (after ${formatMoney(floorHeldCents(snapshot.accounts), currency)} kept as floors)`
+                : ''}
+            </span>
             <b>{formatMoney(view.poolCents, currency)}</b>
           </li>
           <li>
@@ -159,6 +165,7 @@ export function Home({ go }: { go: (tab: Tab) => void }) {
                   <span className="muted small">
                     {ACCOUNT_KIND_LABEL[account.kind]}
                     {account.institution ? ` · ${account.institution}` : ''}
+                    {usableLabel(account, currency) !== null ? ` · ${usableLabel(account, currency)}` : ''}
                   </span>
                 </div>
                 <span className={account.kind === 'credit' ? 'amount owed' : 'amount'}>

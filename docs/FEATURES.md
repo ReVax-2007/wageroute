@@ -60,7 +60,7 @@ Safe to Spend = spendable pool − monthly Priority Wall − funded goals whose 
                 − this month's debt and investment routing that has not moved yet
 ```
 
-- **Spendable pool** is the sum of the balances of the accounts the user treats as spendable (see [Accounts](#accounts)). It is *not* cash on hand: an investment account can be opted in and a savings account opted out. With no per-account choice recorded, the pool is the non-archived checking, savings and cash balances, so pre-v4 data behaves exactly as before.
+- **Spendable pool** is the sum of the balances of the accounts the user treats as spendable (see [Accounts](#accounts)). It is *not* cash on hand: an investment account can be opted in and a savings account opted out. With no per-account choice recorded, the pool is the non-archived checking, savings and cash balances, so pre-v4 data behaves exactly as before. An account with a [floor](#account-floor) adds only its usable cash, `max(0, cash − floor)`.
 - **Monthly Priority Wall** is the smoothed monthly obligation of all **active** bills.
 - **Funded goals whose money is in the pool** is every goal's funded amount *except* goals fed by a dedicated account (`poolEarmarkedGoalsCents`).
 - **Routing not moved yet** is this month's `debt` and `investment` allocation lines, less the transfers a routing plan itself posted to a credit or investment account since the earliest of those paycheques (`unsettledRoutingCents`). Only entries carrying one of this month's `paycheck_id` values count — an unrelated deposit, card payment or market gain must not make a plan look settled when the money is still in checking. Routing records a plan and moves nothing ([ADR 0013](decisions/0013-a-route-is-a-plan-not-a-movement.md)), so the dollars are still in checking until the card is paid or the brokerage transfer lands; deducting them only while they are still there avoids charging the same dollar twice once it has moved. Savings is not deducted: a savings account in the pool is still spendable, and one outside it is already excluded from the pool.
@@ -485,6 +485,15 @@ Not every picker lists every account, and the difference is deliberate:
 ### Lock an account
 
 The lock button on an account row freezes it ([ADR 0034](decisions/0034-a-locked-account-is-frozen-money.md)). A locked account stays on the screen with its balance and counts in total wealth, and its row reads *locked: nothing moves in or out*. It is never spending money, so Safe to Spend leaves it out whatever its own setting. Every picker that leads to a write leaves it out, Pay card and Adjust balance are hidden on it, and both devices refuse any new entry, transfer or split line into or out of it, any bill or paycheck pointing at it, and any edit or delete of an entry recorded in it, with *That account is locked — unlock it before using it here*. Its name, bank and colour can still be edited. Locking also switches off a round-up sweep aimed at it. Press the button again to unlock it. Pocket has the same **Lock** / **Unlock** on the account sheet.
+
+### Account floor
+
+A checking, savings or cash account can carry an optional **floor**, the least it should ever hold ([ADR 0035](decisions/0035-a-floor-is-money-the-app-will-not-offer.md)). It is set as **Floor (optional)** in the account dialog, in dollars and cents; blank means no floor, and `0` is a floor that stops the app offering an overdraft. Credit cards (whose equivalent is the credit limit) and investment accounts take no floor.
+
+- **Usable money.** Wherever the app says what can be spent or moved, it uses `usable = balance − floor`, never below zero, and shows the floor beside it: "$110.00 usable · $90.00 floor" for $200 with a $90 floor. That covers the Safe to Spend pool (each account's usable settled cash; the breakdown adds "after $X kept as floors"), the account rows on Overview, Accounts and Pocket, the Transfers and split-transfer pickers and their *after* lines (and the **All usable** chip), the entry dialog's account hint, Pay card, and the goal funding pickers and dedicated-account lists. An account without a floor reads exactly as before.
+- **Nothing is hidden.** The balance, the ledger, total wealth, cash on hand and a dedicated account's goal progress all use the full balance.
+- **Going under it.** A new entry, transfer, split, card payment, bill payment or plan move that would leave the account below its floor asks *Go under the … floor?*, naming where it lands, with **Save anyway** or Cancel. Money coming in never asks, and landing exactly on the floor is fine. Pocket shows the same sentence in the sheet and turns the save button into **Save anyway** for a second tap. Editing an existing entry in the grid does not ask.
+- **The app's own moves.** A round-up sweep that would take the spending account under its floor is skipped on both devices.
 
 ### Remove an account
 

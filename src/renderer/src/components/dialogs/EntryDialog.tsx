@@ -1,12 +1,12 @@
 import { useState } from 'react'
-import { isUsableAccount } from '@shared/accounts'
+import { isUsableAccount, usableLabel } from '@shared/accounts'
 import { todayISO } from '@shared/dates'
 import { CREDIT_CARD_SOURCE_REFUSAL } from '@shared/writeRules'
 import { parseMoneyToCents } from '@shared/money'
 import type { TransactionInput, TransactionKind } from '@shared/types'
 import { CategoryInput } from '../CategoryInput'
 import { Button, Field, Modal, MoneyInput } from '../ui'
-import { TRANSACTION_KIND_LABEL } from '../../lib/finance'
+import { TRANSACTION_KIND_LABEL, confirmFloor } from '../../lib/finance'
 import { useFinanceStore } from '../../store/useFinanceStore'
 import { useDialogSave } from '../useDialogSave'
 
@@ -17,6 +17,8 @@ const KINDS = Object.keys(TRANSACTION_KIND_LABEL) as TransactionKind[]
 export function EntryDialog({ onClose }: { onClose: () => void }) {
   const snapshot = useFinanceStore((state) => state.snapshot)
   const createTransaction = useFinanceStore((state) => state.createTransaction)
+  const askConfirm = useFinanceStore((state) => state.askConfirm)
+  const currency = useFinanceStore((state) => state.settings.currency)
 
   const accounts = (snapshot?.accounts ?? []).filter(isUsableAccount)
   const bills = snapshot?.bills ?? []
@@ -96,8 +98,14 @@ export function EntryDialog({ onClose }: { onClose: () => void }) {
       goalId: form.kind === 'goal_funding' ? form.goalId : null
     }
 
+    const account = accounts.find((item) => item.id === form.accountId)
+    if (!(await confirmFloor(askConfirm, account, amountCents, currency))) return
+
     await run(() => createTransaction(input))
   }
+
+  const chosen = accounts.find((item) => item.id === form.accountId)
+  const floorLine = chosen ? usableLabel(chosen, currency) : null
 
   const signHint =
     form.kind === 'income'
@@ -133,7 +141,7 @@ export function EntryDialog({ onClose }: { onClose: () => void }) {
             onChange={(event) => setForm({ ...form, occurredOn: event.target.value })}
           />
         </Field>
-        <Field label="Account">
+        <Field label="Account" hint={floorLine ?? undefined}>
           <select
             className="select"
             value={form.accountId}

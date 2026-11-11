@@ -1,5 +1,11 @@
 import { monthlyEquivalentCents, reservePerPaycheckCents } from '@shared/cadence'
-import { isUsableAccount } from '@shared/accounts'
+import {
+  floorBreach,
+  floorBreachQuestion,
+  isUsableAccount,
+  usableLabel
+} from '@shared/accounts'
+import { formatMoney } from '@shared/money'
 import { creditAmountDue, creditCycle, previousCloseDate } from '@shared/credit'
 import { addDaysISO, daysBetweenISO } from '@shared/dates'
 import { nextBillOccurrence } from '@shared/occurrences'
@@ -77,6 +83,31 @@ export function creditAvailableCents(accounts: readonly AccountWithBalance[]): n
 
 export function accountDisplayBalanceCents(account: AccountWithBalance): number {
   return account.kind === 'credit' ? Math.max(0, -account.balanceCents) : account.balanceCents
+}
+
+/**
+ * What a picker says an account can give: a card's debt, a floored account's
+ * usable money next to its floor (ADR 0035), or the plain balance.
+ */
+export function accountAvailLabel(account: AccountWithBalance, currency: string): string {
+  if (account.kind === 'credit') {
+    return `${formatMoney(accountDisplayBalanceCents(account), currency)} owed`
+  }
+  return usableLabel(account, currency) ?? `${formatMoney(account.balanceCents, currency)} avail`
+}
+
+/**
+ * Asks before a write the owner typed takes an account under its floor. Resolves
+ * true when there is nothing to ask or the owner chose to save anyway.
+ */
+export async function confirmFloor(
+  askConfirm: (request: { title: string; body: string; confirmLabel?: string }) => Promise<boolean>,
+  account: AccountWithBalance | undefined,
+  deltaCents: number,
+  currency: string
+): Promise<boolean> {
+  const breach = account ? floorBreach(account, deltaCents) : null
+  return breach === null ? true : askConfirm(floorBreachQuestion(breach, currency))
 }
 
 /** How far along the card's cycle is, and what the next bill looks like. */

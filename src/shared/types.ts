@@ -77,6 +77,12 @@ export interface Account extends SyncMeta {
    * takes no new entry, edit or transfer and is never spendable (ADR 0034).
    */
   isLocked: boolean
+  /**
+   * The least this account should ever hold, in cents, or null for no floor
+   * (ADR 0035). Only deposit accounts carry one. It never changes the balance:
+   * it only lowers what the app calls usable.
+   */
+  floorCents: number | null
   sortOrder: number
   /** Debt terms, meaningful on a credit account (and on a loan-like account). */
   aprBps: number | null
@@ -341,6 +347,8 @@ export interface AccountInput {
   institution: string
   startingBalanceCents: number
   creditLimitCents?: number | null
+  /** null clears the floor; only checking, savings and cash accept one. */
+  floorCents?: number | null
   color?: string | null
   dedicatedGoalId?: string | null
   inSafeToSpend?: boolean | null

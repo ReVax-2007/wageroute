@@ -70,8 +70,8 @@ test('v6 rebuilds bills, keeps every row and restores enforcement', () => {
   const db = v5Database()
   migrate(db)
 
-  assert.equal(SCHEMA_VERSION, 11)
-  assert.equal(db.pragma('user_version', { simple: true }), 11)
+  assert.equal(SCHEMA_VERSION, 12)
+  assert.equal(db.pragma('user_version', { simple: true }), 12)
   assert.equal(db.pragma('foreign_keys', { simple: true }), 1, 'enforcement is back on')
   assert.deepEqual(db.pragma('foreign_key_check'), [])
   assert.equal(db.pragma('integrity_check', { simple: true }), 'ok')
@@ -301,6 +301,33 @@ test('v11 leaves every account unlocked and every entry outside a split', () => 
     split_group_id: null
   })
   assert.throws(() => db.prepare("UPDATE accounts SET is_locked = 2 WHERE id = 'acc-1'").run(), /CHECK/i)
+  db.close()
+})
+
+test('v12 gives every existing account no floor and refuses a negative or fractional one', () => {
+  const db = new Database(':memory:')
+  db.pragma('foreign_keys = ON')
+  migrateThrough(db, 11)
+  db.prepare(
+    `INSERT INTO users (id, display_name, created_at, updated_at)
+     VALUES (?, 'Tester', ?, ?)`
+  ).run(USER_ID, TS, TS)
+  db.prepare(
+    `INSERT INTO accounts (id, user_id, name, kind, starting_balance_cents, created_at, updated_at)
+     VALUES ('acc-1', ?, 'Chequing', 'checking', 20000, ?, ?)`
+  ).run(USER_ID, TS, TS)
+
+  migrate(db)
+
+  assert.equal(db.pragma('user_version', { simple: true }), SCHEMA_VERSION)
+  assert.deepEqual(
+    db.prepare("SELECT floor_cents, starting_balance_cents FROM accounts WHERE id = 'acc-1'").get(),
+    { floor_cents: null, starting_balance_cents: 20000 }
+  )
+  db.prepare("UPDATE accounts SET floor_cents = 9000 WHERE id = 'acc-1'").run()
+  db.prepare("UPDATE accounts SET floor_cents = 0 WHERE id = 'acc-1'").run()
+  assert.throws(() => db.prepare("UPDATE accounts SET floor_cents = -1 WHERE id = 'acc-1'").run(), /CHECK/i)
+  assert.throws(() => db.prepare("UPDATE accounts SET floor_cents = 90.5 WHERE id = 'acc-1'").run(), /CHECK|INTEGER/i)
   db.close()
 })
 

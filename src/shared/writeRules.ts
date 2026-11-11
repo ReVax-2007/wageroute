@@ -192,6 +192,25 @@ export function optionalCents(
   return assertCents(value, label, options)
 }
 
+/**
+ * The account kinds that can carry a floor (ADR 0035). A card's equivalent is
+ * its credit limit, and a holding is not money the app routes or spends from.
+ */
+export const FLOOR_KINDS: ReadonlySet<AccountKind> = new Set(['checking', 'savings', 'cash'])
+
+/**
+ * The `floor_cents` value a write stores. A kind that cannot carry a floor
+ * always stores none, so switching an account to a card clears it rather than
+ * leaving a number nothing reads. `undefined` leaves the column untouched.
+ */
+export function floorColumn(
+  kind: AccountKind | undefined,
+  value: number | null | undefined
+): number | null | undefined {
+  if (kind !== undefined && !FLOOR_KINDS.has(kind)) return null
+  return optionalCents(value, 'Floor', { allowZero: true })
+}
+
 export function optionalAprBps(value: number | null | undefined): number | null | undefined {
   if (value === undefined) return undefined
   if (value === null) return null
@@ -232,6 +251,8 @@ export interface AccountFormText {
   name: string
   startingBalance: string
   creditLimit: string
+  /** Blank is "no floor"; only read for checking, savings and cash. */
+  floor: string
   apr: string
   minimumPayment: string
   lastStatementBalance: string
@@ -245,6 +266,7 @@ export interface AccountFormParsed {
   name: string
   startingBalanceCents: number
   creditLimitCents: number | null
+  floorCents: number | null
   aprBps: number | null
   minimumPaymentCents: number | null
   lastStatementBalanceCents: number | null
@@ -274,6 +296,7 @@ export function validateAccountForm(
   const typedCents = (raw: string) => (raw.trim() ? parseMoneyToCents(raw) : null)
 
   const limit = typedCents(text.creditLimit)
+  const floor = typedCents(text.floor)
   const starting = text.startingBalance.trim() ? parseMoneyToCents(text.startingBalance) : 0
   const apr = text.apr.trim() ? Number(text.apr.trim().replace(/%$/, '')) : null
   const minimum = typedCents(text.minimumPayment)
@@ -286,6 +309,8 @@ export function validateAccountForm(
     problems.creditLimit = 'Credit limit must be a number'
   }
   if (limit !== null && limit < 0) problems.creditLimit = 'Credit limit cannot be negative'
+  if (text.floor.trim() && floor === null) problems.floor = 'Floor must be a number'
+  if (floor !== null && floor < 0) problems.floor = 'Floor cannot be negative'
   if (starting === null) problems.startingBalance = 'Starting balance must be a number'
   if (apr !== null && (!Number.isFinite(apr) || apr < 0 || apr > 100)) {
     problems.apr = 'APR must be a percentage between 0 and 100'
@@ -314,6 +339,7 @@ export function validateAccountForm(
       name: text.name.trim(),
       startingBalanceCents: starting,
       creditLimitCents: limit,
+      floorCents: floor,
       // The form speaks percent because that is what a statement prints; the row
       // stores basis points so a rate never carries a float.
       aprBps: apr === null ? null : Math.round(apr * 100),

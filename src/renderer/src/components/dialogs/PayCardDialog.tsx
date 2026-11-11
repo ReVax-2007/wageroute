@@ -5,7 +5,7 @@ import { todayISO } from '@shared/dates'
 import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
 import type { AccountWithBalance } from '@shared/types'
 import { Button, Field, Modal, MoneyInput } from '../ui'
-import { accountDisplayBalanceCents } from '../../lib/finance'
+import { accountAvailLabel, accountDisplayBalanceCents, confirmFloor } from '../../lib/finance'
 import { useFinanceStore } from '../../store/useFinanceStore'
 import { useDialogSave } from '../useDialogSave'
 
@@ -19,6 +19,7 @@ export function PayCardDialog({
   const snapshot = useFinanceStore((state) => state.snapshot)
   const settings = useFinanceStore((state) => state.settings)
   const createTransaction = useFinanceStore((state) => state.createTransaction)
+  const askConfirm = useFinanceStore((state) => state.askConfirm)
   const sources = cardPaymentSources(snapshot?.accounts ?? [])
   const owed = accountDisplayBalanceCents(card)
   const creditCents = Math.max(0, -cardOwedCents(card))
@@ -38,6 +39,8 @@ export function PayCardDialog({
       setError('Enter a payment amount')
       return
     }
+    const source = sources.find((account) => account.id === fromId)
+    if (!(await confirmFloor(askConfirm, source, -typed, settings.currency))) return
     await run(() =>
       createTransaction({
         accountId: fromId,
@@ -76,7 +79,7 @@ export function PayCardDialog({
           >
             {sources.map((account) => (
               <option key={account.id} value={account.id}>
-                {account.name}
+                {account.name} ({accountAvailLabel(account, settings.currency)})
               </option>
             ))}
           </select>
