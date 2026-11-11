@@ -135,3 +135,66 @@
   --backdrop: rgba(20, 32, 50, 0.32);
   --backdrop-soft: rgba(245, 248, 253, 0.72);
 }
+
+/* Glass: the dark palette on frosted, see-through panels over a soft backdrop.
+   Text keeps the dark theme's light ink; the backdrop stays dim enough that
+   every figure clears WCAG AA on the brightest part of it. Panels that hold
+   dense rows (insets, headers, inputs) stay nearly opaque. */
+:root[data-theme='glass'] {
+  color-scheme: dark;
+
+  --bg: #0b0f17;
+  --bg-glow: #1a2433;
+  --panel: rgba(22, 30, 44, 0.55);
+  --panel-2: rgba(30, 40, 56, 0.55);
+  --panel-3: rgba(40, 52, 70, 0.55);
+  --border: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.18);
+
+  --text: #f1f4fa;
+  --text-dim: #bcc5d4;
+  --text-muted: #9aa6b9;
+  --text-faint: #8e9bb0;
+  --placeholder: #8e9bb0;
+
+  --radius: 18px;
+  --radius-lg: 24px;
+
+  --shadow: 0 30px 70px rgba(0, 0, 0, 0.5);
+  --shadow-soft: 0 14px 34px rgba(0, 0, 0, 0.32);
+
+  --bg-deep: rgba(10, 14, 22, 0.5);
+  --bg-deep-2: rgba(14, 20, 30, 0.45);
+  --inset: rgba(9, 13, 21, 0.72);
+  --inset-2: rgba(9, 13, 21, 0.68);
+  --inset-3: rgba(11, 16, 25, 0.7);
+  --inset-4: rgba(12, 18, 28, 0.72);
+  --header-bg: rgba(14, 20, 31, 0.82);
+  --inset-plate: rgba(6, 10, 16, 0.45);
+  --tint: rgba(255, 255, 255, 0.05);
+  --tint-soft: rgba(255, 255, 255, 0.035);
+  --border-faint: rgba(255, 255, 255, 0.08);
+  --border-row: rgba(255, 255, 255, 0.07);
+  --raised: rgba(255, 255, 255, 0.1);
+  --raised-strong: rgba(255, 255, 255, 0.16);
+  --backdrop: rgba(4, 7, 12, 0.5);
+  --backdrop-soft: rgba(12, 19, 31, 0.5);
+
+  --glass-blur: 22px;
+  /* The backdrop: soft colour pools under a dim scrim, drawn in CSS so there
+     is no image file to license or load. */
+  --glass-scene:
+    linear-gradient(rgba(5, 8, 13, 0.28), rgba(5, 8, 13, 0.28)),
+    radial-gradient(900px 640px at 10% 6%, #2f6a86 0%, transparent 62%),
+    radial-gradient(820px 600px at 92% 14%, #6a4a8c 0%, transparent 62%),
+    radial-gradient(1000px 720px at 72% 104%, #8a5c34 0%, transparent 60%),
+    radial-gradient(760px 540px at 18% 96%, #2b6b58 0%, transparent 64%),
+    #10151f;
+}
+
+/* The OS asked for less transparency (macOS Reduce transparency): solid panels. */
+:root[data-theme='glass'].reduce-transparency {
+  --panel: #161e2c;
+  --panel-2: #1c2536;
+  --panel-3: #232e41;
+}

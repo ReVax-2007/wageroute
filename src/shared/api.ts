@@ -158,6 +158,8 @@ export interface AppInfo {
   version: string
   schemaVersion: number
   electron: string
+  /** The OS asks apps to avoid see-through surfaces (macOS Reduce transparency). */
+  reducedTransparency: boolean
 }
 
 /**

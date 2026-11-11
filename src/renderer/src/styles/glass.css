@@ -1,0 +1,65 @@
+@layer utilities {
+/* ---------------------------------------------------------------- glass */
+
+:root[data-theme='glass'] body {
+  background: var(--glass-scene);
+  background-attachment: fixed;
+}
+
+:root[data-theme='glass'] .sidebar,
+:root[data-theme='glass'] .modal,
+:root[data-theme='glass'] .allocator-panel,
+:root[data-theme='glass'] .toast {
+  backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+}
+
+:root[data-theme='glass'] .sidebar {
+  background: rgba(12, 17, 26, 0.45);
+}
+
+/* A card blurs through a layer behind its content, not on itself: a
+   backdrop-filter (or transform) on the card would become the containing
+   block for any dialog rendered inside it, and pin that dialog to the card
+   instead of the window. */
+:root[data-theme='glass'] .card {
+  position: relative;
+  isolation: isolate;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    var(--shadow-soft);
+}
+
+:root[data-theme='glass'] .card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  pointer-events: none;
+}
+
+/* Popups sit over other glass, so they need more body to stay readable. */
+:root[data-theme='glass'] .modal,
+:root[data-theme='glass'] .allocator-panel {
+  background: rgba(20, 27, 40, 0.86);
+}
+
+/* The OS asked for less transparency: keep Glass's shape, drop the see-through.
+   The solid panel colours live in tokens.css, beside the glass palette. */
+:root[data-theme='glass'].reduce-transparency .sidebar,
+:root[data-theme='glass'].reduce-transparency .card::before,
+:root[data-theme='glass'].reduce-transparency .modal,
+:root[data-theme='glass'].reduce-transparency .allocator-panel,
+:root[data-theme='glass'].reduce-transparency .toast {
+  backdrop-filter: none;
+}
+
+:root[data-theme='glass'].reduce-transparency .sidebar {
+  background: #0e131c;
+}
+
+:root[data-theme='glass'].reduce-transparency .modal,
+:root[data-theme='glass'].reduce-transparency .allocator-panel {
+  background: #161e2c;
+}
+}

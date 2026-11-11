@@ -43,6 +43,9 @@ export default function App() {
   const error = useFinanceStore((state) => state.error)
   const screen = useFinanceStore((state) => state.screen)
   const theme = useFinanceStore((state) => state.settings.theme)
+  const reducedTransparency = useFinanceStore(
+    (state) => state.appInfo?.reducedTransparency ?? false
+  )
   const lastScreen = useRef<Screen | null>(null)
 
   useEffect(() => {
@@ -79,6 +82,11 @@ export default function App() {
     media.addEventListener('change', apply)
     return () => media.removeEventListener('change', apply)
   }, [theme])
+
+  useEffect(() => {
+    // Glass falls back to solid panels when the OS asks for less transparency.
+    document.documentElement.classList.toggle('reduce-transparency', reducedTransparency)
+  }, [reducedTransparency])
 
   if (status === 'loading') {
     return (

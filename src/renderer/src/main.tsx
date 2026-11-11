@@ -14,7 +14,8 @@ if (navigator.userAgent.includes('Mac')) {
 // flash dark on every launch. Settings remain the source of truth.
 try {
   const cached = localStorage.getItem('cfr-theme')
-  document.documentElement.dataset.theme = cached === 'light' ? 'light' : 'dark'
+  document.documentElement.dataset.theme =
+    cached === 'light' || cached === 'glass' ? cached : 'dark'
 } catch {
   document.documentElement.dataset.theme = 'dark'
 }
