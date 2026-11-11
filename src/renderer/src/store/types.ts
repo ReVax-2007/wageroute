@@ -14,6 +14,7 @@ import type {
   PaycheckDraftInput,
   PlanMoveTarget,
   Snapshot,
+  SplitTransferInput,
   TransactionInput,
   TransactionPage,
   TransactionPatch
@@ -100,6 +101,7 @@ export interface DataSlice {
   deleteGoal: (id: string) => Promise<boolean>
   archiveGoal: (id: string, archived: boolean) => Promise<boolean>
   createTransaction: (input: TransactionInput) => Promise<boolean>
+  createSplitTransfer: (input: SplitTransferInput) => Promise<boolean>
   updateTransaction: (id: string, patch: TransactionPatch) => Promise<boolean>
   deleteTransaction: (id: string) => Promise<boolean>
   /** Resolves to how many rows went, or null when the batch failed. */

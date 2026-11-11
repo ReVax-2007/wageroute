@@ -47,6 +47,7 @@ export function createFinanceApi(call: IpcCaller): FinanceApi {
     archiveGoal: (id, archived) => call('goal:archive', id, archived),
 
     createTransaction: (input) => call('transaction:create', input),
+    createSplitTransfer: (input) => call('transaction:create-split', input),
     updateTransaction: (id, input) => call('transaction:update', id, input),
     deleteTransaction: (id) => call('transaction:delete', id),
     deleteTransactions: (ids) => call('transaction:delete-many', ids),

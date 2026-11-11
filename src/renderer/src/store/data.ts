@@ -235,6 +235,8 @@ export const createDataSlice: StateCreator<FinanceState, [], [], DataSlice> = (s
         archived ? 'Goal archived — restore it any time' : 'Goal restored'
       ),
     createTransaction: (input) => run(() => window.api.createTransaction(input), 'Entry added'),
+    createSplitTransfer: (input) =>
+      run(() => window.api.createSplitTransfer(input), 'Split transfer recorded'),
     updateTransaction: (id, patch) =>
       run(() => window.api.updateTransaction(id, patch), 'Entry saved', id),
     deleteTransaction: (id) => run(() => window.api.deleteTransaction(id), 'Entry removed', id),

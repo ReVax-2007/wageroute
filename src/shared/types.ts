@@ -398,6 +398,29 @@ export interface TransactionInput {
   paycheckId?: string | null
 }
 
+/** One destination of a split transfer: where a piece goes and how much. */
+export interface SplitTransferLine {
+  accountId: string
+  amountCents: number
+  /** Blank files the line under `Transfer`. */
+  category?: string
+  categoryId?: string | null
+  memo?: string
+}
+
+/**
+ * One source sending money to several accounts at once. It is written as
+ * ordinary transfers in one all-or-nothing save (ADR 0033), never as a new kind
+ * of row. With `viaAccountId`, the total first lands there and each other line
+ * is moved on from it; a line naming the via account is the share that stays.
+ */
+export interface SplitTransferInput {
+  sourceAccountId: string
+  viaAccountId?: string | null
+  occurredOn: string
+  lines: SplitTransferLine[]
+}
+
 export type TransactionPatch = Partial<
   Pick<
     TransactionInput,

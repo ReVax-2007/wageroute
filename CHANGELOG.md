@@ -21,6 +21,8 @@ All notable changes to WageRoute are documented here. The format follows [Keep a
   - **Phone:** the vault gains a v2 format — a random data key wrapped by the passphrase, a PIN (PBKDF2 at 2 000 000 rounds) and a passkey's PRF output (`rpId` is the page's own hostname). A v1 vault stays readable and becomes v2 only when a PIN or passkey is added, in one re-seal. On v2, changing the phrase is a rewrap. The locked screen gains **Use fingerprint or face**.
 - **A passkey is never the only way in**, on either device: the key file and the vault marker refuse it, and every removal that would leave it alone is refused with a sentence that says why. On the phone, the passphrase stays while a passkey exists.
 
+- **Split transfer** ([ADR 0033](docs/decisions/0033-a-split-transfer-is-ordinary-transfers-saved-together.md)). The Transfers screen's **Several accounts** mode sends one source to several accounts at once. It shows the total to move and the source's balance afterwards while typing, and saves every line as an ordinary transfer in one all-or-nothing write. An optional **Through** account records the hop through the bank the lump sum lands in first. Pocket gets the same thing as **Split** on its Accounts screen. No schema change.
+
 ### Changed
 
 - **Transfers take a category** ([ADR 0032](docs/decisions/0032-a-typed-category-is-the-persons-label.md)). The Transfers screen has a Category box next to the description, with the ledger's categories suggested and new names accepted. A round-up or small sweep between accounts is now one labelled entry instead of a transfer plus a relabel. The category stays filled in between transfers, and the recent list shows it.

@@ -32,6 +32,7 @@ import type {
   PaycheckDraftInput,
   PlanMoveTarget,
   Snapshot,
+  SplitTransferInput,
   TransactionInput,
   TransactionPage,
   TransactionPatch
@@ -98,6 +99,7 @@ export interface IpcContract {
   'goal:archive': { args: [string, boolean]; result: WriteResult<void> }
 
   'transaction:create': { args: [TransactionInput]; result: WriteResult<string> }
+  'transaction:create-split': { args: [SplitTransferInput]; result: WriteResult<string[]> }
   'transaction:update': { args: [string, TransactionPatch]; result: WriteResult<void> }
   'transaction:delete': { args: [string]; result: WriteResult<void> }
   'transaction:delete-many': { args: [string[]]; result: WriteResult<number> }
@@ -170,6 +172,7 @@ export const CHANNELS = [
   'goal:delete',
   'goal:archive',
   'transaction:create',
+  'transaction:create-split',
   'transaction:update',
   'transaction:delete',
   'transaction:delete-many',

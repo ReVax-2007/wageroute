@@ -2145,6 +2145,51 @@ span.wizard-step-chip {
   background: rgba(76, 194, 255, 0.16);
 }
 
+/* Split transfer: one row per account the money goes to. */
+.split-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.split-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.2fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.split-line > .icon-btn {
+  margin-bottom: 6px;
+}
+
+@media (max-width: 720px) {
+  .split-line {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  }
+}
+
+.split-total {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 10px 14px;
+  background: var(--bg-deep-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.split-total-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.split-total-amount {
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
 .transfer-summary-box {
   display: flex;
   align-items: center;

@@ -306,3 +306,105 @@ test('with only cards there is nothing to transfer from', async () => {
   root.unmount()
   host.remove()
 })
+
+test('a split transfer adds up its lines and saves them in one step', async () => {
+  const { useFinanceStore } = await import('../store/useFinanceStore')
+  const { parseSettings } = await import('@shared/settings')
+  const { Transfers } = await import('./Transfers')
+  const { createRoot } = await import('react-dom/client')
+
+  const ACCOUNT_3 = { ...ACCOUNT_2, id: 'acc-travel', name: 'Travel', sortOrder: 2 }
+  const splits: unknown[] = []
+  useFinanceStore.setState({
+    snapshot: makeSnapshot([ACCOUNT_1, ACCOUNT_2, ACCOUNT_3, CARD]) as never,
+    settings: parseSettings({ currency: 'USD' }),
+    createSplitTransfer: async (input) => {
+      splits.push(input)
+      return true
+    },
+    queryTransactions: async () => ({ rows: [], total: 0 })
+  })
+
+  const host = window.document.createElement('div')
+  window.document.body.appendChild(host)
+  const root = createRoot(host)
+  await act(async () => {
+    root.render(createElement(Transfers))
+  })
+
+  const several = [...host.querySelectorAll('button')].find(
+    (el) => el.textContent?.trim() === 'Several accounts'
+  )
+  assert.ok(several, 'the form offers a split')
+  await act(async () => {
+    several.click()
+  })
+
+  const setSelect = (select: HTMLSelectElement, value: string) => {
+    select.value = value
+    select.dispatchEvent(new window.Event('change', { bubbles: true }))
+  }
+  const setInput = (input: HTMLInputElement, value: string) => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!.call(input, value)
+    input.dispatchEvent(new window.Event('input', { bubbles: true }))
+  }
+
+  const [from, through, line1, line2] = [...host.querySelectorAll<HTMLSelectElement>('select')]
+  assert.deepEqual(
+    [...from.options].map((option) => option.value),
+    [ACCOUNT_1.id, ACCOUNT_2.id, ACCOUNT_3.id],
+    'a card never sends'
+  )
+  assert.ok(
+    ![...through.options].some((option) => option.value === CARD.id),
+    'and money never passes through one'
+  )
+  const amounts = [...host.querySelectorAll<HTMLInputElement>('input[inputmode="decimal"]')]
+  await act(async () => {
+    setSelect(through, ACCOUNT_2.id)
+    setSelect(line1, ACCOUNT_2.id)
+    setSelect(line2, CARD.id)
+    setInput(amounts[0], '100')
+    setInput(amounts[1], '25.50')
+  })
+
+  assert.match(host.textContent ?? '', /Total to move\$125\.50/)
+  assert.match(host.textContent ?? '', /Chequing after: \$2,324\.50/)
+  assert.match(host.textContent ?? '', /into High Interest Savings, then on to 1 account/)
+
+  // Naming the same account twice is caught while typing.
+  await act(async () => {
+    setSelect(line2, ACCOUNT_2.id)
+  })
+  assert.match(host.textContent ?? '', /Each account can appear on one line only/)
+  await act(async () => {
+    setSelect(line2, CARD.id)
+  })
+
+  const submit = [...host.querySelectorAll('button')].find((el) =>
+    el.textContent?.includes('Split $125.50')
+  )
+  assert.ok(submit, 'the button names the total')
+  await act(async () => {
+    submit.click()
+  })
+
+  assert.equal(splits.length, 1)
+  const recorded = splits[0] as {
+    sourceAccountId: string
+    viaAccountId: string | null
+    lines: { accountId: string; amountCents: number }[]
+  }
+  assert.equal(recorded.sourceAccountId, ACCOUNT_1.id)
+  assert.equal(recorded.viaAccountId, ACCOUNT_2.id)
+  assert.deepEqual(
+    recorded.lines.map((line) => [line.accountId, line.amountCents]),
+    [
+      [ACCOUNT_2.id, 100_00],
+      [CARD.id, 25_50]
+    ]
+  )
+
+  root.unmount()
+  host.remove()
+})

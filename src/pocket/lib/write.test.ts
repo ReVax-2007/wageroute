@@ -15,6 +15,7 @@ import {
   createCategory,
   createEntry,
   createGoal,
+  createSplitTransfer,
   deleteAccount,
   deleteBill,
   deleteCategory,
@@ -912,4 +913,42 @@ test('opening a file replays the payments the phone made after it was written', 
 test('reconciling a ledger that already agrees leaves every row exactly as it was', () => {
   const paid = payBill(withClaim(ledger()), 'rent')
   assert.deepEqual(reconcileAllBillClaims(paid.tables).bill_reserves, paid.tables.bill_reserves)
+})
+
+test('a split transfer writes every line as a pair, or nothing', () => {
+  const tables = ledger()
+  const written = createSplitTransfer(tables, {
+    sourceAccountId: 'chk',
+    viaAccountId: 'sav',
+    occurredOn: todayISO(),
+    lines: [
+      { accountId: 'sav', amountCents: 100_00 },
+      { accountId: 'card', amountCents: 40_00, category: 'Debt' }
+    ]
+  })
+  const rows = entries(written.tables)
+  assert.equal(rows.length, 4, 'the hop into savings and the card payment, two legs each')
+  assert.deepEqual(
+    rows
+      .filter((row) => cents(row, 'amount_cents') < 0)
+      .map((row) => [text(row, 'account_id'), nullableText(row, 'counter_account_id'), cents(row, 'amount_cents')]),
+    [
+      ['chk', 'sav', -140_00],
+      ['sav', 'card', -40_00]
+    ]
+  )
+  assert.equal(nullableText(rowOf(written.tables, written.id), 'counter_account_id'), 'sav')
+  assert.deepEqual(insertedEntryIds(tables, written.tables).length, 4)
+
+  // A refusal on the second line throws before any table is handed back.
+  const refused = refusal(() =>
+    createSplitTransfer(tables, {
+      sourceAccountId: 'chk',
+      viaAccountId: 'card',
+      occurredOn: todayISO(),
+      lines: [{ accountId: 'sav', amountCents: 10_00 }]
+    })
+  )
+  assert.match(refused.message, /can’t be transferred out of a credit card/)
+  assert.equal(entries(tables).length, 0, 'the ledger it started from is untouched')
 })

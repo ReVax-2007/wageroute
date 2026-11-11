@@ -403,6 +403,7 @@ Transfer rules:
 - Editing a paired leg may change amount magnitude, date, memo and category. It may not change account or kind; the UI edits the sibling leg in the same transaction.
 - Deleting either leg soft-deletes the whole group.
 - Round-up sweeps use the same paired-transfer structure, so deleting a round-up leg deletes both.
+- A split transfer is a list of these pairs written in one SQL transaction (on the phone, one commit). There is no extra column or grouping id, and each pair keeps its own `transfer_group_id` ([ADR 0033](decisions/0033-a-split-transfer-is-ordinary-transfers-saved-together.md)).
 
 Category and external-id rules:
 

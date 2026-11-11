@@ -601,6 +601,21 @@ a {
   gap: 12px;
 }
 
+.head-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* A split transfer's line: its own small group inside the sheet. */
+.split-line {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
 /* --------------------------------------------------------------- controls */
 
 .button {

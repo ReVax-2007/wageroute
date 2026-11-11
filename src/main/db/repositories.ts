@@ -50,6 +50,7 @@ export {
   listBillPaymentsSince,
   insertTransactionRow,
   createTransaction,
+  createSplitTransfer,
   updateTransaction,
   roundUpSweepIds,
   deleteTransaction,

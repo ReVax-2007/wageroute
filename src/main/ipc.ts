@@ -70,6 +70,7 @@ import type {
   LedgerSort,
   PaycheckDraftInput,
   PlanMoveTarget,
+  SplitTransferInput,
   TransactionInput,
   TransactionKind,
   TransactionPatch,
@@ -330,11 +331,13 @@ function write<T>(
 function transactionRowsPatch(
   db: Database.Database,
   userId: string,
-  id: string,
+  ids: string | readonly string[],
   remove: readonly string[] = []
 ): TransactionRowsPatch {
   return {
-    upsert: repo.transactionRowsFor(db, userId, id),
+    upsert: (typeof ids === 'string' ? [ids] : ids).flatMap((id) =>
+      repo.transactionRowsFor(db, userId, id)
+    ),
     remove: [...remove],
     total: repo.transactionCount(db, userId),
     billPayments: repo.listBillPaymentsThisMonth(db, userId, todayISO().slice(0, 7)),
@@ -398,6 +401,31 @@ function planMoveTargetsOf(raw: unknown): PlanMoveTarget[] {
       ? [{ allocationId, accountId }]
       : []
   })
+}
+
+/**
+ * The renderer's split, cut down to the fields the writer reads. Amounts and
+ * the date are still checked by the writer itself; this only makes sure a
+ * malformed payload reaches it as a refusal rather than a crash.
+ */
+function splitTransferInputOf(raw: unknown): SplitTransferInput {
+  const source = (raw && typeof raw === 'object' ? raw : {}) as Partial<SplitTransferInput>
+  const text = (value: unknown): string => (typeof value === 'string' ? value : '')
+  return {
+    sourceAccountId: text(source.sourceAccountId),
+    viaAccountId: text(source.viaAccountId) || null,
+    occurredOn: text(source.occurredOn),
+    lines: (Array.isArray(source.lines) ? source.lines : []).map((entry: unknown) => {
+      const line = (entry && typeof entry === 'object' ? entry : {}) as Record<string, unknown>
+      return {
+        accountId: text(line.accountId),
+        amountCents: typeof line.amountCents === 'number' ? line.amountCents : 0,
+        category: text(line.category),
+        categoryId: text(line.categoryId) || null,
+        memo: text(line.memo)
+      }
+    })
+  }
 }
 
 function defaultFile(name: string): string {
@@ -901,6 +929,15 @@ export function registerIpcHandlers(db: Database.Database): void {
       ['accounts', 'goals', 'billReserves', 'categories'],
       () => repo.createTransaction(db, userId(), input),
       (id) => transactionRowsPatch(db, userId(), id)
+    )
+  )
+  handle('transaction:create-split', (_event, input: SplitTransferInput) =>
+    write(
+      db,
+      userId,
+      ['accounts', 'goals', 'billReserves', 'categories'],
+      () => repo.createSplitTransfer(db, userId(), splitTransferInputOf(input)),
+      (ids) => transactionRowsPatch(db, userId(), ids)
     )
   )
   handle('transaction:update', (_event, id: unknown, patch: TransactionPatch) => {
