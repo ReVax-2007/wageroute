@@ -1,6 +1,7 @@
 import { Component, StrictMode, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { apiErrorMessage } from '@shared/errors'
+import '@fontsource-variable/quicksand'
 import './styles/tokens.css'
 import './styles/app.css'
 import App from './App'
