@@ -34,7 +34,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 }
 
 const PAY_CADENCES: readonly PayCadence[] = ['weekly', 'biweekly', 'semimonthly', 'monthly']
-const THEMES: readonly ThemePreference[] = ['dark', 'light', 'system']
+const THEMES: readonly ThemePreference[] = ['dark', 'light', 'glass', 'system']
 const ROUND_UP_INCREMENTS: readonly RoundUpIncrementCents[] = [100, 200, 500]
 const EMERGENCY_MODES: readonly EmergencyMode[] = ['auto', 'manual']
 

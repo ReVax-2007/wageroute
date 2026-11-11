@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice">
+  <!-- Glass theme backdrop: a dim living room drawn for WageRoute (no photo). -->
+  <defs>
+    <linearGradient id="wall" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a2928"/>
+      <stop offset="0.55" stop-color="#3b3937"/>
+      <stop offset="0.72" stop-color="#34322f"/>
+      <stop offset="1" stop-color="#232220"/>
+    </linearGradient>
+    <linearGradient id="window" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8d8579"/>
+      <stop offset="1" stop-color="#6c665e"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0" r="1">
+      <stop offset="0" stop-color="#fff4e2" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#fff4e2" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="shade" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#0c0c0c"/>
+      <stop offset="0.6" stop-color="#1d1d1d"/>
+      <stop offset="1" stop-color="#0a0a0a"/>
+    </linearGradient>
+    <linearGradient id="sofa" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6b6865"/>
+      <stop offset="1" stop-color="#3c3a38"/>
+    </linearGradient>
+    <filter id="soft" filterUnits="userSpaceOnUse" x="-200" y="-200" width="2000" height="1400"><feGaussianBlur stdDeviation="18"/></filter>
+    <filter id="hazy" filterUnits="userSpaceOnUse" x="-200" y="-200" width="2000" height="1400"><feGaussianBlur stdDeviation="6"/></filter>
+    <filter id="faint" filterUnits="userSpaceOnUse" x="-200" y="-200" width="2000" height="1400"><feGaussianBlur stdDeviation="1.4"/></filter>
+  </defs>
+
+  <rect width="1600" height="1000" fill="url(#wall)"/>
+
+  <!-- window light and the shelves in front of it, out of focus -->
+  <g filter="url(#soft)">
+    <rect x="760" y="140" width="520" height="560" rx="6" fill="url(#window)"/>
+    <rect x="1010" y="140" width="16" height="560" fill="#4d4842"/>
+    <rect x="760" y="410" width="520" height="12" fill="#4d4842"/>
+    <polygon points="760,700 1280,700 1420,1000 600,1000" fill="#b2a796" opacity="0.18"/>
+    <rect x="520" y="520" width="180" height="300" rx="10" fill="#2a2826"/>
+    <circle cx="610" cy="470" r="90" fill="#3b3c38"/>
+    <rect x="1290" y="560" width="120" height="260" rx="8" fill="#2c2a28"/>
+    <ellipse cx="820" cy="900" rx="520" ry="70" fill="#4a4641" opacity="0.7"/>
+  </g>
+
+  <!-- sofas -->
+  <g filter="url(#hazy)">
+    <rect x="-60" y="760" width="330" height="260" rx="34" fill="url(#sofa)"/>
+    <rect x="-40" y="700" width="150" height="120" rx="30" fill="#7a7672"/>
+    <rect x="96" y="712" width="132" height="112" rx="30" fill="#6f6b67"/>
+    <rect x="1330" y="770" width="330" height="250" rx="34" fill="url(#sofa)"/>
+    <rect x="1372" y="712" width="140" height="116" rx="30" fill="#77736f"/>
+    <rect x="1500" y="704" width="140" height="120" rx="30" fill="#6c6864"/>
+  </g>
+
+  <!-- pendant lamps: crisp, like the clip -->
+  <g filter="url(#faint)">
+    <line x1="58" y1="0" x2="58" y2="300" stroke="#0e0e0e" stroke-width="3"/>
+    <path d="M50 300 h16 l44 92 h-104 z" fill="url(#shade)"/>
+    <ellipse cx="58" cy="394" rx="52" ry="7" fill="#e9e2d6" opacity="0.85"/>
+
+    <line x1="1548" y1="0" x2="1548" y2="330" stroke="#0e0e0e" stroke-width="3"/>
+    <path d="M1540 330 h16 l40 84 h-96 z" fill="url(#shade)"/>
+    <ellipse cx="1548" cy="416" rx="48" ry="6" fill="#e9e2d6" opacity="0.85"/>
+
+    <line x1="1500" y1="0" x2="1500" y2="470" stroke="#0e0e0e" stroke-width="2"/>
+    <path d="M1495 470 h10 l24 52 h-58 z" fill="url(#shade)"/>
+    <ellipse cx="1500" cy="523" rx="29" ry="4" fill="#e9e2d6" opacity="0.75"/>
+  </g>
+  <ellipse cx="58" cy="430" rx="120" ry="70" fill="url(#glow)" filter="url(#soft)"/>
+  <ellipse cx="1540" cy="460" rx="130" ry="90" fill="url(#glow)" filter="url(#soft)"/>
+</svg>

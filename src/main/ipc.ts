@@ -3,6 +3,7 @@ import {
   BrowserWindow,
   dialog,
   ipcMain,
+  nativeTheme,
   type IpcMainInvokeEvent,
   type OpenDialogOptions
 } from 'electron'
@@ -664,7 +665,8 @@ export function registerIpcHandlers(db: Database.Database): void {
   handle('app:info', () => ({
     version: app.getVersion(),
     schemaVersion: SCHEMA_VERSION,
-    electron: process.versions.electron
+    electron: process.versions.electron,
+    reducedTransparency: nativeTheme.prefersReducedTransparency
   }))
 
   handle('app:diagnostics', () => {

@@ -1710,7 +1710,7 @@ span.wizard-step-chip {
 
 .theme-options {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 4px;
   padding: 3px;
   background: var(--inset);

@@ -722,7 +722,7 @@ The ledger is one SQLite file — plus `ledger.key.json` beside it when the owne
 
 ### Appearance
 
-Three choices in the sidebar, presented as a radio group — **System**, **Light**, **Dark** — with the resolved state printed beside the label (`System · light`). It is one tab stop: the arrows move the selection between options, Home and End jump to either end, and only the checked button is in the tab order. System follows `prefers-color-scheme` and switches live across a running app, because the preference is read through `useSyncExternalStore` rather than sampled once at startup. The resolved theme is written to `document.documentElement.dataset.theme` and cached in `localStorage['cfr-theme']` so the next launch paints the right palette immediately. Settings remain the source of truth; the cache is only a first-paint hint.
+Four choices in the sidebar (and in Settings; the Glass rail shows icons only, so there the picker lives in Settings), presented as a radio group — **System**, **Light**, **Dark**, **Glass** — with the resolved state printed beside the label (`System · light`). It is one tab stop: the arrows move the selection between options, Home and End jump to either end, and only the checked button is in the tab order. System follows `prefers-color-scheme` and switches live across a running app, because the preference is read through `useSyncExternalStore` rather than sampled once at startup. The resolved theme is written to `document.documentElement.dataset.theme` and cached in `localStorage['cfr-theme']` so the next launch paints the right palette immediately. Settings remain the source of truth; the cache is only a first-paint hint.
 
 ### Money
 
@@ -985,7 +985,7 @@ All domain dates are constructed as UTC dates from `YYYY-MM-DD` strings. “Toda
 | Round-up sweeps | Implemented | Expense creation only |
 | Bill payment prompts | Implemented | Session-only, per-occurrence snooze |
 | 90-day projections | Implemented | Bills and goal deadlines |
-| Dark/light/system themes | Implemented | Tri-state, follows `prefers-color-scheme` live |
+| Dark/light/glass/system themes | Implemented | System follows `prefers-color-scheme` live; Glass is one frosted pane over a drawn room backdrop with an icon rail and Quicksand, and turns solid under Reduce transparency |
 | JSON backup, partial JSON import | Implemented | Merged by record: newer copy wins, newer deletes apply, omitted rows are untouched. Optionally sealed with a passphrase — see *Sealed backup* below |
 | CSV export and entries import | Implemented | Export covers the whole ledger; Debit/Credit columns are read |
 | Statement import (OFX/QFX bank, card and loan, QIF, account-less CSV) | Implemented | Destinations chosen in the wizard; `FITID`/reference dedupe; closing balance compared and optionally reconciled with one adjustment; investment cash lines import while trades and holdings are reported |

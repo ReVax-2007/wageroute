@@ -281,7 +281,7 @@ export function Settings() {
           title="Appearance"
           subtitle="Pick what feels best; your numbers do not change"
           actions={
-            settings.theme === 'dark' ? (
+            settings.theme === 'dark' || settings.theme === 'glass' ? (
               <Moon size={16} className="stat-icon" />
             ) : settings.theme === 'light' ? (
               <Sun size={16} className="stat-icon" />
@@ -297,6 +297,7 @@ export function Settings() {
             options={[
               { value: 'dark', label: 'Dark' },
               { value: 'light', label: 'Light' },
+              { value: 'glass', label: 'Glass' },
               { value: 'system', label: 'System' }
             ]}
           />

@@ -35,7 +35,8 @@ const NAV: { id: Screen; label: string; hint: string; icon: LucideIcon }[] = [
 const THEMES: { value: AppSettings['theme']; label: string }[] = [
   { value: 'system', label: 'System' },
   { value: 'light', label: 'Light' },
-  { value: 'dark', label: 'Dark' }
+  { value: 'dark', label: 'Dark' },
+  { value: 'glass', label: 'Glass' }
 ]
 
 /** Follows the OS preference live, without freezing it when the user toggles. */

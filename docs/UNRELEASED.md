@@ -569,6 +569,13 @@ Work merged to `main` after `v1.2.0`. None of it is in a **published** installer
 - **Measured.** In the built app on a throwaway profile, *Last 30 days* hid the demo ledger's one entry older than Oct 12 and showed the note. **Show everything** brought it back and saved `all`.
 - **Not proved here.** No phone has opened Pocket's note.
 
+### Batch 64 — a Glass theme
+
+- `ThemePreference` gains `'glass'` (`src/shared/types.ts`), accepted by `parseSettings`; an older build reading `glass` falls back to its default. Settings and the sidebar radio group list four choices.
+- Matched to the owner's reference clip. `tokens.css` adds `:root[data-theme='glass']`: white-alpha `--panel*` and borders, white ink at fixed opacities (AA on the lightest pane), radii of 12/20/26/34px, a blue `--accent` for toggles and focus, and `--font` set to Quicksand (`@fontsource-variable/quicksand`, OFL, bundled so it works offline).
+- `styles/glass.css`: the shell becomes one inset pane over `assets/glass-scene.svg` (a room drawn for WageRoute). The pane's blur sits on `.app-shell::before`, because a `backdrop-filter` on the shell would become the containing block of every fixed dialog and toast inside it. The sidebar becomes an icon rail: the CTA is a round outlined plus, Settings sits at the foot, and each label shows as a dark pill on hover or keyboard focus while staying in the accessibility tree. Cards are neutral glass with a soft blue corner light, stat tiles lift 3px on hover (tiles only, for the same containing-block reason), buttons and inputs are pills, the primary button is white, and screens enter block by block out of a 10px blur (`animation-fill-mode: backwards`, so nothing lingers). Motion is skipped under `prefers-reduced-motion`.
+- `app:info` reports `nativeTheme.prefersReducedTransparency`; the renderer sets `.reduce-transparency`, which swaps Glass to solid panels and drops every blur.
+- Checked in the built app on a throwaway profile against frames of the clip: Home, Bills, Goals, Accounts, Settings, the Add a bill dialog (its backdrop covers the full window) and the rail's hover label; Dark is unchanged. Not checked: Windows and Linux compositors, and Reduce transparency switched on for real.
 ### Batch 64 — an optional floor: money the app will not offer
 
 - **What this batch is.** The owner keeps $90 in an account and wants $200 to read "$110 usable", with the floor entirely optional. `accounts.floor_cents` (schema 12, nullable) holds it for checking, savings and cash; cards and investments store none ([ADR 0035](decisions/0035-a-floor-is-money-the-app-will-not-offer.md)).

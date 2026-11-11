@@ -1,0 +1,418 @@
+@layer utilities {
+/* ---------------------------------------------------------------- glass
+   The app floats as one frosted pane over a dim room. Inside it: a pill rail of
+   icons, lighter glass cards, white pill buttons. Everything here is scoped to
+   :root[data-theme='glass']; the other themes never see it. */
+
+:root[data-theme='glass'] body {
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.12)),
+    url('../assets/glass-scene.svg') center / cover no-repeat,
+    var(--bg);
+}
+
+/* The pane. Its blur lives on a pseudo-element: a backdrop-filter on the shell
+   itself would become the containing block for every fixed dialog and toast
+   inside it, and clip them to the pane. */
+:root[data-theme='glass'] .app-shell {
+  position: fixed;
+  inset: var(--glass-gap-y) var(--glass-gap-x);
+  height: auto;
+  grid-template-columns: 86px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  border-radius: var(--radius-pane);
+  isolation: isolate;
+}
+
+:root[data-theme='glass'] .app-shell::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--glass-pane);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: inherit;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 40px 90px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(var(--glass-blur)) saturate(115%);
+  pointer-events: none;
+}
+
+:root[data-theme='glass'] .workspace {
+  height: 100%;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+
+:root[data-theme='glass'] .page {
+  padding: 30px 34px 48px 8px;
+}
+
+/* -- the rail ---------------------------------------------------------- */
+
+:root[data-theme='glass'] .sidebar,
+:root[data-theme='glass'].is-mac .sidebar {
+  align-items: center;
+  margin: 14px 12px 14px 16px;
+  padding: 14px 0;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-right: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 24px;
+  /* Room for the hover labels that sit outside the rail. */
+  overflow: visible;
+}
+
+:root[data-theme='glass'] .brand,
+:root[data-theme='glass'] .sidebar-spacer,
+:root[data-theme='glass'] .sidebar-theme,
+:root[data-theme='glass'] .sidebar-stat,
+:root[data-theme='glass'] .sidebar-foot {
+  display: none;
+}
+
+/* "Route a paycheck" becomes the round outlined plus at the top of the rail;
+   its words stay as the button's accessible name and hover label. */
+:root[data-theme='glass'] .sidebar-cta.btn-primary {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  margin: 0 0 14px;
+  padding: 0;
+  gap: 0;
+  font-size: 0;
+  color: #fff;
+  background: transparent;
+  border: 1.5px solid rgba(255, 255, 255, 0.75);
+  border-radius: 999px;
+  box-shadow: none;
+}
+
+:root[data-theme='glass'] .sidebar-cta.btn-primary:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: #fff;
+}
+
+:root[data-theme='glass'] .nav {
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+}
+
+:root[data-theme='glass'] .nav-item {
+  position: relative;
+  display: grid;
+  /* One cell: the shared nav grid's 20px icon column would pin the icon left. */
+  grid-template-columns: 100%;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 13px;
+}
+
+/* Settings sits at the foot of the rail. */
+:root[data-theme='glass'] .nav-item:last-child {
+  margin-top: auto;
+}
+
+:root[data-theme='glass'] .nav-icon {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+:root[data-theme='glass'] .nav-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+:root[data-theme='glass'] .nav-item.active {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+:root[data-theme='glass'] .nav-item.active .nav-icon {
+  color: #fff;
+}
+
+/* The label shows as a small dark pill beside the icon on hover or keyboard
+   focus, and stays in the accessibility tree the rest of the time. */
+:root[data-theme='glass'] .nav-text {
+  position: absolute;
+  left: calc(100% + 12px);
+  top: 50%;
+  z-index: 20;
+  padding: 4px 9px;
+  white-space: nowrap;
+  background: rgba(28, 28, 28, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  opacity: 0;
+  transform: translate(-4px, -50%);
+  transition:
+    opacity 0.14s ease,
+    transform 0.14s ease;
+  pointer-events: none;
+}
+
+:root[data-theme='glass'] .nav-item:hover .nav-text,
+:root[data-theme='glass'] .nav-item:focus-visible .nav-text {
+  opacity: 1;
+  transform: translate(0, -50%);
+}
+
+:root[data-theme='glass'] .nav-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #fff;
+}
+
+:root[data-theme='glass'] .nav-hint {
+  display: none;
+}
+
+/* -- dashboard and summary blocks: neutral glass, figures in white ------- */
+
+:root[data-theme='glass'] .safe-hero,
+:root[data-theme='glass'] .wealth-strip {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: var(--panel);
+  border-color: rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    var(--shadow-soft);
+}
+
+:root[data-theme='glass'] .wealth-value {
+  color: #fff;
+}
+
+/* The clip shows every figure as its own tile, not one divided strip. */
+:root[data-theme='glass'] .summary-strip {
+  gap: 14px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  overflow: visible;
+}
+
+:root[data-theme='glass'] .summary-item {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    var(--shadow-soft);
+}
+
+/* -- type ---------------------------------------------------------------- */
+
+:root[data-theme='glass'] .eyebrow {
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-transform: none;
+}
+
+:root[data-theme='glass'] .page-title {
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+:root[data-theme='glass'] .page-sub {
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+:root[data-theme='glass'] .card-title {
+  font-weight: 650;
+}
+
+:root[data-theme='glass'] .table th,
+:root[data-theme='glass'] .stat-label,
+:root[data-theme='glass'] .eyebrow {
+  font-size: 12px;
+  letter-spacing: 0.01em;
+  text-transform: none;
+}
+
+:root[data-theme='glass'] .positive {
+  color: var(--glass-positive);
+}
+
+:root[data-theme='glass'] .bar-fill {
+  background: var(--glass-positive);
+}
+
+/* -- cards ----------------------------------------------------------------- */
+
+:root[data-theme='glass'] .card,
+:root[data-theme='glass'] .stat-card {
+  position: relative;
+  isolation: isolate;
+  background: var(--panel);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    var(--shadow-soft);
+  transition:
+    transform 0.22s cubic-bezier(0.2, 0.7, 0.2, 1),
+    background 0.22s ease,
+    border-color 0.22s ease;
+}
+
+/* The soft blue light in the top corner of every card in the clip. */
+:root[data-theme='glass'] .card::before,
+:root[data-theme='glass'] .stat-card::before,
+:root[data-theme='glass'] .summary-item::before,
+:root[data-theme='glass'] .safe-hero::before,
+:root[data-theme='glass'] .wealth-strip::before {
+  content: '';
+  position: absolute;
+  top: -40px;
+  right: -30px;
+  z-index: -1;
+  width: 180px;
+  height: 140px;
+  background: radial-gradient(closest-side, rgba(96, 150, 255, 0.2), transparent);
+  pointer-events: none;
+}
+
+/* The clip's stat tiles lift on hover. Only tiles: a transform on a big card
+   would pin any dialog it holds to the card instead of the window. */
+:root[data-theme='glass'] .stat-card {
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-theme='glass'] .stat-card:hover {
+    transform: translateY(-3px);
+    background: rgba(255, 255, 255, 0.09);
+  }
+}
+
+/* -- controls ------------------------------------------------------------- */
+
+:root[data-theme='glass'] .btn {
+  border-radius: 999px;
+  font-weight: 650;
+}
+
+:root[data-theme='glass'] .btn-primary {
+  color: #141414;
+  background: #fff;
+  border-color: #fff;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+}
+
+:root[data-theme='glass'] .btn-primary:hover:not(:disabled) {
+  background: #ececec;
+  border-color: #ececec;
+}
+
+:root[data-theme='glass'] .btn-ghost {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+:root[data-theme='glass'] .icon-btn {
+  border-radius: 999px;
+}
+
+:root[data-theme='glass'] .input,
+:root[data-theme='glass'] .select {
+  border-radius: 999px;
+  padding: 0 14px;
+}
+
+:root[data-theme='glass'] textarea.input {
+  border-radius: var(--radius-sm);
+}
+
+:root[data-theme='glass'] .segmented,
+:root[data-theme='glass'] .theme-options,
+:root[data-theme='glass'] .segmented button,
+:root[data-theme='glass'] .chip {
+  border-radius: 999px;
+}
+
+:root[data-theme='glass'] .segmented {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+:root[data-theme='glass'] .segmented button.active {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+:root[data-theme='glass'] .switch.on .switch-knob {
+  background: #fff;
+}
+
+/* -- popups ----------------------------------------------------------------- */
+
+:root[data-theme='glass'] .modal,
+:root[data-theme='glass'] .allocator-panel,
+:root[data-theme='glass'] .toast {
+  background: rgba(70, 69, 68, 0.82);
+  border-color: rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(var(--glass-blur)) saturate(115%);
+}
+
+/* -- motion: each screen arrives out of a soft blur, block by block --------- */
+
+@keyframes glass-in {
+  from {
+    opacity: 0;
+    filter: blur(10px);
+    transform: translateY(6px);
+  }
+}
+
+/* "backwards" applies the start frame during the delay only; nothing is left
+   on the element afterwards, so no filter or transform outlives the entrance. */
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-theme='glass'] .page > * {
+    animation: glass-in 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+  }
+
+  :root[data-theme='glass'] .page > :nth-child(2) {
+    animation-delay: 0.06s;
+  }
+
+  :root[data-theme='glass'] .page > :nth-child(3) {
+    animation-delay: 0.12s;
+  }
+
+  :root[data-theme='glass'] .page > :nth-child(n + 4) {
+    animation-delay: 0.18s;
+  }
+}
+
+/* -- the OS asked for less transparency: keep the shape, drop the see-through */
+
+:root[data-theme='glass'].reduce-transparency .app-shell::before,
+:root[data-theme='glass'].reduce-transparency .modal,
+:root[data-theme='glass'].reduce-transparency .allocator-panel,
+:root[data-theme='glass'].reduce-transparency .toast {
+  backdrop-filter: none;
+}
+
+:root[data-theme='glass'].reduce-transparency .sidebar {
+  background: #555453;
+}
+
+:root[data-theme='glass'].reduce-transparency .modal,
+:root[data-theme='glass'].reduce-transparency .allocator-panel,
+:root[data-theme='glass'].reduce-transparency .toast {
+  background: #4f4e4d;
+}
+}

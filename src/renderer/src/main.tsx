@@ -1,6 +1,7 @@
 import { Component, StrictMode, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { apiErrorMessage } from '@shared/errors'
+import '@fontsource-variable/quicksand'
 import './styles/tokens.css'
 import './styles/app.css'
 import App from './App'
@@ -14,7 +15,8 @@ if (navigator.userAgent.includes('Mac')) {
 // flash dark on every launch. Settings remain the source of truth.
 try {
   const cached = localStorage.getItem('cfr-theme')
-  document.documentElement.dataset.theme = cached === 'light' ? 'light' : 'dark'
+  document.documentElement.dataset.theme =
+    cached === 'light' || cached === 'glass' ? cached : 'dark'
 } catch {
   document.documentElement.dataset.theme = 'dark'
 }

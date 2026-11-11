@@ -739,6 +739,7 @@ test('settings default to dark theme, round-up off and auto emergency target', (
   assert.equal(invalid.emergencyActive, true)
 
   assert.deepEqual(parseSettings(settingsToRecord(parsed)), parsed)
+  assert.equal(parseSettings({ theme: 'glass' }).theme, 'glass', 'glass is a saved theme')
 })
 
 test('a well-formed but unknown currency code falls back instead of showing USD silently', () => {

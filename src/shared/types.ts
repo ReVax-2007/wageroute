@@ -10,7 +10,8 @@ export type PayCadence = 'weekly' | 'biweekly' | 'semimonthly' | 'monthly'
 
 export type AccountKind = 'checking' | 'savings' | 'cash' | 'investment' | 'credit'
 
-export type ThemePreference = 'dark' | 'light' | 'system'
+/** `glass` is a dark palette of frosted panels over a soft backdrop; `system` follows the OS light/dark choice. */
+export type ThemePreference = 'dark' | 'light' | 'glass' | 'system'
 
 export type RoundUpIncrementCents = 100 | 200 | 500
 
