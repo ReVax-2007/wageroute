@@ -1,132 +1,49 @@
-import { useRef, useSyncExternalStore, type KeyboardEvent } from 'react'
 import {
   ArrowRightLeft,
   Landmark,
   LayoutDashboard,
-  Moon,
   Plus,
   Settings as SettingsIcon,
   ShieldCheck,
-  Sun,
   Table2,
   Target,
-  TrendingUp,
-  Wallet,
   type LucideIcon
 } from 'lucide-react'
-import { totalWealthCents } from '@shared/accounts'
-import { formatMoneyCompact } from '@shared/money'
-import type { AppSettings } from '@shared/types'
-import mark from '../assets/wageroute-mark.svg'
-import { cashOnHand } from '../lib/finance'
 import { useFinanceStore, type Screen } from '../store/useFinanceStore'
 import { Button } from './ui'
 
-const NAV: { id: Screen; label: string; hint: string; icon: LucideIcon }[] = [
-  { id: 'dashboard', label: 'Home', hint: 'Balances and activity', icon: LayoutDashboard },
-  { id: 'wall', label: 'Bills', hint: 'Rent, utilities, subscriptions', icon: ShieldCheck },
-  { id: 'goals', label: 'Goals', hint: 'Save for what is coming', icon: Target },
-  { id: 'accounts', label: 'Accounts', hint: 'Banks and cards', icon: Landmark },
-  { id: 'transfers', label: 'Transfers', hint: 'Move between accounts', icon: ArrowRightLeft },
-  { id: 'ledger', label: 'Spreadsheet', hint: 'Every entry', icon: Table2 },
-  { id: 'settings', label: 'Settings', hint: 'Theme and data', icon: SettingsIcon }
+const NAV: { id: Screen; label: string; icon: LucideIcon }[] = [
+  { id: 'dashboard', label: 'Home', icon: LayoutDashboard },
+  { id: 'wall', label: 'Bills', icon: ShieldCheck },
+  { id: 'goals', label: 'Goals', icon: Target },
+  { id: 'accounts', label: 'Accounts', icon: Landmark },
+  { id: 'transfers', label: 'Transfers', icon: ArrowRightLeft },
+  { id: 'ledger', label: 'Spreadsheet', icon: Table2 },
+  { id: 'settings', label: 'Settings', icon: SettingsIcon }
 ]
 
-const THEMES: { value: AppSettings['theme']; label: string }[] = [
-  { value: 'system', label: 'System' },
-  { value: 'light', label: 'Light' },
-  { value: 'dark', label: 'Dark' },
-  { value: 'glass', label: 'Glass' }
-]
-
-/** Follows the OS preference live, without freezing it when the user toggles. */
-function usePrefersLight(): boolean {
-  return useSyncExternalStore(
-    (onChange) => {
-      const media = window.matchMedia('(prefers-color-scheme: light)')
-      media.addEventListener('change', onChange)
-      return () => media.removeEventListener('change', onChange)
-    },
-    () => window.matchMedia('(prefers-color-scheme: light)').matches
-  )
-}
-
+/**
+ * The icon rail. Each screen's name is the button's text, shown as a pill on
+ * hover or keyboard focus; the theme lives in Settings and the money summary
+ * on Home.
+ */
 export function Sidebar() {
   const screen = useFinanceStore((state) => state.screen)
   const go = useFinanceStore((state) => state.go)
   const openAllocator = useFinanceStore((state) => state.openAllocator)
   const snapshot = useFinanceStore((state) => state.snapshot)
-  const settings = useFinanceStore((state) => state.settings)
-  const saveSettings = useFinanceStore((state) => state.saveSettings)
-  const dbPath = useFinanceStore((state) => state.dbPath)
-  const appInfo = useFinanceStore((state) => state.appInfo)
-  const prefersLight = usePrefersLight()
-  const themeButtons = useRef<(HTMLButtonElement | null)[]>([])
 
   if (!snapshot) return null
 
-  const isLight =
-    settings.theme === 'light' || (settings.theme === 'system' && prefersLight)
-  // Archived accounts are excluded from every money figure here, so the count
-  // beside them must exclude them too or the two lines disagree.
-  const activeAccounts = snapshot.accounts.filter((account) => !account.isArchived).length
-
-  const setTheme = (theme: AppSettings['theme']) => {
-    if (theme === settings.theme) return
-    void saveSettings({ ...settings, theme })
-  }
-
-  const chooseTheme = (index: number) => {
-    const option = THEMES[index]
-    if (!option) return
-    setTheme(option.value)
-    themeButtons.current[index]?.focus()
-  }
-
-  const handleThemeKey = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
-    const last = THEMES.length - 1
-    let next: number | null = null
-    switch (event.key) {
-      case 'ArrowRight':
-      case 'ArrowDown':
-        next = index === last ? 0 : index + 1
-        break
-      case 'ArrowLeft':
-      case 'ArrowUp':
-        next = index === 0 ? last : index - 1
-        break
-      case 'Home':
-        next = 0
-        break
-      case 'End':
-        next = last
-        break
-      default:
-        return
-    }
-    event.preventDefault()
-    chooseTheme(next)
-  }
-
   return (
     <aside className="sidebar" aria-label="WageRoute sidebar">
-      <div className="brand">
-        <div className="brand-mark">
-          <img src={mark} alt="" width={34} height={34} />
-        </div>
-        <div>
-          <p className="brand-title">WageRoute</p>
-          <p className="brand-sub">Every paycheck, routed</p>
-        </div>
-      </div>
-
       <Button
         variant="primary"
-        icon={<Plus size={16} />}
+        icon={<Plus size={18} />}
         onClick={openAllocator}
         className="sidebar-cta"
       >
-        Route a paycheck
+        <span className="nav-label">Route a paycheck</span>
       </Button>
 
       <nav className="nav" aria-label="Screens">
@@ -140,74 +57,12 @@ export function Sidebar() {
               aria-current={item.id === screen ? 'page' : undefined}
               onClick={() => go(item.id)}
             >
-              <Icon size={17} strokeWidth={2} className="nav-icon" />
-              <span className="nav-text">
-                <span className="nav-label">{item.label}</span>
-                <span className="nav-hint">{item.hint}</span>
-              </span>
+              <Icon size={17} strokeWidth={2} aria-hidden="true" />
+              <span className="nav-label">{item.label}</span>
             </button>
           )
         })}
       </nav>
-
-      <div className="sidebar-spacer" />
-
-      <div className="sidebar-theme">
-        <span className="sidebar-theme-label">
-          {isLight ? <Sun size={14} /> : <Moon size={14} />}
-          <span>Theme</span>
-          <span className="sidebar-theme-state">
-            {settings.theme === 'system' ? `System · ${isLight ? 'light' : 'dark'}` : settings.theme}
-          </span>
-        </span>
-        <div className="theme-options" role="radiogroup" aria-label="Theme">
-          {THEMES.map((option, index) => (
-            <button
-              key={option.value}
-              ref={(element) => {
-                themeButtons.current[index] = element
-              }}
-              type="button"
-              role="radio"
-              aria-checked={settings.theme === option.value}
-              tabIndex={settings.theme === option.value ? 0 : -1}
-              className={
-                settings.theme === option.value ? 'theme-option active' : 'theme-option'
-              }
-              onClick={() => setTheme(option.value)}
-              onKeyDown={(event) => handleThemeKey(event, index)}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="sidebar-stat">
-        <div className="sidebar-stat-top">
-          <Wallet size={14} />
-          <span>Cash on hand</span>
-        </div>
-        <p className="sidebar-stat-value">
-          {formatMoneyCompact(cashOnHand(snapshot.accounts), settings.currency)}
-        </p>
-        <p className="sidebar-stat-hint">
-          {activeAccounts} {activeAccounts === 1 ? 'account' : 'accounts'} tracked
-        </p>
-        <div className="sidebar-stat-row">
-          <span className="sidebar-stat-top">
-            <TrendingUp size={14} />
-            <span>Total wealth</span>
-          </span>
-          <span className="sidebar-stat-value-sm">
-            {formatMoneyCompact(totalWealthCents(snapshot.accounts), settings.currency)}
-          </span>
-        </div>
-      </div>
-
-      <p className="sidebar-foot" title={dbPath}>
-        {appInfo ? `WageRoute v${appInfo.version}` : 'WageRoute'}
-      </p>
     </aside>
   )
 }

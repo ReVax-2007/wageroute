@@ -121,14 +121,6 @@ async function run() {
     cdp.send('Emulation.setDeviceMetricsOverride', { width, height: h, deviceScaleFactor: 2, mobile: false })
   await metrics(height)
   await sleep(300)
-  // Grow the frame until the whole sidebar fits, so its last card is never cut in half.
-  const sidebarBottom = await evaluate(`(() => {
-    const bar = document.querySelector('.sidebar')
-    return Math.ceil(bar.scrollHeight)
-  })()`)
-  const shotHeight = Math.min(Math.max(height, sidebarBottom), 1000)
-  await metrics(shotHeight)
-  process.stdout.write(`frame ${width}x${shotHeight} (sidebar ${sidebarBottom}px)\n`)
   // Hide the text caret and freeze transitions so every capture is stable.
   await evaluate(`(() => {
     const style = document.createElement('style')
@@ -147,7 +139,10 @@ async function run() {
 
   mkdirSync(outDir, { recursive: true })
   for (const theme of THEMES) {
-    if (!(await clickByText('.theme-option', theme))) throw new Error(`no ${theme} theme button`)
+    // The theme picker lives in Settings, as a segmented control.
+    await clickByText('.nav-label', 'Settings')
+    await sleep(400)
+    if (!(await clickByText('.segmented button', theme))) throw new Error(`no ${theme} theme button`)
     for (const [name, label] of SHOTS) {
       await evaluate("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))")
       if (label) {

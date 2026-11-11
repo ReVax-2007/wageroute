@@ -62,6 +62,35 @@
   }
 }
 
+/* Each screen arrives block by block out of a soft blur. "backwards" applies
+   the start frame during the delay only, so no filter or transform outlives
+   the entrance (either would pin a dialog inside the block to it). */
+@keyframes screen-in {
+  from {
+    opacity: 0;
+    filter: blur(10px);
+    transform: translateY(6px);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .page > * {
+    animation: screen-in 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+  }
+
+  .page > :nth-child(2) {
+    animation-delay: 0.06s;
+  }
+
+  .page > :nth-child(3) {
+    animation-delay: 0.12s;
+  }
+
+  .page > :nth-child(n + 4) {
+    animation-delay: 0.18s;
+  }
+}
+
 /* ---------------------------------------------------------- responsive */
 
 /* Motion is decoration: anyone who asks the OS to reduce it gets the end state
@@ -106,12 +135,8 @@
 /* The packaged window cannot go below 1060 px wide, so the narrow layout has to
    start there rather than at a width the app can never reach. */
 @media (max-width: 1100px) {
-  .app-shell {
-    grid-template-columns: 226px minmax(0, 1fr);
-  }
-
   .page {
-    padding: 30px 26px 56px;
+    padding: 26px 22px 48px 4px;
   }
 
   .summary-strip {

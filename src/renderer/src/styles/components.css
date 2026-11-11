@@ -1,25 +1,58 @@
 @layer components {
 /* -------------------------------------------------------------- shell */
 
+/* The app is one frosted pane floating over the backdrop (base.css). The
+   pane's blur lives on a pseudo-element: a backdrop-filter on the shell itself
+   would become the containing block of every fixed dialog and toast inside it,
+   and clip them to the pane. */
 .app-shell {
+  position: fixed;
+  inset: var(--pane-gap-y) var(--pane-gap-x);
   display: grid;
-  grid-template-columns: 264px minmax(0, 1fr);
-  height: 100vh;
-  overflow: hidden;
+  grid-template-columns: 86px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  border-radius: var(--radius-pane);
+  isolation: isolate;
+}
+
+/* macOS draws the window buttons in the top-left corner; keep the pane below them. */
+.is-mac .app-shell {
+  top: max(var(--pane-gap-y), 38px);
+}
+
+.app-shell::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--pane-bg);
+  border: 1px solid var(--pane-border);
+  border-radius: inherit;
+  box-shadow:
+    inset 0 1px 0 var(--pane-highlight),
+    var(--pane-shadow);
+  backdrop-filter: blur(var(--pane-blur)) saturate(115%);
+  pointer-events: none;
+}
+
+.reduce-transparency .app-shell::before {
+  backdrop-filter: none;
 }
 
 .workspace {
   min-width: 0;
-  height: 100vh;
+  height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
 }
 
 .page {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 38px 40px 64px;
+  padding: 30px 34px 48px 8px;
 }
 
 .page-head {
@@ -31,25 +64,25 @@
 }
 
 .eyebrow {
-  margin: 0 0 8px;
-  font-size: 11px;
+  margin: 0 0 4px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
   color: var(--text-muted);
 }
 
 .page-title {
-  font-size: 29px;
-  font-weight: 650;
-  letter-spacing: -0.022em;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   line-height: 1.15;
 }
 
 .page-sub {
-  margin-top: 8px;
+  margin-top: 4px;
   max-width: 62ch;
-  font-size: 13.5px;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--text-dim);
 }
 
@@ -60,19 +93,19 @@
   color: var(--text-muted);
 }
 
-/* ------------------------------------------------------------ sidebar */
+/* --------------------------------------------------------------- rail */
 
 .sidebar {
   display: flex;
   flex-direction: column;
-  padding: 20px 16px 18px;
-  background: linear-gradient(180deg, var(--bg-deep-2) 0%, var(--bg-deep) 100%);
-  border-right: 1px solid var(--border);
-  /* A short window scrolls the sidebar rather than squeezing its blocks:
-     a flex child with overflow hidden can shrink below its text and clip it. */
-  overflow-x: hidden;
-  overflow-y: auto;
-  scrollbar-width: thin;
+  align-items: center;
+  margin: 14px 12px 14px 16px;
+  padding: 14px 0;
+  background: var(--rail-bg);
+  border: 1px solid var(--rail-border);
+  border-radius: 24px;
+  /* Room for the hover labels that sit outside the rail. */
+  overflow: visible;
   -webkit-app-region: drag;
 }
 
@@ -80,78 +113,49 @@
   flex-shrink: 0;
 }
 
-.is-mac .sidebar {
-  padding-top: 54px;
-}
-
-.sidebar button,
-.sidebar a,
-.sidebar input,
-.sidebar-stat,
-.sidebar-foot {
+.sidebar button {
   -webkit-app-region: no-drag;
 }
 
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 22px;
-  padding: 0 4px;
+/* "Route a paycheck" is the round outlined plus at the top of the rail; its
+   words stay as the button's accessible name and hover label. */
+.sidebar-cta.btn {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  margin: 0 0 14px;
+  padding: 0;
+  gap: 0;
+  color: var(--text);
+  background: transparent;
+  border: 1.5px solid color-mix(in srgb, var(--text) 72%, transparent);
+  border-radius: 999px;
+  box-shadow: none;
 }
 
-.brand-mark {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  flex-shrink: 0;
-  overflow: hidden;
-  border-radius: 9px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
-}
-
-.brand-mark img {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.brand-title {
-  font-size: 13.5px;
-  font-weight: 620;
-  letter-spacing: -0.01em;
-}
-
-.brand-sub {
-  margin-top: 1px;
-  font-size: 11.5px;
-  color: var(--text-muted);
-}
-
-.sidebar-cta {
-  width: 100%;
-  justify-content: center;
-  margin-bottom: 22px;
+.sidebar-cta.btn:hover:not(:disabled) {
+  background: var(--tint);
+  border-color: var(--text);
 }
 
 .nav {
   display: flex;
+  flex: 1;
   flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  gap: 8px;
 }
 
 .nav-item {
+  position: relative;
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr);
-  gap: 10px;
-  align-items: start;
-  width: 100%;
-  padding: 9px 10px;
-  text-align: left;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: 13px;
   color: var(--text-dim);
   cursor: pointer;
   transition:
@@ -160,118 +164,82 @@
     border-color 0.14s ease;
 }
 
+/* Settings sits at the foot of the rail. */
+.nav-item:last-child {
+  margin-top: auto;
+}
+
 .nav-item:hover {
   background: var(--tint);
   color: var(--text);
 }
 
 .nav-item.active {
-  background: var(--panel-2);
-  border-color: var(--border-strong);
+  background: var(--nav-active-bg);
+  border-color: var(--rail-border);
+  box-shadow: inset 0 1px 0 var(--card-highlight);
   color: var(--text);
 }
 
-.nav-item.active .nav-icon {
-  color: var(--accent);
-}
-
-.nav-icon {
-  margin-top: 1px;
-  color: var(--text-muted);
-}
-
-.nav-text {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-
+/* The label shows as a small pill beside the icon on hover or keyboard focus,
+   and stays in the accessibility tree the rest of the time. */
 .nav-label {
-  font-size: 13px;
-  font-weight: 560;
-}
-
-.nav-hint {
+  position: absolute;
+  left: calc(100% + 12px);
+  top: 50%;
+  z-index: 20;
+  padding: 4px 9px;
   font-size: 11.5px;
-  color: var(--text-muted);
-}
-
-.sidebar-spacer {
-  flex: 1;
-  min-height: 20px;
-}
-
-.sidebar-stat {
-  padding: 12px 13px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-}
-
-.sidebar-stat-top {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.sidebar-stat-value {
-  margin: 7px 0 2px;
-  font-size: 20px;
-  font-weight: 620;
-  letter-spacing: -0.02em;
-  font-variant-numeric: tabular-nums;
-}
-
-.sidebar-stat-hint {
-  font-size: 11.5px;
-  color: var(--text-muted);
-}
-
-.sidebar-stat-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-top: 10px;
-  padding-top: 9px;
-  border-top: 1px solid var(--border-row);
-}
-
-.sidebar-stat-row .sidebar-stat-top {
-  letter-spacing: 0.06em;
-}
-
-.sidebar-stat-value-sm {
-  font-size: 13.5px;
-  font-weight: 620;
-  color: var(--investment);
-  font-variant-numeric: tabular-nums;
-}
-
-.sidebar-foot {
-  margin-top: 12px;
-  padding: 0 4px;
-  font-family: var(--mono);
-  font-size: 10.5px;
-  color: var(--text-muted);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  color: var(--tip-ink);
+  background: var(--tip-bg);
+  border-radius: 8px;
+  opacity: 0;
+  transform: translate(-4px, -50%);
+  transition:
+    opacity 0.14s ease,
+    transform 0.14s ease;
+  pointer-events: none;
+}
+
+.nav-item:hover .nav-label,
+.nav-item:focus-visible .nav-label,
+.sidebar-cta:hover .nav-label,
+.sidebar-cta:focus-visible .nav-label {
+  opacity: 1;
+  transform: translate(0, -50%);
 }
 
 /* --------------------------------------------------------------- cards */
 
 .card {
+  position: relative;
+  isolation: isolate;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+  box-shadow:
+    inset 0 1px 0 var(--card-highlight),
+    var(--shadow-soft);
   overflow: hidden;
+}
+
+/* A soft light in the top corner of every card and tile. */
+.card::before,
+.stat-card::before,
+.summary-item::before,
+.safe-hero::before,
+.wealth-strip::before {
+  content: '';
+  position: absolute;
+  top: -40px;
+  right: -30px;
+  z-index: -1;
+  width: 180px;
+  height: 140px;
+  background: radial-gradient(closest-side, var(--card-glow), transparent);
+  pointer-events: none;
 }
 
 .card-head {
@@ -284,7 +252,7 @@
 
 .card-title {
   font-size: 14.5px;
-  font-weight: 600;
+  font-weight: 650;
   letter-spacing: -0.01em;
 }
 
@@ -306,15 +274,33 @@
 }
 
 .stat-card {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   padding: 16px 17px 15px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  transition: border-color 0.16s ease;
+  box-shadow:
+    inset 0 1px 0 var(--card-highlight),
+    var(--shadow-soft);
+  transition:
+    transform 0.22s cubic-bezier(0.2, 0.7, 0.2, 1),
+    background 0.22s ease,
+    border-color 0.22s ease;
 }
 
+/* Tiles lift on hover. Only tiles: a transform on a big card would pin any
+   dialog it holds to the card instead of the window. */
 .stat-card:hover {
+  background: var(--panel-hover);
   border-color: var(--border-strong);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .stat-card:hover {
+    transform: translateY(-3px);
+  }
 }
 
 .stat-top {
@@ -325,10 +311,9 @@
 }
 
 .stat-label {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
   color: var(--text-muted);
 }
 
@@ -360,17 +345,21 @@
 .summary-strip {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1px;
+  gap: 14px;
   margin-bottom: 16px;
-  background: var(--border);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
 }
 
 .summary-item {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   padding: 16px 18px;
   background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow:
+    inset 0 1px 0 var(--card-highlight),
+    var(--shadow-soft);
 }
 
 .summary-value {
@@ -392,10 +381,9 @@
 .table th {
   padding: 0 12px 10px;
   text-align: left;
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
   color: var(--text-muted);
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
@@ -590,7 +578,7 @@
 
 .bar-fill {
   height: 100%;
-  background: var(--accent);
+  background: var(--positive);
   border-radius: 999px;
   transition: width 0.32s ease;
 }
@@ -603,13 +591,13 @@
   justify-content: center;
   gap: 8px;
   height: 36px;
-  padding: 0 14px;
+  padding: 0 16px;
   font-size: 13.5px;
-  font-weight: 550;
+  font-weight: 650;
   line-height: 1;
   white-space: nowrap;
   border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  border-radius: 999px;
   cursor: pointer;
   transition:
     background 0.14s ease,
@@ -635,18 +623,19 @@ a.btn {
   height: 30px;
   padding: 0 11px;
   font-size: 12.5px;
-  border-radius: 8px;
+  border-radius: 999px;
 }
 
 .btn-primary {
-  color: var(--accent-ink);
-  background: var(--accent);
-  border-color: var(--accent);
+  color: var(--btn-primary-ink);
+  background: var(--btn-primary-bg);
+  border-color: var(--btn-primary-bg);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16);
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
+  background: var(--btn-primary-hover);
+  border-color: var(--btn-primary-hover);
 }
 
 .btn-ghost {
@@ -690,7 +679,7 @@ a.btn {
   color: var(--text-muted);
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 999px;
   cursor: pointer;
   transition:
     background 0.13s ease,
@@ -744,11 +733,11 @@ a.btn {
 .select {
   width: 100%;
   height: 36px;
-  padding: 0 11px;
+  padding: 0 14px;
   color: var(--text);
   background: var(--inset);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: 999px;
   outline: none;
   font-size: 13.5px;
   transition:
@@ -909,7 +898,8 @@ input[type='date'] {
   flex-direction: column;
   width: min(560px, 100%);
   max-height: 86vh;
-  background: var(--panel);
+  background: var(--popup-bg);
+  backdrop-filter: blur(var(--pane-blur)) saturate(115%);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
@@ -1013,7 +1003,8 @@ input[type='date'] {
   font-size: 13px;
   color: var(--text);
   text-align: left;
-  background: var(--panel-2);
+  background: var(--popup-bg);
+  backdrop-filter: blur(var(--pane-blur)) saturate(115%);
   border: 1px solid var(--border-strong);
   border-radius: 999px;
   box-shadow: var(--shadow-soft);
@@ -1173,7 +1164,7 @@ input[type='date'] {
   padding: 3px;
   background: var(--panel-2);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 999px;
 }
 
 .segmented button {
@@ -1183,7 +1174,7 @@ input[type='date'] {
   color: var(--text-muted);
   background: transparent;
   border: none;
-  border-radius: 8px;
+  border-radius: 999px;
   cursor: pointer;
   transition:
     background 0.13s ease,
