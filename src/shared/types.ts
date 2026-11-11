@@ -481,6 +481,9 @@ export interface PaycheckDraftInput {
   allowDuplicate?: boolean
 }
 
+/** How far back the ledger views show entries by default; `all` shows everything. */
+export type LedgerWindow = '30d' | '90d' | '1y' | 'all'
+
 export interface AppSettings {
   currency: string
   payCadence: PayCadence
@@ -514,4 +517,9 @@ export interface AppSettings {
    * paycheck reserves towards it until saving is resumed.
    */
   emergencyActive: boolean
+  /**
+   * Older entries are hidden from the ledger views, never deleted: every
+   * balance and total still counts them.
+   */
+  ledgerWindow: LedgerWindow
 }

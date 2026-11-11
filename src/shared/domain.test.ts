@@ -19,7 +19,7 @@ import {
   parseMoneyToCents
 } from './money'
 import { projectUpcoming } from './projections'
-import { parseSettings, settingsToRecord } from './settings'
+import { ledgerWindowStart, parseSettings, settingsToRecord } from './settings'
 import { roundUpRemainderCents, transferLegs } from './transfers'
 import type { Account, TransactionRow } from './types'
 
@@ -753,4 +753,14 @@ test('a JSON boolean that arrived stringified as 1 or 0 keeps its meaning', () =
   assert.equal(parsed.roundUpEnabled, true)
   assert.equal(parsed.emergencyIncludeVariable, false)
   assert.equal(parsed.emergencyActive, true, 'nonsense falls back to the default, not to false')
+})
+
+test('the ledger window hides by date only and defaults to the last 90 days', () => {
+  assert.equal(parseSettings({}).ledgerWindow, '90d')
+  assert.equal(parseSettings({ ledgerWindow: 'forever' }).ledgerWindow, '90d', 'an unknown value falls back')
+  assert.equal(parseSettings(settingsToRecord(parseSettings({ ledgerWindow: 'all' }))).ledgerWindow, 'all')
+  assert.equal(ledgerWindowStart('30d', '2026-11-10'), '2026-10-12', 'today is one of the 30 days')
+  assert.equal(ledgerWindowStart('90d', '2026-11-10'), '2026-08-13')
+  assert.equal(ledgerWindowStart('1y', '2026-02-28'), '2025-02-28')
+  assert.equal(ledgerWindowStart('all', '2026-11-10'), null)
 })
