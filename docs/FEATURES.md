@@ -26,7 +26,7 @@ Related references: [DATA-MODEL.md](DATA-MODEL.md) for formulas and storage, [IM
 
 ## Navigation
 
-The sidebar has six destinations and one global action:
+The sidebar is an icon rail floating inside the app's pane. It has six destinations and one global action; each icon's name shows as a small pill on hover or keyboard focus and is the button's accessible name:
 
 | Item | Screen id | Purpose |
 | --- | --- | --- |
@@ -39,9 +39,9 @@ The sidebar has six destinations and one global action:
 | Settings | `settings` | Pay cycle and payday label, default paycheck account, theme, round-up, data, encryption at rest |
 | **Route a paycheck** | — | Opens the allocator wizard over any screen |
 
-The sidebar labels are the interface; the rest of this document, and the code, keep the original names. The mapping is: **Bills** = Priority Wall and its reserve, **Goals** = sinking funds, **Fun money** = guilt-free money (`leisure`), **Left to split** = true surplus, **Left to spend** = Safe to Spend, and **set aside** = reserved. Screen ids and stored bucket keys never changed, so a database or backup written before the rename reads identically.
+The rail's labels are the interface; the rest of this document, and the code, keep the original names. The mapping is: **Bills** = Priority Wall and its reserve, **Goals** = sinking funds, **Fun money** = guilt-free money (`leisure`), **Left to split** = true surplus, **Left to spend** = Safe to Spend, and **set aside** = reserved. Screen ids and stored bucket keys never changed, so a database or backup written before the rename reads identically.
 
-The sidebar also shows a light/dark switch, cash on hand, the number of tracked accounts and the database path. Navigation is local state; there is no URL routing — with one exception, the unlock prompt, which is the same bundle loaded at `?mode=unlock` so a locked ledger can show a passphrase field and nothing else. The selected screen is not persisted across launches.
+The rail shows nothing else: the theme lives in Settings → Appearance, cash on hand and total wealth on Home and Accounts, and the version and database path in Settings. Navigation is local state; there is no URL routing — with one exception, the unlock prompt, which is the same bundle loaded at `?mode=unlock` so a locked ledger can show a passphrase field and nothing else. The selected screen is not persisted across launches.
 
 ---
 
@@ -84,7 +84,7 @@ Directly under the hero:
 Total wealth = sum of every non-archived account balance
 ```
 
-Credit balances are stored negative, so they subtract. The strip splits the same number into Cash, Saved for goals, Invested and Credit owed; the split is tested to add back to the total exactly. The figure also appears as the first tile on Accounts and as a second line in the sidebar stat.
+Credit balances are stored negative, so they subtract. The strip splits the same number into Cash, Saved for goals, Invested and Credit owed; the split is tested to add back to the total exactly. The figure also appears as the first tile on Accounts.
 
 When at least two days of history exist, a **sparkline** sits under the total: one point per day, sum of every live account's recorded balance, coloured green when the last point is at or above the first and red when it is below. The line's accessible name reads the exact figures and dates (`Net worth from $17,200.00 on Oct 2 to $17,900.00 today`), and the caption reads **Since Oct 2**. The series is sampled to at most 90 points, always keeping the last. With one day of history, or none, nothing is drawn rather than a flat line that implies measurement.
 
@@ -722,7 +722,7 @@ The ledger is one SQLite file — plus `ledger.key.json` beside it when the owne
 
 ### Appearance
 
-Four choices in the sidebar (and in Settings; the Glass rail shows icons only, so there the picker lives in Settings), presented as a radio group — **System**, **Light**, **Dark**, **Glass** — with the resolved state printed beside the label (`System · light`). It is one tab stop: the arrows move the selection between options, Home and End jump to either end, and only the checked button is in the tab order. System follows `prefers-color-scheme` and switches live across a running app, because the preference is read through `useSyncExternalStore` rather than sampled once at startup. The resolved theme is written to `document.documentElement.dataset.theme` and cached in `localStorage['cfr-theme']` so the next launch paints the right palette immediately. Settings remain the source of truth; the cache is only a first-paint hint.
+Four choices in Settings → Appearance, presented as a radio group — **Dark**, **Light**, **Glass**, **System**. All three palettes draw the same layout (the frosted pane, the icon rail, rounded tiles, pill controls, Quicksand); only the colours differ. It is one tab stop: the arrows move the selection between options, Home and End jump to either end, and only the checked button is in the tab order. System follows `prefers-color-scheme` and switches live across a running app, because the preference is read through `useSyncExternalStore` rather than sampled once at startup. The resolved theme is written to `document.documentElement.dataset.theme` and cached in `localStorage['cfr-theme']` so the next launch paints the right palette immediately. Settings remain the source of truth; the cache is only a first-paint hint.
 
 ### Money
 
@@ -780,7 +780,7 @@ The wizard has three steps — choose file, missing info, review — and the sam
 
 The file path stays in the main process between the two steps — the renderer only ever holds a single-use token. See [docs/IMPORT-EXPORT.md](IMPORT-EXPORT.md#the-import-wizard).
 
-The database path is displayed below the actions. The sidebar footer shows the running version instead — `WageRoute v1.2.0` — with the full database path as its tooltip.
+The database path is displayed below the actions. Settings → About shows the running version (a local build reads `X.Y.Z-dev`).
 
 ### Encryption at rest
 

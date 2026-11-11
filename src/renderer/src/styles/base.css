@@ -15,8 +15,10 @@ body,
 
 body {
   margin: 0;
+  /* A dim room drawn for WageRoute, washed in the theme's own colour. */
   background:
-    radial-gradient(1100px 620px at 78% -12%, var(--bg-glow), transparent 62%),
+    var(--scene-tint),
+    url('../assets/glass-scene.svg') center / cover no-repeat,
     var(--bg);
   color: var(--text);
   font-family: var(--font);
@@ -96,7 +98,7 @@ textarea {
 }
 
 .positive {
-  color: var(--accent);
+  color: var(--positive);
 }
 
 .muted {

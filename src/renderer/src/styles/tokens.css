@@ -2,10 +2,9 @@
   color-scheme: dark;
 
   --bg: #080b11;
-  --bg-glow: #0c1420;
-  --panel: #111826;
-  --panel-2: #16202f;
-  --panel-3: #1c2839;
+  --panel: rgba(22, 31, 47, 0.66);
+  --panel-2: rgba(30, 41, 60, 0.72);
+  --panel-3: rgba(40, 53, 75, 0.78);
   --border: #1f2a3c;
   --border-strong: #2b3a51;
 
@@ -31,9 +30,9 @@
   --warn-soft: rgba(245, 189, 74, 0.12);
   --warn-text: #f6cd72;
 
-  --radius-sm: 9px;
-  --radius: 14px;
-  --radius-lg: 20px;
+  --radius-sm: 12px;
+  --radius: 20px;
+  --radius-lg: 26px;
 
   --shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
   --shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.28);
@@ -73,18 +72,52 @@
   --leisure-soft: color-mix(in srgb, var(--leisure) 9%, transparent);
   --leisure-line: color-mix(in srgb, var(--leisure) 32%, transparent);
 
-  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, system-ui, sans-serif;
+  --font: 'Quicksand Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
+  /* The shell: one frosted pane floating over a backdrop, an icon rail inside.
+     Every theme draws the same layout from these; only the colours differ. */
+  --radius-pane: 34px;
+  --pane-gap-x: clamp(16px, 5vw, 76px);
+  --pane-gap-y: clamp(14px, 3vh, 30px);
+  --pane-blur: 40px;
+  --scene-tint: linear-gradient(rgba(7, 11, 19, 0.8), rgba(7, 11, 19, 0.8));
+  --pane-bg: rgba(12, 17, 27, 0.7);
+  --pane-solid: #0d121b;
+  --pane-border: rgba(255, 255, 255, 0.08);
+  --pane-highlight: rgba(255, 255, 255, 0.05);
+  --pane-shadow: 0 40px 90px rgba(0, 0, 0, 0.5);
+  --rail-bg: rgba(255, 255, 255, 0.035);
+  --rail-border: rgba(255, 255, 255, 0.07);
+  --nav-active-bg: rgba(255, 255, 255, 0.08);
+  --tip-bg: rgba(22, 29, 42, 0.96);
+  --tip-ink: #ffffff;
+  --card-highlight: rgba(255, 255, 255, 0.04);
+  --card-glow: rgba(76, 194, 255, 0.1);
+  --panel-hover: rgba(30, 41, 60, 0.74);
+  --popup-bg: rgba(19, 26, 40, 0.92);
+  --btn-primary-bg: #f3f6fb;
+  --btn-primary-hover: #dfe6f1;
+  --btn-primary-ink: #0b1018;
+  --positive: var(--accent);
+}
+
+/* The OS asked for less transparency (macOS Reduce transparency): solid panes. */
+:root.reduce-transparency {
+  --pane-bg: var(--pane-solid);
+  --panel: #111826;
+  --panel-2: #16202f;
+  --panel-3: #1c2839;
+  --popup-bg: #111826;
 }
 
 :root[data-theme='light'] {
   color-scheme: light;
 
   --bg: #f5f7fb;
-  --bg-glow: #e8eef8;
-  --panel: #ffffff;
-  --panel-2: #f4f7fc;
-  --panel-3: #e9eef7;
+  --panel: rgba(255, 255, 255, 0.72);
+  --panel-2: rgba(246, 249, 253, 0.85);
+  --panel-3: rgba(233, 238, 247, 0.9);
   --border: #dfe6f1;
   --border-strong: #c8d3e3;
 
@@ -134,9 +167,37 @@
   --raised-strong: #d9e2f0;
   --backdrop: rgba(20, 32, 50, 0.32);
   --backdrop-soft: rgba(245, 248, 253, 0.72);
+
+  --scene-tint: linear-gradient(rgba(234, 239, 246, 0.84), rgba(234, 239, 246, 0.84));
+  --pane-bg: rgba(248, 250, 253, 0.62);
+  --pane-solid: #f5f7fb;
+  --pane-border: rgba(255, 255, 255, 0.9);
+  --pane-highlight: rgba(255, 255, 255, 0.9);
+  --pane-shadow: 0 30px 80px rgba(30, 45, 70, 0.18);
+  --rail-bg: rgba(255, 255, 255, 0.6);
+  --rail-border: rgba(20, 35, 60, 0.07);
+  --nav-active-bg: rgba(255, 255, 255, 0.95);
+  --tip-bg: #16202f;
+  --tip-ink: #ffffff;
+  --card-highlight: rgba(255, 255, 255, 0.9);
+  --card-glow: rgba(10, 110, 168, 0.08);
+  --panel-hover: rgba(255, 255, 255, 0.9);
+  --popup-bg: rgba(255, 255, 255, 0.94);
+  --btn-primary-bg: #16202f;
+  --btn-primary-hover: #26324a;
+  --btn-primary-ink: #ffffff;
 }
 
-/* Glass: frosted, neutral-grey panes over a dim room (assets/glass-scene.svg).
+:root[data-theme='light'].reduce-transparency {
+  --pane-bg: var(--pane-solid);
+  --panel: #ffffff;
+  --panel-2: #f4f7fc;
+  --panel-3: #e9eef7;
+  --popup-bg: #ffffff;
+}
+
+/* Glass: the palette of the owner's reference clip. Neutral-grey panes over a
+   barely tinted room.
    White ink at set opacities, hairline white borders, big radii and a rounded
    typeface. Text opacities are chosen so every label clears WCAG AA on the
    lightest pane (about #575757), not just the average one. */
@@ -144,7 +205,6 @@
   color-scheme: dark;
 
   --bg: #2b2a29;
-  --bg-glow: transparent;
   --panel: rgba(255, 255, 255, 0.07);
   --panel-2: rgba(255, 255, 255, 0.1);
   --panel-3: rgba(255, 255, 255, 0.15);
@@ -158,17 +218,11 @@
   --placeholder: rgba(255, 255, 255, 0.62);
 
   /* The clip's highlight colour: toggles, count badges, focus. Money that is
-     "positive" keeps a green (see glass.css), as the clip's progress bars do. */
+     Money that is "positive" keeps a green, as the clip's progress bars do. */
   --accent: #4b8dff;
   --accent-ink: #ffffff;
   --accent-soft: rgba(75, 141, 255, 0.18);
   --accent-hover: #6aa1ff;
-  --glass-positive: #6ee7a8;
-
-  --radius-sm: 12px;
-  --radius: 20px;
-  --radius-lg: 26px;
-  --radius-pane: 34px;
 
   --shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
   --shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.16);
@@ -192,19 +246,34 @@
   --backdrop: rgba(20, 20, 20, 0.35);
   --backdrop-soft: rgba(40, 40, 40, 0.5);
 
-  --glass-pane: rgba(255, 255, 255, 0.12);
-  --glass-blur: 48px;
-  --glass-gap-x: clamp(16px, 5vw, 76px);
-  --glass-gap-y: clamp(14px, 3vh, 30px);
-
-  --font: 'Quicksand Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --pane-blur: 48px;
+  --scene-tint: linear-gradient(rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.12));
+  --pane-bg: rgba(255, 255, 255, 0.12);
+  --pane-solid: #4a4948;
+  --pane-border: rgba(255, 255, 255, 0.14);
+  --pane-highlight: rgba(255, 255, 255, 0.12);
+  --pane-shadow: 0 40px 90px rgba(0, 0, 0, 0.35);
+  --rail-bg: rgba(255, 255, 255, 0.07);
+  --rail-border: rgba(255, 255, 255, 0.11);
+  --nav-active-bg: rgba(255, 255, 255, 0.16);
+  --tip-bg: rgba(28, 28, 28, 0.82);
+  --tip-ink: #ffffff;
+  --card-highlight: rgba(255, 255, 255, 0.08);
+  --card-glow: rgba(96, 150, 255, 0.2);
+  --panel-hover: rgba(255, 255, 255, 0.09);
+  --popup-bg: rgba(70, 69, 68, 0.82);
+  --btn-primary-bg: #ffffff;
+  --btn-primary-hover: #ececec;
+  --btn-primary-ink: #141414;
+  --positive: #6ee7a8;
 }
 
 /* The OS asked for less transparency (macOS Reduce transparency): solid greys. */
 :root[data-theme='glass'].reduce-transparency {
-  --glass-pane: #4a4948;
+  --pane-bg: var(--pane-solid);
   --panel: #545352;
   --panel-2: #5a5958;
   --panel-3: #63625f;
   --inset: #4f4e4d;
+  --popup-bg: #4f4e4d;
 }

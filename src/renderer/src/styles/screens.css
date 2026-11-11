@@ -469,7 +469,8 @@
   flex-direction: column;
   width: min(780px, 100%);
   max-height: 92vh;
-  background: var(--panel);
+  background: var(--popup-bg);
+  backdrop-filter: blur(var(--pane-blur)) saturate(115%);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
@@ -850,18 +851,15 @@
   gap: 24px;
   margin-bottom: 16px;
   padding: 24px 26px;
-  background:
-    radial-gradient(520px 220px at 12% 0%, var(--accent-soft), transparent 70%),
-    linear-gradient(
-      140deg,
-      color-mix(in srgb, var(--accent) 10%, transparent),
-      color-mix(in srgb, var(--savings) 4%, transparent) 55%,
-      transparent
-    ),
-    var(--panel);
-  border: 1px solid var(--accent-line);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-soft);
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow:
+    inset 0 1px 0 var(--card-highlight),
+    var(--shadow-soft);
 }
 
 .safe-main {
@@ -969,12 +967,15 @@
   gap: 24px;
   margin-bottom: 16px;
   padding: 20px 26px;
-  background:
-    radial-gradient(520px 220px at 12% 0%, var(--investment-soft), transparent 70%),
-    var(--panel);
-  border: 1px solid var(--investment-line);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-soft);
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow:
+    inset 0 1px 0 var(--card-highlight),
+    var(--shadow-soft);
 }
 
 .wealth-head {
@@ -989,7 +990,7 @@
   font-size: 34px;
   font-weight: 680;
   letter-spacing: -0.03em;
-  color: var(--investment);
+  color: var(--text);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1681,61 +1682,6 @@ span.wizard-step-chip {
   background: var(--inset);
   border: 1px solid var(--border);
   border-radius: 8px;
-}
-
-.sidebar-theme {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 10px;
-  padding: 10px 12px;
-  font-size: 12px;
-  color: var(--text-muted);
-  background: var(--tint-soft);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-}
-
-.sidebar-theme-label {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.sidebar-theme-state {
-  margin-left: auto;
-  font-size: 11px;
-  text-transform: capitalize;
-}
-
-.theme-options {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 4px;
-  padding: 3px;
-  background: var(--inset);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-
-.theme-option {
-  padding: 5px 0;
-  font-size: 11.5px;
-  font-weight: 550;
-  color: var(--text-muted);
-  background: transparent;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.theme-option:hover {
-  color: var(--text);
-}
-
-.theme-option.active {
-  color: var(--text);
-  background: var(--raised);
 }
 
 /* ------------------------------------------------------ emergency fund */
