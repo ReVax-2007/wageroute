@@ -1,6 +1,6 @@
 {
   "format": "cash-flow-routing-backup",
-  "version": 12,
+  "version": 13,
   "exportedAt": "2026-10-28T12:00:00.000Z",
   "tables": {
     "accounts": [
@@ -132,6 +132,7 @@
         "next_due_on": null,
         "funding_strategy": "all_checks",
         "funding_paycheck_index": null,
+        "is_variable": false,
         "created_at": "2026-10-01T09:00:00.000Z",
         "updated_at": "2026-10-01T09:00:00.000Z",
         "deleted_at": null,
@@ -151,6 +152,7 @@
         "next_due_on": null,
         "funding_strategy": "closest_due_date",
         "funding_paycheck_index": null,
+        "is_variable": true,
         "created_at": "2026-10-01T09:00:00.000Z",
         "updated_at": "2026-10-01T09:00:00.000Z",
         "deleted_at": null,

@@ -19,6 +19,7 @@ import type {
   TransactionRow
 } from '@shared/types'
 import { SNAPSHOT_TRANSACTION_LIMIT } from '@shared/api'
+import { creditedPaymentCents } from '@shared/variableBills'
 import {
   ACCOUNT_KINDS,
   ALLOCATION_BUCKETS,
@@ -173,6 +174,7 @@ export function buildSnapshot(
       nextDueOn: nullableText(row, 'next_due_on'),
       fundingStrategy: pick(FUNDING_STRATEGIES, text(row, 'funding_strategy'), 'all_checks'),
       fundingPaycheckIndex: nullableInteger(row, 'funding_paycheck_index'),
+      isVariable: flag(row, 'is_variable'),
       ...sync(row)
     }))
     .sort(
@@ -266,6 +268,8 @@ export function buildSnapshot(
   }
 
   const month = today.slice(0, 7)
+  // A deleted bill's entries were released from it, so only live bills credit.
+  const billById = new Map(bills.map((bill) => [bill.id, bill]))
   const paidByBill = new Map<string, BillPaymentTotal>()
   for (const entry of entries) {
     const billId = nullableText(entry, 'bill_id')
@@ -273,9 +277,11 @@ export function buildSnapshot(
     if (!billId || (kind !== 'bill_payment' && kind !== 'expense')) continue
     const occurredOn = text(entry, 'occurred_on')
     if (occurredOn.slice(0, 7) !== month || occurredOn > today) continue
-    const total = paidByBill.get(billId) ?? { billId, paidCents: 0, creditCents: 0 }
+    const total = paidByBill.get(billId) ?? { billId, paidCents: 0, actualCents: 0, creditCents: 0 }
     const amount = -cents(entry, 'amount_cents')
-    total.paidCents += amount
+    const bill = billById.get(billId)
+    total.paidCents += bill ? -creditedPaymentCents(bill, -amount) : amount
+    total.actualCents += amount
     if (accountKind.get(text(entry, 'account_id')) === 'credit') total.creditCents += amount
     paidByBill.set(billId, total)
   }

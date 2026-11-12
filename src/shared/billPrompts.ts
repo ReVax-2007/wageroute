@@ -1,5 +1,6 @@
 import { addDaysISO, daysBetweenISO } from './dates'
 import { nextBillOccurrence, previousBillOccurrence, type RecurringBill } from './occurrences'
+import { creditedPaymentCents } from './variableBills'
 
 /** How early a payment is allowed to land and still count for the same cycle. */
 const EARLY_WINDOW_DAYS = 5
@@ -10,6 +11,8 @@ export interface PromptBill extends RecurringBill {
   accountId: string | null
   isActive: boolean
   autopay: boolean
+  /** An estimate: one payment of any size clears the occurrence (ADR 0036). */
+  isVariable?: boolean
 }
 
 export interface PromptPayment {
@@ -25,6 +28,7 @@ export interface BillPrompt {
   category: string
   accountId: string | null
   autopay: boolean
+  isVariable: boolean
   dueOn: string
   daysLate: number
   /** Money already matched against this cycle; anything below the bill is partial. */
@@ -62,6 +66,7 @@ export function dueBillPrompts(input: {
     if (dueOn >= input.todayISO) continue
 
     const nextOn = nextBillOccurrence(bill, addDaysISO(dueOn, 1))
+    const credit = { amountCents: bill.amountCents, isVariable: bill.isVariable === true }
     const windowStart = addDaysISO(dueOn, -EARLY_WINDOW_DAYS)
     // Money out is negative on the ledger, so net the signed amounts: an
     // imported refund must give back what it returned, not count as a payment.
@@ -69,7 +74,7 @@ export function dueBillPrompts(input: {
       .filter(
         (payment) => payment.occurredOn >= windowStart && payment.occurredOn < nextOn
       )
-      .reduce((total, payment) => total - payment.amountCents, 0)
+      .reduce((total, payment) => total - creditedPaymentCents(credit, payment.amountCents), 0)
     const paidCents = Math.max(0, netPaid)
     if (paidCents >= bill.amountCents) continue
 
@@ -80,6 +85,7 @@ export function dueBillPrompts(input: {
       category: bill.category,
       accountId: bill.accountId,
       autopay: bill.autopay,
+      isVariable: credit.isVariable,
       dueOn,
       daysLate: daysBetweenISO(dueOn, input.todayISO),
       paidCents

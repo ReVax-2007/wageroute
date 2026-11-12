@@ -13,6 +13,7 @@ import { parseSettings } from '@shared/settings'
 import { incomingWins } from '@shared/tableMerge'
 import { roundUpRemainderCents, transferLegs } from '@shared/transfers'
 import { planSplitTransfer } from '@shared/splitTransfer'
+import { creditedPaymentCents } from '@shared/variableBills'
 import type {
   AccountInput,
   AccountKind,
@@ -215,7 +216,8 @@ export function createBill(tables: ImportTables, input: BillInput): Written {
     funding_strategy: input.fundingStrategy
       ? rules.assertOneOf(input.fundingStrategy, rules.BILL_FUNDING_STRATEGIES, 'funding strategy')
       : 'all_checks',
-    funding_paycheck_index: rules.assertPaycheckIndex(input.fundingPaycheckIndex)
+    funding_paycheck_index: rules.assertPaycheckIndex(input.fundingPaycheckIndex),
+    is_variable: input.isVariable ? 1 : 0
   })
 }
 
@@ -241,6 +243,7 @@ export function patchBill(tables: ImportTables, id: string, patch: Partial<BillI
     account_id: patch.accountId === undefined ? undefined : patch.accountId || null,
     autopay: patch.autopay === undefined ? undefined : patch.autopay ? 1 : 0,
     is_active: patch.isActive === undefined ? undefined : patch.isActive ? 1 : 0,
+    is_variable: patch.isVariable === undefined ? undefined : patch.isVariable ? 1 : 0,
     next_due_on:
       patch.nextDueOn === undefined
         ? undefined
@@ -304,6 +307,11 @@ export function billDeletionSummary(
 /** What this month's payments already cover, by the rule the phone displays. */
 export function billPaidThisMonthCents(tables: ImportTables, billId: string, today: string): number {
   const month = today.slice(0, 7)
+  const bill = tables.bills.find((row) => isLive(row) && text(row, 'id') === billId)
+  const credit = {
+    amountCents: bill ? cents(bill, 'amount_cents') : 0,
+    isVariable: bill ? flag(bill, 'is_variable') : false
+  }
   let paid = 0
   for (const entry of tables.transactions) {
     if (!isLive(entry) || nullableText(entry, 'bill_id') !== billId) continue
@@ -311,7 +319,7 @@ export function billPaidThisMonthCents(tables: ImportTables, billId: string, tod
     if (kind !== 'bill_payment' && kind !== 'expense') continue
     const occurredOn = text(entry, 'occurred_on')
     if (occurredOn.slice(0, 7) !== month || occurredOn > today) continue
-    paid += Math.max(0, -cents(entry, 'amount_cents'))
+    paid += Math.max(0, -creditedPaymentCents(credit, cents(entry, 'amount_cents')))
   }
   return paid
 }
@@ -422,7 +430,10 @@ export function reconcileBillClaims(tables: ImportTables, billId: string): Impor
   }
 
   const settled = new Map(
-    deriveClaimStates(claims, payments)
+    deriveClaimStates(claims, payments, {
+      amountCents: cents(bill, 'amount_cents'),
+      isVariable: flag(bill, 'is_variable')
+    })
       .filter((outcome) => outcome.changed)
       .map((outcome) => [outcome.id, outcome])
   )
@@ -461,10 +472,20 @@ export function reconcileAllBillClaims(tables: ImportTables): ImportTables {
  * The account and amount "Mark paid" would post, without posting it, so the
  * sheet can ask about a floor first (ADR 0035). `payBill` writes exactly this.
  */
+export interface BillPaymentOptions {
+  occurredOn?: string
+  accountId?: string
+  /**
+   * What a variable bill actually came to, as a positive figure (ADR 0036).
+   * Ignored on a fixed bill, which always posts what the month still owes.
+   */
+  actualCents?: number
+}
+
 export function billPaymentPlan(
   tables: ImportTables,
   billId: string,
-  options: { occurredOn?: string; accountId?: string } = {}
+  options: BillPaymentOptions = {}
 ): { accountId: string; amountCents: number; occurredOn: string } {
   const bill = requireBillRow(tables, billId)
   const today = todayISO()
@@ -486,13 +507,18 @@ export function billPaymentPlan(
 
   const remaining = cents(bill, 'amount_cents') - billPaidThisMonthCents(tables, billId, occurredOn)
   if (remaining <= 0) throw new RepositoryError('STATE', 'This bill is already paid for the month')
+  if (flag(bill, 'is_variable') && options.actualCents !== undefined) {
+    const actual = rules.assertCents(options.actualCents, 'Amount')
+    if (actual <= 0) throw new RepositoryError('VALIDATION', 'Enter what the bill came to')
+    return { accountId, amountCents: -actual, occurredOn }
+  }
   return { accountId, amountCents: -remaining, occurredOn }
 }
 
 export function payBill(
   tables: ImportTables,
   billId: string,
-  options: { occurredOn?: string; accountId?: string } = {}
+  options: BillPaymentOptions = {}
 ): Written {
   const bill = requireBillRow(tables, billId)
   const plan = billPaymentPlan(tables, billId, options)

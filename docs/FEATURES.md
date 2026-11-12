@@ -197,7 +197,7 @@ Actions:
 
 ### Bill dialog
 
-Fields: name, amount, cadence, due day (1–31), category, paid-from account, autopay checkbox, **Funding schedule** and — when it is needed — **Which paycheck?**.
+Fields: name, amount (labelled **Estimate** when the bill varies), cadence, due day (1–31), category, paid-from account, autopay and **Amount varies** checkboxes, **Funding schedule** and — when it is needed — **Which paycheck?**.
 
 Autopay marks a bill as one WageRoute records for you. At launch, every active autopay bill whose latest occurrence has passed without a matching payment gets one `bill_payment` dated the due day with a `· autopay` memo, and the month's reserve flips to **Paid**. A part payment already in the ledger counts, so only the remainder is posted; a bill with no usable account (neither its own nor the default deposit account) is skipped and stays on the wall rather than being guessed at. The app still does not move money between accounts — you pay the bill — it keeps the ledger honest without a manual prompt. A hint under the checkbox says exactly that. New bills default to autopay on.
 
@@ -226,6 +226,20 @@ Validation:
 - funding schedule is one of the five enum values; `funding_paycheck_index` is only read for option 2, the repository requires a whole number from 1 to 4, and the reserve math clamps it to the last slot the cadence guarantees (2 for biweekly and semimonthly, 4 for weekly, 1 for monthly).
 
 New bills get `nextDueOn = null`. Editing preserves the existing `nextDueOn` unless it is explicitly changed.
+
+### Variable bills
+
+Ticking **Amount varies** in the bill dialog (desktop and Pocket) makes the amount an **estimate** ([ADR 0036](decisions/0036-a-variable-bill-is-cleared-by-what-it-came-to.md)) — gas, a utility that moves with the weather. Paychecks set the estimate aside exactly as for any bill. When it clears, you say what it really came to:
+
+- **Where.** The Overview's **Did these clear?** card, the Bills screen's **It cleared** action (a check icon on the row of a variable bill not yet paid this month), and Pocket's bill sheet (**It cleared**). Each shows an amount field that starts at the estimate, so confirming an unchanged bill is still one click. Any ordinary `bill_payment` linked to the bill counts the same way.
+- **The rule.** Each payment on a variable bill counts as at least the estimate (`creditedPaymentCents`, `src/shared/variableBills.ts`). A $51 payment against a $70 estimate settles the month's set-aside, stops the prompt and reads **Paid**; the hold is released while only $51 left the account, so **the $19 goes back to Left to spend that month** (Safe to Spend on the phone). Nothing is carried to next month.
+- **Overage.** An $85 payment is allowed and counts as $85: the hold is released and Left to spend drops by the extra $15.
+- **On a card.** The card's $51 stays withheld (the card still has to be paid); only the $19 difference is freed.
+- **What the screens say.** While typing: *$19.00 under the estimate · back to Left to spend* or *$15.00 over the estimate*. After it clears, the Bills row and Pocket's sheet show *Came to $51.00 · $19.00 under, back to Left to spend* for a bill that lands at most once a month; a weekly or every-two-weeks bill shows *$X paid so far this month* instead, because its month is still collecting payments. The row's amount reads *About $70.00 · Monthly · … · amount varies*.
+- **Autopay** never posts a guessed figure for a variable bill. The bill stays on the **Did these clear?** card past its due date, marked *autopay*, with the estimate filled in.
+- **Re-adjusting later.** Editing the payment's amount in the spreadsheet or Pocket's ledger keeps the bill settled and moves Left to spend with it.
+- **Refunds** take back what they return, as on a fixed bill: a $10 refund of the $51 reopens $10 of the set-aside. Remove a whole payment by deleting it.
+- Fixed bills are unchanged everywhere: same screens, same buttons, a part payment still asks for the rest.
 
 ### Notes
 
@@ -919,6 +933,8 @@ Actions:
 - **Yes, it cleared** posts a `bill_payment` for the bill amount on its linked account, or a fallback checking/first active account when no account is linked. If the linked account has been archived, the prompt is blocked instead: it says the account is archived and asks you to edit the bill, because a payment into an archived balance would leave every total unchanged. The memo is the bill name and the category is copied from the bill. This does not advance `nextDueOn`; the next cycle is derived from the due day.
   - A prompt whose due date falls in an earlier month shows **When did it leave your account?** with a date field: it starts on the due date, cannot be later than today, and prints the month the chosen date counts in. The chosen date is the entry's `occurredOn`, so a bill that was actually paid on the 2nd is no longer recorded in the previous month. A cleared or future date keeps the button disabled. A prompt due this month posts its due date with no field.
 - **Not yet** snoozes that occurrence, keyed by bill and due date, so next month's prompt still appears. Snoozed rows move to a **Snoozed** list under the open prompts with a **Bring back** button. Snoozes are session-only and reset on restart.
+
+A **variable** bill ([Variable bills](#variable-bills)) is confirmed by any payment in its window, whatever the size, and its prompt shows an amount field filled with the estimate in place of the fixed amount, with a line saying how far under or over the estimate the typed figure is. **Yes, it cleared** posts the typed figure. A variable bill marked autopay is never posted at launch; it appears here instead, marked *autopay*.
 
 Prompts are sorted by due date, then name. The count badge reflects visible prompts after snoozing.
 

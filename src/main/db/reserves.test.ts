@@ -837,7 +837,7 @@ test('a payment dated after the as-of day does not release the month early', () 
 
   assert.deepEqual(listBillPaymentsThisMonth(db, USER_ID, '2026-03', '2026-03-15'), [])
   assert.deepEqual(listBillPaymentsThisMonth(db, USER_ID, '2026-03', '2026-03-31'), [
-    { billId, paidCents: 120_000, creditCents: 0 }
+    { billId, paidCents: 120_000, actualCents: 120_000, creditCents: 0 }
   ])
 })
 

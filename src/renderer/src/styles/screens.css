@@ -1141,6 +1141,18 @@
   gap: 8px;
 }
 
+/* A variable bill's "what did it come to?" field sits where the amount would. */
+.prompt-actual {
+  width: 110px;
+  padding: 4px 8px;
+  font-size: 13px;
+  text-align: right;
+}
+
+.prompt-variance {
+  color: var(--text);
+}
+
 .prompt-blocked {
   color: var(--warn-text);
 }

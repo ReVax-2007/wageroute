@@ -82,6 +82,7 @@ function bill(
     nextDueOn: null,
     fundingStrategy: 'all_checks',
     fundingPaycheckIndex: null,
+    isVariable: false,
     ...overrides
   }
 }

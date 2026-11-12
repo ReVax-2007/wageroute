@@ -44,6 +44,7 @@ export function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () =
     accountId: bill?.accountId ?? accounts[0]?.id ?? '',
     autopay: bill?.autopay ?? true,
     isActive: bill?.isActive ?? true,
+    isVariable: bill?.isVariable ?? false,
     fundingStrategy: bill?.fundingStrategy ?? ('all_checks' as BillFundingStrategy),
     fundingPaycheckIndex: bill?.fundingPaycheckIndex ? String(bill.fundingPaycheckIndex) : '1'
   })
@@ -90,6 +91,7 @@ export function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () =
       accountId: form.accountId || null,
       autopay: form.autopay,
       isActive: form.isActive,
+      isVariable: form.isVariable,
       nextDueOn: bill?.nextDueOn ?? null,
       fundingStrategy: form.fundingStrategy,
       fundingPaycheckIndex:
@@ -135,7 +137,7 @@ export function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () =
               }}
             />
           </Field>
-          <Field label="Amount" error={fieldErrors.amount}>
+          <Field label={form.isVariable ? "Estimate" : "Amount"} error={fieldErrors.amount}>
             <MoneyInput
               value={form.amount}
               placeholder="1,850.00"
@@ -264,17 +266,33 @@ export function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () =
           <label className="check">
             <input
               type="checkbox"
+              checked={form.isVariable}
+              onChange={(event) => setForm({ ...form, isVariable: event.target.checked })}
+            />
+            Amount varies
+          </label>
+          <label className="check">
+            <input
+              type="checkbox"
               checked={form.isActive}
               onChange={(event) => setForm({ ...form, isActive: event.target.checked })}
             />
             Use this bill
           </label>
         </div>
-        <p className="field-hint hint-below">
-          With autopay on, WageRoute records the payment for you the next time the app opens after
-          the due date, dated the due day. It does not move money between accounts — you still pay
-          the bill — but the bill shows as paid instead of asking.
-        </p>
+        {form.isVariable ? (
+          <p className="field-hint hint-below">
+            Amount varies · paychecks set the amount above aside as an estimate. When it clears you
+            say what it really was; anything under the estimate goes back to Left to spend. Autopay
+            does not post a guess for a bill like this: it asks, with the estimate filled in.
+          </p>
+        ) : (
+          <p className="field-hint hint-below">
+            With autopay on, WageRoute records the payment for you the next time the app opens
+            after the due date, dated the due day. It does not move money between accounts — you
+            still pay the bill — but the bill shows as paid instead of asking.
+          </p>
+        )}
         {!form.isActive && (
           <p className="field-hint hint-below">
             Paused · left off the Bills page and every paycheck until you turn it back on.

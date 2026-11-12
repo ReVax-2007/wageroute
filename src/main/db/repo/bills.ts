@@ -24,10 +24,19 @@ import {
   type Db
 } from './common'
 
-type BillRow = Omit<Bill, 'autopay' | 'isActive'> & { autopay: number; isActive: number }
+type BillRow = Omit<Bill, 'autopay' | 'isActive' | 'isVariable'> & {
+  autopay: number
+  isActive: number
+  isVariable: number
+}
 
 function mapBill(row: BillRow): Bill {
-  return { ...row, autopay: row.autopay === 1, isActive: row.isActive === 1 }
+  return {
+    ...row,
+    autopay: row.autopay === 1,
+    isActive: row.isActive === 1,
+    isVariable: row.isVariable === 1
+  }
 }
 
 const BILL_SELECT = `
@@ -36,6 +45,7 @@ const BILL_SELECT = `
          is_active AS isActive, next_due_on AS nextDueOn,
          funding_strategy AS fundingStrategy,
          funding_paycheck_index AS fundingPaycheckIndex,
+         is_variable AS isVariable,
          created_at AS createdAt, updated_at AS updatedAt,
          deleted_at AS deletedAt, revision
   FROM bills`
@@ -65,8 +75,8 @@ export function createBill(db: Db, userId: string, input: BillInput): string {
     `INSERT INTO bills
        (id, user_id, name, amount_cents, frequency, due_day, category, account_id,
         autopay, is_active, next_due_on, funding_strategy, funding_paycheck_index,
-        created_at, updated_at, deleted_at, revision)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1)`
+        is_variable, created_at, updated_at, deleted_at, revision)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1)`
   ).run(
     id,
     userId,
@@ -81,6 +91,7 @@ export function createBill(db: Db, userId: string, input: BillInput): string {
     input.nextDueOn ? assertDate(input.nextDueOn, 'Next due date') : null,
     fundingStrategy,
     assertPaycheckIndex(input.fundingPaycheckIndex),
+    input.isVariable ? 1 : 0,
     ts,
     ts
   )
@@ -121,6 +132,7 @@ export function updateBill(
     account_id: patch.accountId === undefined ? undefined : patch.accountId || null,
     autopay: patch.autopay === undefined ? undefined : patch.autopay ? 1 : 0,
     is_active: patch.isActive === undefined ? undefined : patch.isActive ? 1 : 0,
+    is_variable: patch.isVariable === undefined ? undefined : patch.isVariable ? 1 : 0,
     next_due_on:
       patch.nextDueOn === undefined
         ? undefined
@@ -339,7 +351,16 @@ export function reconcileBillReserve(db: Db, userId: string, billId: string): vo
     )
     .all(userId, billId) as PaymentFact[]
 
-  const derived = deriveClaimStates(claims, payments)
+  const bill = db
+    .prepare(
+      `SELECT amount_cents AS amountCents, is_variable AS isVariable
+       FROM bills WHERE id = ? AND user_id = ?`
+    )
+    .get(billId, userId) as { amountCents: number; isVariable: number }
+  const derived = deriveClaimStates(claims, payments, {
+    amountCents: bill.amountCents,
+    isVariable: bill.isVariable === 1
+  })
   const ts = nowISO()
   const update = db.prepare(
     `UPDATE bill_reserves

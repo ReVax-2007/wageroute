@@ -42,7 +42,7 @@ test('an unpaid bill stays on the wall', () => {
 test('a bill paid from a spendable account releases its part of the wall', () => {
   assert.equal(
     selectUnpaidWallCents(
-      snapshotWith([{ billId: 'rent', paidCents: 120_000, creditCents: 0 }])
+      snapshotWith([{ billId: 'rent', paidCents: 120_000, actualCents: 120_000, creditCents: 0 }])
     ),
     0
   )
@@ -51,7 +51,7 @@ test('a bill paid from a spendable account releases its part of the wall', () =>
 test('a bill paid on a credit card stays withheld: the pool never fell', () => {
   assert.equal(
     selectUnpaidWallCents(
-      snapshotWith([{ billId: 'rent', paidCents: 120_000, creditCents: 120_000 }])
+      snapshotWith([{ billId: 'rent', paidCents: 120_000, actualCents: 120_000, creditCents: 120_000 }])
     ),
     120_000
   )
@@ -60,7 +60,7 @@ test('a bill paid on a credit card stays withheld: the pool never fell', () => {
 test('only the card-funded part stays withheld when a bill is paid from both', () => {
   assert.equal(
     selectUnpaidWallCents(
-      snapshotWith([{ billId: 'rent', paidCents: 120_000, creditCents: 60_000 }])
+      snapshotWith([{ billId: 'rent', paidCents: 120_000, actualCents: 120_000, creditCents: 60_000 }])
     ),
     60_000
   )
@@ -207,11 +207,11 @@ test('safe to spend subtracts the unpaid wall, earmarked goals and unsettled rou
 })
 
 test('a paid bill leaves the withheld wall, a credit-paid one does not', () => {
-  const state = snapshotWith([{ billId: 'rent', paidCents: 120_000, creditCents: 0 }])
+  const state = snapshotWith([{ billId: 'rent', paidCents: 120_000, actualCents: 120_000, creditCents: 0 }])
   assert.equal(selectUnpaidWallCents(state), 0)
   assert.equal(
     selectUnpaidWallCents(
-      snapshotWith([{ billId: 'rent', paidCents: 120_000, creditCents: 120_000 }])
+      snapshotWith([{ billId: 'rent', paidCents: 120_000, actualCents: 120_000, creditCents: 120_000 }])
     ),
     120_000
   )

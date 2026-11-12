@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react'
+import { Check, Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react'
 import {
+  BILL_PERIODS_PER_YEAR,
   FREQUENCY_LABEL,
   PAY_CADENCE_LABEL,
   billFundingReserveCents,
@@ -13,7 +14,9 @@ import { formatDateLabel, todayISO } from '@shared/dates'
 import { billDeletionWords } from '@shared/deletion'
 import { formatMoney, formatMoneyCompact } from '@shared/money'
 import type { Bill, PayCadence } from '@shared/types'
+import { billVariance } from '@shared/variableBills'
 import { Button, Card, EmptyState, IconButton, Money } from '../components/ui'
+import { BillClearedDialog } from '../components/dialogs/BillClearedDialog'
 import { BillDialog } from '../components/dialogs/BillDialog'
 import { DataTable } from '../components/DataTable'
 import { activeBills, monthlyWall, ordinal, perPaycheckWall } from '../lib/finance'
@@ -44,6 +47,7 @@ export function PriorityWall() {
   const countBillDeletion = useFinanceStore((state) => state.countBillDeletion)
   const askConfirm = useFinanceStore((state) => state.askConfirm)
   const [editing, setEditing] = useState<Bill | null | 'new'>(null)
+  const [clearing, setClearing] = useState<Bill | null>(null)
 
   if (!snapshot) return null
 
@@ -72,6 +76,11 @@ export function PriorityWall() {
       .filter((total) => liveBillIds.has(total.billId))
       .map((total) => [total.billId, Math.max(0, total.paidCents - total.creditCents)])
   )
+  // What really left this month, before the variable-bill rule counted each
+  // payment as at least the estimate — the figure shown next to the estimate.
+  const actualThisMonth = new Map(
+    snapshot.billPaymentsThisMonth.map((total) => [total.billId, total.actualCents])
+  )
   const reserveStateOf = (billId: string): 'paid' | 'reserved' | null => {
     const rows = reservesThisMonth.filter((reserve) => reserve.billId === billId)
     // A payment can close one instalment while another stays open, so "paid"
@@ -83,12 +92,13 @@ export function PriorityWall() {
     return null
   }
   // "Paid" counts every account, including a card: the bill is settled even
-  // when the money became debt instead of leaving the pool.
+  // when the money became debt instead of leaving the pool. It is the money
+  // that really left, so a variable bill counts what it came to (ADR 0036).
   const paidBillsCents = Math.max(
     0,
     snapshot.billPaymentsThisMonth
       .filter((total) => liveBillIds.has(total.billId))
-      .reduce((sum, total) => sum + total.paidCents, 0)
+      .reduce((sum, total) => sum + total.actualCents, 0)
   )
   const nextCheckMonth = nextCheck?.slice(0, 7) ?? null
   const nextCheckClaims = snapshot.billReserves.filter(
@@ -256,6 +266,17 @@ export function PriorityWall() {
               // A zero means the month is already covered: say that instead of
               // naming a check that has nothing left to do.
               const covered = bill.isActive && checkCents === 0
+              const actualCents = actualThisMonth.get(bill.id) ?? 0
+              // Under or over is only a fact once the month has a payment, and
+              // only for a bill that lands at most once a month: a weekly one is
+              // still collecting payments, so it shows its running total.
+              const oncePerMonth = BILL_PERIODS_PER_YEAR[bill.frequency] <= 12
+              const variance =
+                bill.isVariable && actualCents > 0 && oncePerMonth
+                  ? billVariance(bill.amountCents, actualCents)
+                  : null
+              const runningCents =
+                bill.isVariable && actualCents > 0 && !oncePerMonth ? actualCents : null
               return (
                 <tr key={bill.id} className={bill.isActive ? undefined : 'inactive'}>
                   <td>
@@ -263,12 +284,14 @@ export function PriorityWall() {
                       {bill.name}
                     </div>
                     <div className="cell-sub">
+                      {bill.isVariable ? 'About ' : ''}
                       <Money cents={bill.amountCents} currency={currency} />
                       {' · '}
                       {FREQUENCY_LABEL[bill.frequency]}
                       {' · due the '}
                       {ordinal(bill.dueDay)}
                       {bill.autopay ? ' · autopay' : ''}
+                      {bill.isVariable ? ' · amount varies' : ''}
                       {state === 'paid' && (
                         <span className="chip chip-quiet">Paid this month</span>
                       )}
@@ -279,6 +302,21 @@ export function PriorityWall() {
                         <span className="chip chip-quiet chip-inactive">Paused</span>
                       )}
                     </div>
+                    {variance && (
+                      <div className="cell-sub">
+                        Came to <Money cents={actualCents} currency={currency} />
+                        {variance.underCents > 0
+                          ? ` · ${formatMoney(variance.underCents, currency)} under, back to Left to spend`
+                          : variance.overCents > 0
+                            ? ` · ${formatMoney(variance.overCents, currency)} over the estimate`
+                            : ' · right on the estimate'}
+                      </div>
+                    )}
+                    {runningCents !== null && (
+                      <div className="cell-sub">
+                        <Money cents={runningCents} currency={currency} /> paid so far this month
+                      </div>
+                    )}
                   </td>
                   <td className="right">
                     <Money cents={checkCents} currency={currency} />
@@ -314,6 +352,14 @@ export function PriorityWall() {
                       >
                         <span className="switch-knob" />
                       </button>
+                      {bill.isVariable && bill.isActive && state !== 'paid' && (
+                        <IconButton
+                          label={`${bill.name} cleared — log what it came to`}
+                          onClick={() => setClearing(bill)}
+                        >
+                          <Check size={15} />
+                        </IconButton>
+                      )}
                       <IconButton label="Edit bill" onClick={() => setEditing(bill)}>
                         <Pencil size={15} />
                       </IconButton>
@@ -337,6 +383,9 @@ export function PriorityWall() {
         exact amount the next paycheck will set aside.
       </p>
 
+      {clearing !== null && (
+        <BillClearedDialog bill={clearing} onClose={() => setClearing(null)} />
+      )}
       {editing !== null && (
         <BillDialog bill={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />
       )}

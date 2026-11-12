@@ -24,7 +24,7 @@ export interface PocketBackup {
 }
 
 /** The newest schema this build can name; newer files still open, with a note. */
-export const KNOWN_BACKUP_VERSION = 12
+export const KNOWN_BACKUP_VERSION = 13
 
 export const MAX_BACKUP_BYTES = 24 * 1024 * 1024
 

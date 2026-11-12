@@ -111,7 +111,7 @@ A backup is a single JSON object:
 ```json
 {
   "format": "cash-flow-routing-backup",
-  "version": 12,
+  "version": 13,
   "exportedAt": "2026-10-27T18:22:04.871Z",
   "tables": {
     "accounts": [],
@@ -133,7 +133,7 @@ A backup is a single JSON object:
 | Field | Required | Rule |
 | --- | --- | --- |
 | `format` | Yes | Must equal `cash-flow-routing-backup` |
-| `version` | Yes | Integer, 2 to 12 (the current `SCHEMA_VERSION`); a higher number is refused as *This backup came from a newer version* |
+| `version` | Yes | Integer, 2 to 13 (the current `SCHEMA_VERSION`); a higher number is refused as *This backup came from a newer version* |
 | `exportedAt` | No | String; defaults to `""` when absent |
 | `tables` | Yes | Object containing table arrays |
 

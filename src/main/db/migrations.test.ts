@@ -70,8 +70,8 @@ test('v6 rebuilds bills, keeps every row and restores enforcement', () => {
   const db = v5Database()
   migrate(db)
 
-  assert.equal(SCHEMA_VERSION, 12)
-  assert.equal(db.pragma('user_version', { simple: true }), 12)
+  assert.equal(SCHEMA_VERSION, 13)
+  assert.equal(db.pragma('user_version', { simple: true }), 13)
   assert.equal(db.pragma('foreign_keys', { simple: true }), 1, 'enforcement is back on')
   assert.deepEqual(db.pragma('foreign_key_check'), [])
   assert.equal(db.pragma('integrity_check', { simple: true }), 'ok')
@@ -328,6 +328,29 @@ test('v12 gives every existing account no floor and refuses a negative or fracti
   db.prepare("UPDATE accounts SET floor_cents = 0 WHERE id = 'acc-1'").run()
   assert.throws(() => db.prepare("UPDATE accounts SET floor_cents = -1 WHERE id = 'acc-1'").run(), /CHECK/i)
   assert.throws(() => db.prepare("UPDATE accounts SET floor_cents = 90.5 WHERE id = 'acc-1'").run(), /CHECK|INTEGER/i)
+  db.close()
+})
+
+test('v13 leaves every existing bill fixed and refuses anything but 0 or 1', () => {
+  const db = new Database(':memory:')
+  db.pragma('foreign_keys = ON')
+  migrateThrough(db, 12)
+  db.prepare(
+    `INSERT INTO users (id, display_name, created_at, updated_at) VALUES (?, 'Tester', ?, ?)`
+  ).run(USER_ID, TS, TS)
+  db.prepare(
+    `INSERT INTO bills (id, user_id, name, amount_cents, frequency, due_day, created_at, updated_at)
+     VALUES ('bill-1', ?, 'Rent', 120000, 'monthly', 1, ?, ?)`
+  ).run(USER_ID, TS, TS)
+
+  migrate(db)
+
+  assert.equal(db.pragma('user_version', { simple: true }), SCHEMA_VERSION)
+  assert.deepEqual(db.prepare("SELECT is_variable, amount_cents FROM bills WHERE id = 'bill-1'").get(), {
+    is_variable: 0,
+    amount_cents: 120000
+  })
+  assert.throws(() => db.prepare("UPDATE bills SET is_variable = 2 WHERE id = 'bill-1'").run(), /CHECK/i)
   db.close()
 })
 

@@ -481,6 +481,14 @@ ALTER TABLE accounts ADD COLUMN floor_cents INTEGER
   CHECK (floor_cents IS NULL OR (typeof(floor_cents) = 'integer' AND floor_cents >= 0));
 `
 
+// v13: a bill can be variable — its amount is an estimate, and the payment
+// that clears it is whatever it turned out to be (ADR 0036). Every existing
+// bill stays fixed.
+const SCHEMA_V13 = `
+ALTER TABLE bills ADD COLUMN is_variable INTEGER NOT NULL DEFAULT 0
+  CHECK (is_variable IN (0,1));
+`
+
 function isoDay(): string {
   const now = new Date()
   const pad = (value: number): string => String(value).padStart(2, '0')
@@ -637,6 +645,12 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 12,
     up: (db) => {
       db.exec(SCHEMA_V12)
+    }
+  },
+  {
+    version: 13,
+    up: (db) => {
+      db.exec(SCHEMA_V13)
     }
   }
 ]
