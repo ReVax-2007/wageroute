@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { Pencil, Plus, Trash2 } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { ArrowLeft, Pencil, Plus, Trash2 } from 'lucide-react'
+import { usableLabel } from '@shared/accounts'
 import { SNAPSHOT_TRANSACTION_LIMIT } from '@shared/api'
 import { formatDateLabel, todayISO } from '@shared/dates'
 import { entryDeletionWords } from '@shared/deletion'
@@ -7,7 +8,11 @@ import { ledgerWindowStart } from '@shared/settings'
 import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
 import type { TransactionInput, TransactionKind, TransactionRow } from '@shared/types'
 import { CREDIT_CARD_SOURCE_REFUSAL } from '@shared/writeRules'
-import { TRANSACTION_KIND_LABEL } from '../../renderer/src/lib/finance'
+import {
+  ACCOUNT_KIND_LABEL,
+  TRANSACTION_KIND_LABEL,
+  accountDisplayBalanceCents
+} from '../../renderer/src/lib/finance'
 import { Field } from '../components/Field'
 import { DeleteConfirm } from '../components/DeleteConfirm'
 import { MoneyInput } from '../components/MoneyInput'
@@ -16,6 +21,7 @@ import { FloorWarning, useFloorGate } from '../components/FloorWarning'
 import { useSheetSave } from '../components/useSheetSave'
 import { categoryMatch, entryAccounts, entryBills, entryCategories, entryGoals } from '../lib/entry'
 import { pocketView } from '../lib/compute'
+import { accountHistory } from '../lib/snapshot'
 import { flag, text } from '../lib/rows'
 import { usePocket, useSnapshot } from '../lib/store'
 import type { EntryPatch } from '../lib/write'
@@ -82,7 +88,16 @@ function formFor(row: TransactionRow | null, fallbackAccount: string): EntryForm
  * A row the computer wrote is edited here exactly as one typed on the phone is,
  * because both are the same row in the same ledger.
  */
-function EntrySheet({ row, onClose }: { row: TransactionRow | null; onClose: () => void }) {
+function EntrySheet({
+  row,
+  accountId,
+  onClose
+}: {
+  row: TransactionRow | null
+  /** Preselected for a new entry when it is one an entry can go to. */
+  accountId?: string | null
+  onClose: () => void
+}) {
   const tables = usePocket((state) => state.tables)
   const add = usePocket((state) => state.add)
   const editEntry = usePocket((state) => state.edit)
@@ -94,7 +109,14 @@ function EntrySheet({ row, onClose }: { row: TransactionRow | null; onClose: () 
   const bills = tables ? entryBills(tables) : []
   const goals = tables ? entryGoals(tables) : []
   const [form, setForm] = useState<EntryForm>(() =>
-    formFor(row, accounts[0] ? text(accounts[0], 'id') : '')
+    formFor(
+      row,
+      accounts.some((account) => text(account, 'id') === accountId)
+        ? (accountId ?? '')
+        : accounts[0]
+          ? text(accounts[0], 'id')
+          : ''
+    )
   )
   const { saving, error, setError, run } = useSheetSave(onClose)
 
@@ -383,7 +405,19 @@ function EntrySheet({ row, onClose }: { row: TransactionRow | null; onClose: () 
   )
 }
 
-export function Ledger() {
+/** How many of one account's entries draw at once; the rest wait for "Show more". */
+const HISTORY_PAGE = 200
+
+export function Ledger({
+  accountId = null,
+  onAllAccounts,
+  onBack
+}: {
+  /** Narrows the screen to one account's history, with its running balance. */
+  accountId?: string | null
+  onAllAccounts?: () => void
+  onBack?: () => void
+}) {
   const snapshot = useSnapshot()
   const tables = usePocket((state) => state.tables)
   const localIds = usePocket((state) => state.localIds)
@@ -392,18 +426,30 @@ export function Ledger() {
   const [pendingDelete, setPendingDelete] = useState<TransactionRow | null>(null)
   // The desktop's Show window, read from the shared settings; this visit can widen it.
   const [showOlder, setShowOlder] = useState(false)
+  const [historyLimit, setHistoryLimit] = useState(HISTORY_PAGE)
   const currency = snapshot?.user.currency ?? 'USD'
   const local = new Set(localIds)
+  const focus = snapshot?.accounts.find((account) => account.id === accountId) ?? null
+  // An account's history reads the whole file, not the snapshot's newest window,
+  // so an older entry on a quiet account is still there.
+  const history = useMemo(
+    () => (focus && tables ? accountHistory(tables, focus) : null),
+    [focus, tables]
+  )
 
   if (!snapshot) return null
+  const source = history ? history.rows : snapshot.transactions
   const windowStart = showOlder
     ? null
     : ledgerWindowStart(pocketView(snapshot).settings.ledgerWindow, todayISO())
-  const shown = windowStart
-    ? snapshot.transactions.filter((row) => row.occurredOn >= windowStart)
-    : snapshot.transactions
-  const hiddenCount = snapshot.transactions.length - shown.length
+  const inWindow = windowStart ? source.filter((row) => row.occurredOn >= windowStart) : source
+  const hiddenCount = source.length - inWindow.length
+  const shown = history ? inWindow.slice(0, historyLimit) : inWindow
   const groups = groupByDate(shown)
+  const accountNames = new Map(snapshot.accounts.map((account) => [account.id, account.name]))
+  const isCredit = focus?.kind === 'credit'
+  const moneyIn = inWindow.reduce((sum, row) => sum + Math.max(0, row.amountCents), 0)
+  const moneyOut = inWindow.reduce((sum, row) => sum + Math.max(0, -row.amountCents), 0)
 
   // Removing one row can retire more than it: the matching leg of a transfer,
   // and the two sweep rows a rounded-up purchase caused. The question has to
@@ -418,15 +464,47 @@ export function Ledger() {
     <div className="screen">
       <header className="screen-head">
         <div>
-          <h1>Entries</h1>
+          <h1>{focus ? focus.name : 'Entries'}</h1>
           <p className="muted small">
-            {snapshot.transactionTotal.toLocaleString()} in the ledger
+            {focus && history
+              ? `${ACCOUNT_KIND_LABEL[focus.kind]} · ${history.rows.length.toLocaleString()} ${
+                  history.rows.length === 1 ? 'entry' : 'entries'
+                }`
+              : `${snapshot.transactionTotal.toLocaleString()} in the ledger`}
           </p>
         </div>
-        <button type="button" className="button primary compact" onClick={() => setEditing('new')}>
-          <Plus size={17} aria-hidden="true" /> Add
-        </button>
+        <div className="head-actions">
+          {focus && onBack ? (
+            <button type="button" className="button compact" onClick={onBack}>
+              <ArrowLeft size={17} aria-hidden="true" /> Accounts
+            </button>
+          ) : null}
+          <button type="button" className="button primary compact" onClick={() => setEditing('new')}>
+            <Plus size={17} aria-hidden="true" /> Add
+          </button>
+        </div>
       </header>
+
+      {focus ? (
+        <>
+          <p className="muted small">
+            {formatMoney(accountDisplayBalanceCents(focus), currency)} {isCredit ? 'owed' : 'now'}
+            {usableLabel(focus, currency) ? ` · ${usableLabel(focus, currency)}` : ''}
+            {focus.isLocked ? ' · locked: nothing moves in or out' : ''}
+            {focus.isArchived ? ' · archived' : ''}
+          </p>
+          <p className="muted small">
+            {isCredit ? 'Paid onto the card' : 'In'} {formatMoney(moneyIn, currency)} ·{' '}
+            {isCredit ? 'charged' : 'out'} {formatMoney(moneyOut, currency)}
+            {windowStart ? ` since ${formatDateLabel(windowStart)}` : ', all time'}.{' '}
+            {onAllAccounts ? (
+              <button type="button" className="button compact" onClick={onAllAccounts}>
+                Every account
+              </button>
+            ) : null}
+          </p>
+        </>
+      ) : null}
 
       {windowStart && hiddenCount > 0 ? (
         <p className="fine">
@@ -458,7 +536,13 @@ export function Ledger() {
                   <div className="row-main">
                     <span className="row-title">{row.memo || row.category}</span>
                     <span className="muted small">
-                      {TRANSACTION_KIND_LABEL[row.kind]} · {row.category} · {row.accountName}
+                      {TRANSACTION_KIND_LABEL[row.kind]} · {row.category}
+                      {focus ? '' : ` · ${row.accountName}`}
+                      {row.counterAccountId
+                        ? ` · ${row.amountCents < 0 ? 'to' : 'from'} ${
+                            accountNames.get(row.counterAccountId) ?? 'a removed account'
+                          }`
+                        : ''}
                       {row.splitGroupId ? ' · split transfer' : ''}
                       {local.has(row.id) ? ' · on this phone' : ''}
                     </span>
@@ -467,6 +551,15 @@ export function Ledger() {
                     <span className={row.amountCents > 0 ? 'amount positive' : 'amount'}>
                       {row.amountCents > 0 ? '+' : ''}
                       {formatMoney(row.amountCents, currency)}
+                      {history?.balanceAfter.has(row.id) ? (
+                        <span className="muted small balance-after">
+                          {formatMoney(
+                            (isCredit ? -1 : 1) * (history.balanceAfter.get(row.id) ?? 0),
+                            currency
+                          )}{' '}
+                          {isCredit ? 'owed' : 'after'}
+                        </span>
+                      ) : null}
                     </span>
                     <button
                       type="button"
@@ -492,7 +585,20 @@ export function Ledger() {
         ))
       )}
 
-      {snapshot.transactionTotal > SNAPSHOT_TRANSACTION_LIMIT ? (
+      {history && inWindow.length > shown.length ? (
+        <p className="fine">
+          Showing {shown.length.toLocaleString()} of {inWindow.length.toLocaleString()}.{' '}
+          <button
+            type="button"
+            className="button compact"
+            onClick={() => setHistoryLimit((limit) => limit + HISTORY_PAGE)}
+          >
+            Show more
+          </button>
+        </p>
+      ) : null}
+
+      {!history && snapshot.transactionTotal > SNAPSHOT_TRANSACTION_LIMIT ? (
         <p className="fine">
           Showing the newest {SNAPSHOT_TRANSACTION_LIMIT} entries, the same window the desktop app
           shows.
@@ -502,6 +608,7 @@ export function Ledger() {
       {editing ? (
         <EntrySheet
           row={editing === 'new' ? null : editing}
+          accountId={focus?.id}
           onClose={() => setEditing(null)}
         />
       ) : null}

@@ -20,6 +20,12 @@ export function App() {
   const dismissError = usePocket((state) => state.dismissError)
   const load = usePocket((state) => state.load)
   const [tab, setTab] = useState<Tab>('home')
+  // The Entries tab narrowed to one account; any tab change widens it again.
+  const [historyAccountId, setHistoryAccountId] = useState<string | null>(null)
+  const select = (next: Tab) => {
+    setHistoryAccountId(null)
+    setTab(next)
+  }
 
   useEffect(() => {
     void load()
@@ -52,17 +58,30 @@ export function App() {
         {status === 'locked' ? <UnlockVault /> : null}
         {status === 'ready' ? (
           <>
-            {tab === 'home' ? <Home go={setTab} /> : null}
+            {tab === 'home' ? <Home go={select} /> : null}
             {tab === 'bills' ? <Bills /> : null}
             {tab === 'goals' ? <Goals /> : null}
-            {tab === 'accounts' ? <Accounts /> : null}
-            {tab === 'ledger' ? <Ledger /> : null}
+            {tab === 'accounts' ? (
+              <Accounts
+                onHistory={(accountId) => {
+                  setHistoryAccountId(accountId)
+                  setTab('ledger')
+                }}
+              />
+            ) : null}
+            {tab === 'ledger' ? (
+              <Ledger
+                accountId={historyAccountId}
+                onAllAccounts={() => setHistoryAccountId(null)}
+                onBack={() => select('accounts')}
+              />
+            ) : null}
             {tab === 'data' ? <Data /> : null}
           </>
         ) : null}
       </main>
 
-      {status === 'ready' ? <Nav tab={tab} onSelect={setTab} /> : null}
+      {status === 'ready' ? <Nav tab={tab} onSelect={select} /> : null}
 
       {/* One sheet for both doors: a sealed file arrives from the first-run
           screen or from a merge on Data, and the answer is the same there. */}

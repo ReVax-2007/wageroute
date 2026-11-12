@@ -14,7 +14,14 @@ import { useDialogSave } from '../useDialogSave'
 // settled, so those kinds carry a picker. Everything else is a plain movement.
 const KINDS = Object.keys(TRANSACTION_KIND_LABEL) as TransactionKind[]
 
-export function EntryDialog({ onClose }: { onClose: () => void }) {
+export function EntryDialog({
+  onClose,
+  accountId
+}: {
+  onClose: () => void
+  /** Preselects this account when it can take an entry (not archived or locked). */
+  accountId?: string | null
+}) {
   const snapshot = useFinanceStore((state) => state.snapshot)
   const createTransaction = useFinanceStore((state) => state.createTransaction)
   const askConfirm = useFinanceStore((state) => state.askConfirm)
@@ -25,7 +32,7 @@ export function EntryDialog({ onClose }: { onClose: () => void }) {
   const goals = (snapshot?.goals ?? []).filter((goal) => !goal.isArchived)
   const [form, setForm] = useState({
     occurredOn: todayISO(),
-    accountId: accounts[0]?.id ?? '',
+    accountId: accounts.find((account) => account.id === accountId)?.id ?? accounts[0]?.id ?? '',
     counterAccountId: '',
     kind: 'expense' as TransactionKind,
     amount: '',

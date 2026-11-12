@@ -56,6 +56,86 @@ function sync(row: Row): {
 }
 
 /**
+ * Every live entry as a ledger row, newest first, with the desktop's
+ * tie-break (date, then written time, then id). The snapshot keeps the newest
+ * window; an account's history reads all of them.
+ */
+export function ledgerRows(
+  tables: ImportTables,
+  entries: readonly Row[] = tables.transactions.filter(isLive)
+): TransactionRow[] {
+  const accountById = new Map<string, Row>()
+  for (const row of tables.accounts) accountById.set(text(row, 'id'), row)
+  // The ledger describes a link by name; the file is the only source on a phone.
+  const billNames = new Map<string, string>()
+  for (const row of tables.bills) billNames.set(text(row, 'id'), text(row, 'name', 'Bill'))
+  const goalNames = new Map<string, string>()
+  for (const row of tables.goals) goalNames.set(text(row, 'id'), text(row, 'name', 'Goal'))
+  return entries
+    .map((row) => {
+      const account = accountById.get(text(row, 'account_id'))
+      return {
+        id: text(row, 'id'),
+        userId: text(row, 'user_id'),
+        accountId: text(row, 'account_id'),
+        kind: pick(TRANSACTION_KINDS, text(row, 'kind'), 'expense'),
+        amountCents: cents(row, 'amount_cents'),
+        occurredOn: text(row, 'occurred_on'),
+        memo: text(row, 'memo'),
+        category: text(row, 'category', 'Uncategorized'),
+        categoryId: nullableText(row, 'category_id'),
+        externalId: nullableText(row, 'external_id'),
+        billId: nullableText(row, 'bill_id'),
+        goalId: nullableText(row, 'goal_id'),
+        paycheckId: nullableText(row, 'paycheck_id'),
+        counterAccountId: nullableText(row, 'counter_account_id'),
+        transferGroupId: nullableText(row, 'transfer_group_id'),
+        splitGroupId: nullableText(row, 'split_group_id'),
+        ...sync(row),
+        accountName: account ? text(account, 'name') : 'Unknown account',
+        accountInstitution: account ? nullableText(account, 'institution') : null,
+        billName: billNames.get(text(row, 'bill_id')) ?? null,
+        goalName: goalNames.get(text(row, 'goal_id')) ?? null
+      }
+    })
+    .sort(
+      (a, b) =>
+        b.occurredOn.localeCompare(a.occurredOn) ||
+        b.createdAt.localeCompare(a.createdAt) ||
+        b.id.localeCompare(a.id)
+    )
+}
+
+/** One account's entries, newest first, with the balance after each. */
+export interface AccountHistory {
+  rows: TransactionRow[]
+  balanceAfter: Map<string, number>
+}
+
+/**
+ * Every live entry on one account, read from the whole file rather than the
+ * snapshot's newest window, walked back from the balance the account shows so
+ * the newest row always ends on it — the desktop's running balance, by the
+ * same order.
+ */
+export function accountHistory(
+  tables: ImportTables,
+  account: Pick<AccountWithBalance, 'id' | 'balanceCents'>
+): AccountHistory {
+  const entries = tables.transactions.filter(
+    (row) => isLive(row) && text(row, 'account_id') === account.id
+  )
+  const rows = ledgerRows(tables, entries)
+  const balanceAfter = new Map<string, number>()
+  let balance = account.balanceCents
+  for (const row of rows) {
+    balanceAfter.set(row.id, balance)
+    balance -= row.amountCents
+  }
+  return { rows, balanceAfter }
+}
+
+/**
  * Rebuilds what the main process would hand the screens, from the rows in a
  * backup. The same shared modules then do the money maths, so a phone and a
  * desktop with the same file agree on every number.
@@ -65,13 +145,6 @@ export function buildSnapshot(
   today: string = todayISO()
 ): Snapshot {
   const liveAccounts = tables.accounts.filter(isLive)
-  const accountById = new Map<string, Row>()
-  for (const row of tables.accounts) accountById.set(text(row, 'id'), row)
-  // The ledger describes a link by name; the file is the only source on a phone.
-  const billNames = new Map<string, string>()
-  for (const row of tables.bills) billNames.set(text(row, 'id'), text(row, 'name', 'Bill'))
-  const goalNames = new Map<string, string>()
-  for (const row of tables.goals) goalNames.set(text(row, 'id'), text(row, 'name', 'Goal'))
 
   // Balances are derived exactly as the desktop derives them: starting money
   // plus every live entry, with cash stopping at today.
@@ -124,38 +197,7 @@ export function buildSnapshot(
         byName(a.name, b.name)
     )
 
-  const transactions: TransactionRow[] = entries
-    .map((row) => {
-      const account = accountById.get(text(row, 'account_id'))
-      return {
-        id: text(row, 'id'),
-        userId: text(row, 'user_id'),
-        accountId: text(row, 'account_id'),
-        kind: pick(TRANSACTION_KINDS, text(row, 'kind'), 'expense'),
-        amountCents: cents(row, 'amount_cents'),
-        occurredOn: text(row, 'occurred_on'),
-        memo: text(row, 'memo'),
-        category: text(row, 'category', 'Uncategorized'),
-        categoryId: nullableText(row, 'category_id'),
-        externalId: nullableText(row, 'external_id'),
-        billId: nullableText(row, 'bill_id'),
-        goalId: nullableText(row, 'goal_id'),
-        paycheckId: nullableText(row, 'paycheck_id'),
-        counterAccountId: nullableText(row, 'counter_account_id'),
-        transferGroupId: nullableText(row, 'transfer_group_id'),
-        splitGroupId: nullableText(row, 'split_group_id'),
-        ...sync(row),
-        accountName: account ? text(account, 'name') : 'Unknown account',
-        accountInstitution: account ? nullableText(account, 'institution') : null,
-        billName: billNames.get(text(row, 'bill_id')) ?? null,
-        goalName: goalNames.get(text(row, 'goal_id')) ?? null
-      }
-    })
-    .sort(
-      (a, b) =>
-        b.occurredOn.localeCompare(a.occurredOn) ||
-        b.createdAt.localeCompare(a.createdAt)
-    )
+  const transactions: TransactionRow[] = ledgerRows(tables, entries)
     .slice(0, SNAPSHOT_TRANSACTION_LIMIT)
 
   const bills: Bill[] = tables.bills

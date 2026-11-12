@@ -16,8 +16,12 @@ export const createSessionSlice: StateCreator<FinanceState, [], [], SessionSlice
   confirmRequest: null,
   notice: null,
   snoozedPrompts: [],
+  ledgerAccountId: null,
 
-  go: (screen) => set({ screen }),
+  // Plain navigation forgets the account, so the sidebar's Spreadsheet is
+  // always every account; only a History action narrows it.
+  go: (screen) => set({ screen, ledgerAccountId: null }),
+  openAccountHistory: (accountId) => set({ screen: 'ledger', ledgerAccountId: accountId }),
 
   askConfirm: (request) =>
     new Promise<boolean>((resolve) => {

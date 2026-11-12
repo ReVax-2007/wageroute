@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { ArrowRightLeft, Pencil, Plus } from 'lucide-react'
+import { ArrowRightLeft, History, Pencil, Plus } from 'lucide-react'
 import {
   cardOwedCents,
   cardPaymentSources,
@@ -834,10 +834,12 @@ function AccountSheet({
   onAdjust,
   onPayCard,
   onRequestDelete,
+  onHistory,
   onClose
 }: {
   account: AccountWithBalance
   currency: string
+  onHistory: () => void
   onEdit: () => void
   onAdjust: () => void
   onPayCard: () => void
@@ -975,6 +977,9 @@ function AccountSheet({
       ) : null}
 
       <div className="card-actions">
+        <button type="button" className="button compact" disabled={saving} onClick={onHistory}>
+          <History size={15} aria-hidden="true" /> History
+        </button>
         {!account.isArchived && !account.isLocked ? (
           <>
             <button type="button" className="button compact" disabled={saving} onClick={onAdjust}>
@@ -1040,7 +1045,7 @@ function AccountSheet({
   )
 }
 
-export function Accounts() {
+export function Accounts({ onHistory }: { onHistory: (accountId: string) => void }) {
   const snapshot = useSnapshot()
   const tables = usePocket((state) => state.tables)
   const edit = usePocket((state) => state.edit)
@@ -1220,6 +1225,7 @@ export function Accounts() {
             setOpened(null)
           }}
           onRequestDelete={() => setPendingDelete(openedAccount)}
+          onHistory={() => onHistory(openedAccount.id)}
           onClose={() => setOpened(null)}
         />
       ) : null}

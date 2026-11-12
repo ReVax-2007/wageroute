@@ -408,6 +408,12 @@ a {
   white-space: nowrap;
 }
 
+.amount .balance-after {
+  display: block;
+  font-weight: 400;
+  text-align: right;
+}
+
 .amount.positive {
   color: var(--accent);
 }

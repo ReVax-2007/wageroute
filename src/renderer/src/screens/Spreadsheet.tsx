@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Landmark, Plus, Sheet, Trash2 } from 'lucide-react'
+import { ArrowLeft, Landmark, Lock, Plus, Sheet, Trash2 } from 'lucide-react'
+import { usableLabel } from '@shared/accounts'
 import { addDaysISO, formatDateLabel, todayISO } from '@shared/dates'
+import { formatMoney } from '@shared/money'
 import { entryDeletionWords } from '@shared/deletion'
 import { projectUpcoming } from '@shared/projections'
 import { LEDGER_WINDOWS, ledgerWindowStart } from '@shared/settings'
 import type {
+  AccountWithBalance,
   LedgerFilter,
   LedgerQuery,
   LedgerSort,
@@ -15,7 +18,7 @@ import { Button, EmptyState, Segmented } from '../components/ui'
 import { EntryDialog } from '../components/dialogs/EntryDialog'
 import { ProjectionsGrid } from '../components/ProjectionsGrid'
 import { TransactionsGrid } from '../components/TransactionsGrid'
-import { TRANSACTION_KIND_LABEL, activeBills } from '../lib/finance'
+import { ACCOUNT_KIND_LABEL, TRANSACTION_KIND_LABEL, accountDisplayBalanceCents, activeBills } from '../lib/finance'
 import { useFinanceStore } from '../store/useFinanceStore'
 
 type SheetTab = 'ledger' | 'projections'
@@ -62,17 +65,34 @@ export function Spreadsheet() {
   const askConfirm = useFinanceStore((state) => state.askConfirm)
   const notify = useFinanceStore((state) => state.notify)
   const saveSettings = useFinanceStore((state) => state.saveSettings)
+  const ledgerAccountId = useFinanceStore((state) => state.ledgerAccountId)
   const [tab, setTab] = useState<SheetTab>('ledger')
   const [adding, setAdding] = useState(false)
 
-  const [filters, setFilters] = useState<FilterForm>(NO_FILTERS)
+  // An account's History action opens the same grid narrowed to that account;
+  // the account picker below stays free to widen it again.
+  const [filters, setFilters] = useState<FilterForm>(() => ({
+    ...NO_FILTERS,
+    accountId: ledgerAccountId ?? ''
+  }))
   const [debouncedText, setDebouncedText] = useState('')
+
   const [sort, setSort] = useState<LedgerSort>('date_desc')
   const [page, setPage] = useState(0)
   const [pageData, setPageData] = useState<TransactionPage | null>(null)
   const [loading, setLoading] = useState(false)
   const [selected, setSelected] = useState<string[]>([])
   const [hiddenCount, setHiddenCount] = useState(0)
+
+  // The screen stays mounted when the sidebar's Spreadsheet is clicked from an
+  // account's history, so the focus is followed here rather than only at mount.
+  const [followedAccountId, setFollowedAccountId] = useState(ledgerAccountId)
+  if (followedAccountId !== ledgerAccountId) {
+    setFollowedAccountId(ledgerAccountId)
+    setFilters((current) => ({ ...current, accountId: ledgerAccountId ?? '' }))
+    setPage(0)
+    setSelected([])
+  }
 
   const projections = useMemo(() => {
     if (!snapshot) return []
@@ -193,10 +213,22 @@ export function Spreadsheet() {
     }
   }, [pageData, page])
 
+  // The page's figures arrive with it; a stale page for another account must not
+  // lend its balances to the one now picked.
+  const accountLedger =
+    pageData?.account && pageData.account.accountId === filters.accountId ? pageData.account : null
+  const focus = snapshot?.accounts.find((account) => account.id === filters.accountId) ?? null
+  const history = useMemo(
+    () => (focus && accountLedger ? { account: focus, balanceAfter: accountLedger.balanceAfter } : undefined),
+    [focus, accountLedger]
+  )
+
   if (!snapshot) return null
   const currency = settings.currency
   const liveAccounts = snapshot.accounts.filter((account) => !account.isArchived)
   const filtering = isFiltering(filters)
+  // An account's history is a view, not a filter: only the other fields narrow it.
+  const narrowed = isFiltering({ ...filters, accountId: focus ? '' : filters.accountId })
   const rows = pageData?.rows ?? []
   const total = pageData?.total ?? snapshot.transactionTotal
   const start = total === 0 ? 0 : page * PAGE_SIZE + 1
@@ -236,24 +268,46 @@ export function Spreadsheet() {
     <>
       <header className="page-head">
         <div>
-          <p className="eyebrow">Spreadsheet</p>
-          <h1 className="page-title" tabIndex={-1}>Every entry in one place</h1>
+          <p className="eyebrow">{focus ? 'Account history' : 'Spreadsheet'}</p>
+          <h1 className="page-title" tabIndex={-1}>
+            {focus ? focus.name : 'Every entry in one place'}
+          </h1>
           <p className="page-sub">
-            {tab === 'ledger'
-              ? 'Double-click a cell to change it. Edits save straight to your ledger.'
-              : `A look ahead at the next ${HORIZON_DAYS} days of bills and goal dates, based on your own numbers.`}
+            {tab !== 'ledger'
+              ? `A look ahead at the next ${HORIZON_DAYS} days of bills and goal dates, based on your own numbers.`
+              : focus
+                ? 'Every entry in and out of this account, with the balance after each one. Double-click a cell to change it.'
+                : 'Double-click a cell to change it. Edits save straight to your ledger.'}
           </p>
         </div>
-        <Button
-          variant="primary"
-          icon={<Plus size={16} />}
-          onClick={() => setAdding(true)}
-          disabled={liveAccounts.length === 0}
-          title={liveAccounts.length === 0 ? 'Add an account before recording an entry' : undefined}
-        >
-          Add entry
-        </Button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          {focus && (
+            <Button variant="quiet" icon={<ArrowLeft size={16} />} onClick={() => go('accounts')}>
+              Accounts
+            </Button>
+          )}
+          <Button
+            variant="primary"
+            icon={<Plus size={16} />}
+            onClick={() => setAdding(true)}
+            disabled={liveAccounts.length === 0}
+            title={liveAccounts.length === 0 ? 'Add an account before recording an entry' : undefined}
+          >
+            Add entry
+          </Button>
+        </div>
       </header>
+
+      {tab === 'ledger' && focus && (
+        <AccountHistorySummary
+          account={focus}
+          currency={currency}
+          inCents={accountLedger?.inCents ?? null}
+          outCents={accountLedger?.outCents ?? null}
+          from={queryFilter.from ?? null}
+          to={queryFilter.to ?? null}
+        />
+      )}
 
       <section className="card sheet-card">
         <header className="sheet-toolbar">
@@ -423,7 +477,18 @@ export function Spreadsheet() {
                 }
               />
             ) : rows.length === 0 ? (
-              !filtering && hiddenCount > 0 ? (
+              focus && !narrowed && hiddenCount === 0 ? (
+                <EmptyState
+                  icon={<Sheet size={20} />}
+                  title="Nothing on this account yet"
+                  body="Entries, transfers and payments that touch this account will show up here with the balance after each one."
+                  action={
+                    <Button variant="primary" onClick={() => setAdding(true)}>
+                      Add an entry
+                    </Button>
+                  }
+                />
+              ) : !narrowed && hiddenCount > 0 ? (
                 <EmptyState
                   icon={<Sheet size={20} />}
                   title="Nothing recent"
@@ -457,6 +522,7 @@ export function Spreadsheet() {
                 currency={currency}
                 selected={new Set(selected)}
                 onSelectedChange={setSelected}
+                history={history}
               />
             )
           ) : (
@@ -500,7 +566,74 @@ export function Spreadsheet() {
         )}
       </section>
 
-      {adding && <EntryDialog onClose={() => setAdding(false)} />}
+      {adding && <EntryDialog accountId={focus?.id} onClose={() => setAdding(false)} />}
     </>
+  )
+}
+
+/**
+ * The account's standing above its history: what it holds (a card: what is
+ * owed), its floor and lock, and the money in and out of the rows the filter
+ * keeps — so the totals change with the dates, the type and the search.
+ */
+function AccountHistorySummary({
+  account,
+  currency,
+  inCents,
+  outCents,
+  from,
+  to
+}: {
+  account: AccountWithBalance
+  currency: string
+  inCents: number | null
+  outCents: number | null
+  from: string | null
+  to: string | null
+}) {
+  const isCredit = account.kind === 'credit'
+  const usable = usableLabel(account, currency)
+  const period =
+    from && to
+      ? `${formatDateLabel(from)} to ${formatDateLabel(to)}`
+      : from
+        ? `Since ${formatDateLabel(from)}`
+        : to
+          ? `Up to ${formatDateLabel(to)}`
+          : 'All time'
+  const figure = (cents: number | null) => (cents === null ? '…' : formatMoney(cents, currency))
+  return (
+    <div className="account-summary" role="group" aria-label={`${account.name} summary`}>
+      <article className="summary-tile">
+        <span className="stat-label">{isCredit ? 'Owed now' : 'Balance now'}</span>
+        <p className="stat-value">{formatMoney(accountDisplayBalanceCents(account), currency)}</p>
+        <span className="stat-hint">
+          {ACCOUNT_KIND_LABEL[account.kind]}
+          {account.isArchived ? ' · archived' : ''}
+          {usable ? ` · ${usable}` : ''}
+        </span>
+      </article>
+      <article className="summary-tile">
+        <span className="stat-label">{isCredit ? 'Paid onto the card' : 'Money in'}</span>
+        <p className="stat-value">{figure(inCents)}</p>
+        <span className="stat-hint">{period}</span>
+      </article>
+      <article className="summary-tile">
+        <span className="stat-label">{isCredit ? 'Charged' : 'Money out'}</span>
+        <p className="stat-value">{figure(outCents)}</p>
+        <span className="stat-hint">{period}</span>
+      </article>
+      {account.isLocked && (
+        <article className="summary-tile">
+          <span className="stat-label">
+            <Lock size={12} aria-hidden="true" /> Locked
+          </span>
+          <p className="stat-hint">
+            Nothing moves in or out until you unlock it on the Accounts screen. Its history stays
+            readable.
+          </p>
+        </article>
+      )}
+    </div>
   )
 }

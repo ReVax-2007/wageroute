@@ -12,6 +12,7 @@ import {
   type Column,
   type RenderEditCellContentProps
 } from 'react-data-grid'
+import { accountFloorCents } from '@shared/accounts'
 import { categoryKey } from '@shared/categories'
 import { entryDeletionWords } from '@shared/deletion'
 import { formatDateLabel } from '@shared/dates'
@@ -32,7 +33,8 @@ export function TransactionsGrid({
   categories,
   currency,
   selected,
-  onSelectedChange
+  onSelectedChange,
+  history
 }: {
   rows: TransactionRow[]
   accounts: AccountWithBalance[]
@@ -40,6 +42,8 @@ export function TransactionsGrid({
   currency: string
   selected?: ReadonlySet<string>
   onSelectedChange?: (ids: string[]) => void
+  /** One account's history: adds the balance after each entry. */
+  history?: { account: AccountWithBalance; balanceAfter: Readonly<Record<string, number>> }
 }) {
   const updateTransaction = useFinanceStore((state) => state.updateTransaction)
   const deleteTransaction = useFinanceStore((state) => state.deleteTransaction)
@@ -102,6 +106,10 @@ export function TransactionsGrid({
 
   // A split transfer's legs carry one tag, so the transfers it wrote read as one.
   const splitSizes = useMemo(() => splitTransferSizes(rows), [rows])
+  const accountNames = useMemo(
+    () => new Map(accounts.map((account) => [account.id, account.name])),
+    [accounts]
+  )
 
   const columns = useMemo<Column<TransactionRow>[]>(
     () => [
@@ -192,6 +200,12 @@ export function TransactionsGrid({
                 {row.goalName}
               </span>
             )}
+            {row.counterAccountId && (
+              <span className="grid-link" title="The other side of this transfer">
+                {row.amountCents < 0 ? 'to' : 'from'}{' '}
+                {accountNames.get(row.counterAccountId) ?? 'a removed account'}
+              </span>
+            )}
             {row.splitGroupId && (
               <span
                 className="grid-link"
@@ -219,6 +233,7 @@ export function TransactionsGrid({
         ),
         renderEditCell: (props) => <MoneyEditor {...props} />
       },
+      ...(history ? [balanceColumn(history, currency)] : []),
       {
         key: 'actions',
         name: 'Actions',
@@ -255,7 +270,7 @@ export function TransactionsGrid({
         }
       }
     ],
-    [accounts, askConfirm, categories, countEntryDeletion, currency, deleteTransaction, onSelectedChange, pending, refresh, splitSizes, updateTransaction]
+    [accountNames, accounts, askConfirm, categories, countEntryDeletion, currency, deleteTransaction, history, onSelectedChange, pending, refresh, splitSizes, updateTransaction]
   )
 
   return (
@@ -278,6 +293,38 @@ export function TransactionsGrid({
       defaultColumnOptions={{ resizable: true }}
     />
   )
+}
+
+/**
+ * The account's balance right after each entry. A card reads as money owed,
+ * the way the Accounts screen shows it; a balance under the account's floor is
+ * flagged, since that is money the app would not have offered (ADR 0035).
+ */
+function balanceColumn(
+  history: { account: AccountWithBalance; balanceAfter: Readonly<Record<string, number>> },
+  currency: string
+): Column<TransactionRow> {
+  const isCredit = history.account.kind === 'credit'
+  const floor = accountFloorCents(history.account)
+  return {
+    key: 'balanceAfter',
+    name: isCredit ? 'Owed after' : 'Balance after',
+    width: 128,
+    renderCell: ({ row }) => {
+      const balance = history.balanceAfter[row.id]
+      if (balance === undefined) return null
+      const underFloor = floor !== null && balance < floor
+      const shown = isCredit ? -balance : balance
+      return (
+        <span
+          className={underFloor || (!isCredit && balance < 0) ? 'num grid-amount negative' : 'num grid-amount'}
+          title={underFloor ? `Under the ${formatMoney(floor, currency)} floor` : undefined}
+        >
+          {formatMoney(shown, currency)}
+        </span>
+      )
+    }
+  }
 }
 
 /**

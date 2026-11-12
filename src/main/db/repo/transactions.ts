@@ -11,6 +11,7 @@ import type {
   AccountKind,
   BillPaymentEntry,
   BillPaymentTotal,
+  AccountLedger,
   LedgerQuery,
   LedgerSort,
   SplitTransferInput,
@@ -106,7 +107,7 @@ const TRANSACTION_SELECT = `
   LEFT JOIN bills b ON b.id = t.bill_id AND b.user_id = t.user_id
   LEFT JOIN goals g ON g.id = t.goal_id AND g.user_id = t.user_id`
 
-const TRANSACTION_ORDER = 'ORDER BY t.occurred_on DESC, t.created_at DESC'
+const TRANSACTION_ORDER = 'ORDER BY t.occurred_on DESC, t.created_at DESC, t.id DESC'
 
 export function listTransactions(db: Db, userId: string, limit = 500): TransactionRow[] {
   return db
@@ -228,8 +229,11 @@ export function transactionCount(db: Db, userId: string): number {
 }
 
 const LEDGER_SORTS: Record<LedgerSort, string> = {
-  date_desc: 't.occurred_on DESC, t.created_at DESC',
-  date_asc: 't.occurred_on ASC, t.created_at ASC',
+  // The id breaks ties the same way the running balance does, so two entries
+  // written in one instant (the legs of a split) never swap places between
+  // pages or against the Balance column.
+  date_desc: 't.occurred_on DESC, t.created_at DESC, t.id DESC',
+  date_asc: 't.occurred_on ASC, t.created_at ASC, t.id ASC',
   amount_desc: 'ABS(t.amount_cents) DESC, t.occurred_on DESC',
   amount_asc: 'ABS(t.amount_cents) ASC, t.occurred_on DESC'
 }
@@ -305,7 +309,54 @@ export function queryTransactions(db: Db, userId: string, query: LedgerQuery): T
       .get(...args) as { total: number }
   ).total
 
-  return { rows, total }
+  if (!query.filter.accountId) return { rows, total }
+  return { rows, total, account: accountLedger(db, userId, query.filter.accountId, rows, whereSql, args) }
+}
+
+/**
+ * The balance after each page row and the filter's money in and out. The
+ * running sum walks the one account's live entries through
+ * `idx_transactions_account`, oldest first, with the same tie-break as the
+ * date sorts; only the page's ids come back.
+ */
+function accountLedger(
+  db: Db,
+  userId: string,
+  accountId: string,
+  rows: readonly TransactionRow[],
+  whereSql: string,
+  args: readonly unknown[]
+): AccountLedger {
+  const balanceAfter: Record<string, number> = {}
+  if (rows.length > 0) {
+    const ids = rows.map((row) => row.id)
+    const found = db
+      .prepare(
+        `WITH running AS (
+           SELECT t.id,
+                  a.starting_balance_cents + SUM(t.amount_cents) OVER (
+                    ORDER BY t.occurred_on, t.created_at, t.id
+                    ROWS UNBOUNDED PRECEDING
+                  ) AS balance
+           FROM transactions t
+           JOIN accounts a ON a.id = t.account_id
+           WHERE t.account_id = ? AND t.user_id = ? AND t.deleted_at IS NULL
+         )
+         SELECT id, balance FROM running
+         WHERE id IN (${ids.map(() => '?').join(',')})`
+      )
+      .all(accountId, userId, ...ids) as { id: string; balance: number }[]
+    for (const row of found) balanceAfter[row.id] = row.balance
+  }
+  const sums = db
+    .prepare(
+      `SELECT COALESCE(SUM(CASE WHEN t.amount_cents > 0 THEN t.amount_cents END), 0) AS inCents,
+              COALESCE(SUM(CASE WHEN t.amount_cents < 0 THEN -t.amount_cents END), 0) AS outCents
+       FROM transactions t
+       WHERE ${whereSql}`
+    )
+    .get(...args) as { inCents: number; outCents: number }
+  return { accountId, balanceAfter, inCents: sums.inCents, outCents: sums.outCents }
 }
 
 
