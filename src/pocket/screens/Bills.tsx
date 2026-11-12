@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Pencil, Plus } from 'lucide-react'
 import {
   BILL_FUNDING_STRATEGY_LABEL,
+  BILL_PERIODS_PER_YEAR,
   FREQUENCY_LABEL,
   PAY_CADENCE_LABEL,
   reachableCheckIndexes
@@ -10,6 +11,7 @@ import { formatDateLabel } from '@shared/dates'
 import { billDeletionWords } from '@shared/deletion'
 import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
 import type { AppSettings, Bill, BillFundingStrategy, BillInput, Frequency } from '@shared/types'
+import { billVariance } from '@shared/variableBills'
 import { ordinal } from '../../renderer/src/lib/finance'
 import { Checkbox, Field } from '../components/Field'
 import { DeleteConfirm } from '../components/DeleteConfirm'
@@ -48,6 +50,7 @@ interface BillForm {
   accountId: string
   autopay: boolean
   isActive: boolean
+  isVariable: boolean
   fundingStrategy: BillFundingStrategy
   fundingPaycheckIndex: string
 }
@@ -62,6 +65,7 @@ function formFor(bill: Bill | null, fallbackAccount: string): BillForm {
     accountId: bill?.accountId ?? fallbackAccount,
     autopay: bill?.autopay ?? true,
     isActive: bill?.isActive ?? true,
+    isVariable: bill?.isVariable ?? false,
     fundingStrategy: bill?.fundingStrategy ?? 'all_checks',
     fundingPaycheckIndex: bill?.fundingPaycheckIndex ? String(bill.fundingPaycheckIndex) : '1'
   }
@@ -123,6 +127,7 @@ function BillFormSheet({
       accountId: form.accountId || null,
       autopay: form.autopay,
       isActive: form.isActive,
+      isVariable: form.isVariable,
       nextDueOn: bill?.nextDueOn ?? null,
       fundingStrategy: form.fundingStrategy,
       fundingPaycheckIndex:
@@ -151,7 +156,7 @@ function BillFormSheet({
           onChange={(event) => setForm({ ...form, name: event.target.value })}
         />
       </Field>
-      <Field label="Amount">
+      <Field label={form.isVariable ? 'Estimate' : 'Amount'}>
         <MoneyInput
           value={form.amount}
           placeholder="1,850.00"
@@ -254,11 +259,23 @@ function BillFormSheet({
           onChange={(autopay) => setForm({ ...form, autopay })}
         />
         <Checkbox
+          label="Amount varies"
+          checked={form.isVariable}
+          onChange={(isVariable) => setForm({ ...form, isVariable })}
+        />
+        <Checkbox
           label="Use this bill"
           checked={form.isActive}
           onChange={(isActive) => setForm({ ...form, isActive })}
         />
       </div>
+      {form.isVariable ? (
+        <p className="fine">
+          Amount varies · paychecks set the amount aside as an estimate. When it clears you say what
+          it really was, and anything under goes back to Safe to spend. Autopay asks instead of
+          posting a guess.
+        </p>
+      ) : null}
       {!form.isActive ? (
         <p className="fine">Paused · left off the Bills page and every paycheck until you turn it back on.</p>
       ) : null}
@@ -300,26 +317,47 @@ function BillSheet({
   const paid = line.state === 'paid'
   const tables = usePocket((state) => state.tables)
   const floorGate = useFloorGate(currency)
+  const variable = line.bill.isVariable
+  // A variable bill asks what it came to, starting at the estimate so an
+  // unchanged bill is still one tap (ADR 0036).
+  const [actual, setActual] = useState(() =>
+    centsToEditable(Math.max(0, line.bill.amountCents - line.paidCents))
+  )
+  const typedCents = variable ? parseMoneyToCents(actual) : null
+  const options = variable && typedCents !== null && typedCents > 0 ? { actualCents: typedCents } : {}
+  const variance =
+    variable && typedCents !== null && typedCents > 0
+      ? billVariance(line.bill.amountCents, typedCents)
+      : null
+  // What this month really cost, once a variable bill has cleared.
+  const cleared =
+    variable && line.actualCents > 0 && BILL_PERIODS_PER_YEAR[line.bill.frequency] <= 12
+      ? billVariance(line.bill.amountCents, line.actualCents)
+      : null
 
   const markPaid = () => {
     if (!tables) return
+    if (variable && (typedCents === null || typedCents <= 0)) {
+      setError('Enter what the bill came to')
+      return
+    }
     // Ask before a payment takes its account under a floor (ADR 0035). A plan
     // that cannot be made is left to payBill, which refuses with its reason.
     try {
-      const plan = billPaymentPlan(tables, line.bill.id)
+      const plan = billPaymentPlan(tables, line.bill.id, options)
       const account = snapshot?.accounts.find((item) => item.id === plan.accountId)
       if (!floorGate.allow(account, plan.amountCents)) return
     } catch {
       // payBill below names the problem.
     }
     setError(null)
-    void run(() => add((current) => payBill(current, line.bill.id), 'Payment saved on this phone.'))
+    void run(() => add((current) => payBill(current, line.bill.id, options), 'Payment saved on this phone.'))
   }
 
   return (
     <Sheet
       title={line.bill.name}
-      hint={`${formatMoney(line.bill.amountCents, currency)} ${FREQUENCY_LABEL[line.bill.frequency]} · ${STATE_LABEL[line.state]}`}
+      hint={`${variable ? 'About ' : ''}${formatMoney(line.bill.amountCents, currency)} ${FREQUENCY_LABEL[line.bill.frequency]} · ${STATE_LABEL[line.state]}`}
       onClose={onClose}
     >
       <ul className="facts">
@@ -327,7 +365,19 @@ function BillSheet({
         <li>About {formatMoney(line.perCheckCents, currency)} out of every paycheck</li>
         {line.bill.category ? <li>Category {line.bill.category}</li> : null}
         <li>{line.accountName ? `Paid from ${line.accountName}` : 'No account picked yet'}</li>
-        {line.paidCents > 0 ? <li>{formatMoney(line.paidCents, currency)} paid this month</li> : null}
+        {variable ? <li>Amount varies · {formatMoney(line.bill.amountCents, currency)} is the estimate</li> : null}
+        {cleared ? (
+          <li>
+            Came to {formatMoney(line.actualCents, currency)}
+            {cleared.underCents > 0
+              ? ` · ${formatMoney(cleared.underCents, currency)} under, back to Safe to spend`
+              : cleared.overCents > 0
+                ? ` · ${formatMoney(cleared.overCents, currency)} over the estimate`
+                : ' · right on the estimate'}
+          </li>
+        ) : line.paidCents > 0 ? (
+          <li>{formatMoney(variable ? line.actualCents : line.paidCents, currency)} paid this month</li>
+        ) : null}
         <li>{line.bill.autopay ? 'Autopay is on' : 'Autopay is off'}</li>
         <li>{line.bill.isActive ? 'In the plan' : 'Paused'}</li>
       </ul>
@@ -336,6 +386,22 @@ function BillSheet({
         <p className="form-error" role="alert">
           {error}
         </p>
+      ) : null}
+      {variable && !paid ? (
+        <Field
+          label="It came to"
+          hint={
+            variance === null
+              ? 'Enter what the bill came to'
+              : variance.underCents > 0
+                ? `${formatMoney(variance.underCents, currency)} under the estimate · back to Safe to spend`
+                : variance.overCents > 0
+                  ? `${formatMoney(variance.overCents, currency)} over the estimate`
+                  : 'Exactly the estimate'
+          }
+        >
+          <MoneyInput value={actual} onValueChange={setActual} />
+        </Field>
       ) : null}
       <FloorWarning text={floorGate.warning} />
 
@@ -347,7 +413,7 @@ function BillSheet({
             disabled={saving}
             onClick={markPaid}
           >
-            {floorGate.confirmLabel ?? 'Mark paid'}
+            {floorGate.confirmLabel ?? (variable ? 'It cleared' : 'Mark paid')}
           </button>
         ) : null}
         <button
@@ -474,7 +540,11 @@ export function Bills() {
                   aria-label={`${line.bill.name}, paid`}
                 >
                   <span className="row-title">{line.bill.name}</span>
-                  <span className="muted small">{line.accountName ?? 'Paid'}</span>
+                  <span className="muted small">
+                    {line.bill.isVariable && line.actualCents > 0
+                      ? `Came to ${formatMoney(line.actualCents, currency)}`
+                      : (line.accountName ?? 'Paid')}
+                  </span>
                 </button>
                 <div className="row-end">
                   <span className="amount muted">{formatMoney(line.bill.amountCents, currency)}</span>

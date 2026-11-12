@@ -1,4 +1,5 @@
 import type { BillReserveState, Frequency } from './types'
+import { creditedPaymentCents, type CreditableBill } from './variableBills'
 
 /**
  * The rule that decides whether a bill's set-aside has been spent.
@@ -75,10 +76,15 @@ function byCodeUnit(a: string, b: string): number {
  *
  * Callers must hand over the claims of one bill and the entries recorded against
  * it — a payment for one bill never settles another's promise.
+ *
+ * Pass the bill itself when it may be variable: each payment is then offered at
+ * least the estimate (ADR 0036), so a $51 payment closes a $70 claim instead of
+ * leaving $19 reserved for a bill that has already cleared.
  */
 export function deriveClaimStates(
   claims: readonly ClaimFact[],
-  payments: readonly PaymentFact[]
+  payments: readonly PaymentFact[],
+  bill?: CreditableBill
 ): ClaimOutcome[] {
   // Ordered here rather than by each caller's query so neither device can settle
   // a different claim first: cycle, then the row's own creation, then its id.
@@ -88,7 +94,11 @@ export function deriveClaimStates(
       byCodeUnit(a.createdAt, b.createdAt) ||
       byCodeUnit(a.id, b.id)
   )
-  const received = [...payments].sort(
+  const received = payments
+    .map((payment) =>
+      bill ? { ...payment, amountCents: creditedPaymentCents(bill, payment.amountCents) } : payment
+    )
+    .sort(
     (a, b) =>
       byCodeUnit(a.occurredOn, b.occurredOn) ||
       byCodeUnit(a.createdAt, b.createdAt) ||

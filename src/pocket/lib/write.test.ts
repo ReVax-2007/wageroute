@@ -1064,3 +1064,39 @@ test('Mark paid can be previewed, so the sheet can ask about the floor first', (
   assert.equal(text(row, 'account_id'), plan.accountId)
   assert.equal(cents(row, 'amount_cents'), plan.amountCents, 'payBill posts exactly the plan')
 })
+
+/** ADR 0036: the phone clears a variable bill by its real figure, as the computer does. */
+function variableRent(tables: ImportTables): ImportTables {
+  return {
+    ...tables,
+    bills: tables.bills.map((row) => (text(row, 'id') === 'rent' ? { ...row, amount_cents: 7_000, is_variable: 1 } : row))
+  }
+}
+
+test('Mark paid on a variable bill posts the figure typed, and the estimate by default', () => {
+  const tables = withClaim(variableRent(ledger()), 7_000)
+  assert.equal(billPaymentPlan(tables, 'rent').amountCents, -7_000, 'unchanged is the estimate')
+
+  const paid = payBill(tables, 'rent', { actualCents: 5_100 })
+  assert.equal(cents(rowOf(paid.tables, paid.id), 'amount_cents'), -5_100)
+  assert.equal(text(rowOf(paid.tables, 'claim-1'), 'state'), 'paid', 'the $70 claim is settled by $51')
+  assert.equal(billPaidThisMonthCents(paid.tables, 'rent', todayISO()), 7_000)
+  assert.equal(refusal(() => payBill(paid.tables, 'rent')).message, 'This bill is already paid for the month')
+
+  const [total] = buildSnapshot(paid.tables).billPaymentsThisMonth
+  assert.deepEqual(
+    { paidCents: total.paidCents, actualCents: total.actualCents },
+    { paidCents: 7_000, actualCents: 5_100 }
+  )
+  assert.equal(refusal(() => billPaymentPlan(tables, 'rent', { actualCents: 0 })).code, 'VALIDATION')
+  assert.equal(refusal(() => billPaymentPlan(tables, 'rent', { actualCents: -100 })).code, 'VALIDATION')
+})
+
+test('a fixed bill ignores a typed figure and the flag round-trips through the form', () => {
+  const tables = withClaim(ledger())
+  assert.equal(billPaymentPlan(tables, 'rent', { actualCents: 5_100 }).amountCents, -120_000)
+  const variable = patchBill(tables, 'rent', { isVariable: true })
+  assert.equal(flag(rowOf(variable, 'rent'), 'is_variable'), true)
+  assert.equal(buildSnapshot(variable).bills[0].isVariable, true)
+  assert.equal(buildSnapshot(tables).bills[0].isVariable, false, 'a row without the key is fixed')
+})

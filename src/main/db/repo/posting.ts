@@ -26,7 +26,12 @@ export function postDueAutopay(
   userId: string,
   today: string = todayISO()
 ): AutopayResult {
-  const bills = listBills(db, userId).filter((bill) => bill.isActive && bill.autopay)
+  // A variable bill's amount is only an estimate, and the ledger holds what
+  // happened (ADR 0016): its autopay is not posted for a guessed figure. It stays
+  // on the "did it clear?" card, estimate filled in, for one tap (ADR 0036).
+  const bills = listBills(db, userId).filter(
+    (bill) => bill.isActive && bill.autopay && !bill.isVariable
+  )
   if (bills.length === 0) return { posted: 0, skipped: 0 }
 
   const payments = db

@@ -1,6 +1,6 @@
 # Data model
 
-WageRoute stores every financial fact in one SQLite database, `wageroute.db`, using `STRICT` tables, integer cents, UUID text keys and ISO-8601 timestamps. This document describes the schema at version 12, the semantics of each column, the derived values the app computes at read time, and the invariants that keep the ledger coherent.
+WageRoute stores every financial fact in one SQLite database, `wageroute.db`, using `STRICT` tables, integer cents, UUID text keys and ISO-8601 timestamps. This document describes the schema at version 13, the semantics of each column, the derived values the app computes at read time, and the invariants that keep the ledger coherent.
 
 That one file is the ledger, not the whole installation. Beside it live `ledger.key.json` (only the wraps that can produce the ledger's key, when the owner turns encryption on) and, in the app's own folder, `storage.json` (which folder to use) and `backups/` (the daily and pre-upgrade copies). The phone keeps its own copy of these same tables in IndexedDB. Nothing in the schema records any of it — see [Encryption is not schema state](#encryption-is-not-schema-state).
 
@@ -225,6 +225,7 @@ Semantics:
 | `next_due_on` | TEXT | nullable | Optional explicit anchor for projections |
 | `funding_strategy` | TEXT | NOT NULL, default `'all_checks'`, CHECK in `all_checks,closest_due_date,specific_check,first_check,last_check` | Added in v5; `last_check` added in v6 (the CHECK widened, the default did not). Which paycheck of the month sets the money aside |
 | `funding_paycheck_index` | INTEGER | nullable | Added in v5. Only used by `specific_check`: the 1-based paycheck the user picked |
+| `is_variable` | INTEGER | NOT NULL DEFAULT 0, CHECK 0/1 | Added in v13. `1` makes `amount_cents` an estimate: each payment counts as at least the estimate (`creditedPaymentCents`), so one payment of any size clears an occurrence and autopay skips the bill ([ADR 0036](decisions/0036-a-variable-bill-is-cleared-by-what-it-came-to.md)) |
 | `created_at` | TEXT | NOT NULL | |
 | `updated_at` | TEXT | NOT NULL | |
 | `deleted_at` | TEXT | nullable | |
@@ -557,8 +558,9 @@ Migrations run inside a transaction per version and are tracked by `PRAGMA user_
 | **10** | Adds `goals.funding_pace` (NOT NULL, default `'asap'`, CHECKed enum) | The sinking fund needs an explicit answer to “what should happen to this goal on payday”: fund it now, spread it to its target date, or leave it alone. Existing goals default to `asap`, which is exactly the pre-v10 behaviour, so an upgraded database funds the same goals on the same cheque |
 | **11** | Adds `accounts.is_locked` (NOT NULL, default 0, CHECK 0/1), `transactions.split_group_id` (nullable) and the partial index `idx_transactions_split_group` | A locked account is frozen money ([ADR 0034](decisions/0034-a-locked-account-is-frozen-money.md)), and the transfers one split writes show and leave together ([ADR 0033](decisions/0033-a-split-transfer-is-ordinary-transfers-saved-together.md)). Existing accounts start unlocked and existing entries belong to no split, so an upgraded ledger behaves exactly as before |
 | **12** | Adds `accounts.floor_cents` (nullable, CHECK integer ≥ 0) | An optional floor per deposit account ([ADR 0035](decisions/0035-a-floor-is-money-the-app-will-not-offer.md)). Every existing account gets `NULL`, no floor, so an upgraded ledger behaves exactly as before |
+| **13** | Adds `bills.is_variable` (NOT NULL DEFAULT 0, CHECK 0/1) | Variable bills ([ADR 0036](decisions/0036-a-variable-bill-is-cleared-by-what-it-came-to.md)). Every existing bill gets `0`, fixed, so an upgraded ledger behaves exactly as before |
 
-`SCHEMA_VERSION` is derived from the last migration and is reported in JSON backups. Backups with a higher version are rejected. Backups older than version 2 are rejected; every version from 2 through 12 is accepted.
+`SCHEMA_VERSION` is derived from the last migration and is reported in JSON backups. Backups with a higher version are rejected. Backups older than version 2 are rejected; every version from 2 through 13 is accepted.
 
 Migration procedure for future work is in [DEVELOPMENT.md](DEVELOPMENT.md#adding-a-schema-migration).
 

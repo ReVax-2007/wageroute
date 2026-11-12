@@ -3,8 +3,9 @@ import { isUsableAccount } from '@shared/accounts'
 import { Check, Clock } from 'lucide-react'
 import { dueBillPrompts, type BillPrompt } from '@shared/billPrompts'
 import { formatDateLabel, formatMonthLong, isISODate, todayISO } from '@shared/dates'
-import { formatMoney } from '@shared/money'
-import { Button } from './ui'
+import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
+import { billVariance } from '@shared/variableBills'
+import { Button, MoneyInput } from './ui'
 import { confirmFloor } from '../lib/finance'
 import { useFinanceStore } from '../store/useFinanceStore'
 
@@ -22,6 +23,9 @@ export function BillPrompts() {
   // A bill that came due last month cannot be logged at its due date without
   // reaching back a month, so those rows let the user say when it really left.
   const [paidOn, setPaidOn] = useState<Record<string, string>>({})
+  // A variable bill asks what it really came to; the field starts at the
+  // estimate so confirming an unchanged amount is still one click (ADR 0036).
+  const [actual, setActual] = useState<Record<string, string>>({})
 
   if (!snapshot) return null
 
@@ -57,12 +61,21 @@ export function BillPrompts() {
   // payment would land in a month the user may not be looking at.
   const lateMonth = (prompt: BillPrompt): boolean => prompt.dueOn.slice(0, 7) !== today.slice(0, 7)
   const dateFor = (prompt: BillPrompt): string => paidOn[promptKey(prompt)] ?? prompt.dueOn
+  const remainingOf = (prompt: BillPrompt): number => Math.max(0, prompt.amountCents - prompt.paidCents)
+  const actualText = (prompt: BillPrompt): string =>
+    actual[promptKey(prompt)] ?? centsToEditable(remainingOf(prompt))
+  /** What "Yes, it cleared" posts: the typed figure on a variable bill, else the remainder. */
+  const amountFor = (prompt: BillPrompt): number | null => {
+    if (!prompt.isVariable) return remainingOf(prompt)
+    const typed = parseMoneyToCents(actualText(prompt))
+    return typed !== null && typed > 0 ? typed : null
+  }
 
   const markPaid = async (prompt: BillPrompt) => {
     const accountId = accountFor(prompt)
     if (!accountId) return
-    const remainingCents = Math.max(0, prompt.amountCents - prompt.paidCents)
-    if (remainingCents === 0) return
+    const remainingCents = amountFor(prompt)
+    if (!remainingCents) return
     const key = promptKey(prompt)
     const occurredOn = dateFor(prompt)
     if (!isISODate(occurredOn) || occurredOn > today) return
@@ -101,6 +114,11 @@ export function BillPrompts() {
             const needsDate = lateMonth(prompt)
             const paidDate = dateFor(prompt)
             const dateOk = !needsDate || (isISODate(paidDate) && paidDate <= today)
+            const typedCents = amountFor(prompt)
+            const variance =
+              prompt.isVariable && typedCents !== null
+                ? billVariance(prompt.amountCents, typedCents)
+                : null
             return (
               <li key={key} className="prompt-row">
                 <span className="prompt-icon">
@@ -150,16 +168,35 @@ export function BillPrompts() {
                       </span>
                     </label>
                   )}
+                  {variance && (
+                    <span className="prompt-due prompt-variance">
+                      {variance.underCents > 0
+                        ? `${formatMoney(variance.underCents, settings.currency)} under the estimate · back to Left to spend`
+                        : variance.overCents > 0
+                          ? `${formatMoney(variance.overCents, settings.currency)} over the estimate`
+                          : `Estimate ${formatMoney(prompt.amountCents, settings.currency)} · change it if the bill was different`}
+                    </span>
+                  )}
                 </div>
-                <span className="prompt-amount num">
-                  {formatMoney(prompt.amountCents - prompt.paidCents, settings.currency)}
-                </span>
+                {prompt.isVariable ? (
+                  <MoneyInput
+                    className="input prompt-actual num"
+                    aria-label={`What ${prompt.name} came to`}
+                    value={actualText(prompt)}
+                    disabled={pending}
+                    onValueChange={(value) => setActual((state) => ({ ...state, [key]: value }))}
+                  />
+                ) : (
+                  <span className="prompt-amount num">
+                    {formatMoney(prompt.amountCents - prompt.paidCents, settings.currency)}
+                  </span>
+                )}
                 <div className="prompt-actions">
                   <Button
                     variant="primary"
                     size="sm"
                     icon={<Check size={14} />}
-                    disabled={pending || !accountId || !dateOk}
+                    disabled={pending || !accountId || !dateOk || typedCents === null}
                     title={accountId ? 'Log this bill as paid' : 'No account available'}
                     onClick={() => void markPaid(prompt)}
                   >

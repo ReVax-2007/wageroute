@@ -86,6 +86,8 @@ export interface BillLine {
   state: BillState
   accountName: string | null
   paidCents: number
+  /** What really left this month; differs from `paidCents` only on a variable bill. */
+  actualCents: number
 }
 
 /**
@@ -103,6 +105,9 @@ export function billLines(snapshot: Snapshot, today: string = todayISO()): BillL
   )
   const paid = new Map(
     snapshot.billPaymentsThisMonth.map((row) => [row.billId, Math.max(0, row.paidCents)])
+  )
+  const actual = new Map(
+    snapshot.billPaymentsThisMonth.map((row) => [row.billId, Math.max(0, row.actualCents)])
   )
   const accounts = new Map(snapshot.accounts.map((account) => [account.id, account.name]))
 
@@ -127,7 +132,8 @@ export function billLines(snapshot: Snapshot, today: string = todayISO()): BillL
         daysUntil: daysBetweenISO(today, dueOn),
         state,
         accountName: bill.accountId ? (accounts.get(bill.accountId) ?? null) : null,
-        paidCents
+        paidCents,
+        actualCents: actual.get(bill.id) ?? 0
       }
     })
     .sort((a, b) => a.bill.dueDay - b.bill.dueDay || byName(a.bill.name, b.bill.name))

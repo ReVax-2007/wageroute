@@ -158,6 +158,11 @@ export function transactionRowsFor(db: Db, userId: string, id: string): Transact
  * A payment made from a credit account is reported in `creditCents` as well:
  * it settled the bill without taking anything out of the spendable pool, so the
  * caller that measures that pool must not treat it as released.
+ *
+ * `paidCents` applies the variable-bill rule row by row, the same rule as
+ * `creditedPaymentCents` in `@shared/variableBills` (ADR 0036): a spend on a
+ * variable bill counts as at least its estimate. `actualCents` is the plain
+ * sum, for the screens that show what really left.
  */
 export function listBillPaymentsThisMonth(
   db: Db,
@@ -168,10 +173,14 @@ export function listBillPaymentsThisMonth(
   return db
     .prepare(
       `SELECT t.bill_id AS billId,
-              SUM(-t.amount_cents) AS paidCents,
+              SUM(CASE WHEN b.is_variable = 1 AND t.amount_cents < 0
+                       THEN MAX(-t.amount_cents, b.amount_cents)
+                       ELSE -t.amount_cents END) AS paidCents,
+              SUM(-t.amount_cents) AS actualCents,
               SUM(CASE WHEN a.kind = 'credit' THEN -t.amount_cents ELSE 0 END) AS creditCents
        FROM transactions t
        JOIN accounts a ON a.id = t.account_id
+       LEFT JOIN bills b ON b.id = t.bill_id AND b.user_id = t.user_id
        WHERE t.user_id = ? AND t.deleted_at IS NULL
          AND t.bill_id IS NOT NULL
          AND t.kind IN ('bill_payment','expense')

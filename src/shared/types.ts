@@ -115,6 +115,8 @@ export interface Bill extends SyncMeta {
   nextDueOn: string | null
   fundingStrategy: BillFundingStrategy
   fundingPaycheckIndex: number | null
+  /** The amount is an estimate; one payment of any size clears an occurrence (ADR 0036). */
+  isVariable: boolean
 }
 
 export interface Goal extends SyncMeta {
@@ -196,7 +198,13 @@ export interface TransactionRow extends Transaction {
  */
 export interface BillPaymentTotal {
   billId: string
+  /**
+   * What the month counts as paid. On a variable bill each payment counts for at
+   * least the estimate (ADR 0036), so a cheaper bill still reads settled.
+   */
   paidCents: number
+  /** What actually left, before that rule: the figure to show next to the estimate. */
+  actualCents: number
   /**
    * The part paid from a credit account. That money never left the spendable
    * pool — it became card debt — so Safe to Spend keeps withholding it.
@@ -379,6 +387,7 @@ export interface BillInput {
   nextDueOn: string | null
   fundingStrategy?: BillFundingStrategy
   fundingPaycheckIndex?: number | null
+  isVariable?: boolean
 }
 
 export interface GoalInput {

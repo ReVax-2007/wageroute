@@ -86,7 +86,7 @@ function snapshot(reserves: ReturnType<typeof reserve>[], paidCents = 0) {
     categories: [],
     transactions: [],
     transactionTotal: 0,
-    billPaymentsThisMonth: paidCents > 0 ? [{ billId: BILL_ID, paidCents, creditCents: 0 }] : [],
+    billPaymentsThisMonth: paidCents > 0 ? [{ billId: BILL_ID, paidCents, actualCents: paidCents, creditCents: 0 }] : [],
     billPayments: [],
     paychecks: [],
     paycheckTotal: 0,
