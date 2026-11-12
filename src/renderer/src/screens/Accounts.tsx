@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import {
   Archive,
   ArrowRightLeft,
+  History,
   Landmark,
   Lock,
   LockOpen,
@@ -36,6 +37,7 @@ export function Accounts() {
   const archiveAccount = useFinanceStore((state) => state.archiveAccount)
   const lockAccount = useFinanceStore((state) => state.lockAccount)
   const go = useFinanceStore((state) => state.go)
+  const openAccountHistory = useFinanceStore((state) => state.openAccountHistory)
   const [editing, setEditing] = useState<AccountWithBalance | 'new' | null>(null)
   const [adjusting, setAdjusting] = useState<AccountWithBalance | null>(null)
   const [paying, setPaying] = useState<AccountWithBalance | null>(null)
@@ -185,9 +187,14 @@ export function Accounts() {
                           style={account.color ? { background: account.color } : undefined}
                         />
                         <div className="account-name">
-                          <span className="cell-strong" title={account.name}>
+                          <button
+                            type="button"
+                            className="account-open cell-strong"
+                            title={`See every entry in and out of ${account.name}`}
+                            onClick={() => openAccountHistory(account.id)}
+                          >
                             {account.name}
-                          </span>
+                          </button>
                           <span className="account-meta">
                             {ACCOUNT_KIND_LABEL[account.kind]}
                             {isCredit && limit !== null
@@ -262,6 +269,12 @@ export function Accounts() {
                           </span>
                         </div>
                         <div className="account-actions">
+                          <IconButton
+                            label={`History of ${account.name}`}
+                            onClick={() => openAccountHistory(account.id)}
+                          >
+                            <History size={14} />
+                          </IconButton>
                           {isCredit && !account.isLocked && (
                             <IconButton label="Pay this card" onClick={() => setPaying(account)}>
                               <ArrowRightLeft size={14} />
@@ -327,6 +340,12 @@ export function Accounts() {
                 <div className="account-figures">
                   <Money cents={account.balanceCents} currency={currency} />
                 </div>
+                <IconButton
+                  label={`History of ${account.name}`}
+                  onClick={() => openAccountHistory(account.id)}
+                >
+                  <History size={14} />
+                </IconButton>
                 <IconButton
                   label={`Restore ${account.name}`}
                   onClick={() => void archiveAccount(account.id, false)}

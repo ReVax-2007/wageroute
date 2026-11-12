@@ -42,8 +42,12 @@ export interface SessionSlice {
   confirmRequest: (ConfirmRequest & { resolve: (ok: boolean) => void }) | null
   notice: Notice | null
   snoozedPrompts: string[]
+  /** The account the Spreadsheet opens on; set by an account's History action. */
+  ledgerAccountId: string | null
 
   go: (screen: Screen) => void
+  /** The Spreadsheet scoped to one account, with its running balance. */
+  openAccountHistory: (accountId: string) => void
   askConfirm: (request: ConfirmRequest) => Promise<boolean>
   resolveConfirm: (ok: boolean) => void
   openAllocator: () => void

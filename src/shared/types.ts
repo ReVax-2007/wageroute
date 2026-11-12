@@ -480,6 +480,24 @@ export interface TransactionPage {
   rows: TransactionRow[]
   /** Rows matching the filter, ignoring the page window. */
   total: number
+  /** Present only when the filter names one account: its history figures. */
+  account?: AccountLedger
+}
+
+/**
+ * One account's history, read alongside an account-scoped ledger page. The
+ * running balance is the account's own: every live entry counts, whatever the
+ * filter hides, so the newest entry always ends on the balance the Accounts
+ * screen shows.
+ */
+export interface AccountLedger {
+  accountId: string
+  /** Signed balance after each row on the page, keyed by entry id. */
+  balanceAfter: Record<string, number>
+  /** Sum of positive amounts matching the filter (for a card: payments, refunds). */
+  inCents: number
+  /** Sum of negative amounts matching the filter, as a positive figure. */
+  outCents: number
 }
 
 export interface AllocatorSplitsInput {

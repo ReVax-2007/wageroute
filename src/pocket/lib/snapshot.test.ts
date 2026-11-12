@@ -5,6 +5,7 @@ import { todayISO } from '@shared/dates'
 import { buildBackup, backupToJson } from '../../main/db/backup'
 import { migrate } from '../../main/db/migrations'
 import { getSnapshot } from '../../main/db/repo/read-models'
+import { queryTransactions } from '../../main/db/repo/transactions'
 import { seedDemoIfEmpty } from '../../main/db/seed'
 import {
   selectSafeToSpendCents,
@@ -13,7 +14,7 @@ import {
 import { emptyTables, parseBackup } from './backup'
 import { billLines, dueSoon, pocketView } from './compute'
 import { createEntry } from './write'
-import { buildSnapshot } from './snapshot'
+import { accountHistory, buildSnapshot } from './snapshot'
 import { flag, isLive, text } from './rows'
 
 function demo(): { db: Database.Database; userId: string; json: string } {
@@ -332,4 +333,31 @@ test('money the phone adds is counted before today and future money stays in bal
   const oldBalance = check.accounts.find((row) => row.id === id)?.balanceCents ?? 0
   assert.equal(balance, oldBalance - 5000)
   assert.equal(cash, oldBalance, 'a future entry is not spendable today')
+})
+
+test('an account history on the phone matches the desktop row for row, balance for balance', () => {
+  const { db, userId, json } = demo()
+  const tables = parseBackup(json).tables
+  const pocket = buildSnapshot(tables, todayISO())
+  let checked = 0
+  for (const account of pocket.accounts) {
+    const desktop = queryTransactions(db, userId, {
+      filter: { accountId: account.id },
+      sort: 'date_desc',
+      limit: 500,
+      offset: 0
+    })
+    const phone = accountHistory(tables, account)
+    assert.equal(phone.rows.length, desktop.total, account.name)
+    assert.deepEqual(
+      phone.rows.slice(0, 500).map((row) => [row.id, phone.balanceAfter.get(row.id)]),
+      desktop.rows.map((row) => [row.id, desktop.account!.balanceAfter[row.id]]),
+      account.name
+    )
+    if (phone.rows.length > 0) {
+      assert.equal(phone.balanceAfter.get(phone.rows[0].id), account.balanceCents)
+      checked++
+    }
+  }
+  assert.ok(checked > 0, 'the demo has accounts with entries')
 })
