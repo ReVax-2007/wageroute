@@ -73,7 +73,7 @@ export function Dashboard() {
   if (!snapshot) return null
 
   const currency = settings.currency
-  const bills = activeBills(snapshot.bills)
+  const bills = activeBills(snapshot.bills, snapshot.billPaymentsThisMonth)
   const wall = monthlyWall(bills)
   const perCheck = perPaycheckWall(bills, settings.payCadence)
   const goals = goalsSummary(snapshot.goals)
@@ -364,7 +364,11 @@ export function Dashboard() {
                   <span className={`account-dot ${item.kind === 'card' ? 'kind-credit' : 'kind-bill'}`} />
                   <span className="due-name">{item.name}</span>
                   <span className="due-when">
-                    {item.daysUntil === 0 ? 'Today' : `in ${item.daysUntil}d`} ·{' '}
+                    {item.daysUntil === 0
+                      ? 'Today'
+                      : item.daysUntil < 0
+                        ? `${-item.daysUntil}d overdue`
+                        : `in ${item.daysUntil}d`} ·{' '}
                     {formatDateLabel(item.dueOn)}
                   </span>
                   <Money cents={item.amountCents} currency={currency} />

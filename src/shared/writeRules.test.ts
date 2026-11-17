@@ -58,7 +58,8 @@ test('the enums are the only kinds either device will write', () => {
     'semimonthly',
     'monthly',
     'quarterly',
-    'annual'
+    'annual',
+    'once'
   ])
   assert.deepEqual([...GOAL_FUNDING_PACES], ['by_date', 'paused', 'asap'])
   assert.ok(BILL_FUNDING_STRATEGIES.includes('closest_due_date'))

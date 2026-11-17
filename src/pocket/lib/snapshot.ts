@@ -1,5 +1,6 @@
 import type { ImportTables } from '@shared/importRepair'
 import { addDaysISO, todayISO } from '@shared/dates'
+import { inBillCycle } from '@shared/oneTimeBills'
 import type {
   AccountKind,
   AccountWithBalance,
@@ -318,10 +319,12 @@ export function buildSnapshot(
     const kind = text(entry, 'kind')
     if (!billId || (kind !== 'bill_payment' && kind !== 'expense')) continue
     const occurredOn = text(entry, 'occurred_on')
-    if (occurredOn.slice(0, 7) !== month || occurredOn > today) continue
+    const bill = billById.get(billId)
+    // A one-time bill's payments count whatever month they landed in (ADR 0037).
+    const inCycle = bill ? inBillCycle(bill, occurredOn, month) : occurredOn.slice(0, 7) === month
+    if (!inCycle || occurredOn > today) continue
     const total = paidByBill.get(billId) ?? { billId, paidCents: 0, actualCents: 0, creditCents: 0 }
     const amount = -cents(entry, 'amount_cents')
-    const bill = billById.get(billId)
     total.paidCents += bill ? -creditedPaymentCents(bill, -amount) : amount
     total.actualCents += amount
     if (accountKind.get(text(entry, 'account_id')) === 'credit') total.creditCents += amount

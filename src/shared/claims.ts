@@ -110,7 +110,12 @@ export function deriveClaimStates(
     ordered.map((claim) => [claim.id, { cents: 0, settledBy: null }])
   )
   const contributions: { claimId: string; cents: number }[] = []
-  const smoothed = ordered[0].frequency === 'quarterly' || ordered[0].frequency === 'annual'
+  // A one-time bill saves up across months for one payment, the same shape as a
+  // quarterly or annual bill's slices (ADR 0037).
+  const smoothed =
+    ordered[0].frequency === 'quarterly' ||
+    ordered[0].frequency === 'annual' ||
+    ordered[0].frequency === 'once'
 
   for (const payment of received) {
     if (payment.amountCents > 0) {

@@ -1,3 +1,4 @@
+import { isOneTimeBill, oneTimeReserveCents, oneTimeSetAsideCents } from './oneTimeBills'
 import type { BillFundingStrategy, Frequency, PayCadence } from './types'
 
 export const PAY_PERIODS_PER_YEAR: Record<PayCadence, number> = {
@@ -13,7 +14,10 @@ export const BILL_PERIODS_PER_YEAR: Record<Frequency, number> = {
   semimonthly: 24,
   monthly: 12,
   quarterly: 4,
-  annual: 1
+  annual: 1,
+  // A one-time bill has no recurring share: what it asks of a month or a cheque
+  // comes from its date instead (`@shared/oneTimeBills`, ADR 0037).
+  once: 0
 }
 
 export const PAY_CADENCE_LABEL: Record<PayCadence, string> = {
@@ -29,7 +33,8 @@ export const FREQUENCY_LABEL: Record<Frequency, string> = {
   semimonthly: 'Twice a month',
   monthly: 'Monthly',
   quarterly: 'Quarterly',
-  annual: 'Yearly'
+  annual: 'Yearly',
+  once: 'One time'
 }
 
 export const BILL_FUNDING_STRATEGY_LABEL: Record<BillFundingStrategy, string> = {
@@ -280,7 +285,22 @@ export function billFundingReserveCents(input: {
    * spread being computed.
    */
   claimedThisMonthCents?: number
+  /**
+   * A one-time bill's due date (ADR 0037). For such a bill the paid and claimed
+   * figures cover its whole life, not one month.
+   */
+  dueOn?: string | null
 }): number {
+  if (input.frequency === 'once') {
+    return oneTimeReserveCents({
+      amountCents: input.amountCents,
+      dueOn: input.dueOn ?? '9999-12-31',
+      cadence: input.cadence,
+      paycheckDate: input.paycheckDate,
+      paidCents: input.paidThisMonthCents,
+      claimedCents: input.claimedThisMonthCents
+    })
+  }
   const strategy = input.fundingStrategy ?? 'all_checks'
   const billedCents = monthlyEquivalentCents(input.amountCents, input.frequency)
   const paidCents = Math.min(billedCents, Math.max(0, Math.round(input.paidThisMonthCents ?? 0)))
@@ -390,15 +410,39 @@ export function monthlyEquivalentCents(amountCents: number, frequency: Frequency
  * again would subtract it twice. The clamp keeps an overpayment from turning
  * the wall negative, and the smoothing buffer survives: paying one weekly
  * instance leaves the rest of that bill's month claimed.
+ *
+ * A one-time bill holds what its saving-up has reached by `monthISO`, less what
+ * its payments already took out (ADR 0037); its paid figure covers every month.
+ * Callers leave a one-time bill that is already done out of `bills`.
  */
 export function unpaidMonthlyWallCents(
-  bills: readonly { id: string; amountCents: number; frequency: Frequency }[],
-  paidByBillCents: ReadonlyMap<string, number>
+  bills: readonly {
+    id: string
+    amountCents: number
+    frequency: Frequency
+    dueDay?: number
+    nextDueOn?: string | null
+    createdAt?: string
+  }[],
+  paidByBillCents: ReadonlyMap<string, number>,
+  /** Required for a one-time bill; without it the whole amount is held. */
+  monthISO?: string
 ): number {
   return bills.reduce((total, bill) => {
-    const monthly = monthlyEquivalentCents(bill.amountCents, bill.frequency)
+    const owed = isOneTimeBill(bill)
+      ? oneTimeSetAsideCents(
+          {
+            amountCents: bill.amountCents,
+            frequency: bill.frequency,
+            nextDueOn: bill.nextDueOn ?? null,
+            dueDay: bill.dueDay ?? 1,
+            createdAt: bill.createdAt ?? ''
+          },
+          monthISO ?? '9999-12'
+        )
+      : monthlyEquivalentCents(bill.amountCents, bill.frequency)
     const paid = paidByBillCents.get(bill.id) ?? 0
-    return total + Math.max(0, monthly - paid)
+    return total + Math.max(0, owed - paid)
   }, 0)
 }
 

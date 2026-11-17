@@ -164,6 +164,10 @@ export function transactionRowsFor(db: Db, userId: string, id: string): Transact
  * `creditedPaymentCents` in `@shared/variableBills` (ADR 0036): a spend on a
  * variable bill counts as at least its estimate. `actualCents` is the plain
  * sum, for the screens that show what really left.
+ *
+ * A one-time bill has a single occurrence, so its row counts every payment up to
+ * `asOfISO`, whatever month it landed in (ADR 0037, `inBillCycle`).
+ * That is the figure that says whether it is done.
  */
 export function listBillPaymentsThisMonth(
   db: Db,
@@ -185,7 +189,7 @@ export function listBillPaymentsThisMonth(
        WHERE t.user_id = ? AND t.deleted_at IS NULL
          AND t.bill_id IS NOT NULL
          AND t.kind IN ('bill_payment','expense')
-         AND substr(t.occurred_on, 1, 7) = ?
+         AND (substr(t.occurred_on, 1, 7) = ? OR b.frequency = 'once')
          AND t.occurred_on <= ?
        GROUP BY t.bill_id`
     )

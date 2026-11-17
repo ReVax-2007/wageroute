@@ -1,5 +1,6 @@
 import { billFundingReserveCents, monthlyEquivalentCents, PAY_PERIODS_PER_YEAR } from './cadence'
 import { daysBetweenISO } from './dates'
+import { oneTimeDueOn } from './oneTimeBills'
 import { clampPercent, floorToDollarCents, percentOf } from './money'
 import type {
   BillFundingStrategy,
@@ -24,6 +25,9 @@ export interface AllocatorBill {
    * partly paid one only owes the difference.
    */
   paidThisMonthCents?: number
+  /** A one-time bill's due date; its paid and claimed figures then span every month (ADR 0037). */
+  nextDueOn?: string | null
+  createdAt?: string
 }
 
 export interface AllocatorGoal {
@@ -155,7 +159,15 @@ export function buildAllocationPlan(input: AllocatorInput): AllocationPlan {
         paycheckDate: input.paycheckDate,
         payAnchorDate: input.payAnchorDate,
         paidThisMonthCents: bill.paidThisMonthCents,
-        claimedThisMonthCents: claimed ?? 0
+        claimedThisMonthCents: claimed ?? 0,
+        dueOn:
+          bill.frequency === 'once'
+            ? oneTimeDueOn({
+                nextDueOn: bill.nextDueOn ?? null,
+                dueDay: bill.dueDay ?? 1,
+                createdAt: bill.createdAt ?? ''
+              })
+            : null
       }),
       monthlyCents: monthlyEquivalentCents(bill.amountCents, bill.frequency)
     }

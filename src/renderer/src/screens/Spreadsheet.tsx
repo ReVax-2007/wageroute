@@ -97,7 +97,7 @@ export function Spreadsheet() {
   const projections = useMemo(() => {
     if (!snapshot) return []
     return projectUpcoming({
-      bills: activeBills(snapshot.bills),
+      bills: activeBills(snapshot.bills, snapshot.billPaymentsThisMonth),
       goals: snapshot.goals,
       fromISO: todayISO(),
       horizonDays: HORIZON_DAYS

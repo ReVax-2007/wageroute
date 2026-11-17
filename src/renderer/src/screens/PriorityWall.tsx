@@ -12,6 +12,12 @@ import {
 } from '@shared/cadence'
 import { formatDateLabel, todayISO } from '@shared/dates'
 import { billDeletionWords } from '@shared/deletion'
+import {
+  inBillCycle,
+  isOneTimeBill,
+  oneTimeDueOn,
+  oneTimeReserveCents
+} from '@shared/oneTimeBills'
 import { formatMoney, formatMoneyCompact } from '@shared/money'
 import type { Bill, PayCadence } from '@shared/types'
 import { billVariance } from '@shared/variableBills'
@@ -19,7 +25,7 @@ import { Button, Card, EmptyState, IconButton, Money } from '../components/ui'
 import { BillClearedDialog } from '../components/dialogs/BillClearedDialog'
 import { BillDialog } from '../components/dialogs/BillDialog'
 import { DataTable } from '../components/DataTable'
-import { activeBills, monthlyWall, ordinal, perPaycheckWall } from '../lib/finance'
+import { activeBills, doneOneTimeBills, monthlyWall, ordinal, perPaycheckWall } from '../lib/finance'
 import { useFinanceStore } from '../store/useFinanceStore'
 
 /** Which paycheck of the month actually reserves for this bill; null for 'all_checks'. */
@@ -53,7 +59,12 @@ export function PriorityWall() {
 
   const currency = settings.currency
   const bills = snapshot.bills
-  const active = activeBills(bills)
+  const active = activeBills(bills, snapshot.billPaymentsThisMonth)
+  // Paid one-time bills leave the plan for good; they stay visible below (ADR 0037).
+  const done = doneOneTimeBills(bills, snapshot.billPaymentsThisMonth)
+  const doneIds = new Set(done.map((bill) => bill.id))
+  const listed = bills.filter((bill) => !doneIds.has(bill.id))
+  const today = todayISO()
   const monthly = monthlyWall(active)
   const perCheck = perPaycheckWall(active, settings.payCadence)
   const payday = settings.paydayLabel.trim()
@@ -97,16 +108,22 @@ export function PriorityWall() {
   const paidBillsCents = Math.max(
     0,
     snapshot.billPaymentsThisMonth
-      .filter((total) => liveBillIds.has(total.billId))
+      // A done one-time bill's row spans every month; it is shown under Done.
+      .filter((total) => liveBillIds.has(total.billId) && !doneIds.has(total.billId))
       .reduce((sum, total) => sum + total.actualCents, 0)
   )
   const nextCheckMonth = nextCheck?.slice(0, 7) ?? null
-  const nextCheckClaims = snapshot.billReserves.filter(
-    (reserve) =>
-      reserve.cycle === nextCheckMonth &&
+  const billById = new Map(bills.map((bill) => [bill.id, bill]))
+  const nextCheckClaims = snapshot.billReserves.filter((reserve) => {
+    const bill = billById.get(reserve.billId)
+    // A one-time bill's open claims from every month still hold its money.
+    return (
+      bill !== undefined &&
       reserve.state === 'reserved' &&
-      liveBillIds.has(reserve.billId)
-  )
+      nextCheckMonth !== null &&
+      inBillCycle(bill, reserve.cycle, nextCheckMonth)
+    )
+  })
   const nextCheckPayments = nextCheckMonth === monthlyKey ? paidThisMonth : new Map<string, number>()
   const nextCheckReserve = (bill: Bill): number => {
     // Every claim this month already covers that much of the bill, whatever
@@ -123,8 +140,10 @@ export function PriorityWall() {
       fundingPaycheckIndex: bill.fundingPaycheckIndex,
       paycheckDate: nextCheck,
       payAnchorDate: anchor,
-      paidThisMonthCents: nextCheckPayments.get(bill.id) ?? 0,
-      claimedThisMonthCents: claimedCents
+      // A one-time bill's payments count whatever month they landed in.
+      paidThisMonthCents: (isOneTimeBill(bill) ? paidThisMonth : nextCheckPayments).get(bill.id) ?? 0,
+      claimedThisMonthCents: claimedCents,
+      dueOn: isOneTimeBill(bill) ? oneTimeDueOn(bill) : null
     })
   }
   const nextCheckTotal = nextCheck
@@ -202,7 +221,7 @@ export function PriorityWall() {
           <span className="stat-label">Bills you pay</span>
           <p className="summary-value">{active.length}</p>
           <span className="stat-hint">
-            {bills.length - active.length} paused
+            {listed.length - active.length} paused
             {shareOfPaycheck !== null ? ` · ${shareOfPaycheck}% of last paycheck` : ''}
           </span>
         </div>
@@ -212,7 +231,7 @@ export function PriorityWall() {
         title="Your bills"
         subtitle="Paused bills stay in your history but no longer set money aside"
       >
-        {bills.length === 0 ? (
+        {listed.length === 0 && done.length === 0 ? (
           <EmptyState
             icon={<ShieldCheck size={20} />}
             title="No bills yet"
@@ -243,8 +262,11 @@ export function PriorityWall() {
               { key: 'actions', label: '', ariaLabel: 'Actions' }
             ]}
           >
-            {bills.map((bill) => {
-              const state = reserveStateOf(bill.id)
+            {listed.map((bill) => {
+              const oneTime = isOneTimeBill(bill)
+              const dueOn = oneTime ? oneTimeDueOn(bill) : null
+              const overdue = dueOn !== null && dueOn < today
+              const state = oneTime ? null : reserveStateOf(bill.id)
               const monthlyCents = monthlyEquivalentCents(bill.amountCents, bill.frequency)
               // Without a payday the column still names a per-cheque figure, so
               // a bill already paid this month must stop asking for its share.
@@ -260,6 +282,17 @@ export function PriorityWall() {
                 ? 0
                 : nextCheck
                   ? nextCheckReserve(bill)
+                  : oneTime
+                    ? oneTimeReserveCents({
+                        amountCents: bill.amountCents,
+                        dueOn: dueOn ?? today,
+                        cadence: settings.payCadence,
+                        paycheckDate: today,
+                        paidCents: paidThisMonth.get(bill.id) ?? 0,
+                        claimedCents: snapshot.billReserves
+                          .filter((r) => r.billId === bill.id && r.state === 'reserved')
+                          .reduce((total, r) => total + r.amountCents, 0)
+                      })
                   : monthlyCents === 0
                     ? 0
                     : Math.round((perChequeCents * openMonthCents) / monthlyCents)
@@ -277,6 +310,8 @@ export function PriorityWall() {
                   : null
               const runningCents =
                 bill.isVariable && actualCents > 0 && !oncePerMonth ? actualCents : null
+              // A one-time bill paid in part keeps asking for the rest.
+              const partPaidCents = oneTime && !bill.isVariable && actualCents > 0 ? actualCents : null
               return (
                 <tr key={bill.id} className={bill.isActive ? undefined : 'inactive'}>
                   <td>
@@ -288,8 +323,8 @@ export function PriorityWall() {
                       <Money cents={bill.amountCents} currency={currency} />
                       {' · '}
                       {FREQUENCY_LABEL[bill.frequency]}
-                      {' · due the '}
-                      {ordinal(bill.dueDay)}
+                      {dueOn !== null ? ` · due ${formatDateLabel(dueOn)}` : ' · due the '}
+                      {dueOn !== null ? null : ordinal(bill.dueDay)}
                       {bill.autopay ? ' · autopay' : ''}
                       {bill.isVariable ? ' · amount varies' : ''}
                       {state === 'paid' && (
@@ -301,7 +336,15 @@ export function PriorityWall() {
                       {!bill.isActive && (
                         <span className="chip chip-quiet chip-inactive">Paused</span>
                       )}
+                      {overdue && bill.isActive && <span className="chip chip-overdue">Overdue</span>}
                     </div>
+                    {partPaidCents !== null && (
+                      <div className="cell-sub">
+                        <Money cents={partPaidCents} currency={currency} /> paid ·{' '}
+                        <Money cents={Math.max(0, bill.amountCents - partPaidCents)} currency={currency} />{' '}
+                        to go
+                      </div>
+                    )}
                     {variance && (
                       <div className="cell-sub">
                         Came to <Money cents={actualCents} currency={currency} />
@@ -324,6 +367,8 @@ export function PriorityWall() {
                       <div className="cell-sub">Paused</div>
                     ) : covered ? (
                       <div className="cell-sub">Nothing more due</div>
+                    ) : oneTime ? (
+                      <div className="cell-sub">{overdue ? 'All of it, now' : 'Spread to the due date'}</div>
                     ) : bill.fundingStrategy !== 'all_checks' ? (
                       <div className="cell-sub chip-funding">
                         With your{' '}
@@ -335,10 +380,14 @@ export function PriorityWall() {
                     ) : null}
                   </td>
                   <td className="right muted">
-                    <Money
-                      cents={monthlyEquivalentCents(bill.amountCents, bill.frequency)}
-                      currency={currency}
-                    />
+                    {oneTime ? (
+                      'One time'
+                    ) : (
+                      <Money
+                        cents={monthlyEquivalentCents(bill.amountCents, bill.frequency)}
+                        currency={currency}
+                      />
+                    )}
                   </td>
                   <td>
                     <div className="row-actions">
@@ -352,9 +401,13 @@ export function PriorityWall() {
                       >
                         <span className="switch-knob" />
                       </button>
-                      {bill.isVariable && bill.isActive && state !== 'paid' && (
+                      {(bill.isVariable || oneTime) && bill.isActive && state !== 'paid' && (
                         <IconButton
-                          label={`${bill.name} cleared — log what it came to`}
+                          label={
+                            oneTime && !bill.isVariable
+                              ? `Pay ${bill.name}`
+                              : `${bill.name} cleared — log what it came to`
+                          }
                           onClick={() => setClearing(bill)}
                         >
                           <Check size={15} />
@@ -375,11 +428,53 @@ export function PriorityWall() {
         )}
       </Card>
 
+      {done.length > 0 && (
+        <Card title="Done" subtitle="One-time bills that are paid. They never come due again.">
+          <DataTable
+            caption="Paid one-time bills"
+            className="wall-table"
+            columns={[
+              { key: 'bill', label: 'Bill' },
+              { key: 'paid', label: 'Paid', className: 'right' },
+              { key: 'actions', label: '', ariaLabel: 'Actions' }
+            ]}
+          >
+            {done.map((bill) => (
+              <tr key={bill.id} className="inactive">
+                <td>
+                  <div className="cell-strong" title={bill.name}>
+                    {bill.name}
+                  </div>
+                  <div className="cell-sub">
+                    One time · was due {formatDateLabel(oneTimeDueOn(bill))}
+                    <span className="chip chip-quiet">Paid</span>
+                  </div>
+                </td>
+                <td className="right">
+                  <Money cents={actualThisMonth.get(bill.id) ?? bill.amountCents} currency={currency} />
+                </td>
+                <td>
+                  <div className="row-actions">
+                    <IconButton label="Edit bill" onClick={() => setEditing(bill)}>
+                      <Pencil size={15} />
+                    </IconButton>
+                    <IconButton label="Delete bill" danger onClick={() => void remove(bill)}>
+                      <Trash2 size={15} />
+                    </IconButton>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </DataTable>
+        </Card>
+      )}
+
       <p className="footnote">
         Yearly and quarterly bills are spread over twelve months, so a{' '}
         {formatMoneyCompact(60_000, currency)} yearly insurance premium counts as{' '}
         {formatMoneyCompact(5_000, currency)} a month. A bill set to come out of one paycheck holds
-        that whole month on that paycheck. Set a real payday in Settings and this table shows the
+        that whole month on that paycheck. A one-time bill is spread over the paychecks before its
+        date and is done once it is paid. Set a real payday in Settings and this table shows the
         exact amount the next paycheck will set aside.
       </p>
 

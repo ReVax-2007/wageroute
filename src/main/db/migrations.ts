@@ -489,6 +489,52 @@ ALTER TABLE bills ADD COLUMN is_variable INTEGER NOT NULL DEFAULT 0
   CHECK (is_variable IN (0,1));
 `
 
+/**
+ * v14 lets a bill be due once (ADR 0037). `frequency` gains `'once'`; the date
+ * itself lives in the existing `next_due_on`. SQLite cannot widen a CHECK in
+ * place, so the table is rebuilt exactly as v6 did it (see there for why
+ * enforcement is suspended and `legacy_alter_table` is on): same columns, same
+ * ids, every existing bill unchanged.
+ */
+const SCHEMA_V14 = `
+ALTER TABLE bills RENAME TO bills_v13_old;
+
+CREATE TABLE bills (
+  id                     TEXT PRIMARY KEY NOT NULL,
+  user_id                TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name                   TEXT NOT NULL,
+  amount_cents           INTEGER NOT NULL CHECK (amount_cents > 0),
+  frequency              TEXT NOT NULL CHECK (frequency IN ('weekly','biweekly','semimonthly','monthly','quarterly','annual','once')),
+  due_day                INTEGER NOT NULL CHECK (due_day BETWEEN 1 AND 31),
+  category               TEXT NOT NULL DEFAULT 'Bills',
+  account_id             TEXT REFERENCES accounts(id),
+  autopay                INTEGER NOT NULL DEFAULT 0 CHECK (autopay IN (0,1)),
+  is_active              INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
+  next_due_on            TEXT,
+  funding_strategy       TEXT NOT NULL DEFAULT 'all_checks'
+                           CHECK (funding_strategy IN ('all_checks','closest_due_date','specific_check','first_check','last_check')),
+  funding_paycheck_index INTEGER,
+  created_at             TEXT NOT NULL,
+  updated_at             TEXT NOT NULL,
+  deleted_at             TEXT,
+  revision               INTEGER NOT NULL DEFAULT 1,
+  is_variable            INTEGER NOT NULL DEFAULT 0 CHECK (is_variable IN (0,1))
+) STRICT;
+
+INSERT INTO bills
+  (id, user_id, name, amount_cents, frequency, due_day, category, account_id,
+   autopay, is_active, next_due_on, funding_strategy, funding_paycheck_index,
+   created_at, updated_at, deleted_at, revision, is_variable)
+SELECT id, user_id, name, amount_cents, frequency, due_day, category, account_id,
+       autopay, is_active, next_due_on, funding_strategy, funding_paycheck_index,
+       created_at, updated_at, deleted_at, revision, is_variable
+FROM bills_v13_old;
+
+DROP TABLE bills_v13_old;
+
+CREATE INDEX idx_bills_sync ON bills(user_id, updated_at);
+`
+
 function isoDay(): string {
   const now = new Date()
   const pad = (value: number): string => String(value).padStart(2, '0')
@@ -651,6 +697,13 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 13,
     up: (db) => {
       db.exec(SCHEMA_V13)
+    }
+  },
+  {
+    version: 14,
+    rebuildsReferencedTable: true,
+    up: (db) => {
+      db.exec(SCHEMA_V14)
     }
   }
 ]

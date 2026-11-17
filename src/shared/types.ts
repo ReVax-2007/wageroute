@@ -5,6 +5,8 @@ export type Frequency =
   | 'monthly'
   | 'quarterly'
   | 'annual'
+  /** Due once, on `nextDueOn`; settled for good by the payment that covers it (ADR 0037). */
+  | 'once'
 
 export type PayCadence = 'weekly' | 'biweekly' | 'semimonthly' | 'monthly'
 

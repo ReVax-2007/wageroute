@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { isUsableAccount } from '@shared/accounts'
-import { todayISO } from '@shared/dates'
+import { addDaysISO, isISODate, todayISO } from '@shared/dates'
 import {
   BILL_FUNDING_STRATEGY_LABEL,
   FREQUENCY_LABEL,
@@ -46,12 +46,16 @@ export function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () =
     isActive: bill?.isActive ?? true,
     isVariable: bill?.isVariable ?? false,
     fundingStrategy: bill?.fundingStrategy ?? ('all_checks' as BillFundingStrategy),
-    fundingPaycheckIndex: bill?.fundingPaycheckIndex ? String(bill.fundingPaycheckIndex) : '1'
+    fundingPaycheckIndex: bill?.fundingPaycheckIndex ? String(bill.fundingPaycheckIndex) : '1',
+    // A one-time bill's whole schedule is this date (ADR 0037).
+    dueOn: bill?.nextDueOn ?? addDaysISO(todayISO(), 30)
   })
+  const oneTime = form.frequency === 'once'
   const [fieldErrors, setFieldErrors] = useState<{
     name?: string
     amount?: string
     dueDay?: string
+    dueOn?: string
   }>({})
   const { saving, error, run } = useDialogSave(onClose)
 
@@ -76,7 +80,9 @@ export function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () =
     if (amountCents === null || amountCents <= 0) {
       problems.amount = 'Enter an amount greater than zero'
     }
-    if (!Number.isInteger(dueDay) || dueDay < 1 || dueDay > 31) {
+    if (oneTime) {
+      if (!isISODate(form.dueOn)) problems.dueOn = 'Pick the date it is due'
+    } else if (!Number.isInteger(dueDay) || dueDay < 1 || dueDay > 31) {
       problems.dueDay = 'Due day must be a whole number from 1 to 31'
     }
     setFieldErrors(problems)
@@ -86,13 +92,13 @@ export function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () =
       name: form.name.trim(),
       amountCents,
       frequency: form.frequency,
-      dueDay,
+      dueDay: oneTime ? Number(form.dueOn.slice(8, 10)) : dueDay,
       category: form.category.trim() || 'Bills',
       accountId: form.accountId || null,
       autopay: form.autopay,
       isActive: form.isActive,
       isVariable: form.isVariable,
-      nextDueOn: bill?.nextDueOn ?? null,
+      nextDueOn: oneTime ? form.dueOn : (bill?.nextDueOn ?? null),
       fundingStrategy: form.fundingStrategy,
       fundingPaycheckIndex:
         form.fundingStrategy === 'specific_check' ? Number(form.fundingPaycheckIndex) || 1 : null
@@ -104,7 +110,11 @@ export function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () =
   return (
     <Modal
       title={bill ? 'Edit bill' : 'Add a bill'}
-      subtitle="This comes out of every paycheck before anything else."
+      subtitle={
+        oneTime
+          ? 'Due once. The paychecks before its date save it up, then it is done.'
+          : 'This comes out of every paycheck before anything else.'
+      }
       onClose={onClose}
       footer={
         <>
@@ -151,9 +161,16 @@ export function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () =
             <select
               className="select"
               value={form.frequency}
-              onChange={(event) =>
-                setForm({ ...form, frequency: event.target.value as Frequency })
-              }
+              onChange={(event) => {
+                const frequency = event.target.value as Frequency
+                // A one-time purchase is usually paid by hand: a new one starts
+                // with autopay off rather than posting $900 on its own.
+                setForm({
+                  ...form,
+                  frequency,
+                  autopay: !bill && frequency === 'once' ? false : form.autopay
+                })
+              }}
             >
               {FREQUENCIES.map((frequency) => (
                 <option key={frequency} value={frequency}>
@@ -162,19 +179,33 @@ export function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () =
               ))}
             </select>
           </Field>
-          <Field label="Due day" hint="Day of the month the bill lands" error={fieldErrors.dueDay}>
-            <input
-              className="input"
-              type="number"
-              min={1}
-              max={31}
-              value={form.dueDay}
-              onChange={(event) => {
-                clearField('dueDay')
-                setForm({ ...form, dueDay: event.target.value })
-              }}
-            />
-          </Field>
+          {oneTime ? (
+            <Field label="Due on" hint="The day you will pay it" error={fieldErrors.dueOn}>
+              <input
+                className="input"
+                type="date"
+                value={form.dueOn}
+                onChange={(event) => {
+                  clearField('dueOn')
+                  setForm({ ...form, dueOn: event.target.value })
+                }}
+              />
+            </Field>
+          ) : (
+            <Field label="Due day" hint="Day of the month the bill lands" error={fieldErrors.dueDay}>
+              <input
+                className="input"
+                type="number"
+                min={1}
+                max={31}
+                value={form.dueDay}
+                onChange={(event) => {
+                  clearField('dueDay')
+                  setForm({ ...form, dueDay: event.target.value })
+                }}
+              />
+            </Field>
+          )}
           <Field label="Category">
             <input
               className="input"
@@ -201,6 +232,13 @@ export function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () =
               ))}
             </select>
           </Field>
+          {oneTime ? (
+            <p className="field-hint">
+              Every paycheck between now and the due date sets an equal share aside, so the whole
+              amount is ready on the day. A payment that covers it makes the bill done: it never
+              comes due again.
+            </p>
+          ) : (
           <Field
             label="When to set the money aside"
             hint="Which paycheck covers this bill. One paycheck can hold the whole month without paying it twice."
@@ -220,8 +258,9 @@ export function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () =
               ))}
             </select>
           </Field>
+          )}
 
-          {form.fundingStrategy === 'specific_check' && checkSlots.length > 1 && (
+          {!oneTime && form.fundingStrategy === 'specific_check' && checkSlots.length > 1 && (
             <Field
               label="Which paycheck?"
               hint={`${PAY_CADENCE_LABEL[cadence]} pay gives ${checkSlots.length} paychecks every month`}
@@ -241,7 +280,7 @@ export function BillDialog({ bill, onClose }: { bill: Bill | null; onClose: () =
             </Field>
           )}
 
-          {form.fundingStrategy !== 'all_checks' && form.fundingStrategy !== 'specific_check' && (
+          {!oneTime && form.fundingStrategy !== 'all_checks' && form.fundingStrategy !== 'specific_check' && (
             <p className="field-hint">
               Sets aside the whole month on the {ordinal(fundingCheckForForm ?? 1)} paycheck
               {form.fundingStrategy === 'closest_due_date'

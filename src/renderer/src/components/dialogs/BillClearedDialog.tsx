@@ -13,6 +13,9 @@ import { useDialogSave } from '../useDialogSave'
  * "It cleared, and it came to…" for a variable bill, from the Bills screen. The
  * amount starts at the estimate, so an unchanged bill is one click; the line
  * under it says where the difference goes (ADR 0036).
+ *
+ * A fixed one-time bill uses the same dialog to be paid (ADR 0037): the amount
+ * starts at what is still open, and a payment that covers it makes the bill done.
  */
 export function BillClearedDialog({ bill, onClose }: { bill: Bill; onClose: () => void }) {
   const snapshot = useFinanceStore((state) => state.snapshot)
@@ -26,18 +29,29 @@ export function BillClearedDialog({ bill, onClose }: { bill: Bill; onClose: () =
   const defaultAccount =
     accounts.find((account) => account.id === bill.accountId) ??
     (bill.accountId ? undefined : (accounts.find((a) => a.kind === 'checking') ?? accounts[0]))
-  const [amount, setAmount] = useState(centsToEditable(bill.amountCents))
+  const fixedOneTime = bill.frequency === 'once' && !bill.isVariable
+  const paidSoFar = fixedOneTime
+    ? Math.max(
+        0,
+        snapshot?.billPaymentsThisMonth.find((row) => row.billId === bill.id)?.paidCents ?? 0
+      )
+    : 0
+  const openCents = Math.max(0, bill.amountCents - paidSoFar)
+  const [amount, setAmount] = useState(
+    centsToEditable(fixedOneTime ? openCents || bill.amountCents : bill.amountCents)
+  )
   const [accountId, setAccountId] = useState(defaultAccount?.id ?? '')
   const [occurredOn, setOccurredOn] = useState(todayISO())
   const { saving, error, setError, run } = useDialogSave(onClose)
 
   const typed = parseMoneyToCents(amount)
-  const variance = typed !== null && typed > 0 ? billVariance(bill.amountCents, typed) : null
+  const variance =
+    typed !== null && typed > 0 ? billVariance(fixedOneTime ? openCents : bill.amountCents, typed) : null
   const account = accounts.find((item) => item.id === accountId)
 
   const submit = async () => {
     if (typed === null || typed <= 0) {
-      setError('Enter what the bill came to')
+      setError(fixedOneTime ? 'Enter what you paid' : 'Enter what the bill came to')
       return
     }
     if (!account) {
@@ -64,8 +78,12 @@ export function BillClearedDialog({ bill, onClose }: { bill: Bill; onClose: () =
 
   return (
     <Modal
-      title={`Did your ${bill.name} clear?`}
-      subtitle={`Estimate ${formatMoney(bill.amountCents, currency)} · change it if the bill was different.`}
+      title={fixedOneTime ? `Pay ${bill.name}` : `Did your ${bill.name} clear?`}
+      subtitle={
+        fixedOneTime
+          ? `One time · ${formatMoney(openCents, currency)} still to pay. Once it is covered the bill is done.`
+          : `Estimate ${formatMoney(bill.amountCents, currency)} · change it if the bill was different.`
+      }
       onClose={onClose}
       footer={
         <>
@@ -73,7 +91,7 @@ export function BillClearedDialog({ bill, onClose }: { bill: Bill; onClose: () =
             Cancel
           </Button>
           <Button variant="primary" onClick={submit} disabled={saving || !account}>
-            Yes, it cleared
+            {fixedOneTime ? 'Record payment' : 'Yes, it cleared'}
           </Button>
         </>
       }
@@ -86,10 +104,14 @@ export function BillClearedDialog({ bill, onClose }: { bill: Bill; onClose: () =
         }}
       >
         <Field
-          label="It came to"
+          label={fixedOneTime ? 'Paid' : 'It came to'}
           hint={
             variance === null
               ? undefined
+              : fixedOneTime
+                ? variance.underCents > 0
+                  ? `${formatMoney(variance.underCents, currency)} still open after this`
+                  : 'This pays it off'
               : variance.underCents > 0
                 ? `${formatMoney(variance.underCents, currency)} under the estimate · back to Left to spend`
                 : variance.overCents > 0

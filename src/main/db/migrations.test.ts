@@ -70,8 +70,8 @@ test('v6 rebuilds bills, keeps every row and restores enforcement', () => {
   const db = v5Database()
   migrate(db)
 
-  assert.equal(SCHEMA_VERSION, 13)
-  assert.equal(db.pragma('user_version', { simple: true }), 13)
+  assert.equal(SCHEMA_VERSION, 14)
+  assert.equal(db.pragma('user_version', { simple: true }), 14)
   assert.equal(db.pragma('foreign_keys', { simple: true }), 1, 'enforcement is back on')
   assert.deepEqual(db.pragma('foreign_key_check'), [])
   assert.equal(db.pragma('integrity_check', { simple: true }), 'ok')
@@ -351,6 +351,69 @@ test('v13 leaves every existing bill fixed and refuses anything but 0 or 1', () 
     amount_cents: 120000
   })
   assert.throws(() => db.prepare("UPDATE bills SET is_variable = 2 WHERE id = 'bill-1'").run(), /CHECK/i)
+  db.close()
+})
+
+test('v14 lets a bill be due once and keeps every bill, claim and payment as it was', () => {
+  const db = new Database(':memory:')
+  db.pragma('foreign_keys = ON')
+  migrateThrough(db, 13)
+  db.prepare(
+    `INSERT INTO users (id, display_name, created_at, updated_at) VALUES (?, 'Tester', ?, ?)`
+  ).run(USER_ID, TS, TS)
+  db.prepare(
+    `INSERT INTO accounts (id, user_id, name, kind, created_at, updated_at)
+     VALUES (?, ?, 'Everyday Checking', 'checking', ?, ?)`
+  ).run(ACCOUNT_ID, USER_ID, TS, TS)
+  db.prepare(
+    `INSERT INTO bills (id, user_id, name, amount_cents, frequency, due_day, is_variable,
+                        funding_strategy, created_at, updated_at, revision)
+     VALUES ('bill-1', ?, 'Gas', 7000, 'monthly', 15, 1, 'first_check', ?, ?, 4)`
+  ).run(USER_ID, TS, TS)
+  db.prepare(
+    `INSERT INTO paychecks (id, user_id, amount_cents, received_on, health, created_at, updated_at)
+     VALUES ('pay-1', ?, 200000, '2026-01-01', 'covered', ?, ?)`
+  ).run(USER_ID, TS, TS)
+  db.prepare(
+    `INSERT INTO bill_reserves (id, user_id, bill_id, paycheck_id, cycle, amount_cents, strategy,
+                                due_day, created_at, updated_at)
+     VALUES ('claim-1', ?, 'bill-1', 'pay-1', '2026-01', 7000, 'first_check', 15, ?, ?)`
+  ).run(USER_ID, TS, TS)
+  db.prepare(
+    `INSERT INTO transactions
+       (id, user_id, account_id, kind, amount_cents, occurred_on, bill_id, created_at, updated_at)
+     VALUES ('txn-1', ?, ?, 'bill_payment', -5100, '2026-01-15', 'bill-1', ?, ?)`
+  ).run(USER_ID, ACCOUNT_ID, TS, TS)
+  assert.throws(
+    () => db.prepare("UPDATE bills SET frequency = 'once' WHERE id = 'bill-1'").run(),
+    /CHECK/i,
+    'schema 13 has no one-time bills'
+  )
+
+  migrate(db)
+
+  assert.equal(db.pragma('user_version', { simple: true }), SCHEMA_VERSION)
+  assert.equal(db.pragma('foreign_keys', { simple: true }), 1)
+  assert.deepEqual(db.pragma('foreign_key_check'), [])
+  assert.deepEqual(
+    db
+      .prepare(
+        `SELECT frequency, due_day, is_variable, funding_strategy, revision FROM bills WHERE id = 'bill-1'`
+      )
+      .get(),
+    { frequency: 'monthly', due_day: 15, is_variable: 1, funding_strategy: 'first_check', revision: 4 }
+  )
+  assert.equal(
+    (db.prepare("SELECT COUNT(*) AS n FROM bill_reserves WHERE bill_id = 'bill-1'").get() as { n: number }).n,
+    1,
+    'the claim survives the rebuild'
+  )
+  assert.equal(
+    (db.prepare("SELECT bill_id FROM transactions WHERE id = 'txn-1'").get() as { bill_id: string }).bill_id,
+    'bill-1'
+  )
+  db.prepare("UPDATE bills SET frequency = 'once', next_due_on = '2026-09-30' WHERE id = 'bill-1'").run()
+  assert.throws(() => db.prepare("UPDATE bills SET frequency = 'daily' WHERE id = 'bill-1'").run(), /CHECK/i)
   db.close()
 })
 
