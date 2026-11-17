@@ -10,17 +10,12 @@
 
 | Field | Value |
 | --- | --- |
-| Version | **1.2.0**, tagged `v1.2.0` at `50cab8e` and published 2026-11-02 |
-| Release | <https://github.com/ReVax-2007/wageroute/releases/tag/v1.2.0> |
-| Database schema | `8` — upgrades 3 → 4 → 5 → 6 → 7 → 8 on first launch, forward-only, no downgrade |
-| Backup format | writes `8`, accepts `2`–`8` |
-| Assets | `WageRoute-1.2.0-arm64.dmg`, `WageRoute-1.2.0-x64.dmg`, `WageRoute.Setup.1.2.0.exe`, `WageRoute-1.2.0.portable.exe`, `WageRoute-1.2.0-{x64,arm64}.{msi,zip}`, `WageRoute-1.2.0-{x86_64,aarch64}.rpm`, `WageRoute-1.2.0-{amd64,arm64}.deb`, `WageRoute-1.2.0-{x86_64,arm64}.AppImage`, `SHA256SUMS` |
-| Homebrew | `ReVax-2007/homebrew-wageroute` at `1.2.0` (`0e10e3b`), Intel URL now `WageRoute-#{version}-x64.dmg` |
-| Verification | The **CI-built** arm64 DMG was downloaded from the published release, its SHA-256 checked against `SHA256SUMS`, then mounted and launched on a disposable profile: blank schema-8 ledger, sidebar `WageRoute v1.2.0`, licence and third-party notices bundled, ad-hoc signature valid. The same bundle opened a **copy** of the live schema-6 database: `user_version` 6 → 8, all 25 original transactions unchanged, 12 accounts / 4 bills / 3 goals / 2 paychecks intact, 3 dead draft settings removed, 22 categories and 12 balance snapshots backfilled, and the migrated ledger rendered on the dashboard. CI installed, launched, reinstalled over itself and uninstalled the MSI, and booted the AppImage and deb under xvfb. All four platform builds green; the release carries a `SHA256SUMS` that lists every asset except itself. **Not hand-launched:** the Intel DMG, NSIS, portable, zip, MSI and Linux packages; no screen-reader pass; unsigned and not notarized |
+| Version | **1.3.1**, tagged `v1.3.1` at `3024156` and published 2026-11-05. It is the 1.3.0 cut: the tag guard needed `package.json` to match the tag, so the version became 1.3.1 before publishing (#80) and no `v1.3.0` tag or release exists |
+| Release | <https://github.com/ReVax-2007/wageroute/releases/tag/v1.3.1> |
+| Database schema | `10` — upgrades a 1.2.0 ledger 8 → 9 → 10 on first launch, forward-only, no downgrade |
+| Backup format | writes `10`, accepts `2`–`10` |
 
-Two tags were replaced before publication, and nothing was ever distributed from the failed ones: the first `v1.2.0` build stopped in NSIS because `installerIcon` pointed at a PNG (`invalid icon file`), and the second built every platform but its tag-only release job ran `gh` without a checkout and hashed its own `SHA256SUMS`. Both fixes are in the tagged tree (`#45`, `#46`).
-
-The `[1.2.0]` block in [CHANGELOG.md](../CHANGELOG.md) is the inventory; it is released now and is not repeated here.
+The release before it, **1.2.0** (`v1.2.0` at `50cab8e`, 2026-11-02, schema 8), keeps its verification record in git history. The `[1.3.1]`/`[1.3.0]` blocks in [CHANGELOG.md](../CHANGELOG.md) are the inventory of what shipped and are not repeated here.
 
 ---
 
@@ -28,11 +23,11 @@ The `[1.2.0]` block in [CHANGELOG.md](../CHANGELOG.md) is the inventory; it is r
 
 | Field | Value |
 | --- | --- |
-| App version | **`1.3.0`** — bumped in `package.json` and `package-lock.json` on the release branch 2026-11-04. No tag exists yet, so nothing is published: `1.2.0` is still the only downloadable release until the tag is cut, built and published |
-| Database schema | `14`, forward-only; the new migrations make the next release at least a minor bump |
+| App version | **`1.4.0`** — bumped in `package.json` and `package-lock.json` on `release/1.4.0` 2026-11-17 and tagged `v1.4.0`. The tag build makes a **draft** release; until the owner publishes it, `1.3.1` is the downloadable release |
+| Database schema | `14`, forward-only; schemas 11–14 are new since 1.3.1, which is why this is a minor bump |
 | Backup format | writes `14`, accepts `2`–`14` |
 | Encryption at rest | **Opt-in, off by default** — `chacha20`, custody device / passphrase / both, key wraps in `ledger.key.json` beside the ledger; reversible in both directions. The whole plain → keyed → plain transition has now run in the packaged macOS build with passphrase custody (2026-11-04); a shipped build has never written a **device** wrap — see the open item in the checklist |
-| Sealed export and phone vault | `wageroute-envelope` v1 and `wageroute-vault` v1. An encrypted `.db` does not open in `1.2.0`; only a **plain** JSON export survives a downgrade |
+| Sealed export and phone vault | `wageroute-envelope` v1 and `wageroute-vault` v1. An encrypted `.db` does not open in `1.2.0`; only a **plain** JSON export survives a downgrade, and a version-14 export does not open in 1.3.1 at all |
 | Self-host shapes | `docker compose up` stays on `127.0.0.1`; the `edge` profile adds Caddy with TLS and a forward-auth login in front of one container per person. A worked example at the proxy, never a login in the app ([ADR 0030](decisions/0030-self-hosting-puts-identity-at-the-edge.md)) — two tenants were run side by side on 2026-11-04 and their isolation measured, but no real identity provider and no handset has run it |
 | CI gates | `npm run lint`, `npm test`, `npm run build` and both type checks on every pull request; a tag builds all four platforms and creates a **draft** release with `SHA256SUMS` |
 | macOS signing | ad-hoc only; no notarization, so Gatekeeper still needs **Open Anyway** or a locally copied DMG |
@@ -41,7 +36,7 @@ The `[1.2.0]` block in [CHANGELOG.md](../CHANGELOG.md) is the inventory; it is r
 
 ## Queued
 
-Work merged to `main` after `v1.2.0`. None of it is in a **published** installer yet: it is cut as `1.3.0`, whose tag has not been made. The `[1.3.0]` block in [CHANGELOG.md](../CHANGELOG.md) is the readable inventory, and its **Known gaps** section names what the release does not claim.
+Batches 17–61 below were merged after `v1.2.0` and **shipped in `v1.3.1`**; they are kept for their record. **Batches 62–68 are what 1.4.0 adds** — split transfers and locked accounts, the Show window, account floors, the Glass theme, variable bills, account history and one-time bills — on top of the transfer-category, legal, SVG-logo, installer and fingerprint/PIN work listed in the `[1.4.0]` block of [CHANGELOG.md](../CHANGELOG.md), which is the readable inventory. Its **Known gaps** section names what the release does not claim.
 
 ### Batch 17 — correctness
 
