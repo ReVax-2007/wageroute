@@ -4,7 +4,10 @@ name: Container images
 #
 # A tag push publishes `<version>` and `latest`; a manual run publishes
 # `sha-<commit>` only, because between releases package.json still carries the
-# last released number and a run from main must not overwrite it.
+# last released number and a run from main must not overwrite it. A manual run
+# given a release tag (`v1.4.0`) builds that tag's source with this workflow and
+# publishes its `<version>` and `latest`: that is how a release whose image job
+# failed is republished without moving the tag.
 #
 # The first push creates the package as **private**. Making it public, or linking
 # it to this repository, is an owner action in the package settings — this
@@ -15,6 +18,11 @@ name: Container images
 
 on:
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to republish (e.g. v1.4.0). Empty publishes sha-<commit> from the chosen branch.'
+        required: false
+        default: ''
   push:
     tags:
       - 'v*'
@@ -43,19 +51,28 @@ jobs:
             dockerfile: docker/desktop.Dockerfile
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Decide the tags
         id: tags
+        env:
+          TAG_INPUT: ${{ inputs.tag }}
         run: |
           set -euo pipefail
           VERSION=$(node -p "require('./package.json').version")
-          if [ "${GITHUB_EVENT_NAME}" = push ] && [ "${GITHUB_REF_NAME}" != "v${VERSION}" ]; then
-            echo "The tag ${GITHUB_REF_NAME} does not match package.json (${VERSION})." >&2
+          if [ "${GITHUB_EVENT_NAME}" = push ]; then
+            RELEASE_TAG="${GITHUB_REF_NAME}"
+          else
+            RELEASE_TAG="${TAG_INPUT}"
+          fi
+          if [ -n "${RELEASE_TAG}" ] && [ "${RELEASE_TAG}" != "v${VERSION}" ]; then
+            echo "The tag ${RELEASE_TAG} does not match package.json (${VERSION})." >&2
             exit 1
           fi
           OWNER=$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
           BASE="${REGISTRY}/${OWNER}/${{ matrix.image }}"
-          if [ "${GITHUB_EVENT_NAME}" = push ]; then
+          if [ -n "${RELEASE_TAG}" ]; then
             echo "release=${BASE}:${VERSION}" >> "$GITHUB_OUTPUT"
             echo "latest=${BASE}:latest" >> "$GITHUB_OUTPUT"
           else
