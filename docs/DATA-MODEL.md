@@ -216,13 +216,13 @@ Semantics:
 | `user_id` | TEXT | NOT NULL, FK users | |
 | `name` | TEXT | NOT NULL | |
 | `amount_cents` | INTEGER | NOT NULL, CHECK > 0 | Per occurrence, not monthly |
-| `frequency` | TEXT | NOT NULL, CHECK in `weekly,biweekly,semimonthly,monthly,quarterly,annual` | |
+| `frequency` | TEXT | NOT NULL, CHECK in `weekly,biweekly,semimonthly,monthly,quarterly,annual,once` | `once` added in v14: a one-time bill, due on `next_due_on` ([ADR 0037](decisions/0037-a-one-time-bill-is-saved-up-for-and-then-done.md)) |
 | `due_day` | INTEGER | NOT NULL, CHECK 1–31 | Day of month. A write outside 1–31 (or a fraction) is refused, not clamped; a 29–31 day clamps to the real month end when an occurrence is computed |
 | `category` | TEXT | NOT NULL, default `'Bills'` | |
 | `account_id` | TEXT | nullable, FK accounts | Where it is paid from |
 | `autopay` | INTEGER | NOT NULL, default 0, CHECK 0/1 | Informational |
 | `is_active` | INTEGER | NOT NULL, default 1, CHECK 0/1 | Paused bills stop reserving |
-| `next_due_on` | TEXT | nullable | Optional explicit anchor for projections |
+| `next_due_on` | TEXT | nullable | Optional explicit anchor for projections. **Required** for a one-time bill, where it is the one date it is due and `due_day` is that date's day (`assertBillSchedule`) |
 | `funding_strategy` | TEXT | NOT NULL, default `'all_checks'`, CHECK in `all_checks,closest_due_date,specific_check,first_check,last_check` | Added in v5; `last_check` added in v6 (the CHECK widened, the default did not). Which paycheck of the month sets the money aside |
 | `funding_paycheck_index` | INTEGER | nullable | Added in v5. Only used by `specific_check`: the 1-based paycheck the user picked |
 | `is_variable` | INTEGER | NOT NULL DEFAULT 0, CHECK 0/1 | Added in v13. `1` makes `amount_cents` an estimate: each payment counts as at least the estimate (`creditedPaymentCents`), so one payment of any size clears an occurrence and autopay skips the bill ([ADR 0036](decisions/0036-a-variable-bill-is-cleared-by-what-it-came-to.md)) |
@@ -230,6 +230,8 @@ Semantics:
 | `updated_at` | TEXT | NOT NULL | |
 | `deleted_at` | TEXT | nullable | |
 | `revision` | INTEGER | NOT NULL, default 1 | |
+
+A **one-time bill** (`frequency = 'once'`) has no recurring share — `BILL_PERIODS_PER_YEAR.once = 0` — and is read through `src/shared/oneTimeBills.ts` instead: a cheque reserves what is still open divided by the cheques left before `next_due_on` (`oneTimeReserveCents`), Left to spend holds the share reached by this month (`oneTimeSetAsideCents`), and its cycle is its whole life (`inBillCycle`): `listBillPaymentsThisMonth` sums every payment linked to it, and `claimsThisMonthFor` and `recordBillReserves` count its open claims from every month. It is **done** when those payments, counted by `creditedPaymentCents`, cover `amount_cents` (`isOneTimeBillDone`) — derived, never stored ([ADR 0037](decisions/0037-a-one-time-bill-is-saved-up-for-and-then-done.md)).
 
 `next_due_on` is not advanced automatically when a bill is marked paid. Projections use it only when it is on or after the projection start date; otherwise they derive the next occurrence from `due_day`.
 
@@ -363,6 +365,7 @@ Semantics:
 
 - A row is written only by `commitPaycheck`, and only when `plan.shortfallCents === 0`; a shortfalling cheque claims nothing so the wall can retry.
 - The cycle is the **calendar month** of the cheque, not a pay period, because `monthlyEquivalentCents` normalises every frequency to a month.
+- A one-time bill's claims keep their cheque's month as `cycle`, but every open one counts toward the bill whatever its month, and one payment settles them all (the walk treats `once` like `quarterly`/`annual`).
 - `state = 'paid'` is set by a `bill_payment` or `expense` transaction carrying that `bill_id`, and `settled_by` names the payment that completed the claim. States are **derived**, not patched: the walk lives in `deriveClaimStates` ([`src/shared/claims.ts`](../src/shared/claims.ts)) and `reconcileBillReserve` feeds it the rows and writes back only what disagrees. It offers each payment to its own cycle's claims first (only when `paychecks.received_on <= occurred_on`) and then to earlier carried claims, and accumulates partial coverage per claim. Two 60,000 payments therefore close one 120,000 claim, while a 60,000 payment against two 60,000 instalments closes one. A refund is a positive bill-linked row and takes coverage back from the most recent contribution, so the claim re-opens. Deleting or re-dating any payment replays the rest, and `settled_by` always names the payment that finished the claim. The phone runs the same walk over the copy in its browser, so a payment typed there settles the claim there ([ADR 0028](decisions/0028-both-devices-derive-a-bills-set-aside-from-its-payments.md)).
 - `claimsThisMonthFor` returns the month's open (`reserved`) claims with the strategy that wrote them, and the allocator subtracts them from the month's remaining need. Every open claim counts, whatever strategy wrote it: a cheque tops the month up to its normal share and never sets aside more than remains. `recordBillReserves` caps a month's **open** claims at the bill's monthly equivalent, so switching strategy more than once cannot reserve the same obligation twice, while a claim already closed by a card charge does not block cash the pool still owes.
 - A payment dated in a later cycle first tries that cycle's claim, but only when the cheque that wrote it was already received. Otherwise the replay offers it to the earliest open earlier claims, restricted to claims whose funding cheque fell **after** the bill's due day in their own cycle. That day test is the carry: a 31 January cheque funds a bill due 1 February, whatever the strategy. The comparison uses the claim's stored `due_day`, not the bill's current one. A mid-month cheque funds its own month, so a later payment is paying that month late — moving a March payment to April leaves March `reserved`. A payment is never offered to a claim another payment already paid, so the same money cannot close two months.
@@ -559,8 +562,9 @@ Migrations run inside a transaction per version and are tracked by `PRAGMA user_
 | **11** | Adds `accounts.is_locked` (NOT NULL, default 0, CHECK 0/1), `transactions.split_group_id` (nullable) and the partial index `idx_transactions_split_group` | A locked account is frozen money ([ADR 0034](decisions/0034-a-locked-account-is-frozen-money.md)), and the transfers one split writes show and leave together ([ADR 0033](decisions/0033-a-split-transfer-is-ordinary-transfers-saved-together.md)). Existing accounts start unlocked and existing entries belong to no split, so an upgraded ledger behaves exactly as before |
 | **12** | Adds `accounts.floor_cents` (nullable, CHECK integer ≥ 0) | An optional floor per deposit account ([ADR 0035](decisions/0035-a-floor-is-money-the-app-will-not-offer.md)). Every existing account gets `NULL`, no floor, so an upgraded ledger behaves exactly as before |
 | **13** | Adds `bills.is_variable` (NOT NULL DEFAULT 0, CHECK 0/1) | Variable bills ([ADR 0036](decisions/0036-a-variable-bill-is-cleared-by-what-it-came-to.md)). Every existing bill gets `0`, fixed, so an upgraded ledger behaves exactly as before |
+| **14** | Rebuilds `bills` to widen the `frequency` CHECK with `'once'` (same columns and ids, the v6 procedure: enforcement suspended, `legacy_alter_table` on, `foreign_key_check` before commit) | One-time bills ([ADR 0037](decisions/0037-a-one-time-bill-is-saved-up-for-and-then-done.md)). SQLite cannot widen a CHECK in place. Every existing bill, claim and payment is unchanged |
 
-`SCHEMA_VERSION` is derived from the last migration and is reported in JSON backups. Backups with a higher version are rejected. Backups older than version 2 are rejected; every version from 2 through 13 is accepted.
+`SCHEMA_VERSION` is derived from the last migration and is reported in JSON backups. Backups with a higher version are rejected. Backups older than version 2 are rejected; every version from 2 through 14 is accepted.
 
 Migration procedure for future work is in [DEVELOPMENT.md](DEVELOPMENT.md#adding-a-schema-migration).
 

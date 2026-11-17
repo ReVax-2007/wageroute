@@ -83,6 +83,8 @@ export function billOccurrencesBetween(
 ): string[] {
   if (fromISO > toISO) return []
   const anchor = billSeriesAnchor(bill, fromISO)
+  // A one-time bill has exactly one occurrence: its date (ADR 0037).
+  if (bill.frequency === 'once') return anchor >= fromISO && anchor <= toISO ? [anchor] : []
   const dates: string[] = []
 
   const dayStep = DAY_STEPS[bill.frequency]
@@ -119,8 +121,12 @@ export function billOccurrencesBetween(
   return dates.sort()
 }
 
-/** The most recent occurrence on or before `onOrBeforeISO`. */
+/**
+ * The most recent occurrence on or before `onOrBeforeISO`. A one-time bill
+ * answers with its one date wherever it falls.
+ */
 export function previousBillOccurrence(bill: RecurringBill, onOrBeforeISO: string): string {
+  if (bill.frequency === 'once') return billSeriesAnchor(bill, onOrBeforeISO)
   const window = billOccurrencesBetween(
     bill,
     addDaysISO(onOrBeforeISO, -SEARCH_DAYS),
@@ -131,8 +137,13 @@ export function previousBillOccurrence(bill: RecurringBill, onOrBeforeISO: strin
     : addDaysISO(onOrBeforeISO, -SEARCH_DAYS)
 }
 
-/** The next occurrence on or after `onOrAfterISO`. */
+/**
+ * The next occurrence on or after `onOrAfterISO`. A one-time bill answers with
+ * its one date even once it has passed, so an unpaid one reads overdue instead
+ * of being rolled to a month it was never due in.
+ */
 export function nextBillOccurrence(bill: RecurringBill, onOrAfterISO: string): string {
+  if (bill.frequency === 'once') return billSeriesAnchor(bill, onOrAfterISO)
   const window = billOccurrencesBetween(
     bill,
     onOrAfterISO,

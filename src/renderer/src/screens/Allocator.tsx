@@ -3,6 +3,7 @@ import { AlertTriangle, ArrowLeft, ArrowRight, Sparkles, X } from 'lucide-react'
 import { buildAllocationPlan, type PlanWarning } from '@shared/allocator'
 import { PAY_CADENCE_LABEL } from '@shared/cadence'
 import { daysBetweenISO, formatMonthLong, isISODate, todayISO } from '@shared/dates'
+import { inBillCycle } from '@shared/oneTimeBills'
 import {
   canonicalMoneyInput,
   currencySymbol,
@@ -169,7 +170,7 @@ export function Allocator() {
         Math.max(0, total.paidCents - total.creditCents)
       ])
     )
-    return activeBills(snapshot?.bills ?? []).map((bill) => ({
+    return activeBills(snapshot?.bills ?? [], monthPayments).map((bill) => ({
       ...bill,
       paidThisMonthCents: paid.get(bill.id) ?? 0
     }))
@@ -183,17 +184,23 @@ export function Allocator() {
   )
   // The month's live claims tell the plan what an earlier cheque already
   // carried. Paid claims are left out: their payment is in `monthPayments`.
-  const monthClaims = useMemo(
-    () =>
-      (snapshot?.billReserves ?? [])
-        .filter((reserve) => reserve.cycle === payMonth && reserve.state === 'reserved')
+  const monthClaims = useMemo(() => {
+    // A one-time bill's open claims from any month still hold its money (ADR 0037).
+    const billById = new Map((snapshot?.bills ?? []).map((bill) => [bill.id, bill]))
+    return (snapshot?.billReserves ?? [])
+        .filter((reserve) => {
+          const bill = billById.get(reserve.billId)
+          return (
+            reserve.state === 'reserved' &&
+            (bill ? inBillCycle(bill, reserve.cycle, payMonth) : reserve.cycle === payMonth)
+          )
+        })
         .map((reserve) => ({
           billId: reserve.billId,
           amountCents: reserve.amountCents,
           strategy: reserve.strategy
-        })),
-    [snapshot?.billReserves, payMonth]
-  )
+        }))
+  }, [snapshot?.bills, snapshot?.billReserves, payMonth])
 
   // The repository refuses both cases. Say which one the screen found, so the
   // confirmation the user gives is about the deposit they actually made.

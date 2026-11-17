@@ -312,7 +312,7 @@ function EmergencyCard() {
   const isActive = settings.emergencyActive
   const eligible = fundableAccounts(snapshot.accounts)
 
-  const wall = monthlyWall(activeBills(snapshot.bills))
+  const wall = monthlyWall(activeBills(snapshot.bills, snapshot.billPaymentsThisMonth))
   const variable = averageMonthlyVariableCents(snapshot.transactions, todayISO())
   const essentials = emergencyMonthlyEssentialsCents({
     wallMonthlyCents: wall,

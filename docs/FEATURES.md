@@ -197,7 +197,7 @@ Actions:
 
 ### Bill dialog
 
-Fields: name, amount (labelled **Estimate** when the bill varies), cadence, due day (1–31), category, paid-from account, autopay and **Amount varies** checkboxes, **Funding schedule** and — when it is needed — **Which paycheck?**.
+Fields: name, amount (labelled **Estimate** when the bill varies), cadence (the six recurring ones and **One time**), due day (1–31; a **Due on** date for a one-time bill), category, paid-from account, autopay and **Amount varies** checkboxes, **Funding schedule** and — when it is needed — **Which paycheck?**.
 
 Autopay marks a bill as one WageRoute records for you. At launch, every active autopay bill whose latest occurrence has passed without a matching payment gets one `bill_payment` dated the due day with a `· autopay` memo, and the month's reserve flips to **Paid**. A part payment already in the ledger counts, so only the remainder is posted; a bill with no usable account (neither its own nor the default deposit account) is skipped and stays on the wall rather than being guessed at. The app still does not move money between accounts — you pay the bill — it keeps the ledger honest without a manual prompt. A hint under the checkbox says exactly that. New bills default to autopay on.
 
@@ -240,6 +240,19 @@ Ticking **Amount varies** in the bill dialog (desktop and Pocket) makes the amou
 - **Re-adjusting later.** Editing the payment's amount in the spreadsheet or Pocket's ledger keeps the bill settled and moves Left to spend with it.
 - **Refunds** take back what they return, as on a fixed bill: a $10 refund of the $51 reopens $10 of the set-aside. Remove a whole payment by deleting it.
 - Fixed bills are unchanged everywhere: same screens, same buttons, a part payment still asks for the rest.
+
+### One-time bills
+
+Choosing **One time** in the bill dialog (desktop and Pocket) makes a bill that is due once, on a date — new tires, a course fee, a repair ([ADR 0037](decisions/0037-a-one-time-bill-is-saved-up-for-and-then-done.md)).
+
+- **The form.** The due day becomes a **Due on** date (required), the funding schedule is replaced by one sentence, and a new one-time bill starts with autopay off. Account, category, **Amount varies** and **Use this bill** work as for any bill.
+- **Saved up for.** Every paycheck between now and the due date sets an equal share of what is still open aside: $900 two months out on twice-a-month pay is four cheques of $225, not one of $900. Each cheque re-divides what is left after earlier cheques' claims and any payment, so a missed or short cheque is made up by the next ones. A cheque after the date carries everything still open. Funding strategies do not apply.
+- **Left to spend** holds the share the saving-up has reached by this month — spread evenly from the month the bill was added to the month it is due — less what was paid: $300, then $600, then all $900 from the due month on. Unlike a recurring bill's monthly share, what was set aside is not released the next month.
+- **The Bills row** reads *$900.00 · One time · due Jan 15*; the per-paycheck figure says *Spread to the due date* (or *All of it, now* once overdue), the Monthly column says *One time*, and a part payment shows *$300.00 paid · $600.00 to go*. A check icon (**Pay New tires**) opens a payment dialog with the open amount filled in, the account and the date.
+- **Paid means done.** A one-time bill is done when its payments cover the amount, whichever month each landed in (a variable one after any payment). It leaves the plan, Left to spend, projections and the prompt card, and moves to the **Done** card under the bills (Pocket: a **Done** list), where it can still be opened, edited or deleted. Nothing stores "done": deleting the payment brings the bill back.
+- **Overdue, not rolled forward.** Past its date and not covered, it stays on its date: the row is marked **Overdue**, Home's *Due in the next two weeks* says *Nd overdue*, the **Did these clear?** card asks about it, and Pocket keeps it in Due soon as **Overdue**. Autopay posts it once on its date, and never again.
+- **Projections** (the Spreadsheet's *Next 90 days*, Home's upcoming list) show it once, on its date.
+- The **Bills every month** and **Average per paycheck** summaries count recurring bills only; the per-paycheck column and the next-paycheck total include one-time bills.
 
 ### Notes
 
@@ -941,6 +954,8 @@ Actions:
 - **Not yet** snoozes that occurrence, keyed by bill and due date, so next month's prompt still appears. Snoozed rows move to a **Snoozed** list under the open prompts with a **Bring back** button. Snoozes are session-only and reset on restart.
 
 A **variable** bill ([Variable bills](#variable-bills)) is confirmed by any payment in its window, whatever the size, and its prompt shows an amount field filled with the estimate in place of the fixed amount, with a line saying how far under or over the estimate the typed figure is. **Yes, it cleared** posts the typed figure. A variable bill marked autopay is never posted at launch; it appears here instead, marked *autopay*.
+
+A **one-time** bill ([One-time bills](#one-time-bills)) is asked about after its date until its payments cover it, counting every payment ever linked to it; a done one is never asked about again.
 
 Prompts are sorted by due date, then name. The count badge reflects visible prompts after snoozing.
 

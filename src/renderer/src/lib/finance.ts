@@ -9,12 +9,14 @@ import { formatMoney } from '@shared/money'
 import { creditAmountDue, creditCycle, previousCloseDate } from '@shared/credit'
 import { addDaysISO, daysBetweenISO } from '@shared/dates'
 import { nextBillOccurrence } from '@shared/occurrences'
+import { isOneTimeBillDone } from '@shared/oneTimeBills'
 import { debtPayoff, requiredPaymentCents } from '@shared/payoff'
 import type {
   AccountKind,
   AccountWithBalance,
   AllocationBucket,
   Bill,
+  BillPaymentTotal,
   GoalWithProgress,
   PayCadence,
   PaycheckWithAllocations,
@@ -270,8 +272,28 @@ export function fundableAccounts(accounts: readonly AccountWithBalance[]): Accou
   )
 }
 
-export function activeBills(bills: readonly Bill[]): Bill[] {
-  return bills.filter((bill) => bill.isActive)
+/**
+ * The bills the plan still carries: switched on, and not a one-time bill whose
+ * payments already cover it (ADR 0037). `payments` is the snapshot's
+ * `billPaymentsThisMonth`, whose row for a one-time bill spans every month.
+ */
+export function activeBills(
+  bills: readonly Bill[],
+  payments: readonly BillPaymentTotal[]
+): Bill[] {
+  const paid = new Map(payments.map((row) => [row.billId, row.paidCents]))
+  return bills.filter(
+    (bill) => bill.isActive && !isOneTimeBillDone(bill, paid.get(bill.id) ?? 0)
+  )
+}
+
+/** One-time bills that are paid: the Bills screen's Done list. */
+export function doneOneTimeBills(
+  bills: readonly Bill[],
+  payments: readonly BillPaymentTotal[]
+): Bill[] {
+  const paid = new Map(payments.map((row) => [row.billId, row.paidCents]))
+  return bills.filter((bill) => isOneTimeBillDone(bill, paid.get(bill.id) ?? 0))
 }
 
 export function monthlyWall(bills: readonly Bill[]): number {

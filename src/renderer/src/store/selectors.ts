@@ -30,7 +30,7 @@ export function selectSafeToSpendPoolCents(state: SnapshotState): number {
 
 /** The whole smoothed obligation, before this month's payments are taken off. */
 export function selectMonthlyWallCents(state: SnapshotState): number {
-  return state.snapshot ? monthlyWall(activeBills(state.snapshot.bills)) : 0
+  return state.snapshot ? monthlyWall(activeBills(state.snapshot.bills, state.snapshot.billPaymentsThisMonth)) : 0
 }
 
 /**
@@ -51,7 +51,10 @@ export function selectUnpaidWallCents(state: SnapshotState): number {
       Math.max(0, row.paidCents - row.creditCents)
     ])
   )
-  return unpaidMonthlyWallCents(activeBills(state.snapshot.bills), paid)
+  return unpaidMonthlyWallCents(activeBills(state.snapshot.bills, state.snapshot.billPaymentsThisMonth),
+    paid,
+    todayISO().slice(0, 7)
+  )
 }
 
 export function selectFundedGoalsCents(state: SnapshotState): number {

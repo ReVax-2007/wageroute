@@ -65,9 +65,12 @@ export function dueBillPrompts(input: {
     const dueOn = previousBillOccurrence(bill, input.todayISO)
     if (dueOn >= input.todayISO) continue
 
-    const nextOn = nextBillOccurrence(bill, addDaysISO(dueOn, 1))
     const credit = { amountCents: bill.amountCents, isVariable: bill.isVariable === true }
-    const windowStart = addDaysISO(dueOn, -EARLY_WINDOW_DAYS)
+    // A one-time bill has one occurrence, so every payment ever linked to it
+    // counts, however early it landed (ADR 0037).
+    const once = bill.frequency === 'once'
+    const nextOn = once ? '9999-12-31' : nextBillOccurrence(bill, addDaysISO(dueOn, 1))
+    const windowStart = once ? '0000-01-01' : addDaysISO(dueOn, -EARLY_WINDOW_DAYS)
     // Money out is negative on the ledger, so net the signed amounts: an
     // imported refund must give back what it returned, not count as a payment.
     const netPaid = (byBill.get(bill.id) ?? [])

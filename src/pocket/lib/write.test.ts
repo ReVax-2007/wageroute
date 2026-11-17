@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { todayISO } from '@shared/dates'
+import { addDaysISO, addMonthsISO, todayISO } from '@shared/dates'
 import { RepositoryError } from '@shared/errors'
 import type { ImportTables } from '@shared/importRepair'
 import { LOCKED_ACCOUNT_REFUSAL } from '@shared/writeRules'
 import type { AccountInput, BillInput, CategoryInput, GoalInput } from '@shared/types'
 import { emptyTables } from './backup'
 import { buildSnapshot } from './snapshot'
-import { cents, flag, isLive, nullableText, text } from './rows'
+import { billLines, doneLines, dueSoon, pocketView } from './compute'
+import { cents, flag, integer, isLive, nullableText, text } from './rows'
 import {
   accountEntryCount,
   billDeletionSummary,
@@ -1099,4 +1100,56 @@ test('a fixed bill ignores a typed figure and the flag round-trips through the f
   assert.equal(flag(rowOf(variable, 'rent'), 'is_variable'), true)
   assert.equal(buildSnapshot(variable).bills[0].isVariable, true)
   assert.equal(buildSnapshot(tables).bills[0].isVariable, false, 'a row without the key is fixed')
+})
+
+test('a one-time bill is paid on the phone across months and then listed as done', () => {
+  const today = todayISO()
+  const lastMonth = addMonthsISO(today, -1)
+  const created = createBill(ledger(), {
+    name: 'New tires',
+    amountCents: 90_000,
+    frequency: 'once',
+    dueDay: 1,
+    category: 'Car',
+    accountId: 'chk',
+    autopay: false,
+    isActive: true,
+    nextDueOn: addDaysISO(today, -3)
+  })
+  assert.equal(integer(rowOf(created.tables, created.id), 'due_day'), Number(addDaysISO(today, -3).slice(8, 10)))
+  assert.match(
+    refusal(() => patchBill(created.tables, created.id, { nextDueOn: null })).message,
+    /needs the date/
+  )
+
+  const open = billLines(buildSnapshot(created.tables, today), today).find((line) => line.bill.id === created.id)
+  assert.equal(open?.state, 'overdue', 'past its date it is overdue, not rolled to next month')
+  assert.ok(dueSoon(billLines(buildSnapshot(created.tables, today), today)).some((line) => line.bill.id === created.id))
+
+  // A part payment last month still counts: a one-time bill has one occurrence.
+  const part = createEntry(created.tables, {
+    accountId: 'chk',
+    kind: 'bill_payment',
+    amountCents: -30_000,
+    occurredOn: lastMonth,
+    memo: 'Deposit on tires',
+    category: 'Car',
+    billId: created.id
+  })
+  assert.equal(billPaidThisMonthCents(part.tables, created.id, today), 30_000)
+  const rest = payBill(part.tables, created.id)
+  assert.equal(cents(rowOf(rest.tables, rest.id), 'amount_cents'), -60_000)
+
+  const snapshot = buildSnapshot(rest.tables, today)
+  assert.equal(billLines(snapshot, today).some((line) => line.bill.id === created.id), false)
+  assert.deepEqual(
+    doneLines(snapshot, today).map((line) => [line.bill.id, line.actualCents]),
+    [[created.id, 90_000]]
+  )
+  assert.equal(
+    pocketView(snapshot, today).unpaidWallCents,
+    pocketView(buildSnapshot(ledger(), today), today).unpaidWallCents,
+    'a done one-time bill holds nothing back'
+  )
+  assert.match(refusal(() => payBill(rest.tables, created.id)).message, /already paid/)
 })

@@ -9,6 +9,7 @@ import { deriveClaimStates, type ClaimFact, type PaymentFact } from '@shared/cla
 import { todayISO } from '@shared/dates'
 import { RepositoryError } from '@shared/errors'
 import { normalizeSignedCents, signedAmountError } from '@shared/kinds'
+import { inBillCycle } from '@shared/oneTimeBills'
 import { parseSettings } from '@shared/settings'
 import { incomingWins } from '@shared/tableMerge'
 import { roundUpRemainderCents, transferLegs } from '@shared/transfers'
@@ -203,16 +204,18 @@ function requirePaycheckRow(tables: ImportTables, paycheckId: string): void {
 export function createBill(tables: ImportTables, input: BillInput): Written {
   const accountId = input.accountId ? rules.optionalText(input.accountId, 'Account') : null
   if (accountId) requireAccountRow(tables, accountId)
+  const frequency = rules.assertOneOf(input.frequency, rules.FREQUENCIES, 'frequency')
+  const schedule = rules.assertBillSchedule(frequency, input.dueDay, input.nextDueOn)
   return insertRow(tables, 'bills', {
     name: rules.assertText(input.name, 'Bill name'),
     amount_cents: rules.assertCents(input.amountCents, 'Bill amount'),
-    frequency: rules.assertOneOf(input.frequency, rules.FREQUENCIES, 'frequency'),
-    due_day: rules.assertDueDay(input.dueDay),
+    frequency,
+    due_day: schedule.dueDay,
     category: input.category ? rules.assertText(input.category, 'Category', 60) : 'Bills',
     account_id: accountId,
     autopay: input.autopay ? 1 : 0,
     is_active: input.isActive === false ? 0 : 1,
-    next_due_on: input.nextDueOn ? rules.assertDate(input.nextDueOn, 'Next due date') : null,
+    next_due_on: schedule.nextDueOn,
     funding_strategy: input.fundingStrategy
       ? rules.assertOneOf(input.fundingStrategy, rules.BILL_FUNDING_STRATEGIES, 'funding strategy')
       : 'all_checks',
@@ -229,6 +232,21 @@ export function patchBill(tables: ImportTables, id: string, patch: Partial<BillI
     const current = requireLiveRow(tables, 'bills', id)
     if (nullableText(current, 'account_id') !== patch.accountId) requireAccountRow(tables, patch.accountId)
   }
+  // The schedule is checked as a whole, as on the computer: a one-time bill's
+  // date decides its due day (ADR 0037).
+  let schedule: { dueDay: number; nextDueOn: string | null } | undefined
+  if (patch.frequency !== undefined || patch.dueDay !== undefined || patch.nextDueOn !== undefined) {
+    const current = requireLiveRow(tables, 'bills', id)
+    const frequency =
+      patch.frequency === undefined
+        ? rules.assertOneOf(text(current, 'frequency'), rules.FREQUENCIES, 'frequency')
+        : rules.assertOneOf(patch.frequency, rules.FREQUENCIES, 'frequency')
+    schedule = rules.assertBillSchedule(
+      frequency,
+      patch.dueDay ?? integer(current, 'due_day', 1),
+      patch.nextDueOn === undefined ? nullableText(current, 'next_due_on') : patch.nextDueOn
+    )
+  }
   return patchRow(tables, 'bills', id, {
     name: patch.name === undefined ? undefined : rules.assertText(patch.name, 'Bill name'),
     amount_cents:
@@ -237,15 +255,17 @@ export function patchBill(tables: ImportTables, id: string, patch: Partial<BillI
       patch.frequency === undefined
         ? undefined
         : rules.assertOneOf(patch.frequency, rules.FREQUENCIES, 'frequency'),
-    due_day: patch.dueDay === undefined ? undefined : rules.assertDueDay(patch.dueDay),
+    due_day:
+      schedule?.dueDay ?? (patch.dueDay === undefined ? undefined : rules.assertDueDay(patch.dueDay)),
     category:
       patch.category === undefined ? undefined : rules.assertText(patch.category, 'Category', 60),
     account_id: patch.accountId === undefined ? undefined : patch.accountId || null,
     autopay: patch.autopay === undefined ? undefined : patch.autopay ? 1 : 0,
     is_active: patch.isActive === undefined ? undefined : patch.isActive ? 1 : 0,
     is_variable: patch.isVariable === undefined ? undefined : patch.isVariable ? 1 : 0,
-    next_due_on:
-      patch.nextDueOn === undefined
+    next_due_on: schedule
+      ? schedule.nextDueOn
+      : patch.nextDueOn === undefined
         ? undefined
         : patch.nextDueOn
           ? rules.assertDate(patch.nextDueOn, 'Next due date')
@@ -312,13 +332,15 @@ export function billPaidThisMonthCents(tables: ImportTables, billId: string, tod
     amountCents: bill ? cents(bill, 'amount_cents') : 0,
     isVariable: bill ? flag(bill, 'is_variable') : false
   }
+  // A one-time bill's payments count whatever month they landed in (ADR 0037).
+  const cycleOf = { frequency: (bill ? text(bill, 'frequency') : 'monthly') as Frequency }
   let paid = 0
   for (const entry of tables.transactions) {
     if (!isLive(entry) || nullableText(entry, 'bill_id') !== billId) continue
     const kind = text(entry, 'kind')
     if (kind !== 'bill_payment' && kind !== 'expense') continue
     const occurredOn = text(entry, 'occurred_on')
-    if (occurredOn.slice(0, 7) !== month || occurredOn > today) continue
+    if (!inBillCycle(cycleOf, occurredOn, month) || occurredOn > today) continue
     paid += Math.max(0, -creditedPaymentCents(credit, cents(entry, 'amount_cents')))
   }
   return paid
@@ -506,7 +528,14 @@ export function billPaymentPlan(
   if (!accountId) throw new RepositoryError('STATE', 'No active account can pay this bill')
 
   const remaining = cents(bill, 'amount_cents') - billPaidThisMonthCents(tables, billId, occurredOn)
-  if (remaining <= 0) throw new RepositoryError('STATE', 'This bill is already paid for the month')
+  if (remaining <= 0) {
+    throw new RepositoryError(
+      'STATE',
+      text(bill, 'frequency') === 'once'
+        ? 'This one-time bill is already paid'
+        : 'This bill is already paid for the month'
+    )
+  }
   if (flag(bill, 'is_variable') && options.actualCents !== undefined) {
     const actual = rules.assertCents(options.actualCents, 'Amount')
     if (actual <= 0) throw new RepositoryError('VALIDATION', 'Enter what the bill came to')

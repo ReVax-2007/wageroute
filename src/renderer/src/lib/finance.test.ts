@@ -160,9 +160,9 @@ test('the wall is smoothed to a month and then to a cheque', () => {
     bill('insurance', 60_000, 'annual'),
     bill('paused', 999_999, 'monthly', { isActive: false })
   ]
-  assert.deepEqual(activeBills(bills).map((row) => row.id), ['rent', 'insurance'])
-  assert.equal(monthlyWall(activeBills(bills)), 125_000, 'an annual bill is one twelfth a month')
-  assert.equal(perPaycheckWall(activeBills(bills), 'semimonthly'), 62_500)
+  assert.deepEqual(activeBills(bills, []).map((row) => row.id), ['rent', 'insurance'])
+  assert.equal(monthlyWall(activeBills(bills, [])), 125_000, 'an annual bill is one twelfth a month')
+  assert.equal(perPaycheckWall(activeBills(bills, []), 'semimonthly'), 62_500)
 })
 
 test('goal totals ignore archived goals', () => {

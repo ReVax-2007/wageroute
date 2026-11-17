@@ -8,7 +8,7 @@ import type {
   BillReserve,
   Frequency
 } from '@shared/types'
-import { BILL_FUNDING_STRATEGIES, FREQUENCIES } from '@shared/writeRules'
+import { assertBillSchedule, BILL_FUNDING_STRATEGIES, FREQUENCIES } from '@shared/writeRules'
 import {
   assertCents,
   assertDate,
@@ -70,6 +70,8 @@ export function createBill(db: Db, userId: string, input: BillInput): string {
   const fundingStrategy = input.fundingStrategy
     ? assertOneOf(input.fundingStrategy, BILL_FUNDING_STRATEGIES, 'funding strategy')
     : 'all_checks'
+  const frequency = assertOneOf(input.frequency, FREQUENCIES, 'frequency')
+  const schedule = assertBillSchedule(frequency, input.dueDay, input.nextDueOn)
 
   db.prepare(
     `INSERT INTO bills
@@ -82,13 +84,13 @@ export function createBill(db: Db, userId: string, input: BillInput): string {
     userId,
     assertText(input.name, 'Bill name'),
     assertCents(input.amountCents, 'Bill amount'),
-    assertOneOf(input.frequency, FREQUENCIES, 'frequency'),
-    assertDueDay(input.dueDay),
+    frequency,
+    schedule.dueDay,
     input.category ? assertText(input.category, 'Category', 60) : 'Bills',
     accountId,
     input.autopay ? 1 : 0,
     input.isActive === false ? 0 : 1,
-    input.nextDueOn ? assertDate(input.nextDueOn, 'Next due date') : null,
+    schedule.nextDueOn,
     fundingStrategy,
     assertPaycheckIndex(input.fundingPaycheckIndex),
     input.isVariable ? 1 : 0,
@@ -117,6 +119,35 @@ export function updateBill(
     if (current?.accountId !== patch.accountId) requireAccount(db, userId, patch.accountId)
   }
 
+  // The schedule is checked as a whole: a one-time bill's date decides its due
+  // day, and switching a bill to one time needs a date (ADR 0037).
+  let schedule: { dueDay: number; nextDueOn: string | null } | undefined
+  if (
+    patch.frequency !== undefined ||
+    patch.dueDay !== undefined ||
+    patch.nextDueOn !== undefined
+  ) {
+    const current = db
+      .prepare(
+        `SELECT frequency, due_day AS dueDay, next_due_on AS nextDueOn
+         FROM bills WHERE id = ? AND user_id = ? AND deleted_at IS NULL`
+      )
+      .get(id, userId) as
+      | { frequency: Frequency; dueDay: number; nextDueOn: string | null }
+      | undefined
+    if (current) {
+      const frequency =
+        patch.frequency === undefined
+          ? current.frequency
+          : assertOneOf(patch.frequency, FREQUENCIES, 'frequency')
+      schedule = assertBillSchedule(
+        frequency,
+        patch.dueDay ?? current.dueDay,
+        patch.nextDueOn === undefined ? current.nextDueOn : patch.nextDueOn
+      )
+    }
+  }
+
   updateRow(db, 'bills', id, userId, {
     name: patch.name === undefined ? undefined : assertText(patch.name, 'Bill name'),
     amount_cents:
@@ -126,15 +157,16 @@ export function updateBill(
         ? undefined
         : assertOneOf(patch.frequency, FREQUENCIES, 'frequency'),
     due_day:
-      patch.dueDay === undefined ? undefined : assertDueDay(patch.dueDay),
+      schedule?.dueDay ?? (patch.dueDay === undefined ? undefined : assertDueDay(patch.dueDay)),
     category:
       patch.category === undefined ? undefined : assertText(patch.category, 'Category', 60),
     account_id: patch.accountId === undefined ? undefined : patch.accountId || null,
     autopay: patch.autopay === undefined ? undefined : patch.autopay ? 1 : 0,
     is_active: patch.isActive === undefined ? undefined : patch.isActive ? 1 : 0,
     is_variable: patch.isVariable === undefined ? undefined : patch.isVariable ? 1 : 0,
-    next_due_on:
-      patch.nextDueOn === undefined
+    next_due_on: schedule
+      ? schedule.nextDueOn
+      : patch.nextDueOn === undefined
         ? undefined
         : patch.nextDueOn
           ? assertDate(patch.nextDueOn, 'Next due date')
@@ -226,7 +258,8 @@ export function listBillReserves(db: Db, userId: string): BillReserve[] {
 /**
  * The month's open claims, as the plan sees them. A paid claim is already
  * represented by the ledger payment, so including it here would subtract the
- * same money twice.
+ * same money twice. A one-time bill's cycle is its whole life, so every open
+ * claim for it counts, whichever month wrote it (ADR 0037).
  */
 export function claimsThisMonthFor(
   db: Db,
@@ -243,8 +276,8 @@ export function claimsThisMonthFor(
                    AND b.deleted_at IS NULL
        JOIN paychecks p ON p.id = r.paycheck_id AND p.user_id = r.user_id
                        AND p.deleted_at IS NULL
-       WHERE r.user_id = ? AND r.cycle = ? AND r.state = 'reserved'
-         AND r.deleted_at IS NULL`
+       WHERE r.user_id = ? AND (r.cycle = ? OR b.frequency = 'once')
+         AND r.state = 'reserved' AND r.deleted_at IS NULL`
     )
     .all(userId, cycle) as {
     billId: string
@@ -271,8 +304,8 @@ export function recordBillReserves(
      FROM bill_reserves r
      JOIN paychecks p ON p.id = r.paycheck_id AND p.user_id = r.user_id
                      AND p.deleted_at IS NULL
-     WHERE r.user_id = ? AND r.bill_id = ? AND r.cycle = ? AND r.state = 'reserved'
-       AND r.deleted_at IS NULL`
+     WHERE r.user_id = ? AND r.bill_id = ? AND (r.cycle = ? OR ? = 'once')
+       AND r.state = 'reserved' AND r.deleted_at IS NULL`
   )
   const insert = db.prepare(
     `INSERT INTO bill_reserves
@@ -296,8 +329,15 @@ export function recordBillReserves(
     // the part no earlier cheque still holds. A claim the month's money already
     // closed no longer blocks cash the plan still owes — a card charge pays the
     // bill without shrinking the pool.
-    const claimed = (claimedOf.get(userId, reserve.billId, cycle) as { total: number }).total
-    const remaining = monthlyEquivalentCents(row.amountCents, row.frequency) - claimed
+    // A one-time bill's open claims from every month count against its one amount.
+    const claimed = (
+      claimedOf.get(userId, reserve.billId, cycle, row.frequency) as { total: number }
+    ).total
+    const ceiling =
+      row.frequency === 'once'
+        ? row.amountCents
+        : monthlyEquivalentCents(row.amountCents, row.frequency)
+    const remaining = ceiling - claimed
     const amountCents = Math.min(reserve.reserveCents, remaining)
     if (amountCents <= 0) continue
     insert.run(

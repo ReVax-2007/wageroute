@@ -7,7 +7,7 @@ import {
   PAY_CADENCE_LABEL,
   reachableCheckIndexes
 } from '@shared/cadence'
-import { formatDateLabel } from '@shared/dates'
+import { addDaysISO, formatDateLabel, isISODate, todayISO } from '@shared/dates'
 import { billDeletionWords } from '@shared/deletion'
 import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
 import type { AppSettings, Bill, BillFundingStrategy, BillInput, Frequency } from '@shared/types'
@@ -18,7 +18,7 @@ import { DeleteConfirm } from '../components/DeleteConfirm'
 import { MoneyInput } from '../components/MoneyInput'
 import { Sheet } from '../components/Sheet'
 import { useSheetSave } from '../components/useSheetSave'
-import { type BillLine, billLines, pocketView } from '../lib/compute'
+import { type BillLine, billLines, doneLines, pocketView } from '../lib/compute'
 import { entryAccounts } from '../lib/entry'
 import { flag, text } from '../lib/rows'
 import { usePocket, useSnapshot } from '../lib/store'
@@ -35,7 +35,8 @@ import { FloorWarning, useFloorGate } from '../components/FloorWarning'
 const STATE_LABEL: Record<BillLine['state'], string> = {
   paid: 'Paid',
   reserved: 'Set aside',
-  open: 'Due'
+  open: 'Due',
+  overdue: 'Overdue'
 }
 
 const FREQUENCIES = Object.keys(FREQUENCY_LABEL) as Frequency[]
@@ -53,6 +54,8 @@ interface BillForm {
   isVariable: boolean
   fundingStrategy: BillFundingStrategy
   fundingPaycheckIndex: string
+  /** A one-time bill's date (ADR 0037). */
+  dueOn: string
 }
 
 function formFor(bill: Bill | null, fallbackAccount: string): BillForm {
@@ -67,7 +70,8 @@ function formFor(bill: Bill | null, fallbackAccount: string): BillForm {
     isActive: bill?.isActive ?? true,
     isVariable: bill?.isVariable ?? false,
     fundingStrategy: bill?.fundingStrategy ?? 'all_checks',
-    fundingPaycheckIndex: bill?.fundingPaycheckIndex ? String(bill.fundingPaycheckIndex) : '1'
+    fundingPaycheckIndex: bill?.fundingPaycheckIndex ? String(bill.fundingPaycheckIndex) : '1',
+    dueOn: bill?.nextDueOn ?? addDaysISO(todayISO(), 30)
   }
 }
 
@@ -101,6 +105,7 @@ function BillFormSheet({
 
   const cadence = settings.payCadence
   const checkSlots = reachableCheckIndexes(cadence)
+  const oneTime = form.frequency === 'once'
 
   const submit = async () => {
     const amountCents = parseMoneyToCents(form.amount)
@@ -113,7 +118,12 @@ function BillFormSheet({
       setError('Enter an amount greater than zero')
       return
     }
-    if (!Number.isInteger(dueDay) || dueDay < 1 || dueDay > 31) {
+    if (oneTime) {
+      if (!isISODate(form.dueOn)) {
+        setError('Pick the date it is due')
+        return
+      }
+    } else if (!Number.isInteger(dueDay) || dueDay < 1 || dueDay > 31) {
       setError('Due day must be a whole number from 1 to 31')
       return
     }
@@ -122,13 +132,13 @@ function BillFormSheet({
       name: form.name.trim(),
       amountCents,
       frequency: form.frequency,
-      dueDay,
+      dueDay: oneTime ? Number(form.dueOn.slice(8, 10)) : dueDay,
       category: form.category.trim() || 'Bills',
       accountId: form.accountId || null,
       autopay: form.autopay,
       isActive: form.isActive,
       isVariable: form.isVariable,
-      nextDueOn: bill?.nextDueOn ?? null,
+      nextDueOn: oneTime ? form.dueOn : (bill?.nextDueOn ?? null),
       fundingStrategy: form.fundingStrategy,
       fundingPaycheckIndex:
         form.fundingStrategy === 'specific_check' ? Number(form.fundingPaycheckIndex) || 1 : null
@@ -143,7 +153,11 @@ function BillFormSheet({
   return (
     <Sheet
       title={bill ? 'Edit this bill' : 'Add a bill'}
-      hint="This comes out of every paycheck before anything else."
+      hint={
+        oneTime
+          ? 'Due once. The paychecks before its date save it up, then it is done.'
+          : 'This comes out of every paycheck before anything else.'
+      }
       onClose={onClose}
     >
       <Field label="Bill name">
@@ -168,7 +182,11 @@ function BillFormSheet({
           <select
             className="input"
             value={form.frequency}
-            onChange={(event) => setForm({ ...form, frequency: event.target.value as Frequency })}
+            onChange={(event) => {
+              const frequency = event.target.value as Frequency
+              // A new one-time purchase starts with autopay off, as on the computer.
+              setForm({ ...form, frequency, autopay: !bill && frequency === 'once' ? false : form.autopay })
+            }}
           >
             {FREQUENCIES.map((frequency) => (
               <option key={frequency} value={frequency}>
@@ -177,16 +195,27 @@ function BillFormSheet({
             ))}
           </select>
         </Field>
-        <Field label="Due day" hint="Day of the month the bill lands">
-          <input
-            className="input"
-            type="number"
-            min={1}
-            max={31}
-            value={form.dueDay}
-            onChange={(event) => setForm({ ...form, dueDay: event.target.value })}
-          />
-        </Field>
+        {oneTime ? (
+          <Field label="Due on" hint="The day you will pay it">
+            <input
+              className="input"
+              type="date"
+              value={form.dueOn}
+              onChange={(event) => setForm({ ...form, dueOn: event.target.value })}
+            />
+          </Field>
+        ) : (
+          <Field label="Due day" hint="Day of the month the bill lands">
+            <input
+              className="input"
+              type="number"
+              min={1}
+              max={31}
+              value={form.dueDay}
+              onChange={(event) => setForm({ ...form, dueDay: event.target.value })}
+            />
+          </Field>
+        )}
       </div>
       <Field label="Category">
         <input
@@ -214,6 +243,12 @@ function BillFormSheet({
           ))}
         </select>
       </Field>
+      {oneTime ? (
+        <p className="fine">
+          Every paycheck before the due date sets an equal share aside. A payment that covers it
+          makes the bill done: it never comes due again.
+        </p>
+      ) : (
       <Field
         label="When to set the money aside"
         hint="Which paycheck covers this bill. One paycheck can hold the whole month without paying it twice."
@@ -232,8 +267,9 @@ function BillFormSheet({
           ))}
         </select>
       </Field>
+      )}
 
-      {form.fundingStrategy === 'specific_check' && checkSlots.length > 1 && (
+      {!oneTime && form.fundingStrategy === 'specific_check' && checkSlots.length > 1 && (
         <Field
           label="Which paycheck?"
           hint={`${PAY_CADENCE_LABEL[cadence]} pay gives ${checkSlots.length} paychecks every month`}
@@ -315,6 +351,7 @@ function BillSheet({
   const currency = snapshot ? pocketView(snapshot).settings.currency : 'USD'
   const { saving, error, setError, run } = useSheetSave(onClose)
   const paid = line.state === 'paid'
+  const oneTime = line.bill.frequency === 'once'
   const tables = usePocket((state) => state.tables)
   const floorGate = useFloorGate(currency)
   const variable = line.bill.isVariable
@@ -362,7 +399,18 @@ function BillSheet({
     >
       <ul className="facts">
         <li>Due {formatDateLabel(line.dueOn)} ({line.daysUntil < 0 ? `${-line.daysUntil} days ago` : line.daysUntil === 0 ? 'today' : `in ${line.daysUntil} days`})</li>
-        <li>About {formatMoney(line.perCheckCents, currency)} out of every paycheck</li>
+        {oneTime ? (
+          paid ? (
+            <li>One time · paid, it will not come due again</li>
+          ) : (
+            <li>
+              One time · about {formatMoney(line.perCheckCents, currency)} from each paycheck
+              until then
+            </li>
+          )
+        ) : (
+          <li>About {formatMoney(line.perCheckCents, currency)} out of every paycheck</li>
+        )}
         {line.bill.category ? <li>Category {line.bill.category}</li> : null}
         <li>{line.accountName ? `Paid from ${line.accountName}` : 'No account picked yet'}</li>
         {variable ? <li>Amount varies · {formatMoney(line.bill.amountCents, currency)} is the estimate</li> : null}
@@ -376,7 +424,10 @@ function BillSheet({
                 : ' · right on the estimate'}
           </li>
         ) : line.paidCents > 0 ? (
-          <li>{formatMoney(variable ? line.actualCents : line.paidCents, currency)} paid this month</li>
+          <li>
+            {formatMoney(variable ? line.actualCents : line.paidCents, currency)} paid
+            {oneTime ? '' : ' this month'}
+          </li>
         ) : null}
         <li>{line.bill.autopay ? 'Autopay is on' : 'Autopay is off'}</li>
         <li>{line.bill.isActive ? 'In the plan' : 'Paused'}</li>
@@ -416,6 +467,7 @@ function BillSheet({
             {floorGate.confirmLabel ?? (variable ? 'It cleared' : 'Mark paid')}
           </button>
         ) : null}
+        {oneTime && paid ? null : (
         <button
           type="button"
           className="button compact"
@@ -431,6 +483,7 @@ function BillSheet({
         >
           {line.bill.isActive ? 'Pause' : 'Turn back on'}
         </button>
+        )}
         <button type="button" className="button compact" disabled={saving} onClick={onEdit}>
           <Pencil size={15} aria-hidden="true" /> Edit
         </button>
@@ -459,7 +512,11 @@ export function Bills() {
   const lines = billLines(snapshot)
   const unpaid = lines.filter((line) => line.state !== 'paid')
   const paidLines = lines.filter((line) => line.state === 'paid')
-  const openedLine = opened ? (lines.find((line) => line.bill.id === opened.bill.id) ?? opened) : null
+  // Paid one-time bills are done for good; they keep a list of their own (ADR 0037).
+  const done = doneLines(snapshot)
+  const openedLine = opened
+    ? ([...lines, ...done].find((line) => line.bill.id === opened.bill.id) ?? opened)
+    : null
   // The phone holds the whole ledger, so it can count the rows a bill delete
   // moves without asking the computer — the same numbers the desktop reads.
   const deleteWords = pendingDelete
@@ -548,6 +605,36 @@ export function Bills() {
                 </button>
                 <div className="row-end">
                   <span className="amount muted">{formatMoney(line.bill.amountCents, currency)}</span>
+                  <span className="pill paid">{STATE_LABEL.paid}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {done.length > 0 ? (
+        <section className="section">
+          <header className="section-head">
+            <h2>Done</h2>
+            <span className="muted small">{done.length}</span>
+          </header>
+          <ul className="list">
+            {done.map((line) => (
+              <li key={line.bill.id} className="row-card settled">
+                <button
+                  type="button"
+                  className="row-main tap"
+                  onClick={() => setOpened(line)}
+                  aria-label={`${line.bill.name}, one time, paid`}
+                >
+                  <span className="row-title">{line.bill.name}</span>
+                  <span className="muted small">One time · was due {formatDateLabel(line.dueOn)}</span>
+                </button>
+                <div className="row-end">
+                  <span className="amount muted">
+                    {formatMoney(line.actualCents || line.bill.amountCents, currency)}
+                  </span>
                   <span className="pill paid">{STATE_LABEL.paid}</span>
                 </div>
               </li>

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { buildAllocationPlan } from '@shared/allocator'
 import type { CommittedPaycheck } from '@shared/api'
 import { todayISO } from '@shared/dates'
+import { isOneTimeBillDone } from '@shared/oneTimeBills'
 import { RepositoryError } from '@shared/errors'
 import { parseSettings } from '@shared/settings'
 import type {
@@ -235,16 +236,18 @@ export function commitPaycheck(
 
   const settings = parseSettings(readSettings(db, userId))
   const cycle = receivedOn.slice(0, 7)
+  const paymentTotals = listBillPaymentsThisMonth(db, userId, cycle, receivedOn)
   const paidByBill = new Map(
     // A charge on a credit card settles the bill without lowering the pool —
     // the debt rose instead — so only the cash part releases the wall here.
-    listBillPaymentsThisMonth(db, userId, cycle, receivedOn).map((total) => [
-      total.billId,
-      Math.max(0, total.paidCents - total.creditCents)
-    ])
+    paymentTotals.map((total) => [total.billId, Math.max(0, total.paidCents - total.creditCents)])
   )
+  const creditedByBill = new Map(paymentTotals.map((total) => [total.billId, total.paidCents]))
   const bills = listBills(db, userId)
-    .filter((bill) => bill.isActive)
+    // A one-time bill that is paid is done: no cheque sets anything aside for it again.
+    .filter(
+      (bill) => bill.isActive && !isOneTimeBillDone(bill, creditedByBill.get(bill.id) ?? 0)
+    )
     .map((bill) => ({ ...bill, paidThisMonthCents: paidByBill.get(bill.id) ?? 0 }))
   const goals = listGoals(db, userId).filter(
     (goal) => !goal.isArchived && !(goal.isEmergency && !settings.emergencyActive)

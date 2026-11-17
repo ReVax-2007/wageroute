@@ -6,7 +6,7 @@ import { formatDateLabel, formatMonthLong, isISODate, todayISO } from '@shared/d
 import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
 import { billVariance } from '@shared/variableBills'
 import { Button, MoneyInput } from './ui'
-import { confirmFloor } from '../lib/finance'
+import { activeBills, confirmFloor } from '../lib/finance'
 import { useFinanceStore } from '../store/useFinanceStore'
 
 const promptKey = (prompt: BillPrompt) => `${prompt.billId}:${prompt.dueOn}`
@@ -33,8 +33,10 @@ export function BillPrompts() {
 
   // The ledger window is capped; the bill history is not, so an annual bill's
   // payment is still matchable when hundreds of newer rows have pushed it out.
+  // A one-time bill paid long ago is done even when its payment is older than
+  // the history window, so the done ones are left out here (ADR 0037).
   const prompts = dueBillPrompts({
-    bills: snapshot.bills,
+    bills: activeBills(snapshot.bills, snapshot.billPaymentsThisMonth),
     payments: snapshot.billPayments,
     todayISO: today
   })

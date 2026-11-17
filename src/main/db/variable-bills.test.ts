@@ -161,7 +161,7 @@ test('a backup carries the flag, and a file without it reads as fixed', () => {
   const billId = gas(source, accountId)
   const json = backupToJson(buildBackup(source, USER_ID))
   const payload = parseBackupJson(json)
-  assert.equal(payload.version, 13)
+  assert.equal(payload.version, 14)
   assert.equal(payload.tables.bills[0].is_variable, 1)
 
   const target = freshDb()

@@ -45,7 +45,8 @@ export const FREQUENCIES: readonly Frequency[] = [
   'semimonthly',
   'monthly',
   'quarterly',
-  'annual'
+  'annual',
+  'once'
 ]
 
 export const BILL_FUNDING_STRATEGIES = [
@@ -143,6 +144,30 @@ export function assertDueDay(value: unknown, label = 'Due day'): number {
     throw new RepositoryError('VALIDATION', `${label} must be a whole number from 1 to 31`, 'dueDay')
   }
   return value
+}
+
+/**
+ * A bill's schedule as both devices store it. A recurring bill keeps its due day
+ * and an optional known occurrence. A one-time bill is due on one date (ADR
+ * 0037): the date is required, and `due_day` is that date's day so every reader
+ * that only knows the day still lands on it.
+ */
+export function assertBillSchedule(
+  frequency: Frequency,
+  dueDay: unknown,
+  nextDueOn: unknown
+): { dueDay: number; nextDueOn: string | null } {
+  if (frequency === 'once') {
+    if (nextDueOn === null || nextDueOn === undefined || nextDueOn === '') {
+      throw new RepositoryError('VALIDATION', 'A one-time bill needs the date it is due', 'nextDueOn')
+    }
+    const date = assertDate(nextDueOn, 'Due date')
+    return { dueDay: Number.parseInt(date.slice(8, 10), 10), nextDueOn: date }
+  }
+  return {
+    dueDay: assertDueDay(dueDay),
+    nextDueOn: nextDueOn ? assertDate(nextDueOn, 'Next due date') : null
+  }
 }
 
 /** Index into the guaranteed paycheck slots: the 1st through the 4th check. */
