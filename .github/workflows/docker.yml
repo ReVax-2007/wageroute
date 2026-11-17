@@ -53,7 +53,8 @@ jobs:
             echo "The tag ${GITHUB_REF_NAME} does not match package.json (${VERSION})." >&2
             exit 1
           fi
-          BASE="${REGISTRY}/${GITHUB_REPOSITORY_OWNER}/${{ matrix.image }}"
+          OWNER=$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
+          BASE="${REGISTRY}/${OWNER}/${{ matrix.image }}"
           if [ "${GITHUB_EVENT_NAME}" = push ]; then
             echo "release=${BASE}:${VERSION}" >> "$GITHUB_OUTPUT"
             echo "latest=${BASE}:latest" >> "$GITHUB_OUTPUT"
