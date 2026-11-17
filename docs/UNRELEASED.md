@@ -10,12 +10,15 @@
 
 | Field | Value |
 | --- | --- |
-| Version | **1.3.1**, tagged `v1.3.1` at `3024156` and published 2026-11-05. It is the 1.3.0 cut: the tag guard needed `package.json` to match the tag, so the version became 1.3.1 before publishing (#80) and no `v1.3.0` tag or release exists |
-| Release | <https://github.com/ReVax-2007/wageroute/releases/tag/v1.3.1> |
-| Database schema | `10` — upgrades a 1.2.0 ledger 8 → 9 → 10 on first launch, forward-only, no downgrade |
-| Backup format | writes `10`, accepts `2`–`10` |
+| Version | **1.4.0**, tagged `v1.4.0` at `e9f0091` (the merge of #108) and published from the CI draft on 2026-11-17 |
+| Release | <https://github.com/ReVax-2007/wageroute/releases/tag/v1.4.0> |
+| Database schema | `14` — upgrades a 1.3.1 ledger 10 → 11 → 12 → 13 → 14 on first launch, forward-only, no downgrade |
+| Backup format | writes `14`, accepts `2`–`14` |
+| Assets | 15 files from the tag build: `WageRoute-1.4.0-{arm64,x64}.dmg`, `WageRoute.Setup.1.4.0.exe`, `WageRoute-1.4.0.portable.exe`, `WageRoute-1.4.0-{x64,arm64}.{msi,zip}`, `WageRoute-1.4.0-{x86_64,aarch64}.rpm`, `WageRoute-1.4.0-{amd64,arm64}.deb`, `WageRoute-1.4.0-{x86_64,arm64}.AppImage`, `SHA256SUMS` |
+| Container images | `ghcr.io/revax-2007/wageroute-desktop` and `wageroute-pocket`, `1.4.0` and `latest`. The tag's own image run failed on an uppercase owner in the image name (fixed in #109); they were published by a manual run with `tag = v1.4.0` (#110). The desktop push was refused once by the registry and went through on a rerun |
+| Verification | Clean `npm ci`, lint, 858/858 tests, typecheck, desktop and Pocket builds; every CI build job green. **Not hand-launched:** no installer from the release was installed and opened by hand |
 
-The release before it, **1.2.0** (`v1.2.0` at `50cab8e`, 2026-11-02, schema 8), keeps its verification record in git history. The `[1.3.1]`/`[1.3.0]` blocks in [CHANGELOG.md](../CHANGELOG.md) are the inventory of what shipped and are not repeated here.
+The release before it, **1.3.1** (`v1.3.1` at `3024156`, 2026-11-05, schema 10), is the 1.3.0 cut published under that tag. The `[1.4.0]` block in [CHANGELOG.md](../CHANGELOG.md) is the inventory of what shipped and is not repeated here.
 
 ---
 
@@ -23,8 +26,8 @@ The release before it, **1.2.0** (`v1.2.0` at `50cab8e`, 2026-11-02, schema 8), 
 
 | Field | Value |
 | --- | --- |
-| App version | **`1.4.0`** — bumped in `package.json` and `package-lock.json` on `release/1.4.0` 2026-11-17 and tagged `v1.4.0`. The tag build makes a **draft** release; until the owner publishes it, `1.3.1` is the downloadable release |
-| Database schema | `14`, forward-only; schemas 11–14 are new since 1.3.1, which is why this is a minor bump |
+| App version | Next after `1.4.0`; nothing is queued yet, and `package.json` stays `1.4.0` until the next cut |
+| Database schema | `14`, forward-only; a new migration makes the next release at least a minor bump |
 | Backup format | writes `14`, accepts `2`–`14` |
 | Encryption at rest | **Opt-in, off by default** — `chacha20`, custody device / passphrase / both, key wraps in `ledger.key.json` beside the ledger; reversible in both directions. The whole plain → keyed → plain transition has now run in the packaged macOS build with passphrase custody (2026-11-04); a shipped build has never written a **device** wrap — see the open item in the checklist |
 | Sealed export and phone vault | `wageroute-envelope` v1 and `wageroute-vault` v1. An encrypted `.db` does not open in `1.2.0`; only a **plain** JSON export survives a downgrade, and a version-14 export does not open in 1.3.1 at all |
@@ -36,7 +39,7 @@ The release before it, **1.2.0** (`v1.2.0` at `50cab8e`, 2026-11-02, schema 8), 
 
 ## Queued
 
-Batches 17–61 below were merged after `v1.2.0` and **shipped in `v1.3.1`**; they are kept for their record. **Batches 62–68 are what 1.4.0 adds** — split transfers and locked accounts, the Show window, account floors, the Glass theme, variable bills, account history and one-time bills — on top of the transfer-category, legal, SVG-logo, installer and fingerprint/PIN work listed in the `[1.4.0]` block of [CHANGELOG.md](../CHANGELOG.md), which is the readable inventory. Its **Known gaps** section names what the release does not claim.
+Nothing is queued after `v1.4.0` yet. The batches below are the record of what shipped: 17–61 in `v1.3.1`, 62–68 in `v1.4.0`.
 
 ### Batch 17 — correctness
 

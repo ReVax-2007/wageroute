@@ -42,7 +42,7 @@ Piped:  curl -fsSL https://revax-2007.github.io/wageroute/install.sh | sh -s -- 
 EOF
 }
 
-# The tag GitHub's "latest release" page redirects to, e.g. v1.3.1.
+# The tag GitHub's "latest release" page redirects to, e.g. v1.4.0.
 latest_tag() {
   url=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "$RELEASES/latest") ||
     die "could not reach GitHub to find the latest release"
@@ -219,7 +219,7 @@ main() {
   while [ $# -gt 0 ]; do
     case $1 in
       --version)
-        [ $# -ge 2 ] || die "--version needs a value, e.g. --version v1.3.1"
+        [ $# -ge 2 ] || die "--version needs a value, e.g. --version v1.4.0"
         TAG=$2; shift 2 ;;
       --version=*) TAG=${1#*=}; shift ;;
       --dry-run) DRY_RUN=1; shift ;;
