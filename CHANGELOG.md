@@ -8,6 +8,14 @@ All notable changes to WageRoute are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+Nothing yet.
+
+---
+
+## [1.4.0] - 2026-11-17
+
+Cut from `main` at `4ee081c`. Database schema **10 → 14** (`SCHEMA_V11` to `SCHEMA_V14` ship for the first time here: account lock and split groups, account floor, variable bills, one-time bills), backups write version **14** and accept **2–14**, `npm test` is **858 tests**, lint is 238 files clean. A 1.3.1 ledger migrates 10 → 11 → 12 → 13 → 14 on its first launch. Back up before upgrading: an upgraded ledger cannot be opened by 1.3.1, and neither can a version-14 backup.
+
 ### Added
 
 - **A Glass theme, and a new look for every theme.** Settings offers Dark · Light · Glass · System. All three palettes now share one layout: the app floats in a frosted pane over a softly lit room (a backdrop drawn for WageRoute, shipped as an SVG), with a slim icon rail that names each screen on hover, rounded tiles with a soft corner light, pill buttons and fields, the Quicksand typeface, and screens that fade in out of a soft blur. Glass is the neutral-grey palette from the reference clip; Dark and Light keep their own colours. The rail replaces the wide sidebar, so the theme picker lives in Settings, cash on hand and total wealth on Home and Accounts, and the version in Settings → About. Dialogs keep a denser panel so figures stay readable, and when the OS asks for less transparency (macOS *Reduce transparency*) the panels turn solid. Desktop only; Pocket keeps following the phone's light or dark setting.
@@ -28,12 +36,12 @@ All notable changes to WageRoute are documented here. The format follows [Keep a
 - **Lock an account** ([ADR 0034](docs/decisions/0034-a-locked-account-is-frozen-money.md)). A locked account keeps its balance and counts in total wealth but never as spending money. Both devices refuse any new entry, transfer, edit or delete that touches it until it is unlocked, and it leaves every account picker. The lock is a button on the desktop's account row and **Lock** on Pocket's account sheet.
 - **Schema 11.** Adds `accounts.is_locked` and `transactions.split_group_id`. Upgrading is automatic and changes no existing row's meaning. Backups are now version 11, and versions 2–11 are accepted.
 - **An optional floor per account** ([ADR 0035](docs/decisions/0035-a-floor-is-money-the-app-will-not-offer.md)). A checking, savings or cash account can carry a minimum it should never go under, set as **Floor (optional)** in the account dialog on both devices. Everywhere the app offers money from it, it shows *usable = balance − floor*, never below zero, beside the floor ("$110.00 usable · $90.00 floor"): Safe to Spend, account rows, Transfers and split transfers, the entry dialog, Pay card, goal funding pickers and Pocket's equivalents. An entry, transfer, split, card or bill payment, or plan move that would go under the floor asks first (**Save anyway** or Cancel); a round-up sweep that would go under it is skipped. Balances, the ledger and total wealth are unchanged. Credit cards and investments take no floor.
+- **Schema 12.** Adds `accounts.floor_cents` (no floor for every existing account). Backups are now version 12, and versions 2–12 are accepted.
 - **Variable bills** ([ADR 0036](docs/decisions/0036-a-variable-bill-is-cleared-by-what-it-came-to.md)). Tick **Amount varies** on a bill (gas, a utility) and its amount becomes an estimate that paychecks set aside as usual. When it clears, the **Did these clear?** card, the Bills screen's new **It cleared** action and Pocket's **It cleared** ask what it came to, starting at the estimate so an unchanged bill is one click. A cheaper bill reads paid and the difference goes back to Left to spend that month ("$19.00 under the estimate"); a dearer one is allowed and shown as over. Autopay never posts a guess for a variable bill: it waits on the card with the estimate filled in. Fixed bills are unchanged.
 - **Schema 13.** Adds `bills.is_variable`; every existing bill stays fixed. Backups are now version 13, and versions 2–13 are accepted.
 - **Account history.** Click an account's name or its **History** button on the Accounts screen to see every entry in and out of it, newest first — card charges and payments, transfers both ways, split legs, investment entries, adjustments, round-ups and paycheck routing — with the balance after each entry (on a card, what was owed after it), ending on the balance the Accounts screen shows. Above the grid: the balance now, any floor and lock, and money in and out for the period shown. It is the Spreadsheet scoped to that account, so the date, type and search filters, the **Show** window, in-place editing, delete and **Add entry** (starting on that account) all work as usual, and picking an account in the Spreadsheet's Account box gives the same view. Every transfer row now names the other account (*to Visa*, *from Savings*). Pocket opens the same history from **History** on an account's sheet, without search or type filters.
 - **One-time bills** ([ADR 0037](docs/decisions/0037-a-one-time-bill-is-saved-up-for-and-then-done.md)). Pick **One time** as a bill's cadence (desktop and Pocket) for something you pay once — new tires, a course fee — with a **Due on** date, an amount and, as usual, an optional account and category. The paychecks before the date share it evenly ($900 two months out is about $225 from each of four twice-a-month cheques), and Left to spend holds what has been saved so far. Pay it from the Bills screen's new pay action, Pocket's **Mark paid**, the **Did these clear?** card or any linked entry; once the payments cover it, it is done: it never comes due again, autopay never repeats it, and it moves to a **Done** list where it can still be opened or deleted. Unpaid past its date it shows as overdue instead of rolling to next month. Projections show it once, on its date.
 - **Schema 14.** Lets `bills.frequency` be `once` (the bills table is rebuilt to widen its CHECK; every existing bill is unchanged). Backups are now version 14, and versions 2–14 are accepted.
-- **Schema 12.** Adds `accounts.floor_cents` (no floor for every existing account). Backups are now version 12, and versions 2–12 are accepted.
 
 ### Changed
 
@@ -50,6 +58,10 @@ All notable changes to WageRoute are documented here. The format follows [Keep a
 - Windows Hello and real handsets have not run any of this. The desktop ceremony window was driven in Electron 45 on macOS with a CDP virtual authenticator; the phone's passkey path is unit-tested with a stand-in ceremony. See ADR 0031 for what was measured and what was not.
 
 ---
+
+## [1.3.1] - 2026-11-05
+
+The 1.3.0 tree below, published under the tag `v1.3.1`: the tag guard requires `package.json` to match the tag, and the version was aligned to 1.3.1 before publishing (#80). No `v1.3.0` tag or release exists.
 
 ## [1.3.0] - 2026-11-04
 
@@ -534,8 +546,10 @@ Tag `ad56de9`. First stable release, schema 3, importer accepting backup version
 - The documentation set: `docs/ARCHITECTURE.md`, `DATA-MODEL.md`, `FEATURES.md`, `IMPORT-EXPORT.md`, `DEPLOYMENT.md`, `DEVELOPMENT.md`, `RELEASING.md`, `SECURITY.md` and ADRs 0001–0005.
 - Source-available licence, protected `main`, pull-request-only merges and `verify` CI.
 
-[Unreleased]: https://github.com/ReVax-2007/wageroute/compare/v1.3.0...HEAD
-[1.3.0]: https://github.com/ReVax-2007/wageroute/releases/tag/v1.3.0
+[Unreleased]: https://github.com/ReVax-2007/wageroute/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/ReVax-2007/wageroute/releases/tag/v1.4.0
+[1.3.1]: https://github.com/ReVax-2007/wageroute/releases/tag/v1.3.1
+[1.3.0]: https://github.com/ReVax-2007/wageroute/releases/tag/v1.3.1
 [1.2.0]: https://github.com/ReVax-2007/wageroute/releases/tag/v1.2.0
 [1.1.0]: https://github.com/ReVax-2007/wageroute/releases/tag/v1.1.0
 [1.0.2]: https://github.com/ReVax-2007/wageroute/releases/tag/v1.0.2
