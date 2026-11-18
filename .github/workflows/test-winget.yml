@@ -57,6 +57,21 @@ jobs:
         shell: pwsh
         run: winget validate --manifest $env:MANIFEST_DIR
 
+      - name: Stop Windows asking before it runs a downloaded installer
+        shell: pwsh
+        # WinGet marks the download as coming from the internet, and the Setup
+        # file is not code-signed, so Windows opens "Open File - Security
+        # Warning" before it runs it. On a person's PC they click Run; on this
+        # throwaway runner nobody can, and the install waits forever. These two
+        # policies (this runner only) stop Windows keeping the internet mark
+        # and treat .exe as low risk.
+        run: |
+          $attachments = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Attachments'
+          $associations = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Associations'
+          New-Item -Path $attachments, $associations -Force | Out-Null
+          Set-ItemProperty -Path $attachments -Name SaveZoneInformation -Value 1 -Type DWord
+          Set-ItemProperty -Path $associations -Name LowRiskFileTypes -Value '.exe' -Type String
+
       - name: Install from the local manifest
         shell: pwsh
         # A silent install that stops to ask a question never returns. Run it
