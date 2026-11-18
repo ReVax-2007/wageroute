@@ -35,7 +35,7 @@
     "description": "Local-first, zero-based paycheck routing for macOS, Windows and Linux. Reserve your bills first, give the surplus a job, and keep everything in one file on your own computer.",
     "applicationCategory": "FinanceApplication",
     "operatingSystem": "macOS, Windows, Linux",
-    "softwareVersion": "1.3.1",
+    "softwareVersion": "1.4.0",
     "url": "https://revax-2007.github.io/wageroute/",
     "downloadUrl": "https://github.com/ReVax-2007/wageroute/releases/latest",
     "image": "https://revax-2007.github.io/wageroute/assets/og-image.jpg",
@@ -75,7 +75,7 @@
           <img src="assets/logo.svg" width="34" height="34" alt="" />
         </div>
         <span>WageRoute</span>
-        <span class="brand-badge">v1.3.1</span>
+        <span class="brand-badge">v1.4.0</span>
       </a>
 
       <ul class="nav-links">
@@ -251,7 +251,7 @@
         <div class="section-head">
           <span class="section-tag">The app</span>
           <h2 class="section-title">What you get on the desktop</h2>
-          <p class="section-desc">Real screens from WageRoute 1.3.1, filled with its built-in demo profile.</p>
+          <p class="section-desc">Real screens from WageRoute 1.4.0, filled with its built-in demo profile.</p>
         </div>
 
         <div class="shots">
@@ -511,11 +511,11 @@
                 <span class="console-path">macOS &middot; curl, Apple Silicon</span>
                 <button class="copy-btn" type="button" data-copy="curl-mac">Copy</button>
               </div>
-              <pre class="term-body" id="curl-mac"><span class="p">$</span> curl -LO https://github.com/ReVax-2007/wageroute/releases/download/v1.3.1/WageRoute-1.3.1-arm64.dmg
-  <span class="p">$</span> hdiutil attach -nobrowse -mountpoint /tmp/wageroute-dmg WageRoute-1.3.1-arm64.dmg
+              <pre class="term-body" id="curl-mac"><span class="p">$</span> curl -LO https://github.com/ReVax-2007/wageroute/releases/download/v1.4.0/WageRoute-1.4.0-arm64.dmg
+  <span class="p">$</span> hdiutil attach -nobrowse -mountpoint /tmp/wageroute-dmg WageRoute-1.4.0-arm64.dmg
   <span class="p">$</span> cp -R /tmp/wageroute-dmg/WageRoute.app /Applications/
   <span class="p">$</span> hdiutil detach /tmp/wageroute-dmg</pre>
-              <p class="term-note">curl never sets the quarantine flag, so there is no Gatekeeper prompt. Intel Macs: use <code>WageRoute-1.3.1-x64.dmg</code>.</p>
+              <p class="term-note">curl never sets the quarantine flag, so there is no Gatekeeper prompt. Intel Macs: use <code>WageRoute-1.4.0-x64.dmg</code>.</p>
             </div>
 
             <div class="term">
@@ -524,9 +524,9 @@
                 <span class="console-path">Linux &middot; AppImage, x86_64</span>
                 <button class="copy-btn" type="button" data-copy="curl-linux">Copy</button>
               </div>
-              <pre class="term-body" id="curl-linux"><span class="p">$</span> curl -fsSL https://github.com/ReVax-2007/wageroute/releases/download/v1.3.1/WageRoute-1.3.1-x86_64.AppImage -o WageRoute.AppImage
+              <pre class="term-body" id="curl-linux"><span class="p">$</span> curl -fsSL https://github.com/ReVax-2007/wageroute/releases/download/v1.4.0/WageRoute-1.4.0-x86_64.AppImage -o WageRoute.AppImage
   <span class="p">$</span> chmod +x WageRoute.AppImage && ./WageRoute.AppImage</pre>
-              <p class="term-note">On Ubuntu 22.04+ install FUSE 2 first (<code>sudo apt install libfuse2t64</code> on 24.04). ARM: <code>WageRoute-1.3.1-arm64.AppImage</code>.</p>
+              <p class="term-note">On Ubuntu 22.04+ install FUSE 2 first (<code>sudo apt install libfuse2t64</code> on 24.04). ARM: <code>WageRoute-1.4.0-arm64.AppImage</code>.</p>
             </div>
 
             <div class="term">
@@ -535,8 +535,8 @@
                 <span class="console-path">Linux &middot; Debian / Ubuntu .deb</span>
                 <button class="copy-btn" type="button" data-copy="deb-linux">Copy</button>
               </div>
-              <pre class="term-body" id="deb-linux"><span class="p">$</span> curl -fsSLO https://github.com/ReVax-2007/wageroute/releases/download/v1.3.1/WageRoute-1.3.1-amd64.deb
-  <span class="p">$</span> sudo apt install ./WageRoute-1.3.1-amd64.deb</pre>
+              <pre class="term-body" id="deb-linux"><span class="p">$</span> curl -fsSLO https://github.com/ReVax-2007/wageroute/releases/download/v1.4.0/WageRoute-1.4.0-amd64.deb
+  <span class="p">$</span> sudo apt install ./WageRoute-1.4.0-amd64.deb</pre>
               <p class="term-note">Fedora and openSUSE: the <code>.rpm</code> packages are on the release page.</p>
             </div>
           </div>
@@ -560,7 +560,7 @@
                 <span class="console-path">Windows &middot; PowerShell</span>
                 <button class="copy-btn" type="button" data-copy="trust-win">Copy</button>
               </div>
-              <pre class="term-body" id="trust-win"><span class="p">PS&gt;</span> Unblock-File -Path "$env:USERPROFILE\Downloads\WageRoute.Setup.1.3.1.exe"</pre>
+              <pre class="term-body" id="trust-win"><span class="p">PS&gt;</span> Unblock-File -Path "$env:USERPROFILE\Downloads\WageRoute.Setup.1.4.0.exe"</pre>
               <p class="term-note">Removes the download mark so SmartScreen does not stop it. Or: Properties &rarr; Unblock.</p>
             </div>
 
@@ -570,7 +570,7 @@
                 <span class="console-path">Linux &middot; AppImage</span>
                 <button class="copy-btn" type="button" data-copy="trust-linux">Copy</button>
               </div>
-              <pre class="term-body" id="trust-linux"><span class="p">$</span> chmod +x ~/Downloads/WageRoute-1.3.1-x86_64.AppImage</pre>
+              <pre class="term-body" id="trust-linux"><span class="p">$</span> chmod +x ~/Downloads/WageRoute-1.4.0-x86_64.AppImage</pre>
               <p class="term-note">Browsers drop the executable bit. The .deb and .rpm packages need nothing.</p>
             </div>
           </div>

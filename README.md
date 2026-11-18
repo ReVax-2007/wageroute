@@ -17,9 +17,11 @@ It is a planning and ledger tool, not a bank connection. There is no account lin
   <img src="assets/screenshots/home-light.webp" alt="The WageRoute Home screen: money left to spend once bills and goals are set aside, and total wealth across accounts." width="100%" />
 </picture>
 
-> Version **1.3.1** · single user · macOS, Windows and Linux · unsigned release builds
+> Version **1.4.0** · single user · macOS, Windows and Linux · unsigned release builds
 
-> **Upgrading from 1.2.0 or older?** Encryption at rest, sealed backups and the phone vault first shipped in **1.3.1** (there was no published 1.3.0). An encrypted ledger cannot be opened by any build before 1.3.1, so if you might go back, keep a **plain** JSON backup first. Fingerprint, face and PIN unlock are on `main` but not in a release yet; they are marked *(next release)* below.
+> **Upgrading from 1.2.0 or older?** Encryption at rest, sealed backups and the phone vault first shipped in **1.3.1** (there was no published 1.3.0). An encrypted ledger cannot be opened by any build before 1.3.1, so if you might go back, keep a **plain** JSON backup first. Fingerprint, face and PIN unlock arrived in **1.4.0**.
+
+> **Upgrading from 1.3.1?** 1.4.0 migrates the ledger from schema 10 to 14 on its first launch (account locks and split transfers, floors, variable and one-time bills). 1.3.1 cannot open the upgraded ledger or read a 1.4.0 backup, so take a backup before installing.
 
 ---
 
@@ -130,7 +132,7 @@ irm https://revax-2007.github.io/wageroute/install.ps1 | iex
 - **Linux:** the `.deb` through apt or the `.rpm` through dnf/zypper (asks for your password), otherwise the AppImage in `~/.local/bin` with a menu entry.
 - **Windows:** the Setup installer, silently, for the current user.
 
-Options: `sh -s -- --dry-run` (download and verify only), `--version v1.3.1`, and on Linux `--appimage`. On Windows set `$env:WAGEROUTE_DRY_RUN = '1'` or `$env:WAGEROUTE_VERSION` before piping. Neither script touches your ledger. The manual routes below do the same steps by hand.
+Options: `sh -s -- --dry-run` (download and verify only), `--version v1.4.0`, and on Linux `--appimage`. On Windows set `$env:WAGEROUTE_DRY_RUN = '1'` or `$env:WAGEROUTE_VERSION` before piping. Neither script touches your ledger. The manual routes below do the same steps by hand.
 
 The macOS build is ad-hoc signed, not notarized. The first launch of any downloaded copy needs one extra click (right-click the app → **Open** → **Open**); after that it opens normally. Homebrew verifies checksums for you, and the curl one-liner below avoids the prompt entirely because curl never sets the quarantine flag.
 
@@ -148,11 +150,11 @@ The tap is updated after each release; `brew info --cask wageroute` shows which 
 
 **DMG (manual):** download `WageRoute-<version>-arm64.dmg` (Apple Silicon) or `WageRoute-<version>-x64.dmg` (Intel) from [GitHub Releases](https://github.com/ReVax-2007/wageroute/releases), drag to Applications, then right-click → **Open** on first launch. (1.1.0 named its Intel file `WageRoute-1.1.0.dmg`; later releases carry the `-x64` suffix.)
 
-**curl (no Gatekeeper prompt at all):** browsers tag downloads with a quarantine flag that triggers Gatekeeper; curl does not. The commands below fetch **1.3.1**; for a later release, change the version from [GitHub Releases](https://github.com/ReVax-2007/wageroute/releases). Intel Macs use `-x64.dmg` in place of `-arm64.dmg`.
+**curl (no Gatekeeper prompt at all):** browsers tag downloads with a quarantine flag that triggers Gatekeeper; curl does not. The commands below fetch **1.4.0**; for a later release, change the version from [GitHub Releases](https://github.com/ReVax-2007/wageroute/releases). Intel Macs use `-x64.dmg` in place of `-arm64.dmg`.
 
 ```bash
-curl -LO https://github.com/ReVax-2007/wageroute/releases/download/v1.3.1/WageRoute-1.3.1-arm64.dmg
-hdiutil attach -nobrowse -mountpoint /tmp/wageroute-dmg WageRoute-1.3.1-arm64.dmg
+curl -LO https://github.com/ReVax-2007/wageroute/releases/download/v1.4.0/WageRoute-1.4.0-arm64.dmg
+hdiutil attach -nobrowse -mountpoint /tmp/wageroute-dmg WageRoute-1.4.0-arm64.dmg
 cp -R /tmp/wageroute-dmg/WageRoute.app /Applications/
 hdiutil detach /tmp/wageroute-dmg
 ```
@@ -166,12 +168,12 @@ Because the executables are currently unsigned, Windows and web browsers apply t
 2. **Windows SmartScreen execution check:**
    - Double-clicking the downloaded `.exe` opens a blue *"Windows protected your PC"* window.
    - Click **More info** → click **Run anyway**.
-   - Alternatively, right-click the downloaded file → **Properties** → check the **Unblock** box at the bottom → **OK**, or in PowerShell: `Unblock-File -Path "$env:USERPROFILE\Downloads\WageRoute.Setup.1.3.1.exe"`.
+   - Alternatively, right-click the downloaded file → **Properties** → check the **Unblock** box at the bottom → **OK**, or in PowerShell: `Unblock-File -Path "$env:USERPROFILE\Downloads\WageRoute.Setup.1.4.0.exe"`.
 
 **PowerShell / curl (avoids the browser quarantine and SmartScreen block entirely):**
 ```powershell
-curl.exe -LO https://github.com/ReVax-2007/wageroute/releases/download/v1.3.1/WageRoute.Setup.1.3.1.exe
-.\WageRoute.Setup.1.3.1.exe
+curl.exe -LO https://github.com/ReVax-2007/wageroute/releases/download/v1.4.0/WageRoute.Setup.1.4.0.exe
+.\WageRoute.Setup.1.4.0.exe
 ```
 
 *Note on MSI vs NSIS:* The MSI and the NSIS installer are separate products. Uninstall one before installing the other, or Windows will list both.
@@ -180,21 +182,21 @@ curl.exe -LO https://github.com/ReVax-2007/wageroute/releases/download/v1.3.1/Wa
 
 - **AppImage:** Make the downloaded file executable before launching:
   ```bash
-  chmod +x WageRoute-1.3.1-x86_64.AppImage
-  ./WageRoute-1.3.1-x86_64.AppImage
+  chmod +x WageRoute-1.4.0-x86_64.AppImage
+  ./WageRoute-1.4.0-x86_64.AppImage
   ```
   *Note on Ubuntu 22.04+ & 24.04+:* Modern Ubuntu installs do not ship FUSE 2 by default. If the AppImage gives an error loading `libfuse.so.2`, install it with `sudo apt install libfuse2t64` (Ubuntu 24.04+) or `sudo apt install libfuse2` (Ubuntu 22.04), or run with `--appimage-extract-and-run`.
 - **Debian / Ubuntu (.deb):**
   ```bash
-  sudo apt install ./WageRoute-1.3.1-amd64.deb
+  sudo apt install ./WageRoute-1.4.0-amd64.deb
   ```
 - **Fedora / RHEL (.rpm):**
   ```bash
-  sudo dnf install ./WageRoute-1.3.1-x86_64.rpm
+  sudo dnf install ./WageRoute-1.4.0-x86_64.rpm
   ```
 - **curl one-liner (AppImage):**
   ```bash
-  curl -fsSL https://github.com/ReVax-2007/wageroute/releases/download/v1.3.1/WageRoute-1.3.1-x86_64.AppImage -o WageRoute.AppImage && chmod +x WageRoute.AppImage && ./WageRoute.AppImage
+  curl -fsSL https://github.com/ReVax-2007/wageroute/releases/download/v1.4.0/WageRoute-1.4.0-x86_64.AppImage -o WageRoute.AppImage && chmod +x WageRoute.AppImage && ./WageRoute.AppImage
   ```
 
 Full details, including the Gatekeeper behaviour on each macOS version, are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) and [docs/RELEASING.md](docs/RELEASING.md).
