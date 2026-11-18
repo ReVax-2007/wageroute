@@ -1,27 +1,117 @@
 name: Test Winget Manifest
 
+# Validates and installs the WinGet manifest exactly as submitted to
+# microsoft/winget-pkgs, before Microsoft merges it. The manifests are not in
+# this repository: they live in the submission pull request, so the job checks
+# out only WageRoute's folder from that pull request's head.
+
 on:
-  workflow_dispatch: # Allows manual triggering from the GitHub UI
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: 'microsoft/winget-pkgs pull request number'
+        required: true
+        default: '471938'
+      version:
+        description: 'Package version in that pull request'
+        required: true
+        default: '1.3.1'
+      override:
+        description: 'Installer arguments to use instead of the manifest''s (blank = the manifest''s own)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
 
 jobs:
   validate-and-install:
     runs-on: windows-latest
+    env:
+      MANIFEST_DIR: manifests/r/ReVax-2007/WageRoute/${{ inputs.version }}
+      PACKAGE_ID: ReVax-2007.WageRoute
     steps:
-      - name: Checkout repository
+      - name: Check out the submitted manifest
         uses: actions/checkout@v4
+        with:
+          repository: microsoft/winget-pkgs
+          ref: refs/pull/${{ inputs.pr }}/head
+          fetch-depth: 1
+          sparse-checkout: manifests/r/ReVax-2007/WageRoute
+          sparse-checkout-cone-mode: true
 
-      - name: Enable Local Manifests in Winget
+      - name: Show the manifest files
+        shell: pwsh
+        run: |
+          if (-not (Test-Path $env:MANIFEST_DIR)) {
+            Write-Error "No manifest at $env:MANIFEST_DIR in winget-pkgs PR #${{ inputs.pr }}. Versions there: $((Get-ChildItem manifests/r/ReVax-2007/WageRoute -Name) -join ', ')"
+            exit 1
+          }
+          Get-ChildItem $env:MANIFEST_DIR | ForEach-Object { "--- $($_.Name)"; Get-Content $_.FullName }
+
+      - name: Enable local manifests in WinGet
+        shell: pwsh
         run: winget settings --enable LocalManifestFiles
-        shell: pwsh
 
-      - name: Validate Manifest
-        run: winget validate --manifest "manifests/r/ReVax-2007/WagerRoute/1.3.1"
+      - name: Validate manifest
         shell: pwsh
+        run: winget validate --manifest $env:MANIFEST_DIR
 
-      - name: Test Local Installation
-        run: winget install --manifest "manifests/r/ReVax-2007/WagerRoute/1.3.1" --silent --accept-package-agreements --accept-source-agreements
+      - name: Stop Windows asking before it runs a downloaded installer
         shell: pwsh
+        # WinGet marks the download as coming from the internet, and the Setup
+        # file is not code-signed, so Windows opens "Open File - Security
+        # Warning" before it runs it. On a person's PC they click Run; on this
+        # throwaway runner nobody can, and the install waits forever. These two
+        # policies (this runner only) stop Windows keeping the internet mark
+        # and treat .exe as low risk.
+        run: |
+          $attachments = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Attachments'
+          $associations = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Associations'
+          New-Item -Path $attachments, $associations -Force | Out-Null
+          Set-ItemProperty -Path $attachments -Name SaveZoneInformation -Value 1 -Type DWord
+          Set-ItemProperty -Path $associations -Name LowRiskFileTypes -Value '.exe' -Type String
 
-      - name: Verify Package Installed
-        run: winget list --id ReVax-2007.WagerRoute
+      - name: Install from the local manifest
         shell: pwsh
+        # A silent install that stops to ask a question never returns. Run it
+        # as a job, and if it is still going after a few minutes, record what
+        # is running (and which windows are open) before giving up, instead of
+        # holding a runner for six hours.
+        timeout-minutes: 12
+        env:
+          OVERRIDE: ${{ inputs.override }}
+        run: |
+          $wargs = @('install', '--manifest', $env:MANIFEST_DIR, '--silent', '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity', '--verbose-logs')
+          if ($env:OVERRIDE) { $wargs += @('--override', $env:OVERRIDE) }
+          $job = Start-Job -ScriptBlock { param($a) winget @a; "exit=$LASTEXITCODE" } -ArgumentList (,$wargs)
+          if (Wait-Job $job -Timeout 300) {
+            $out = Receive-Job $job
+            $out
+            if (($out | Select-Object -Last 1) -ne 'exit=0') { exit 1 }
+            exit 0
+          }
+          '--- still installing after 5 minutes; processes:'
+          Get-CimInstance Win32_Process |
+            Where-Object { $_.Name -match 'WageRoute|Setup|nsis|winget|AppInstaller|Au_|msiexec' } |
+            Format-Table ProcessId, ParentProcessId, Name, CommandLine -AutoSize -Wrap | Out-String -Width 400
+          '--- windows with a title:'
+          Get-Process | Where-Object MainWindowTitle | Format-Table Id, Name, MainWindowTitle -AutoSize | Out-String -Width 400
+          Stop-Job $job; Receive-Job $job
+          exit 1
+
+      - name: Save the WinGet logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winget-logs
+          path: ~\AppData\Local\Packages\Microsoft.DesktopAppInstaller_8wekyb3d8bbwe\LocalState\DiagOutputDir
+          if-no-files-found: warn
+
+      - name: Verify the package is installed
+        shell: pwsh
+        run: |
+          $installed = Get-ChildItem "$env:LOCALAPPDATA\Programs\WageRoute\WageRoute.exe", "$env:ProgramFiles\WageRoute\WageRoute.exe" -ErrorAction SilentlyContinue
+          if (-not $installed) { Write-Error 'WageRoute.exe was not found after install'; exit 1 }
+          "Installed: $($installed.FullName -join ', ')"
+          winget list --name WageRoute --accept-source-agreements
