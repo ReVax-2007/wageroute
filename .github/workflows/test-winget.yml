@@ -59,16 +59,39 @@ jobs:
 
       - name: Install from the local manifest
         shell: pwsh
-        # A silent install that stops to ask a question never returns; fail
-        # instead of holding a runner for six hours.
-        timeout-minutes: 10
+        # A silent install that stops to ask a question never returns. Run it
+        # as a job, and if it is still going after a few minutes, record what
+        # is running (and which windows are open) before giving up, instead of
+        # holding a runner for six hours.
+        timeout-minutes: 12
         env:
           OVERRIDE: ${{ inputs.override }}
         run: |
-          $args = @('install', '--manifest', $env:MANIFEST_DIR, '--silent', '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity')
-          if ($env:OVERRIDE) { $args += @('--override', $env:OVERRIDE) }
-          winget @args
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $wargs = @('install', '--manifest', $env:MANIFEST_DIR, '--silent', '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity', '--verbose-logs')
+          if ($env:OVERRIDE) { $wargs += @('--override', $env:OVERRIDE) }
+          $job = Start-Job -ScriptBlock { param($a) winget @a; "exit=$LASTEXITCODE" } -ArgumentList (,$wargs)
+          if (Wait-Job $job -Timeout 300) {
+            $out = Receive-Job $job
+            $out
+            if (($out | Select-Object -Last 1) -ne 'exit=0') { exit 1 }
+            exit 0
+          }
+          '--- still installing after 5 minutes; processes:'
+          Get-CimInstance Win32_Process |
+            Where-Object { $_.Name -match 'WageRoute|Setup|nsis|winget|AppInstaller|Au_|msiexec' } |
+            Format-Table ProcessId, ParentProcessId, Name, CommandLine -AutoSize -Wrap | Out-String -Width 400
+          '--- windows with a title:'
+          Get-Process | Where-Object MainWindowTitle | Format-Table Id, Name, MainWindowTitle -AutoSize | Out-String -Width 400
+          Stop-Job $job; Receive-Job $job
+          exit 1
+
+      - name: Save the WinGet logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winget-logs
+          path: ~\AppData\Local\Packages\Microsoft.DesktopAppInstaller_8wekyb3d8bbwe\LocalState\DiagOutputDir
+          if-no-files-found: warn
 
       - name: Verify the package is installed
         shell: pwsh
