@@ -245,8 +245,12 @@ Anything else that is missing or unusable — no `name`, an out-of-range `due_da
 | `7` | Accepted; no `categories` or `balance_snapshots` rows and no card terms, so the category list stays empty until an entry is written, the trend starts at the next launch, and the card rows show no amount due |
 | `8` | Accepted; no reserve `strategy`, `due_day` or `settled_by` values, so each restored claim takes its bill's strategy and due day and starts unlinked |
 | `9` | Accepted; `goals.funding_pace` arrives as `asap`, which is the pre-v10 behaviour |
-| `10` | Accepted; the current `SCHEMA_VERSION` |
-| `> 10` | Rejected: “This backup came from a newer version (schema N)” |
+| `10` | Accepted; `accounts.is_locked` arrives as `0` and no entry belongs to a split |
+| `11` | Accepted; `accounts.floor_cents` arrives as `NULL`, no floor |
+| `12` | Accepted; `bills.is_variable` arrives as `0`, so every bill is fixed |
+| `13` | Accepted; no bill is one time, which is exactly the pre-v14 behaviour |
+| `14` | Accepted; the current `SCHEMA_VERSION` (a bill may be `once`, due on `next_due_on`) |
+| `> 14` | Rejected: “This backup came from a newer version (schema N)” |
 | Non-integer | Rejected: “Backup has no version number” |
 
 `bills.funding_strategy` is `NOT NULL` with a schema default, so it needs an entry in the importer's per-table defaults (`TABLE_DEFAULTS`): the importer lists every allowlisted column explicitly, and without the fallback an older file that omits the key would insert `NULL` and trip the constraint. That is the same failure fixed for `accounts.sort_order` in `2024f7f`, so the new column is covered by the same regression test rather than a new one.

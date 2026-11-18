@@ -17,9 +17,11 @@ It is a planning and ledger tool, not a bank connection. There is no account lin
   <img src="assets/screenshots/home-light.webp" alt="The WageRoute Home screen: money left to spend once bills and goals are set aside, and total wealth across accounts." width="100%" />
 </picture>
 
-> Version **1.3.1** · single user · macOS, Windows and Linux · unsigned release builds
+> Version **1.4.0** · single user · macOS, Windows and Linux · unsigned release builds
 
-> **Upgrading from 1.2.0 or older?** Encryption at rest, sealed backups and the phone vault first shipped in **1.3.1** (there was no published 1.3.0). An encrypted ledger cannot be opened by any build before 1.3.1, so if you might go back, keep a **plain** JSON backup first. Fingerprint, face and PIN unlock are on `main` but not in a release yet; they are marked *(next release)* below.
+> **Upgrading from 1.2.0 or older?** Encryption at rest, sealed backups and the phone vault first shipped in **1.3.1** (there was no published 1.3.0). An encrypted ledger cannot be opened by any build before 1.3.1, so if you might go back, keep a **plain** JSON backup first. Fingerprint, face and PIN unlock arrived in **1.4.0**.
+
+> **Upgrading from 1.3.1?** 1.4.0 migrates the ledger from schema 10 to 14 on its first launch (account locks and split transfers, floors, variable and one-time bills). 1.3.1 cannot open the upgraded ledger or read a 1.4.0 backup, so take a backup before installing.
 
 ---
 
@@ -47,23 +49,23 @@ It is a planning and ledger tool, not a bank connection. There is no account lin
 
 | Area | Behaviour |
 | --- | --- |
-| **Priority Wall** | Track rent, utilities, insurance and subscriptions with weekly through yearly cadences. Each bill is smoothed into a monthly equivalent and a per-paycheck reserve. Paused bills stop reserving money but stay in history. |
+| **Priority Wall** | Track rent, utilities, insurance and subscriptions with weekly through yearly cadences. Each bill is smoothed into a monthly equivalent and a per-paycheck reserve. A bill can be **variable** (its amount is an estimate, and what it really came to clears it, the difference going back to Left to spend) or **one time** (due once on a date, saved up for by the paychecks before it, and done once paid). Paused bills stop reserving money but stay in history. |
 | **Paycheck allocator** | A three-step wizard: enter the deposit, subtract the wall, distribute the true surplus. Splits are percentages of the surplus, not of gross income. The result is committed as one paycheck record with allocation lines. |
 | **Sinking funds** | Named goals with targets, optional deadlines and priorities. The allocator funds them in priority order, then by deadline, then by name. Fully funded goals stop taking money. Unused goal budget sweeps into savings. A goal can be given a dedicated account, whose balance *is* the progress; every other goal counts allocation lines. |
 | **Emergency fund** | A special sinking fund with an automatic target: monthly essentials × 3–6 months. Essentials are the Priority Wall plus, optionally, the average of recent variable expenses. A manual target mode is also available. |
-| **Accounts and credit** | Checking, savings, cash, investment and credit accounts, grouped by institution. Balances are derived from entries. Credit cards store debt as a negative balance and expose a utilization meter against their limit. Each account declares whether it counts as spendable, and can be marked as reserved for one goal. |
+| **Accounts and credit** | Checking, savings, cash, investment and credit accounts, grouped by institution. Balances are derived from entries. Credit cards store debt as a negative balance and expose a utilization meter against their limit. Each account declares whether it counts as spendable, and can be marked as reserved for one goal. A deposit account can carry an optional **floor** the app never offers money below, an account can be **locked** (frozen: it keeps its balance but takes no entry), and each account opens a **history** of every entry in and out of it with the balance after each. |
 | **Total wealth** | Everything owned on one strip: cash, money parked in dedicated goal accounts and investments, minus credit owed. Shown on the Home page and as an Accounts summary tile. Both read the same shared function, so they cannot disagree. A daily snapshot history draws a net-worth sparkline on Home once a second day exists. |
 | **Card terms and payoff** | A credit card can carry its APR, minimum payment, statement close day, payment due day and last statement balance. The Accounts row then shows what is due on which date and how long the balance takes to clear at the minimum — or says plainly that the minimum never clears it. |
 | **Categories and spending** | Entries point at a real category row. The grid and the entry dialog complete existing names, renaming a category relabels its entries, and Home totals the month's spending by category. |
-| **Spreadsheet** | A server-queried ledger: search, date range, account, kind, category and sort filters, 100 rows a page, select-and-delete in bulk, and in-place editing of date, account, kind, category, description and amount. A second tab projects bills and goal deadlines over the next 90 days. |
+| **Spreadsheet** | A server-queried ledger: search, date range, account, kind, category and sort filters, a **Show** window that hides older entries, 100 rows a page, select-and-delete in bulk, and in-place editing of date, account, kind, category, description and amount. A second tab projects bills and goal deadlines over the next 90 days. |
 | **Round-up** | Tangerine-style spare-change sweeps: when an expense is logged against a checking or cash account, the difference to the next $1, $2 or $5 is moved to a savings account as a paired transfer. |
 | **Paired transfers** | Account-to-account moves are written as two linked rows sharing a `transfer_group_id`. Editing an amount, date, memo or category updates both legs. Deleting either leg removes both. |
 | **Chronology prompts** | Active bills past their latest due date with no matching `bill_id` payment are surfaced on the dashboard as “Did this clear?” prompts with one-click logging. A bill marked **autopay** is recorded automatically at the next launch after its due date instead, so the wall clears itself. |
 | **Data portability** | Full or partial JSON backups, a whole-ledger CSV export, and imports that merge either format by row identity. A JSON backup is written either plain — readable by any spreadsheet — or sealed under a passphrase nobody can read without. Bank statements (OFX/QFX, QIF, or a CSV with no account column) import into the account you name; loan and investment statements are read for what they can offer. A bank line that carries a reference is never added twice, and a statement that carries a closing balance can be reconciled against the ledger. |
 | **Data folder** | Optionally keep the ledger in a folder you choose — a NAS share, an external disk, or a synced folder — so several computers read the same data. The default per-user folder is unchanged; a chosen folder is locked to one writer at a time, uses rollback journaling, and keeps a safety copy on every move. With encryption on, the key file travels with the folder. |
-| **Encryption at rest (opt-in)** | Settings can rewrite the ledger as ciphertext — chacha20 through the SQLite cipher driver — and take it back to plaintext from the same screen. The key is held by whoever you choose: this computer's keychain, a passphrase, or both. *(Next release:)* an opt-in PIN of six or more digits, which warns that anyone with a copy of the file can try every PIN offline, and fingerprint or face unlock through a passkey where the system supports it (in practice Windows Hello; Mac Touch ID needs a signed build). A passkey is never allowed to be the only way in. Changing who holds the key re-wraps 32 bytes and touches no page, so custody is adjustable after the fact. Nothing is encrypted unless asked, and a forgotten passphrase or PIN has no reset, no escrow and no support path. |
+| **Encryption at rest (opt-in)** | Settings can rewrite the ledger as ciphertext — chacha20 through the SQLite cipher driver — and take it back to plaintext from the same screen. The key is held by whoever you choose: this computer's keychain, a passphrase, or both. An opt-in PIN of six or more digits, which warns that anyone with a copy of the file can try every PIN offline, and fingerprint or face unlock through a passkey where the system supports it (in practice Windows Hello; Mac Touch ID needs a signed build). A passkey is never allowed to be the only way in. Changing who holds the key re-wraps 32 bytes and touches no page, so custody is adjustable after the fact. Nothing is encrypted unless asked, and a forgotten passphrase or PIN has no reset, no escrow and no support path. |
 | **Pocket (phone)** | An optional installable web app that opens a backup and works as a peer of the desktop: it shows Safe to Spend, bills, goals, accounts and the ledger, and edits them offline through the desktop's own validation rules — including a card's owed balance and a card payment. It keeps a full copy of the tables in the browser, reuses the desktop's money functions, and merges with the desktop in both directions by exporting the tables it now holds. Its own copy can be sealed under a phrase of its own, and *(next release)* opened with a PIN or a fingerprint/face passkey as well. No server, account or upload. |
-| **Transfers** | One screen to move money between accounts: pick the two accounts and the amount, see both balances before and after, and save one paired transfer. |
+| **Transfers** | One screen to move money between accounts: pick the two accounts and the amount, see both balances before and after, and save one paired transfer with a category. **Several accounts** splits one source across many destinations in one save, optionally through an intermediate account. A transfer never leaves a credit card. |
 | **Appearance** | Dark, Light, Glass or System theme, all drawn as one frosted pane with an icon rail over a softly lit backdrop; only the colours change. The resolved palette is cached locally to prevent a flash on launch. Motion is decoration: both devices obey the operating system's reduce-motion request, every control shows a keyboard focus ring, and the phone's browser bar follows the theme the page is actually painting. |
 
 ## Design rules
@@ -105,7 +107,7 @@ The paycheck allocator is a full-screen wizard opened with **Route a paycheck** 
 | Grid | react-data-grid 7 |
 | Icons | lucide-react |
 | Database | better-sqlite3-multiple-ciphers 13 (the fork of better-sqlite3 that carries the cipher); SQLite in WAL mode, or rollback journaling in a data folder you choose |
-| Key custody | Opt-in. Electron `safeStorage` for the device wrap (answers to the OS login, not a fingerprint); scrypt + AES-256-GCM for a passphrase, and *(next release)* for a PIN; a WebAuthn PRF passkey for fingerprint or face *(next release)* |
+| Key custody | Opt-in. Electron `safeStorage` for the device wrap (answers to the OS login, not a fingerprint); scrypt + AES-256-GCM for a passphrase and for a PIN; a WebAuthn PRF passkey for fingerprint or face (Windows Hello on the desktop) |
 | Packaging | electron-builder 26 (DMG, NSIS, portable, zip, AppImage, deb, rpm) |
 | Tests | `node:test` through `tsx` |
 | CI | GitHub Actions: `verify` on Ubuntu for every pull request (lint, tests, build, Pocket build, packaging dry run); a version tag builds the macOS, Windows and Linux installers into a draft release |
@@ -130,7 +132,7 @@ irm https://revax-2007.github.io/wageroute/install.ps1 | iex
 - **Linux:** the `.deb` through apt or the `.rpm` through dnf/zypper (asks for your password), otherwise the AppImage in `~/.local/bin` with a menu entry.
 - **Windows:** the Setup installer, silently, for the current user.
 
-Options: `sh -s -- --dry-run` (download and verify only), `--version v1.3.1`, and on Linux `--appimage`. On Windows set `$env:WAGEROUTE_DRY_RUN = '1'` or `$env:WAGEROUTE_VERSION` before piping. Neither script touches your ledger. The manual routes below do the same steps by hand.
+Options: `sh -s -- --dry-run` (download and verify only), `--version v1.4.0`, and on Linux `--appimage`. On Windows set `$env:WAGEROUTE_DRY_RUN = '1'` or `$env:WAGEROUTE_VERSION` before piping. Neither script touches your ledger. The manual routes below do the same steps by hand.
 
 The macOS build is ad-hoc signed, not notarized. The first launch of any downloaded copy needs one extra click (right-click the app → **Open** → **Open**); after that it opens normally. Homebrew verifies checksums for you, and the curl one-liner below avoids the prompt entirely because curl never sets the quarantine flag.
 
@@ -148,11 +150,11 @@ The tap is updated after each release; `brew info --cask wageroute` shows which 
 
 **DMG (manual):** download `WageRoute-<version>-arm64.dmg` (Apple Silicon) or `WageRoute-<version>-x64.dmg` (Intel) from [GitHub Releases](https://github.com/ReVax-2007/wageroute/releases), drag to Applications, then right-click → **Open** on first launch. (1.1.0 named its Intel file `WageRoute-1.1.0.dmg`; later releases carry the `-x64` suffix.)
 
-**curl (no Gatekeeper prompt at all):** browsers tag downloads with a quarantine flag that triggers Gatekeeper; curl does not. The commands below fetch **1.3.1**; for a later release, change the version from [GitHub Releases](https://github.com/ReVax-2007/wageroute/releases). Intel Macs use `-x64.dmg` in place of `-arm64.dmg`.
+**curl (no Gatekeeper prompt at all):** browsers tag downloads with a quarantine flag that triggers Gatekeeper; curl does not. The commands below fetch **1.4.0**; for a later release, change the version from [GitHub Releases](https://github.com/ReVax-2007/wageroute/releases). Intel Macs use `-x64.dmg` in place of `-arm64.dmg`.
 
 ```bash
-curl -LO https://github.com/ReVax-2007/wageroute/releases/download/v1.3.1/WageRoute-1.3.1-arm64.dmg
-hdiutil attach -nobrowse -mountpoint /tmp/wageroute-dmg WageRoute-1.3.1-arm64.dmg
+curl -LO https://github.com/ReVax-2007/wageroute/releases/download/v1.4.0/WageRoute-1.4.0-arm64.dmg
+hdiutil attach -nobrowse -mountpoint /tmp/wageroute-dmg WageRoute-1.4.0-arm64.dmg
 cp -R /tmp/wageroute-dmg/WageRoute.app /Applications/
 hdiutil detach /tmp/wageroute-dmg
 ```
@@ -166,12 +168,12 @@ Because the executables are currently unsigned, Windows and web browsers apply t
 2. **Windows SmartScreen execution check:**
    - Double-clicking the downloaded `.exe` opens a blue *"Windows protected your PC"* window.
    - Click **More info** → click **Run anyway**.
-   - Alternatively, right-click the downloaded file → **Properties** → check the **Unblock** box at the bottom → **OK**, or in PowerShell: `Unblock-File -Path "$env:USERPROFILE\Downloads\WageRoute.Setup.1.3.1.exe"`.
+   - Alternatively, right-click the downloaded file → **Properties** → check the **Unblock** box at the bottom → **OK**, or in PowerShell: `Unblock-File -Path "$env:USERPROFILE\Downloads\WageRoute.Setup.1.4.0.exe"`.
 
 **PowerShell / curl (avoids the browser quarantine and SmartScreen block entirely):**
 ```powershell
-curl.exe -LO https://github.com/ReVax-2007/wageroute/releases/download/v1.3.1/WageRoute.Setup.1.3.1.exe
-.\WageRoute.Setup.1.3.1.exe
+curl.exe -LO https://github.com/ReVax-2007/wageroute/releases/download/v1.4.0/WageRoute.Setup.1.4.0.exe
+.\WageRoute.Setup.1.4.0.exe
 ```
 
 *Note on MSI vs NSIS:* The MSI and the NSIS installer are separate products. Uninstall one before installing the other, or Windows will list both.
@@ -180,21 +182,21 @@ curl.exe -LO https://github.com/ReVax-2007/wageroute/releases/download/v1.3.1/Wa
 
 - **AppImage:** Make the downloaded file executable before launching:
   ```bash
-  chmod +x WageRoute-1.3.1-x86_64.AppImage
-  ./WageRoute-1.3.1-x86_64.AppImage
+  chmod +x WageRoute-1.4.0-x86_64.AppImage
+  ./WageRoute-1.4.0-x86_64.AppImage
   ```
   *Note on Ubuntu 22.04+ & 24.04+:* Modern Ubuntu installs do not ship FUSE 2 by default. If the AppImage gives an error loading `libfuse.so.2`, install it with `sudo apt install libfuse2t64` (Ubuntu 24.04+) or `sudo apt install libfuse2` (Ubuntu 22.04), or run with `--appimage-extract-and-run`.
 - **Debian / Ubuntu (.deb):**
   ```bash
-  sudo apt install ./WageRoute-1.3.1-amd64.deb
+  sudo apt install ./WageRoute-1.4.0-amd64.deb
   ```
 - **Fedora / RHEL (.rpm):**
   ```bash
-  sudo dnf install ./WageRoute-1.3.1-x86_64.rpm
+  sudo dnf install ./WageRoute-1.4.0-x86_64.rpm
   ```
 - **curl one-liner (AppImage):**
   ```bash
-  curl -fsSL https://github.com/ReVax-2007/wageroute/releases/download/v1.3.1/WageRoute-1.3.1-x86_64.AppImage -o WageRoute.AppImage && chmod +x WageRoute.AppImage && ./WageRoute.AppImage
+  curl -fsSL https://github.com/ReVax-2007/wageroute/releases/download/v1.4.0/WageRoute-1.4.0-x86_64.AppImage -o WageRoute.AppImage && chmod +x WageRoute.AppImage && ./WageRoute.AppImage
   ```
 
 Full details, including the Gatekeeper behaviour on each macOS version, are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) and [docs/RELEASING.md](docs/RELEASING.md).

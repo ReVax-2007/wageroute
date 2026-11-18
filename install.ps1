@@ -3,10 +3,10 @@
 #   irm https://revax-2007.github.io/wageroute/install.ps1 | iex
 #
 # Options, when piped (environment variables):
-#   $env:WAGEROUTE_VERSION = 'v1.3.1'   install this release instead of the latest
+#   $env:WAGEROUTE_VERSION = 'v1.4.0'   install this release instead of the latest
 #   $env:WAGEROUTE_DRY_RUN = '1'        download and verify, install nothing
 # Options, when run as a file:
-#   powershell -ExecutionPolicy Bypass -File install.ps1 -Version v1.3.1 -DryRun
+#   powershell -ExecutionPolicy Bypass -File install.ps1 -Version v1.4.0 -DryRun
 #
 # It downloads WageRoute.Setup.<version>.exe from
 # https://github.com/ReVax-2007/wageroute/releases, checks it against that

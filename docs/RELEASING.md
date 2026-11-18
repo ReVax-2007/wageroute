@@ -34,11 +34,11 @@ WageRoute has three independent version numbers. Confusing them is the most comm
 
 | Version | Where it lives | Current value | What it means |
 | --- | --- | --- | --- |
-| App version | `package.json` → `version` | `1.3.0` | The build users install. Drives installer names, macOS bundle version and release tags. |
-| Database schema version | `src/main/db/migrations.ts` → `SCHEMA_VERSION`, stored in SQLite `PRAGMA user_version` | `13` | The shape of the on-disk database. Changes only when a migration is added. |
-| Backup format version | Written into every JSON backup, equal to `SCHEMA_VERSION` | `13` | The newest backup the app writes. The reader accepts versions `2` through `13`. |
+| App version | `package.json` → `version` | `1.4.0` | The build users install. Drives installer names, macOS bundle version and release tags. |
+| Database schema version | `src/main/db/migrations.ts` → `SCHEMA_VERSION`, stored in SQLite `PRAGMA user_version` | `14` | The shape of the on-disk database. Changes only when a migration is added. |
+| Backup format version | Written into every JSON backup, equal to `SCHEMA_VERSION` | `14` | The newest backup the app writes. The reader accepts versions `2` through `14`. |
 
-`package.json` reads `1.3.0` at the moment of the 1.3.0 cut; between releases it keeps the last released number even though newer commits have landed, so the **commit SHA** is the only reliable identifier of an un-released build. Bump the version as part of the release, never before. Every build users had before 1.1.0 was schema 3; 1.1.0 was the first installer carrying schemas 4, 5 and 6, and 1.2.0 adds schema 7 (bill reserves) and schema 8 (categories, card terms and balance history), so it migrates a 1.0.x database through every step in one launch. Schema 9 (each claim's strategy, the due day it carried and the payment that settled it) and schema 10 (each goal's funding pace) are what 1.3.0 brings, so a 1.2.0 database migrates 8 → 9 → 10 on its first launch into that build. Schema 11 (account lock and split-transfer group) and schema 12 (account floor) are queued for the next release.
+`package.json` reads `1.4.0` at the moment of the 1.4.0 cut; between releases it keeps the last released number even though newer commits have landed, so the **commit SHA** is the only reliable identifier of an un-released build. Bump the version as part of the release, never before. Every build users had before 1.1.0 was schema 3; 1.1.0 was the first installer carrying schemas 4, 5 and 6, and 1.2.0 adds schema 7 (bill reserves) and schema 8 (categories, card terms and balance history), so it migrates a 1.0.x database through every step in one launch. Schema 9 (each claim's strategy, the due day it carried and the payment that settled it) and schema 10 (each goal's funding pace) are what 1.3.0 brings, so a 1.2.0 database migrates 8 → 9 → 10 on its first launch into that build (published as `v1.3.1`; no 1.3.0 tag exists). 1.4.0 brings schema 11 (account lock and split-transfer group), 12 (account floor), 13 (variable bills) and 14 (one-time bills), so a 1.3.1 database migrates 10 → 11 → 12 → 13 → 14.
 
 The source of truth for the app version is `package.json`. `npm` updates `package-lock.json` with it; electron-builder reads it when naming artifacts and writing bundle metadata.
 
@@ -83,8 +83,12 @@ Tags use the `v` prefix and match the app version exactly: `v1.0.0`. The CI work
 | `7` | Accepted; no `categories` or `balance_snapshots` rows and no card terms |
 | `8` | Accepted; no per-claim strategy, carried due day or settling payment |
 | `9` | Accepted; goals have no funding pace |
-| `10` | Accepted; the newest format this app writes |
-| `> 10` | Rejected: `This backup came from a newer version` |
+| `10` | Accepted; every account unlocked and no entry in a split |
+| `11` | Accepted; no account has a floor |
+| `12` | Accepted; every bill is fixed (not variable) |
+| `13` | Accepted; no bill is one time |
+| `14` | Accepted; the newest format this app writes |
+| `> 14` | Rejected: `This backup came from a newer version` |
 
 Imports merge by row identity and are idempotent. A row the file holds a newer version of replaces the local copy; an older copy is skipped; a newer tombstone deletes. Re-importing the same file changes nothing. See [IMPORT-EXPORT.md](IMPORT-EXPORT.md) and [ADR 0024](decisions/0024-two-copies-merge-by-time.md).
 
@@ -172,7 +176,7 @@ npm run dist:linux          # build + AppImage, deb and rpm
 npm run dist                # build + installers for the current platform
 ```
 
-`npm run dist:*` runs `npm run build` first, so a type error stops the release. It stamps the version `-dev` (`1.3.1-dev`) so a local build never passes for a release; set `WAGEROUTE_RELEASE=1` when you are assembling a release by hand.
+`npm run dist:*` runs `npm run build` first, so a type error stops the release. It stamps the version `-dev` (`1.4.0-dev`) so a local build never passes for a release; set `WAGEROUTE_RELEASE=1` when you are assembling a release by hand.
 
 ### Script reference
 
@@ -252,8 +256,8 @@ out/
 
 ```text
 release/
-├── WageRoute-1.3.0-arm64.dmg
-├── WageRoute-1.3.0-x64.dmg
+├── WageRoute-1.4.0-arm64.dmg
+├── WageRoute-1.4.0-x64.dmg
 ├── mac-arm64/WageRoute.app
 └── mac/WageRoute.app            # when an x64 build runs
 ```
@@ -264,12 +268,12 @@ The names are pinned by `dmg.artifactName` in `electron-builder.yml` (`WageRoute
 
 ```text
 release/
-├── WageRoute.Setup.1.3.0.exe
-├── WageRoute-1.3.0-x64.msi
-├── WageRoute-1.3.0-arm64.msi
-├── WageRoute-1.3.0.portable.exe
-├── WageRoute-1.3.0-x64.zip
-└── WageRoute-1.3.0-arm64.zip
+├── WageRoute.Setup.1.4.0.exe
+├── WageRoute-1.4.0-x64.msi
+├── WageRoute-1.4.0-arm64.msi
+├── WageRoute-1.4.0.portable.exe
+├── WageRoute-1.4.0-x64.zip
+└── WageRoute-1.4.0-arm64.zip
 ```
 
 `nsis.artifactName` and `portable.artifactName` deliberately omit `${arch}`: electron-builder builds one installer that carries both architectures, and it only emits per-architecture copies *in addition* when the pattern contains `${arch}`. Asking for `${arch}` therefore produced three NSIS installers — a universal one and two per-arch ones — and the same for the portable exe. One universal file per format is what a release should carry, and it matches the `WageRoute.Setup.1.1.0.exe` name that 1.1.0 shipped.
@@ -286,12 +290,12 @@ The MSI and the NSIS installer are separate products with separate uninstall ent
 
 ```text
 release/
-├── WageRoute-1.3.0-x86_64.AppImage
-├── WageRoute-1.3.0-arm64.AppImage
-├── WageRoute-1.3.0-amd64.deb
-├── WageRoute-1.3.0-arm64.deb
-├── WageRoute-1.3.0-x86_64.rpm
-└── WageRoute-1.3.0-aarch64.rpm
+├── WageRoute-1.4.0-x86_64.AppImage
+├── WageRoute-1.4.0-arm64.AppImage
+├── WageRoute-1.4.0-amd64.deb
+├── WageRoute-1.4.0-arm64.deb
+├── WageRoute-1.4.0-x86_64.rpm
+└── WageRoute-1.4.0-aarch64.rpm
 ```
 
 `appImage.artifactName`, `deb.artifactName` and `rpm.artifactName` pin one pattern for all three packagers, but `${arch}` expands to each packager's own architecture name, not `x64`: AppImage and rpm call 64-bit Intel `x86_64`, deb calls it `amd64`, and only the arm64 AppImage and deb keep the literal `arm64` (the arm64 rpm says `aarch64`). That is electron-builder's naming, not a choice of ours, and it is why the CI smoke test selects `release/*.AppImage` and `release/*.deb` by format and asserts exactly one of each rather than matching a suffix. AppImage runs on any distro without root; deb and rpm integrate with the system package manager and desktop menu. All three are unsigned, so some distros warn during install.
@@ -503,7 +507,7 @@ This is the full path for a release you intend to distribute. It assumes the rep
 ### 2. Bump the version
 
 ```bash
-npm version 1.3.0 --no-git-tag-version
+npm version 1.4.0 --no-git-tag-version
 ```
 
 This updates `package.json` and `package-lock.json` without committing or tagging. Review the diff. Do not hand-edit one file and forget the other.
@@ -575,13 +579,13 @@ They let a recipient confirm the file was not truncated or replaced.
 `main` is protected and takes changes only through a merged pull request, and the tag guard refuses a tag that is not an ancestor of `origin/main` — so the tag comes **after** the merge lands, never before.
 
 ```bash
-git switch -c release/1.3.0
+git switch -c release/1.4.0
 git add package.json package-lock.json CHANGELOG.md README.md docs
-git commit -m "Release 1.3.0"
-git push -u origin release/1.3.0      # open the pull request, wait for `verify`, merge
+git commit -m "Release 1.4.0"
+git push -u origin release/1.4.0      # open the pull request, wait for `verify`, merge
 git switch main && git pull
-git tag -a v1.3.0 -m "WageRoute 1.3.0"
-git push origin v1.3.0
+git tag -a v1.4.0 -m "WageRoute 1.4.0"
+git push origin v1.4.0
 ```
 
 Only do this when you intend to release. The tag push starts CI. Do not move or force-push a tag after artifacts have been distributed; publish a new patch version instead.
@@ -615,7 +619,7 @@ If a future migration is questioned, this archive is how you reproduce the old b
 A tag build runs the `release` job, which creates or refreshes a **draft** release carrying every installer and `SHA256SUMS`. Publishing it — and updating the Homebrew tap — is a manual, deliberate step.
 
 1. Open **Releases → Drafts** and select the draft the tag pushed. Do not create a second release for the same tag in the web UI.
-2. Title: `WageRoute 1.3.0`.
+2. Title: `WageRoute 1.4.0`.
 3. Paste the release notes from the template below.
 4. Confirm the draft carries:
    - `WageRoute-<version>-arm64.dmg` and `WageRoute-<version>-x64.dmg` (Intel)
