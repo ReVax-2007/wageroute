@@ -550,6 +550,11 @@ export interface AppSettings {
   theme: ThemePreference
   roundUpEnabled: boolean
   roundUpAccountId: string | null
+  /**
+   * Which spending accounts a purchase is rounded up from: `null` means every
+   * checking and cash account (the original behaviour), a list means only those.
+   */
+  roundUpSourceIds: string[] | null
   roundUpToCents: RoundUpIncrementCents
   emergencyMode: EmergencyMode
   emergencyMonths: number

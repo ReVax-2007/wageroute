@@ -135,6 +135,18 @@ export function Settings() {
     savingsAccounts.find((account) => account.id === settings.roundUpAccountId) ?? null
   const roundUpActive = settings.roundUpEnabled && roundUpAccount !== null
   const sampleSweepCents = roundUpRemainderCents(1240, settings.roundUpToCents)
+  // Only checking and cash purchases ever round up, and never the account the
+  // spare change lands in.
+  const roundUpSources = snapshot.accounts.filter(
+    (account) =>
+      (account.kind === 'checking' || account.kind === 'cash') && isUsableAccount(account)
+  )
+  // A picked id that is no longer usable drops out of the list shown; the
+  // stored list keeps it so restoring the account restores the choice.
+  const pickedSources =
+    settings.roundUpSourceIds === null
+      ? null
+      : roundUpSources.filter((account) => settings.roundUpSourceIds?.includes(account.id))
   // The erase question counts the rows the database holds, not the 500-entry
   // window the grid reads: transactionTotal and paycheckTotal are the real totals.
   const eraseWords = eraseAllWords({
@@ -416,7 +428,7 @@ export function Settings() {
               <strong>Round up what you spend</strong>
               <p className="field-hint">
                 When you log a purchase from checking or cash, the difference to the next dollar
-                goes to savings.
+                goes to savings. You can limit it to the accounts you choose.
               </p>
             </div>
             <Switch
@@ -470,6 +482,76 @@ export function Settings() {
                   </select>
                 </Field>
               </div>
+
+              <div className="setting-row">
+                <div>
+                  <strong>Round up purchases from</strong>
+                  <p className="field-hint">
+                    {pickedSources === null
+                      ? 'Every checking and cash account.'
+                      : pickedSources.length === 0
+                        ? 'None of the accounts you picked is open any more, so nothing rounds up. Pick one below.'
+                        : `Only ${pickedSources.map((account) => account.name).join(', ')}.`}
+                  </p>
+                </div>
+                <Segmented<'all' | 'some'>
+                  label="Round up purchases from"
+                  value={settings.roundUpSourceIds === null ? 'all' : 'some'}
+                  onChange={(value) =>
+                    update({
+                      roundUpSourceIds:
+                        value === 'all'
+                          ? null
+                          : // Start from one account, not none: an empty pick
+                            // would quietly stop every sweep.
+                            pickedSources && pickedSources.length > 0
+                            ? pickedSources.map((account) => account.id)
+                            : roundUpSources.slice(0, 1).map((account) => account.id)
+                    })
+                  }
+                  options={[
+                    { value: 'all', label: 'All accounts' },
+                    { value: 'some', label: 'Only some' }
+                  ]}
+                />
+              </div>
+
+              {settings.roundUpSourceIds !== null && (
+                <div className="setting-row">
+                  {roundUpSources.length === 0 ? (
+                    <p className="field-hint">Add a checking or cash account to round up from.</p>
+                  ) : (
+                    <fieldset className="round-up-sources">
+                      <legend className="sr-only">Accounts to round up from</legend>
+                      {roundUpSources.map((account) => {
+                        const checked = settings.roundUpSourceIds?.includes(account.id) ?? false
+                        // The last ticked account stays ticked: to stop every
+                        // sweep, turn round-up off instead.
+                        const onlyOne = checked && (pickedSources?.length ?? 0) <= 1
+                        return (
+                          <label key={account.id} className="check">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={onlyOne}
+                              title={onlyOne ? 'Keep at least one, or turn round-up off' : undefined}
+                              onChange={() => {
+                                const current = settings.roundUpSourceIds ?? []
+                                update({
+                                  roundUpSourceIds: checked
+                                    ? current.filter((id) => id !== account.id)
+                                    : [...current, account.id]
+                                })
+                              }}
+                            />
+                            {account.name}
+                          </label>
+                        )
+                      })}
+                    </fieldset>
+                  )}
+                </div>
+              )}
 
               <div className="setting-row">
                 <div>

@@ -10,7 +10,7 @@ import { todayISO } from '@shared/dates'
 import { RepositoryError } from '@shared/errors'
 import { normalizeSignedCents, signedAmountError } from '@shared/kinds'
 import { inBillCycle } from '@shared/oneTimeBills'
-import { parseSettings } from '@shared/settings'
+import { parseSettings, roundsUpFrom } from '@shared/settings'
 import { incomingWins } from '@shared/tableMerge'
 import { roundUpRemainderCents, transferLegs } from '@shared/transfers'
 import { planSplitTransfer } from '@shared/splitTransfer'
@@ -1052,6 +1052,7 @@ function applyRoundUp(
   const settings = parseSettings(settingRecord(tables.settings))
   if (!settings.roundUpEnabled || !settings.roundUpAccountId) return tables
   if (settings.roundUpAccountId === input.accountId) return tables
+  if (!roundsUpFrom(settings, input.accountId)) return tables
   // Tangerine-style rounding applies to debit spending, never to a credit card.
   if (input.accountKind !== 'checking' && input.accountKind !== 'cash') return tables
 

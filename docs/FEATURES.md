@@ -766,12 +766,13 @@ Four choices in Settings → Appearance, presented as a radio group — **Dark**
 
 - Toggle “Round up debit spending”. It is disabled when no active savings account exists, with a shortcut to Accounts; turning it on preselects the first active savings account.
 - Choose the destination savings account. When the saved destination is archived or is no longer a savings account, the switch reads off and the select says the destination needs re-choosing before sweeps resume; when no destination was ever chosen, the select simply asks for one.
+- Choose which purchases round up: **All accounts** (every checking and cash account, the default) or **Only some**, with a tick list of the live checking and cash accounts. Switching to *Only some* starts with one account ticked, and the last ticked account cannot be unticked, so the pick is never silently empty; turning the switch off is how to stop every sweep. A picked account that is archived drops out of the list shown but stays in the saved pick, so restoring it restores the choice.
 - Choose the increment: 1, 2 or 5 in the ledger's currency, labelled with its symbol (`$`, `€`, `£`, `CA$`, …).
 - The hint shows a live example in the chosen currency, e.g. “A $12.40 coffee sweeps $0.60.”
 
 Rules enforced at write time:
 
-- only `checking` and `cash` source accounts trigger a sweep;
+- only `checking` and `cash` source accounts trigger a sweep, and when `roundUpSourceIds` names accounts, only those (`roundsUpFrom` in `src/shared/settings.ts`, asked by both the desktop and the phone writer);
 - the destination must be active and must not be credit or investment;
 - the destination cannot be the source account;
 - the sweep is `increment − (|amount| mod increment)`, and zero when the amount is already divisible;
