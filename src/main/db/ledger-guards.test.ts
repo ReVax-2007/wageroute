@@ -996,3 +996,40 @@ test('a bill-linked adjustment is a note, not a payment', () => {
   assert.equal(payments.length, 1, 'the adjustment does not read back as another payment')
   assert.equal(payments[0].amountCents, -5_000, 'the real payment is the one counted')
 })
+
+test('round-up sweeps only from the accounts picked for it', () => {
+  const db = freshDb()
+  const everyday = account(db, 'Everyday')
+  const bills = account(db, 'Bills chequing')
+  const savings = account(db, 'Savings', 'savings')
+  const sweepsFrom = (accountId: string): number =>
+    listTransactions(db, USER_ID).filter(
+      (row) => row.memo.startsWith('Round-up') && row.accountId === accountId
+    ).length
+  const buy = (accountId: string): void => {
+    createTransaction(db, USER_ID, {
+      accountId,
+      kind: 'expense',
+      amountCents: -4_25,
+      occurredOn: '2026-03-01',
+      category: 'Food',
+      memo: 'Lunch',
+      counterAccountId: null
+    })
+  }
+  writeSettings(db, USER_ID, {
+    roundUpEnabled: 'true',
+    roundUpAccountId: savings,
+    roundUpToCents: '100',
+    roundUpSourceIds: everyday
+  })
+
+  buy(everyday)
+  buy(bills)
+  assert.equal(sweepsFrom(everyday), 1, 'the picked account rounds up')
+  assert.equal(sweepsFrom(bills), 0, 'an account left out of the pick does not')
+
+  writeSettings(db, USER_ID, { roundUpSourceIds: '' })
+  buy(bills)
+  assert.equal(sweepsFrom(bills), 1, 'a blank pick means every checking and cash account again')
+})

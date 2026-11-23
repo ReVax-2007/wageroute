@@ -23,6 +23,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'dark',
   roundUpEnabled: false,
   roundUpAccountId: null,
+  roundUpSourceIds: null,
   roundUpToCents: 100,
   emergencyMode: 'auto',
   emergencyMonths: 3,
@@ -142,6 +143,7 @@ export function parseSettings(record: Record<string, string>): AppSettings {
       record.roundUpAccountId && record.roundUpAccountId.length > 0
         ? record.roundUpAccountId
         : DEFAULT_SETTINGS.roundUpAccountId,
+    roundUpSourceIds: parseIdList(record.roundUpSourceIds),
     roundUpToCents: ROUND_UP_INCREMENTS.includes(roundUpRaw as RoundUpIncrementCents)
       ? (roundUpRaw as RoundUpIncrementCents)
       : DEFAULT_SETTINGS.roundUpToCents,
@@ -186,6 +188,7 @@ export function settingsToRecord(settings: AppSettings): Record<string, string> 
     theme: settings.theme,
     roundUpEnabled: String(settings.roundUpEnabled),
     roundUpAccountId: settings.roundUpAccountId ?? '',
+    roundUpSourceIds: settings.roundUpSourceIds ? settings.roundUpSourceIds.join(',') : '',
     roundUpToCents: String(settings.roundUpToCents),
     emergencyMode: settings.emergencyMode,
     emergencyMonths: String(settings.emergencyMonths),
@@ -195,4 +198,19 @@ export function settingsToRecord(settings: AppSettings): Record<string, string> 
     emergencyActive: String(settings.emergencyActive),
     ledgerWindow: settings.ledgerWindow
   }
+}
+
+/** Blank or missing means "every account"; an id list keeps its order without repeats. */
+function parseIdList(value: string | undefined): string[] | null {
+  if (!value) return null
+  const ids = [...new Set(value.split(',').map((id) => id.trim()).filter((id) => id.length > 0))]
+  return ids.length > 0 ? ids : null
+}
+
+/**
+ * Whether a purchase on this account is rounded up. Both writers ask this one
+ * question, so the desktop and the phone sweep from the same accounts.
+ */
+export function roundsUpFrom(settings: AppSettings, accountId: string): boolean {
+  return settings.roundUpSourceIds === null || settings.roundUpSourceIds.includes(accountId)
 }

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { RepositoryError } from '@shared/errors'
 import { todayISO } from '@shared/dates'
 import { normalizeSignedCents, signedAmountError } from '@shared/kinds'
-import { parseSettings } from '@shared/settings'
+import { parseSettings, roundsUpFrom } from '@shared/settings'
 import { ledgerStatementCents } from '@shared/statements'
 import { roundUpRemainderCents, transferLegs } from '@shared/transfers'
 import { planSplitTransfer, type SplitAccount } from '@shared/splitTransfer'
@@ -462,6 +462,7 @@ function applyRoundUp(
   const settings = parseSettings(readSettings(db, userId))
   if (!settings.roundUpEnabled || !settings.roundUpAccountId) return
   if (settings.roundUpAccountId === input.accountId) return
+  if (!roundsUpFrom(settings, input.accountId)) return
   // Tangerine-style rounding applies to debit spending, never to a credit card.
   if (input.accountKind !== 'checking' && input.accountKind !== 'cash') return
 

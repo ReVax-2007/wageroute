@@ -1153,3 +1153,27 @@ test('a one-time bill is paid on the phone across months and then listed as done
   )
   assert.match(refusal(() => payBill(rest.tables, created.id)).message, /already paid/)
 })
+
+test('a phone purchase rounds up only from the accounts picked on the desktop', () => {
+  const tables = ledger()
+  tables.accounts.push(account('chk2', { name: 'Bills chequing', kind: 'checking', in_safe_to_spend: 1 }))
+  tables.settings = [
+    lifecycle({ id: 'roundUpEnabled', key: 'roundUpEnabled', value: 'true' }),
+    lifecycle({ id: 'roundUpAccountId', key: 'roundUpAccountId', value: 'sav' }),
+    lifecycle({ id: 'roundUpToCents', key: 'roundUpToCents', value: '100' }),
+    lifecycle({ id: 'roundUpSourceIds', key: 'roundUpSourceIds', value: 'chk' })
+  ]
+  const lunch = (from: ImportTables, accountId: string) =>
+    createEntry(from, {
+      accountId,
+      kind: 'expense',
+      amountCents: 4_25,
+      occurredOn: todayISO(),
+      memo: 'Lunch',
+      category: 'Food'
+    }).tables
+  const picked = lunch(tables, 'chk')
+  assert.equal(entries(picked).length, 3, 'the picked account writes the purchase and its sweep')
+  const left = lunch(tables, 'chk2')
+  assert.equal(entries(left).length, 1, 'an account left out writes only the purchase')
+})

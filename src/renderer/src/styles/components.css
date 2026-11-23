@@ -847,6 +847,16 @@ input[type='date'] {
   margin-top: 16px;
 }
 
+.round-up-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
 .check {
   display: inline-flex;
   align-items: center;

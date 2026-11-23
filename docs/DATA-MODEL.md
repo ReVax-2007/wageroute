@@ -507,6 +507,7 @@ Stored in `settings.value` as text. Defaults and validation live in `src/shared/
 | `theme` | enum | `dark` | `dark`, `light`, `system` |
 | `roundUpEnabled` | boolean | `false` | |
 | `roundUpAccountId` | string | `null` / empty | Any non-empty string is accepted; destination is re-validated at write time |
+| `roundUpSourceIds` | comma-separated ids | `null` / empty | Empty means every checking and cash account; otherwise only purchases on these accounts round up. Ids are trimmed and de-duplicated; an unknown id simply never matches |
 | `roundUpToCents` | enum number | `100` | Only `100`, `200`, `500` |
 | `emergencyMode` | enum | `auto` | `auto`, `manual` |
 | `emergencyMonths` | number | `3` | Integer 1–12, else 3 |

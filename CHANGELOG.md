@@ -8,7 +8,9 @@ All notable changes to WageRoute are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Round-up can be limited to the accounts you choose.** Settings → Round-up has **Round up purchases from: All accounts / Only some**. With *Only some*, a tick list of the checking and cash accounts decides which purchases sweep spare change, on the desktop and on the phone, which read the same setting. *All accounts* stays the default, so existing ledgers behave exactly as before. The last ticked account cannot be unticked: turning round-up off is how to stop every sweep. No schema change: it is one new setting, `roundUpSourceIds`.
 
 ---
 

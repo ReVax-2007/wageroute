@@ -19,7 +19,7 @@ import {
   parseMoneyToCents
 } from './money'
 import { projectUpcoming } from './projections'
-import { ledgerWindowStart, parseSettings, settingsToRecord } from './settings'
+import { ledgerWindowStart, parseSettings, roundsUpFrom, settingsToRecord } from './settings'
 import { roundUpRemainderCents, transferLegs } from './transfers'
 import type { Account, TransactionRow } from './types'
 
@@ -740,6 +740,13 @@ test('settings default to dark theme, round-up off and auto emergency target', (
 
   assert.deepEqual(parseSettings(settingsToRecord(parsed)), parsed)
   assert.equal(parseSettings({ theme: 'glass' }).theme, 'glass', 'glass is a saved theme')
+  assert.equal(parseSettings({}).roundUpSourceIds, null, 'every account rounds up by default')
+  const picked = parseSettings({ roundUpSourceIds: 'chk, sav,chk,' })
+  assert.deepEqual(picked.roundUpSourceIds, ['chk', 'sav'], 'ids are trimmed and kept once')
+  assert.deepEqual(parseSettings(settingsToRecord(picked)).roundUpSourceIds, ['chk', 'sav'])
+  assert.equal(roundsUpFrom(picked, 'chk'), true)
+  assert.equal(roundsUpFrom(picked, 'other'), false)
+  assert.equal(roundsUpFrom(parseSettings({}), 'other'), true)
 })
 
 test('a well-formed but unknown currency code falls back instead of showing USD silently', () => {
