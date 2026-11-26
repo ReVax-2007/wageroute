@@ -54,6 +54,7 @@ interface BillForm {
   autopay: boolean
   isActive: boolean
   isVariable: boolean
+  fromPaychecks: boolean
   fundingStrategy: BillFundingStrategy
   fundingPaycheckIndex: string
   /** A one-time bill's date (ADR 0037). */
@@ -71,6 +72,7 @@ function formFor(bill: Bill | null, fallbackAccount: string): BillForm {
     autopay: bill?.autopay ?? true,
     isActive: bill?.isActive ?? true,
     isVariable: bill?.isVariable ?? false,
+    fromPaychecks: bill?.fromPaychecks ?? true,
     fundingStrategy: bill?.fundingStrategy ?? 'all_checks',
     fundingPaycheckIndex: bill?.fundingPaycheckIndex ? String(bill.fundingPaycheckIndex) : '1',
     dueOn: bill?.nextDueOn ?? addDaysISO(todayISO(), 30)
@@ -140,6 +142,7 @@ function BillFormSheet({
       autopay: form.autopay,
       isActive: form.isActive,
       isVariable: form.isVariable,
+      fromPaychecks: oneTime ? form.fromPaychecks : true,
       nextDueOn: oneTime ? form.dueOn : (bill?.nextDueOn ?? null),
       fundingStrategy: form.fundingStrategy,
       fundingPaycheckIndex:
@@ -157,7 +160,9 @@ function BillFormSheet({
       title={bill ? 'Edit this bill' : 'Add a bill'}
       hint={
         oneTime
-          ? 'Due once. The paychecks before its date save it up, then it is done.'
+          ? form.fromPaychecks
+            ? 'Due once. The paychecks before its date save it up, then it is done.'
+            : 'Due once and left to you. Record each purchase; it is done once covered or closed.'
           : 'This comes out of every paycheck before anything else.'
       }
       onClose={onClose}
@@ -246,10 +251,20 @@ function BillFormSheet({
         </select>
       </Field>
       {oneTime ? (
-        <p className="fine">
-          Every paycheck before the due date sets an equal share aside. A payment that covers it
-          makes the bill done: it never comes due again.
-        </p>
+        <>
+          <div className="checks">
+            <Checkbox
+              label="Save up for it from my paychecks"
+              checked={form.fromPaychecks}
+              onChange={(fromPaychecks) => setForm({ ...form, fromPaychecks })}
+            />
+          </div>
+          <p className="fine">
+            {form.fromPaychecks
+              ? 'Every paycheck before the due date sets an equal share aside. A payment that covers it makes the bill done: it never comes due again.'
+              : 'Left to you: no paycheck sets money aside and Safe to spend holds nothing back. Record each purchase as you make it.'}
+          </p>
+        </>
       ) : (
       <Field
         label="When to set the money aside"
@@ -431,8 +446,9 @@ function BillSheet({
             <li>One time · paid, it will not come due again</li>
           ) : (
             <li>
-              One time · about {formatMoney(line.perCheckCents, currency)} from each paycheck
-              until then
+              {line.bill.fromPaychecks === false
+                ? 'One time · left to you, nothing set aside from paychecks'
+                : `One time · about ${formatMoney(line.perCheckCents, currency)} from each paycheck until then`}
             </li>
           )
         ) : (

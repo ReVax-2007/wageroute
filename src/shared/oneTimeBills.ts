@@ -30,6 +30,16 @@ export function isOneTimeBill(bill: { frequency: Frequency }): boolean {
 }
 
 /**
+ * A one-time bill the owner looks after themself (ADR 0038): no paycheck saves
+ * up for it and Left to spend holds nothing back for it. Each purchase is
+ * recorded as it happens. Only a one-time bill can be left to the owner; the
+ * flag on a recurring bill is ignored.
+ */
+export function leftToOwner(bill: { frequency: Frequency; fromPaychecks?: boolean }): boolean {
+  return isOneTimeBill(bill) && bill.fromPaychecks === false
+}
+
+/**
  * The day the bill is due. The write rules always store one; a hand-edited
  * backup without it falls back to the due day in the month the bill was written,
  * which is where the form would have put it.

@@ -618,6 +618,13 @@ function backfillSchema8(db: Database.Database): void {
   }
 }
 
+// v15: a one-time bill can be left to the owner (ADR 0038) — no paycheck sets
+// money aside for it. Every existing bill keeps saving up as before.
+const SCHEMA_V15 = `
+ALTER TABLE bills ADD COLUMN from_paychecks INTEGER NOT NULL DEFAULT 1
+  CHECK (from_paychecks IN (0,1));
+`
+
 export const MIGRATIONS: readonly Migration[] = [
   {
     version: 1,
@@ -704,6 +711,12 @@ export const MIGRATIONS: readonly Migration[] = [
     rebuildsReferencedTable: true,
     up: (db) => {
       db.exec(SCHEMA_V14)
+    }
+  },
+  {
+    version: 15,
+    up: (db) => {
+      db.exec(SCHEMA_V15)
     }
   }
 ]

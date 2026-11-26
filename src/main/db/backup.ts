@@ -54,7 +54,7 @@ export const TABLE_COLUMNS: Record<BackupTable, readonly string[]> = {
   bills: [
     'id', 'user_id', 'name', 'amount_cents', 'frequency', 'due_day', 'category',
     'account_id', 'autopay', 'is_active', 'next_due_on', 'funding_strategy',
-    'funding_paycheck_index', 'is_variable', 'created_at', 'updated_at',
+    'funding_paycheck_index', 'is_variable', 'from_paychecks', 'created_at', 'updated_at',
     'deleted_at', 'revision'
   ],
   goals: [
@@ -138,6 +138,7 @@ export const TABLE_DEFAULTS: Record<BackupTable, Record<string, SqlValue>> = {
     autopay: 0,
     is_active: 1,
     is_variable: 0,
+    from_paychecks: 1,
     funding_strategy: 'all_checks'
   },
   goals: {

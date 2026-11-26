@@ -226,6 +226,7 @@ Semantics:
 | `funding_strategy` | TEXT | NOT NULL, default `'all_checks'`, CHECK in `all_checks,closest_due_date,specific_check,first_check,last_check` | Added in v5; `last_check` added in v6 (the CHECK widened, the default did not). Which paycheck of the month sets the money aside |
 | `funding_paycheck_index` | INTEGER | nullable | Added in v5. Only used by `specific_check`: the 1-based paycheck the user picked |
 | `is_variable` | INTEGER | NOT NULL DEFAULT 0, CHECK 0/1 | Added in v13. `1` makes `amount_cents` an estimate: each payment counts as at least the estimate (`creditedPaymentCents`), so one payment of any size clears an occurrence and autopay skips the bill ([ADR 0036](decisions/0036-a-variable-bill-is-cleared-by-what-it-came-to.md)) |
+| `from_paychecks` | INTEGER | NOT NULL DEFAULT 1, CHECK 0/1 | Added in v15. `0` on a one-time bill leaves it to the owner: no cheque sets money aside and Left to spend holds nothing back for it ([ADR 0038](decisions/0038-a-one-time-bill-can-be-left-to-the-owner.md)). Ignored on a recurring bill |
 | `created_at` | TEXT | NOT NULL | |
 | `updated_at` | TEXT | NOT NULL | |
 | `deleted_at` | TEXT | nullable | |
@@ -564,8 +565,9 @@ Migrations run inside a transaction per version and are tracked by `PRAGMA user_
 | **12** | Adds `accounts.floor_cents` (nullable, CHECK integer ≥ 0) | An optional floor per deposit account ([ADR 0035](decisions/0035-a-floor-is-money-the-app-will-not-offer.md)). Every existing account gets `NULL`, no floor, so an upgraded ledger behaves exactly as before |
 | **13** | Adds `bills.is_variable` (NOT NULL DEFAULT 0, CHECK 0/1) | Variable bills ([ADR 0036](decisions/0036-a-variable-bill-is-cleared-by-what-it-came-to.md)). Every existing bill gets `0`, fixed, so an upgraded ledger behaves exactly as before |
 | **14** | Rebuilds `bills` to widen the `frequency` CHECK with `'once'` (same columns and ids, the v6 procedure: enforcement suspended, `legacy_alter_table` on, `foreign_key_check` before commit) | One-time bills ([ADR 0037](decisions/0037-a-one-time-bill-is-saved-up-for-and-then-done.md)). SQLite cannot widen a CHECK in place. Every existing bill, claim and payment is unchanged |
+| **15** | Adds `bills.from_paychecks` (NOT NULL DEFAULT 1, CHECK 0/1) | A one-time bill left to the owner ([ADR 0038](decisions/0038-a-one-time-bill-can-be-left-to-the-owner.md)). Every existing bill gets `1`, so it keeps saving up exactly as before |
 
-`SCHEMA_VERSION` is derived from the last migration and is reported in JSON backups. Backups with a higher version are rejected. Backups older than version 2 are rejected; every version from 2 through 14 is accepted.
+`SCHEMA_VERSION` is derived from the last migration and is reported in JSON backups. Backups with a higher version are rejected. Backups older than version 2 are rejected; every version from 2 through 15 is accepted.
 
 Migration procedure for future work is in [DEVELOPMENT.md](DEVELOPMENT.md#adding-a-schema-migration).
 

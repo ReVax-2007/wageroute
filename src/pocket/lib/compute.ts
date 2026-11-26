@@ -12,7 +12,7 @@ import {
 } from '@shared/cadence'
 import { daysBetweenISO, todayISO } from '@shared/dates'
 import { nextBillOccurrence } from '@shared/occurrences'
-import { isOneTimeBill, oneTimeDueOn, oneTimeReserveCents } from '@shared/oneTimeBills'
+import { isOneTimeBill, leftToOwner, oneTimeDueOn, oneTimeReserveCents } from '@shared/oneTimeBills'
 import { parseSettings } from '@shared/settings'
 import type { AppSettings, Bill, Snapshot } from '@shared/types'
 import {
@@ -136,7 +136,9 @@ export function billLines(snapshot: Snapshot, today: string = todayISO()): BillL
       return {
         bill,
         monthlyCents: monthlyEquivalentCents(bill.amountCents, bill.frequency),
-        perCheckCents: oneTime
+        perCheckCents: leftToOwner(bill)
+          ? 0
+          : oneTime
           ? oneTimeReserveCents({
               amountCents: bill.amountCents,
               dueOn: oneTimeDueOn(bill),

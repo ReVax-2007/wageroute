@@ -220,7 +220,8 @@ export function createBill(tables: ImportTables, input: BillInput): Written {
       ? rules.assertOneOf(input.fundingStrategy, rules.BILL_FUNDING_STRATEGIES, 'funding strategy')
       : 'all_checks',
     funding_paycheck_index: rules.assertPaycheckIndex(input.fundingPaycheckIndex),
-    is_variable: input.isVariable ? 1 : 0
+    is_variable: input.isVariable ? 1 : 0,
+    from_paychecks: input.fromPaychecks === false ? 0 : 1
   })
 }
 
@@ -263,6 +264,7 @@ export function patchBill(tables: ImportTables, id: string, patch: Partial<BillI
     autopay: patch.autopay === undefined ? undefined : patch.autopay ? 1 : 0,
     is_active: patch.isActive === undefined ? undefined : patch.isActive ? 1 : 0,
     is_variable: patch.isVariable === undefined ? undefined : patch.isVariable ? 1 : 0,
+    from_paychecks: patch.fromPaychecks === undefined ? undefined : patch.fromPaychecks ? 1 : 0,
     next_due_on: schedule
       ? schedule.nextDueOn
       : patch.nextDueOn === undefined

@@ -1,4 +1,4 @@
-import { isOneTimeBill, oneTimeReserveCents, oneTimeSetAsideCents } from './oneTimeBills'
+import { isOneTimeBill, leftToOwner, oneTimeReserveCents, oneTimeSetAsideCents } from './oneTimeBills'
 import type { BillFundingStrategy, Frequency, PayCadence } from './types'
 
 export const PAY_PERIODS_PER_YEAR: Record<PayCadence, number> = {
@@ -270,6 +270,8 @@ export function fundingCheckIndex(input: {
 export function billFundingReserveCents(input: {
   amountCents: number
   frequency: Frequency
+  /** False when a one-time bill is left to the owner (ADR 0038): it asks nothing of a cheque. */
+  fromPaychecks?: boolean
   cadence: PayCadence
   dueDay: number
   fundingStrategy?: BillFundingStrategy
@@ -291,6 +293,7 @@ export function billFundingReserveCents(input: {
    */
   dueOn?: string | null
 }): number {
+  if (leftToOwner(input)) return 0
   if (input.frequency === 'once') {
     return oneTimeReserveCents({
       amountCents: input.amountCents,
@@ -423,12 +426,16 @@ export function unpaidMonthlyWallCents(
     dueDay?: number
     nextDueOn?: string | null
     createdAt?: string
+    fromPaychecks?: boolean
   }[],
   paidByBillCents: ReadonlyMap<string, number>,
   /** Required for a one-time bill; without it the whole amount is held. */
   monthISO?: string
 ): number {
   return bills.reduce((total, bill) => {
+    // A bill left to the owner holds nothing back; its purchases simply leave
+    // the balance when they happen (ADR 0038).
+    if (leftToOwner(bill)) return total
     const owed = isOneTimeBill(bill)
       ? oneTimeSetAsideCents(
           {

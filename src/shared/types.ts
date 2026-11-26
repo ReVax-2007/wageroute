@@ -119,6 +119,12 @@ export interface Bill extends SyncMeta {
   fundingPaycheckIndex: number | null
   /** The amount is an estimate; one payment of any size clears an occurrence (ADR 0036). */
   isVariable: boolean
+  /**
+   * Whether paychecks save up for this bill. Only a one-time bill can turn it
+   * off: "leave it to me" — nothing is set aside or held back for it, and the
+   * owner records each purchase as it happens (ADR 0038).
+   */
+  fromPaychecks: boolean
 }
 
 export interface Goal extends SyncMeta {
@@ -390,6 +396,7 @@ export interface BillInput {
   fundingStrategy?: BillFundingStrategy
   fundingPaycheckIndex?: number | null
   isVariable?: boolean
+  fromPaychecks?: boolean
 }
 
 export interface GoalInput {

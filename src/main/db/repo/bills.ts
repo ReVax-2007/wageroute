@@ -24,10 +24,11 @@ import {
   type Db
 } from './common'
 
-type BillRow = Omit<Bill, 'autopay' | 'isActive' | 'isVariable'> & {
+type BillRow = Omit<Bill, 'autopay' | 'isActive' | 'isVariable' | 'fromPaychecks'> & {
   autopay: number
   isActive: number
   isVariable: number
+  fromPaychecks: number
 }
 
 function mapBill(row: BillRow): Bill {
@@ -35,7 +36,8 @@ function mapBill(row: BillRow): Bill {
     ...row,
     autopay: row.autopay === 1,
     isActive: row.isActive === 1,
-    isVariable: row.isVariable === 1
+    isVariable: row.isVariable === 1,
+    fromPaychecks: row.fromPaychecks !== 0
   }
 }
 
@@ -46,6 +48,7 @@ const BILL_SELECT = `
          funding_strategy AS fundingStrategy,
          funding_paycheck_index AS fundingPaycheckIndex,
          is_variable AS isVariable,
+         from_paychecks AS fromPaychecks,
          created_at AS createdAt, updated_at AS updatedAt,
          deleted_at AS deletedAt, revision
   FROM bills`
@@ -77,8 +80,8 @@ export function createBill(db: Db, userId: string, input: BillInput): string {
     `INSERT INTO bills
        (id, user_id, name, amount_cents, frequency, due_day, category, account_id,
         autopay, is_active, next_due_on, funding_strategy, funding_paycheck_index,
-        is_variable, created_at, updated_at, deleted_at, revision)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1)`
+        is_variable, from_paychecks, created_at, updated_at, deleted_at, revision)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1)`
   ).run(
     id,
     userId,
@@ -94,6 +97,7 @@ export function createBill(db: Db, userId: string, input: BillInput): string {
     fundingStrategy,
     assertPaycheckIndex(input.fundingPaycheckIndex),
     input.isVariable ? 1 : 0,
+    input.fromPaychecks === false ? 0 : 1,
     ts,
     ts
   )
@@ -164,6 +168,7 @@ export function updateBill(
     autopay: patch.autopay === undefined ? undefined : patch.autopay ? 1 : 0,
     is_active: patch.isActive === undefined ? undefined : patch.isActive ? 1 : 0,
     is_variable: patch.isVariable === undefined ? undefined : patch.isVariable ? 1 : 0,
+    from_paychecks: patch.fromPaychecks === undefined ? undefined : patch.fromPaychecks ? 1 : 0,
     next_due_on: schedule
       ? schedule.nextDueOn
       : patch.nextDueOn === undefined
