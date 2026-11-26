@@ -10,6 +10,8 @@ All notable changes to WageRoute are documented here. The format follows [Keep a
 
 ### Added
 
+- **A one-time bill can be paid in parts and closed at what you spent.** Gift shopping against one budget, a bit at a time: the Pay dialog (and Pocket's bill sheet) asks what you **paid now**, records each part, and keeps the bill open for the rest. When the last part comes in under budget, ticking **That was the last one** closes the bill at the real total, and the difference goes back to Left to spend. Leave the amount blank to close it at what is already paid. No schema change ([ADR 0037](docs/decisions/0037-a-one-time-bill-is-saved-up-for-and-then-done.md), addendum).
+
 - **Round-up can be limited to the accounts you choose.** Settings → Round-up has **Round up purchases from: All accounts / Only some**. With *Only some*, a tick list of the checking and cash accounts decides which purchases sweep spare change, on the desktop and on the phone, which read the same setting. *All accounts* stays the default, so existing ledgers behave exactly as before. The last ticked account cannot be unticked: turning round-up off is how to stop every sweep. No schema change: it is one new setting, `roundUpSourceIds`.
 
 ---

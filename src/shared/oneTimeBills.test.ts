@@ -9,6 +9,7 @@ import {
   chequesUntilDue,
   inBillCycle,
   isOneTimeBillDone,
+  oneTimeCloseAtCents,
   oneTimeDueOn,
   oneTimeReserveCents,
   oneTimeSetAsideCents
@@ -206,4 +207,13 @@ test('a bill written without a date falls back to its due day in the month it wa
     oneTimeDueOn({ nextDueOn: null, dueDay: 31, createdAt: '2026-02-03T00:00:00.000Z' }),
     '2026-02-28'
   )
+})
+
+test('a one-time bill paid in parts closes at what was paid, and only then', () => {
+  const gifts = { amountCents: 50_000, frequency: 'once' as const, isVariable: false }
+  assert.equal(oneTimeCloseAtCents(gifts, 45_000), 45_000, 'under budget closes at the total')
+  assert.equal(oneTimeCloseAtCents(gifts, 0), null, 'nothing paid, nothing to close at')
+  assert.equal(oneTimeCloseAtCents(gifts, 50_000), null, 'covered is already done')
+  assert.equal(oneTimeCloseAtCents({ ...gifts, isVariable: true }, 20_000), null, 'a variable bill clears on one payment')
+  assert.equal(oneTimeCloseAtCents({ ...gifts, frequency: 'monthly' as const }, 20_000), null)
 })

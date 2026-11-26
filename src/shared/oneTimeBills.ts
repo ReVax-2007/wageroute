@@ -58,6 +58,23 @@ export function isOneTimeBillDone(
 }
 
 /**
+ * What a fixed one-time bill paid in parts closes at when the owner says the
+ * last purchase is in: the total actually paid, when that is short of the
+ * amount. Lowering the amount to it is how the bill finishes, so "done" stays
+ * derived from the payments (ADR 0037) and the money it no longer needs goes
+ * back to Left to spend. `null` when there is nothing to close: no payment yet,
+ * a recurring or variable bill, or payments that already cover the amount.
+ */
+export function oneTimeCloseAtCents(
+  bill: { amountCents: number; frequency: Frequency; isVariable: boolean },
+  paidCents: number
+): number | null {
+  if (!isOneTimeBill(bill) || bill.isVariable) return null
+  if (paidCents <= 0 || paidCents >= bill.amountCents) return null
+  return paidCents
+}
+
+/**
  * Whether a payment dated, or a claim held for, `dateOrMonth` belongs to the
  * bill's figures for `monthISO`. A recurring bill's month is the calendar month;
  * a one-time bill's is its whole life.
