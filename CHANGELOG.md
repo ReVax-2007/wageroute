@@ -11,6 +11,7 @@ All notable changes to WageRoute are documented here. The format follows [Keep a
 ### Added
 
 - **Round-up can be limited to the accounts you choose.** Settings → Round-up has **Round up purchases from: All accounts / Only some**. With *Only some*, a tick list of the checking and cash accounts decides which purchases sweep spare change, on the desktop and on the phone, which read the same setting. *All accounts* stays the default, so existing ledgers behave exactly as before. The last ticked account cannot be unticked: turning round-up off is how to stop every sweep. No schema change: it is one new setting, `roundUpSourceIds`.
+- **Split a total across several accounts.** Transfers → **Several accounts** now asks **Add up the lines / Split a total**. *Add up the lines* is the split transfer as it was. *Split a total* starts from the amount to move (say $500): each destination gets a slider and a typed field, shared **by Amount or by Percent**, and the form always shows what is shared out and what is left or over. **Split evenly** shares it to the cent ($500 three ways is $166.67, $166.67, $166.66, and the form names the line that took the odd cent), **Take the rest** puts what is left on one line, and the save stays off until the lines add up exactly. Saving writes the same split as before (ordinary transfers, one all-or-nothing save, one split group), so history, delete and Pocket sync are unchanged. Pocket's **Split** sheet has the same mode with thumb-sized sliders. No schema change.
 
 ---
 

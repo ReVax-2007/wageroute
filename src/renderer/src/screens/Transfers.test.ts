@@ -410,6 +410,126 @@ test('a split transfer adds up its lines and saves them in one step', async () =
   host.remove()
 })
 
+test('splitting a total shares it out by slider, percent or evenly and saves only when it adds up', async () => {
+  const { useFinanceStore } = await import('../store/useFinanceStore')
+  const { parseSettings } = await import('@shared/settings')
+  const { Transfers } = await import('./Transfers')
+  const { createRoot } = await import('react-dom/client')
+
+  const TRAVEL = { ...ACCOUNT_2, id: 'acc-travel', name: 'Travel', sortOrder: 2 }
+  const splits: unknown[] = []
+  useFinanceStore.setState({
+    snapshot: makeSnapshot([ACCOUNT_1, ACCOUNT_2, TRAVEL, CARD]) as never,
+    settings: parseSettings({ currency: 'USD' }),
+    createSplitTransfer: async (input) => {
+      splits.push(input)
+      return true
+    },
+    queryTransactions: async () => ({ rows: [], total: 0 })
+  })
+
+  const host = window.document.createElement('div')
+  window.document.body.appendChild(host)
+  const root = createRoot(host)
+  await act(async () => {
+    root.render(createElement(Transfers))
+  })
+
+  const button = (label: string) =>
+    [...host.querySelectorAll('button')].find((el) => el.textContent?.trim() === label)
+  const setSelect = (select: HTMLSelectElement, value: string) => {
+    select.value = value
+    select.dispatchEvent(new window.Event('change', { bubbles: true }))
+  }
+  const setInput = (input: HTMLInputElement, value: string) => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!.call(input, value)
+    input.dispatchEvent(new window.Event('input', { bubbles: true }))
+  }
+  const text = () => host.textContent ?? ''
+
+  await act(async () => {
+    button('Several accounts')!.click()
+  })
+  assert.ok(button('Add up the lines'), 'the line-by-line split is still there')
+  await act(async () => {
+    button('Split a total')!.click()
+  })
+  await act(async () => {
+    button('Add account')!.click()
+  })
+
+  const [, , line1, line2, line3] = [...host.querySelectorAll<HTMLSelectElement>('select')]
+  const total = host.querySelector<HTMLInputElement>('.split-goal input')!
+  await act(async () => {
+    setSelect(line1, ACCOUNT_2.id)
+    setSelect(line2, TRAVEL.id)
+    setSelect(line3, CARD.id)
+    setInput(total, '500')
+  })
+  assert.match(text(), /\$500\.00 left to place/)
+
+  // Even split: two lines take the spare cent and the form says which gave it up.
+  await act(async () => {
+    button('Split evenly')!.click()
+  })
+  assert.match(text(), /Adds up exactly/)
+  assert.match(text(), /\$166\.67 · 33\.33%.*\$166\.67 · 33\.33%.*\$166\.66 · 33\.33%/)
+  assert.match(text(), /Visa takes 1¢ less/)
+
+  // A slider is a real, labelled range input that announces money and percent.
+  const sliders = [...host.querySelectorAll<HTMLInputElement>('input[type="range"]')]
+  assert.equal(sliders.length, 3)
+  assert.equal(sliders[0].getAttribute('aria-label'), 'Share for High Interest Savings')
+  await act(async () => {
+    setInput(sliders[0], '30000')
+  })
+  assert.equal(sliders[0].getAttribute('aria-valuetext'), '$300.00, 60% of $500.00')
+  assert.match(text(), /\$133\.33 over the total/)
+  const save = () =>
+    [...host.querySelectorAll<HTMLButtonElement>('button')].find((el) => el.textContent?.includes('now'))!
+  assert.ok(save().disabled, 'an over-allocated split cannot be saved')
+
+  // Percent lines: 50 / 30 / 20 of $500.
+  await act(async () => {
+    button('Percent')!.click()
+  })
+  const percents = () => [...host.querySelectorAll<HTMLInputElement>('.split-line input[inputmode="decimal"]')]
+  await act(async () => {
+    setInput(percents()[0], '50')
+    setInput(percents()[1], '30')
+    setInput(percents()[2], '10')
+  })
+  assert.match(text(), /\$50\.00 left to place/)
+  assert.ok(save().disabled, 'an under-allocated split cannot be saved')
+
+  // Take the rest puts what is left on that line.
+  const rest = host.querySelector<HTMLButtonElement>('button[aria-label="Put the $50.00 left on Visa"]')
+  assert.ok(rest, 'the rest button names the amount and the line')
+  await act(async () => {
+    rest.click()
+  })
+  assert.match(text(), /Adds up exactly/)
+  assert.ok(!save().disabled)
+  await act(async () => {
+    save().click()
+  })
+
+  assert.equal(splits.length, 1)
+  const recorded = splits[0] as { sourceAccountId: string; lines: { accountId: string; amountCents: number }[] }
+  assert.equal(recorded.sourceAccountId, ACCOUNT_1.id)
+  assert.deepEqual(
+    recorded.lines.map((line) => [line.accountId, line.amountCents]),
+    [
+      [ACCOUNT_2.id, 250_00],
+      [TRAVEL.id, 150_00],
+      [CARD.id, 100_00]
+    ]
+  )
+
+  root.unmount()
+  host.remove()
+})
+
 test('a split shows in recent transfers as one line with its total', async () => {
   const { useFinanceStore } = await import('../store/useFinanceStore')
   const { parseSettings } = await import('@shared/settings')

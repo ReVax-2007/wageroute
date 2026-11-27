@@ -622,6 +622,36 @@ a {
   border-radius: 12px;
 }
 
+/* Split a total: each line's share as a thumb-sized slider and its readout. */
+.share-slider {
+  display: grid;
+  gap: 4px;
+}
+
+.share-range {
+  width: 100%;
+  height: 32px;
+  margin: 0;
+  accent-color: var(--accent);
+  touch-action: pan-y;
+}
+
+.share-range:disabled {
+  opacity: 0.5;
+}
+
+.share-slider .num {
+  font-variant-numeric: tabular-nums;
+}
+
+.warn-text {
+  color: var(--warn);
+}
+
+.danger-text {
+  color: var(--danger);
+}
+
 /* --------------------------------------------------------------- controls */
 
 .button {
