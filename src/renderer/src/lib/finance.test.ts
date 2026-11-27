@@ -83,6 +83,7 @@ function bill(
     fundingStrategy: 'all_checks',
     fundingPaycheckIndex: null,
     isVariable: false,
+    fromPaychecks: true,
     ...overrides
   }
 }

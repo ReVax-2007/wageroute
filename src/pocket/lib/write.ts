@@ -9,7 +9,7 @@ import { deriveClaimStates, type ClaimFact, type PaymentFact } from '@shared/cla
 import { todayISO } from '@shared/dates'
 import { RepositoryError } from '@shared/errors'
 import { normalizeSignedCents, signedAmountError } from '@shared/kinds'
-import { inBillCycle } from '@shared/oneTimeBills'
+import { inBillCycle, oneTimeCloseAtCents } from '@shared/oneTimeBills'
 import { parseSettings, roundsUpFrom } from '@shared/settings'
 import { incomingWins } from '@shared/tableMerge'
 import { roundUpRemainderCents, transferLegs } from '@shared/transfers'
@@ -220,7 +220,8 @@ export function createBill(tables: ImportTables, input: BillInput): Written {
       ? rules.assertOneOf(input.fundingStrategy, rules.BILL_FUNDING_STRATEGIES, 'funding strategy')
       : 'all_checks',
     funding_paycheck_index: rules.assertPaycheckIndex(input.fundingPaycheckIndex),
-    is_variable: input.isVariable ? 1 : 0
+    is_variable: input.isVariable ? 1 : 0,
+    from_paychecks: input.fromPaychecks === false ? 0 : 1
   })
 }
 
@@ -263,6 +264,7 @@ export function patchBill(tables: ImportTables, id: string, patch: Partial<BillI
     autopay: patch.autopay === undefined ? undefined : patch.autopay ? 1 : 0,
     is_active: patch.isActive === undefined ? undefined : patch.isActive ? 1 : 0,
     is_variable: patch.isVariable === undefined ? undefined : patch.isVariable ? 1 : 0,
+    from_paychecks: patch.fromPaychecks === undefined ? undefined : patch.fromPaychecks ? 1 : 0,
     next_due_on: schedule
       ? schedule.nextDueOn
       : patch.nextDueOn === undefined
@@ -502,6 +504,16 @@ export interface BillPaymentOptions {
    * Ignored on a fixed bill, which always posts what the month still owes.
    */
   actualCents?: number
+  /**
+   * A part payment on a fixed one-time bill, as a positive figure (ADR 0037):
+   * gifts bought one at a time against one budget. Ignored on any other bill.
+   */
+  partCents?: number
+  /**
+   * The owner says this is the last payment on a fixed one-time bill: if the
+   * total paid is short of the amount, the bill closes at that total.
+   */
+  last?: boolean
 }
 
 export function billPaymentPlan(
@@ -541,6 +553,11 @@ export function billPaymentPlan(
     if (actual <= 0) throw new RepositoryError('VALIDATION', 'Enter what the bill came to')
     return { accountId, amountCents: -actual, occurredOn }
   }
+  if (text(bill, 'frequency') === 'once' && options.partCents !== undefined) {
+    const part = rules.assertCents(options.partCents, 'Amount')
+    if (part <= 0) throw new RepositoryError('VALIDATION', 'Enter what you paid')
+    return { accountId, amountCents: -part, occurredOn }
+  }
   return { accountId, amountCents: -remaining, occurredOn }
 }
 
@@ -551,7 +568,7 @@ export function payBill(
 ): Written {
   const bill = requireBillRow(tables, billId)
   const plan = billPaymentPlan(tables, billId, options)
-  return createEntry(tables, {
+  const written = createEntry(tables, {
     accountId: plan.accountId,
     kind: 'bill_payment',
     amountCents: plan.amountCents,
@@ -560,6 +577,30 @@ export function payBill(
     category: text(bill, 'category') || 'Bills',
     billId
   })
+  // The payment and the close are one write, so the phone never holds a last
+  // payment with the bill still asking for more.
+  return options.last ? { ...written, tables: finishOneTimeBill(written.tables, billId) } : written
+}
+
+/**
+ * Close a fixed one-time bill paid in parts at what was actually paid (ADR
+ * 0037): the amount becomes the total, so the bill is done and what it no
+ * longer needs goes back to Safe to spend. Refused when there is nothing to
+ * close; a bill already covered is simply left as it is.
+ */
+export function finishOneTimeBill(tables: ImportTables, billId: string): ImportTables {
+  const bill = requireBillRow(tables, billId)
+  const amountCents = cents(bill, 'amount_cents')
+  const paidCents = billPaidThisMonthCents(tables, billId, todayISO())
+  const closeAt = oneTimeCloseAtCents(
+    { amountCents, frequency: text(bill, 'frequency') as Frequency, isVariable: flag(bill, 'is_variable') },
+    paidCents
+  )
+  if (closeAt === null) {
+    if (text(bill, 'frequency') === 'once' && paidCents >= amountCents) return tables
+    throw new RepositoryError('STATE', 'Only a one-time bill with a payment on it can be closed')
+  }
+  return patchBill(tables, billId, { amountCents: closeAt })
 }
 
 // -------------------------------------------------------------- categories

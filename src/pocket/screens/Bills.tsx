@@ -11,6 +11,7 @@ import { addDaysISO, formatDateLabel, isISODate, todayISO } from '@shared/dates'
 import { billDeletionWords } from '@shared/deletion'
 import { centsToEditable, formatMoney, parseMoneyToCents } from '@shared/money'
 import type { AppSettings, Bill, BillFundingStrategy, BillInput, Frequency } from '@shared/types'
+import { oneTimeCloseAtCents } from '@shared/oneTimeBills'
 import { billVariance } from '@shared/variableBills'
 import { ordinal } from '../../renderer/src/lib/finance'
 import { Checkbox, Field } from '../components/Field'
@@ -27,6 +28,7 @@ import {
   billPaymentPlan,
   createBill,
   deleteBill,
+  finishOneTimeBill,
   patchBill,
   payBill
 } from '../lib/write'
@@ -52,6 +54,7 @@ interface BillForm {
   autopay: boolean
   isActive: boolean
   isVariable: boolean
+  fromPaychecks: boolean
   fundingStrategy: BillFundingStrategy
   fundingPaycheckIndex: string
   /** A one-time bill's date (ADR 0037). */
@@ -69,6 +72,7 @@ function formFor(bill: Bill | null, fallbackAccount: string): BillForm {
     autopay: bill?.autopay ?? true,
     isActive: bill?.isActive ?? true,
     isVariable: bill?.isVariable ?? false,
+    fromPaychecks: bill?.fromPaychecks ?? true,
     fundingStrategy: bill?.fundingStrategy ?? 'all_checks',
     fundingPaycheckIndex: bill?.fundingPaycheckIndex ? String(bill.fundingPaycheckIndex) : '1',
     dueOn: bill?.nextDueOn ?? addDaysISO(todayISO(), 30)
@@ -138,6 +142,7 @@ function BillFormSheet({
       autopay: form.autopay,
       isActive: form.isActive,
       isVariable: form.isVariable,
+      fromPaychecks: oneTime ? form.fromPaychecks : true,
       nextDueOn: oneTime ? form.dueOn : (bill?.nextDueOn ?? null),
       fundingStrategy: form.fundingStrategy,
       fundingPaycheckIndex:
@@ -155,7 +160,9 @@ function BillFormSheet({
       title={bill ? 'Edit this bill' : 'Add a bill'}
       hint={
         oneTime
-          ? 'Due once. The paychecks before its date save it up, then it is done.'
+          ? form.fromPaychecks
+            ? 'Due once. The paychecks before its date save it up, then it is done.'
+            : 'Due once and left to you. Record each purchase; it is done once covered or closed.'
           : 'This comes out of every paycheck before anything else.'
       }
       onClose={onClose}
@@ -244,10 +251,20 @@ function BillFormSheet({
         </select>
       </Field>
       {oneTime ? (
-        <p className="fine">
-          Every paycheck before the due date sets an equal share aside. A payment that covers it
-          makes the bill done: it never comes due again.
-        </p>
+        <>
+          <div className="checks">
+            <Checkbox
+              label="Save up for it from my paychecks"
+              checked={form.fromPaychecks}
+              onChange={(fromPaychecks) => setForm({ ...form, fromPaychecks })}
+            />
+          </div>
+          <p className="fine">
+            {form.fromPaychecks
+              ? 'Every paycheck before the due date sets an equal share aside. A payment that covers it makes the bill done: it never comes due again.'
+              : 'Left to you: no paycheck sets money aside and Safe to spend holds nothing back. Record each purchase as you make it.'}
+          </p>
+        </>
       ) : (
       <Field
         label="When to set the money aside"
@@ -360,8 +377,21 @@ function BillSheet({
   const [actual, setActual] = useState(() =>
     centsToEditable(Math.max(0, line.bill.amountCents - line.paidCents))
   )
-  const typedCents = variable ? parseMoneyToCents(actual) : null
-  const options = variable && typedCents !== null && typedCents > 0 ? { actualCents: typedCents } : {}
+  // A fixed one-time bill is paid in parts: gifts bought one at a time against
+  // one budget (ADR 0037). It asks what was paid now, starting at what is open.
+  const inParts = oneTime && !variable
+  const [last, setLast] = useState(false)
+  const typedCents = variable || inParts ? parseMoneyToCents(actual) : null
+  const typedPositive = typedCents !== null && typedCents > 0 ? typedCents : null
+  const closeAtCents = inParts
+    ? oneTimeCloseAtCents(line.bill, line.paidCents + (typedPositive ?? 0))
+    : null
+  const options =
+    variable && typedPositive !== null
+      ? { actualCents: typedPositive }
+      : inParts && typedPositive !== null
+        ? { partCents: typedPositive, last: last && closeAtCents !== null }
+        : {}
   const variance =
     variable && typedCents !== null && typedCents > 0
       ? billVariance(line.bill.amountCents, typedCents)
@@ -374,8 +404,20 @@ function BillSheet({
 
   const markPaid = () => {
     if (!tables) return
-    if (variable && (typedCents === null || typedCents <= 0)) {
+    if (variable && typedPositive === null) {
       setError('Enter what the bill came to')
+      return
+    }
+    if (inParts && typedPositive === null) {
+      // Nothing more bought: closing at what was already paid is its own write.
+      if (last && closeAtCents !== null) {
+        setError(null)
+        void run(() =>
+          edit((current) => finishOneTimeBill(current, line.bill.id), 'Bill closed at what you spent.')
+        )
+        return
+      }
+      setError('Enter what you paid')
       return
     }
     // Ask before a payment takes its account under a floor (ADR 0035). A plan
@@ -404,8 +446,9 @@ function BillSheet({
             <li>One time · paid, it will not come due again</li>
           ) : (
             <li>
-              One time · about {formatMoney(line.perCheckCents, currency)} from each paycheck
-              until then
+              {line.bill.fromPaychecks === false
+                ? 'One time · left to you, nothing set aside from paychecks'
+                : `One time · about ${formatMoney(line.perCheckCents, currency)} from each paycheck until then`}
             </li>
           )
         ) : (
@@ -454,6 +497,37 @@ function BillSheet({
           <MoneyInput value={actual} onValueChange={setActual} />
         </Field>
       ) : null}
+      {inParts && !paid ? (
+        <>
+          <Field
+            label="Paid now"
+            hint={
+              typedPositive === null
+                ? line.paidCents > 0
+                  ? `${formatMoney(line.paidCents, currency)} paid so far · leave blank to just close it`
+                  : 'Enter what you paid'
+                : typedPositive >= line.bill.amountCents - line.paidCents
+                  ? 'This pays it off'
+                  : `${formatMoney(line.bill.amountCents - line.paidCents - typedPositive, currency)} still open after this`
+            }
+          >
+            <MoneyInput value={actual} onValueChange={setActual} />
+          </Field>
+          {closeAtCents !== null || last ? (
+            <div className="checks">
+              <Checkbox
+                label={
+                  closeAtCents !== null
+                    ? `That was the last one: close it at ${formatMoney(closeAtCents, currency)}`
+                    : 'That was the last one'
+                }
+                checked={last}
+                onChange={setLast}
+              />
+            </div>
+          ) : null}
+        </>
+      ) : null}
       <FloorWarning text={floorGate.warning} />
 
       <div className="card-actions">
@@ -464,7 +538,14 @@ function BillSheet({
             disabled={saving}
             onClick={markPaid}
           >
-            {floorGate.confirmLabel ?? (variable ? 'It cleared' : 'Mark paid')}
+            {floorGate.confirmLabel ??
+              (variable
+                ? 'It cleared'
+                : inParts
+                  ? last && typedPositive === null
+                    ? 'Close the bill'
+                    : 'Record payment'
+                  : 'Mark paid')}
           </button>
         ) : null}
         {oneTime && paid ? null : (

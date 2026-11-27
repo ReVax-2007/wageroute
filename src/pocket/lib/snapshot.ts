@@ -218,6 +218,8 @@ export function buildSnapshot(
       fundingStrategy: pick(FUNDING_STRATEGIES, text(row, 'funding_strategy'), 'all_checks'),
       fundingPaycheckIndex: nullableInteger(row, 'funding_paycheck_index'),
       isVariable: flag(row, 'is_variable'),
+      // A row from before schema 15 has no key: it saves up, as every bill did.
+      fromPaychecks: flag(row, 'from_paychecks', true),
       ...sync(row)
     }))
     .sort(

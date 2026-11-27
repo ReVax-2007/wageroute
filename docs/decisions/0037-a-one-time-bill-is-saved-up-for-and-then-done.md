@@ -24,6 +24,14 @@ Every bill was a series. `Frequency` named six cadences, the recurrence engine p
 5. **It is never rolled forward.** The occurrence engine gives a one-time bill exactly one date. `nextBillOccurrence` answers with that date even after it has passed, so an unpaid one reads overdue (Home says *Nd overdue*, the Bills row carries **Overdue**, Pocket's state is `overdue` and stays in Due soon) instead of becoming next month's bill. The prompt card asks about it after its date with every payment ever linked counted, and autopay posts it once: the payment it posts covers the bill, so nothing is due again.
 6. **The screens.** The bill dialog (desktop and Pocket) offers **One time**, which swaps the due day for a **Due on** date, replaces the funding schedule with one sentence, and starts a new one-time bill with autopay off. The Bills row reads *$900.00 · One time · due Jan 15*, its per-cheque figure says *Spread to the due date*, and a **Pay** action opens the variable bill's dialog with the open amount filled in. Paid one-time bills move to a **Done** card on the desktop and a **Done** list on Pocket, where they can still be opened, edited or deleted.
 
+### Addendum (2026-11-25): paid in parts, closed at what was spent
+
+The owner's words: "bills that can be payed in parts but only once … im gift shopping for my family and will buy in parts and not everything at once."
+
+A fixed one-time bill already took part payments, and they add up across months. What it lacked was an end when the parts come in **under** the amount: a $500 gift budget that ends at $450 would stay open, overdue, and hold $50 of Left to spend forever.
+
+**"That was the last one" lowers the bill's amount to the total paid** (`oneTimeCloseAtCents` in `src/shared/oneTimeBills.ts`; `payBill(…, { partCents, last })` and `finishOneTimeBill` on the phone; the payment dialog plus `updateBill` on the desktop). Done stays derived from the payments (decision 4): no "done" column, no new state, and a later delete of a payment reopens the bill for the difference exactly as before. The Done card then shows what the gifts really cost. Rejected: a stored "closed" flag, which every reader of done-ness would have to learn, and a refund-style adjustment row, which would put a fake payment in the ledger.
+
 ## Consequences
 
 - A purchase planned months ahead is saved up for evenly and never comes back once paid, on both devices, with no stored state the two could disagree about.

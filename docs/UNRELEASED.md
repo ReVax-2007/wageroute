@@ -626,6 +626,20 @@ Nothing is queued after `v1.4.0` yet. The batches below are the record of what s
 - **Measured.** Tests on both writers (a picked account sweeps, a left-out one does not, blank goes back to all) and the setting's parse and round trip; `npm test` is **860 tests**. In the built app on a throwaway profile, *Only some* listed Everyday Checking (ticked, locked as the last one) and Cash Wallet.
 - **Not proved here.** No phone opened Pocket with a pick set; its writer is covered by the unit test only.
 
+### Batch 70 — a one-time bill paid in parts, closed at what was spent
+
+- **What this batch is.** The owner shops for family gifts in parts against one budget. Part payments on a fixed one-time bill already added up; what was missing was an end when they come in under the amount. **That was the last one** now lowers the bill's amount to the total paid, so the bill is done by the existing rule and the difference goes back to Left to spend (ADR 0037 addendum).
+- **Where.** `oneTimeCloseAtCents` (`src/shared/oneTimeBills.ts`) decides the close-at figure for both devices. Pocket's `payBill` takes `partCents` and `last` and writes the payment and the close together; `finishOneTimeBill` closes with no new payment, and Pocket's bill sheet gains a **Paid now** field (a fixed one-time bill used to be paid only in full on the phone). The desktop's Pay dialog gains the tick and calls `updateBill` after the payment.
+- **Measured.** `npm test` is **862 tests**; new cases cover the close-at rule and Pocket's part, last-part and close-only paths. In the built app on a throwaway profile: a $500 *Family gifts* bill with $120 paid showed *$120.00 paid, $380.00 still open*; paying $330 with the tick closed it at $450.00 and moved it to **Done**.
+- **Not proved here.** No phone opened Pocket's new field. On the desktop the payment and the close are two writes; a failed close leaves the bill asking for the rest, and ticking again closes it.
+
+### Batch 71 — a one-time bill left to the owner
+
+- **What this batch is.** The owner does not want gift shopping to come out of paychecks: "leave it to me." A one-time bill gains **Save up for it from my paychecks** (ticked by default); unticked, no cheque sets money aside and Left to spend holds nothing back. Purchases are still recorded in parts against the budget, and the bill is done once covered or closed (ADR 0038).
+- **Schema 15.** `bills.from_paychecks INTEGER NOT NULL DEFAULT 1 CHECK (0,1)`, added in place; every existing bill keeps saving up. Backups write **15** and accept **2–15**; Pocket's reader knows 15. A file without the key imports as saving up.
+- **Where.** `leftToOwner` (`src/shared/oneTimeBills.ts`) gates `billFundingReserveCents` and `unpaidMonthlyWallCents`, which covers the paycheck wizard, the commit, Left to spend on both devices, the Bills table and Pocket's per-cheque figure.
+- **Measured.** `npm test` is **866 tests** (v15 migration, the shared rule, routing three cheques writes no claim for the bill, backup round trip and a file without the key). In the built app on a throwaway profile, a $500 *Family gifts* bill added through the form with the box unticked saved `fromPaychecks: false` and showed $0.00 per paycheck, *Left to you*.
+- **Not proved here.** No phone opened Pocket's new tick.
 ### Batch 70 — split a total, by slider, amount or percent
 
 - **What this batch is.** The owner asked to say "move $500 into three accounts" and choose each share by amount or by a percent slider, beside the existing split. Transfers → **Several accounts** gains **Add up the lines / Split a total**; the single transfer and the line-by-line split are unchanged.

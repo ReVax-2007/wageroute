@@ -15,6 +15,7 @@ import { billDeletionWords } from '@shared/deletion'
 import {
   inBillCycle,
   isOneTimeBill,
+  leftToOwner,
   oneTimeDueOn,
   oneTimeReserveCents
 } from '@shared/oneTimeBills'
@@ -134,6 +135,7 @@ export function PriorityWall() {
     return billFundingReserveCents({
       amountCents: bill.amountCents,
       frequency: bill.frequency,
+      fromPaychecks: bill.fromPaychecks,
       cadence: settings.payCadence,
       dueDay: bill.dueDay,
       fundingStrategy: bill.fundingStrategy,
@@ -278,7 +280,7 @@ export function PriorityWall() {
                 bill.fundingStrategy === 'all_checks'
                   ? reservePerPaycheckCents(bill.amountCents, bill.frequency, settings.payCadence)
                   : monthlyCents
-              const checkCents = !bill.isActive
+              const checkCents = !bill.isActive || leftToOwner(bill)
                 ? 0
                 : nextCheck
                   ? nextCheckReserve(bill)
@@ -365,6 +367,8 @@ export function PriorityWall() {
                     <Money cents={checkCents} currency={currency} />
                     {!bill.isActive ? (
                       <div className="cell-sub">Paused</div>
+                    ) : leftToOwner(bill) ? (
+                      <div className="cell-sub">Left to you</div>
                     ) : covered ? (
                       <div className="cell-sub">Nothing more due</div>
                     ) : oneTime ? (

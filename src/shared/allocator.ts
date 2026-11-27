@@ -28,6 +28,8 @@ export interface AllocatorBill {
   /** A one-time bill's due date; its paid and claimed figures then span every month (ADR 0037). */
   nextDueOn?: string | null
   createdAt?: string
+  /** False when a one-time bill is left to the owner: no cheque saves up for it (ADR 0038). */
+  fromPaychecks?: boolean
 }
 
 export interface AllocatorGoal {
@@ -152,6 +154,7 @@ export function buildAllocationPlan(input: AllocatorInput): AllocationPlan {
       reserveCents: billFundingReserveCents({
         amountCents: bill.amountCents,
         frequency: bill.frequency,
+        fromPaychecks: bill.fromPaychecks,
         cadence: input.payCadence,
         dueDay: bill.dueDay ?? 1,
         fundingStrategy: bill.fundingStrategy,

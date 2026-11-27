@@ -30,6 +30,16 @@ export function isOneTimeBill(bill: { frequency: Frequency }): boolean {
 }
 
 /**
+ * A one-time bill the owner looks after themself (ADR 0038): no paycheck saves
+ * up for it and Left to spend holds nothing back for it. Each purchase is
+ * recorded as it happens. Only a one-time bill can be left to the owner; the
+ * flag on a recurring bill is ignored.
+ */
+export function leftToOwner(bill: { frequency: Frequency; fromPaychecks?: boolean }): boolean {
+  return isOneTimeBill(bill) && bill.fromPaychecks === false
+}
+
+/**
  * The day the bill is due. The write rules always store one; a hand-edited
  * backup without it falls back to the due day in the month the bill was written,
  * which is where the form would have put it.
@@ -55,6 +65,23 @@ export function isOneTimeBillDone(
   paidCents: number
 ): boolean {
   return isOneTimeBill(bill) && paidCents >= bill.amountCents
+}
+
+/**
+ * What a fixed one-time bill paid in parts closes at when the owner says the
+ * last purchase is in: the total actually paid, when that is short of the
+ * amount. Lowering the amount to it is how the bill finishes, so "done" stays
+ * derived from the payments (ADR 0037) and the money it no longer needs goes
+ * back to Left to spend. `null` when there is nothing to close: no payment yet,
+ * a recurring or variable bill, or payments that already cover the amount.
+ */
+export function oneTimeCloseAtCents(
+  bill: { amountCents: number; frequency: Frequency; isVariable: boolean },
+  paidCents: number
+): number | null {
+  if (!isOneTimeBill(bill) || bill.isVariable) return null
+  if (paidCents <= 0 || paidCents >= bill.amountCents) return null
+  return paidCents
 }
 
 /**

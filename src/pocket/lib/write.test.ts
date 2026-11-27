@@ -16,6 +16,7 @@ import {
   billPaymentPlan,
   createAccount,
   createBill,
+  finishOneTimeBill,
   createCategory,
   createEntry,
   createGoal,
@@ -1176,4 +1177,48 @@ test('a phone purchase rounds up only from the accounts picked on the desktop', 
   assert.equal(entries(picked).length, 3, 'the picked account writes the purchase and its sweep')
   const left = lunch(tables, 'chk2')
   assert.equal(entries(left).length, 1, 'an account left out writes only the purchase')
+})
+
+test('a one-time bill paid in parts on the phone, then closed at what was spent', () => {
+  const today = todayISO()
+  const created = createBill(ledger(), {
+    name: 'Family gifts',
+    amountCents: 50_000,
+    frequency: 'once',
+    dueDay: 1,
+    category: 'Gifts',
+    accountId: 'chk',
+    autopay: false,
+    isActive: true,
+    nextDueOn: addDaysISO(today, 20)
+  })
+  const lineOf = (tables: ImportTables) =>
+    billLines(buildSnapshot(tables, today), today).find((line) => line.bill.id === created.id)
+
+  const first = payBill(created.tables, created.id, { partCents: 12_000 })
+  assert.equal(cents(rowOf(first.tables, first.id), 'amount_cents'), -12_000, 'a part, not the whole budget')
+  assert.equal(lineOf(first.tables)?.paidCents, 12_000, 'the bill stays open with the part counted')
+  assert.match(
+    refusal(() => payBill(first.tables, created.id, { partCents: 0 })).message,
+    /cannot be zero/
+  )
+
+  // The last gift comes in under budget: one write pays it and closes the bill.
+  const last = payBill(first.tables, created.id, { partCents: 33_000, last: true })
+  assert.equal(cents(rowOf(last.tables, created.id), 'amount_cents'), 45_000, 'closed at what was spent')
+  assert.equal(lineOf(last.tables), undefined, 'a closed bill leaves the open list')
+  assert.deepEqual(
+    doneLines(buildSnapshot(last.tables, today), today).map((line) => line.bill.id),
+    [created.id]
+  )
+
+  // Closing with nothing more bought.
+  const closed = finishOneTimeBill(first.tables, created.id)
+  assert.equal(cents(rowOf(closed, created.id), 'amount_cents'), 12_000)
+  assert.match(
+    refusal(() => finishOneTimeBill(created.tables, created.id)).message,
+    /with a payment on it/,
+    'nothing paid yet, nothing to close at'
+  )
+  assert.equal(finishOneTimeBill(closed, created.id), closed, 'an already covered bill is left alone')
 })

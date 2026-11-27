@@ -220,3 +220,65 @@ test('a backup carries the one-time bill, its date and the payment that closed i
   assert.equal(bill.nextDueOn, '2026-09-30')
   assert.equal(isOneTimeBillDone(bill, paidCents(target, billId)), true)
 })
+
+test('a one-time bill left to the owner takes nothing from any paycheck (ADR 0038)', () => {
+  const db = freshDb()
+  const accountId = account(db)
+  const billId = createBill(db, USER_ID, {
+    name: 'Family gifts',
+    amountCents: 50_000,
+    frequency: 'once',
+    dueDay: 1,
+    category: 'Gifts',
+    accountId,
+    autopay: false,
+    isActive: true,
+    nextDueOn: '2026-12-20',
+    fromPaychecks: false
+  })
+  assert.equal(listBills(db, USER_ID).find((bill) => bill.id === billId)?.fromPaychecks, false)
+
+  for (const date of ['2026-11-01', '2026-11-16', '2026-12-01']) route(db, accountId, date)
+  assert.equal(
+    listBillReserves(db, USER_ID).filter((claim) => claim.billId === billId).length,
+    0,
+    'no cheque sets money aside for it'
+  )
+
+  // The purchases are recorded as they happen and still close the bill.
+  pay(db, accountId, billId, 12_000, '2026-11-20')
+  pay(db, accountId, billId, 38_000, '2026-12-05')
+  const bill = listBills(db, USER_ID).find((row) => row.id === billId)
+  assert.ok(bill && isOneTimeBillDone(bill, paidCents(db, billId, '2026-12')))
+
+  // Turning it back on lets later cheques save up as before.
+  updateBill(db, USER_ID, billId, { fromPaychecks: true })
+  assert.equal(listBills(db, USER_ID).find((row) => row.id === billId)?.fromPaychecks, true)
+})
+
+test('a backup carries a bill left to the owner, and an older file saves up', () => {
+  const source = freshDb()
+  const accountId = account(source)
+  createBill(source, USER_ID, {
+    name: 'Family gifts',
+    amountCents: 50_000,
+    frequency: 'once',
+    dueDay: 1,
+    category: 'Gifts',
+    accountId,
+    autopay: false,
+    isActive: true,
+    nextDueOn: '2026-12-20',
+    fromPaychecks: false
+  })
+  const text = backupToJson(buildBackup(source, USER_ID))
+  const target = freshDb()
+  mergeBackup(target, USER_ID, parseBackupJson(text))
+  assert.equal(listBills(target, USER_ID)[0].fromPaychecks, false)
+
+  const older = JSON.parse(text)
+  for (const row of older.tables.bills) delete row.from_paychecks
+  const fresh = freshDb()
+  mergeBackup(fresh, USER_ID, parseBackupJson(JSON.stringify(older)))
+  assert.equal(listBills(fresh, USER_ID)[0].fromPaychecks, true, 'a file without the key saves up')
+})

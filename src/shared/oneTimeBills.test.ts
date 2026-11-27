@@ -9,6 +9,8 @@ import {
   chequesUntilDue,
   inBillCycle,
   isOneTimeBillDone,
+  leftToOwner,
+  oneTimeCloseAtCents,
   oneTimeDueOn,
   oneTimeReserveCents,
   oneTimeSetAsideCents
@@ -205,5 +207,47 @@ test('a bill written without a date falls back to its due day in the month it wa
   assert.equal(
     oneTimeDueOn({ nextDueOn: null, dueDay: 31, createdAt: '2026-02-03T00:00:00.000Z' }),
     '2026-02-28'
+  )
+})
+
+test('a one-time bill paid in parts closes at what was paid, and only then', () => {
+  const gifts = { amountCents: 50_000, frequency: 'once' as const, isVariable: false }
+  assert.equal(oneTimeCloseAtCents(gifts, 45_000), 45_000, 'under budget closes at the total')
+  assert.equal(oneTimeCloseAtCents(gifts, 0), null, 'nothing paid, nothing to close at')
+  assert.equal(oneTimeCloseAtCents(gifts, 50_000), null, 'covered is already done')
+  assert.equal(oneTimeCloseAtCents({ ...gifts, isVariable: true }, 20_000), null, 'a variable bill clears on one payment')
+  assert.equal(oneTimeCloseAtCents({ ...gifts, frequency: 'monthly' as const }, 20_000), null)
+})
+
+test('a one-time bill left to the owner asks nothing of a cheque or of Left to spend (ADR 0038)', () => {
+  const gifts = {
+    id: 'gifts',
+    amountCents: 50_000,
+    frequency: 'once' as const,
+    dueDay: 20,
+    nextDueOn: '2026-12-20',
+    createdAt: '2026-11-01T00:00:00.000Z',
+    fromPaychecks: false
+  }
+  assert.equal(leftToOwner(gifts), true)
+  assert.equal(leftToOwner({ ...gifts, frequency: 'monthly' as const }), false, 'only a one-time bill')
+  assert.equal(leftToOwner({ ...gifts, fromPaychecks: undefined }), false, 'missing means it saves up')
+  assert.equal(
+    billFundingReserveCents({
+      amountCents: gifts.amountCents,
+      frequency: gifts.frequency,
+      fromPaychecks: false,
+      cadence: 'semimonthly',
+      dueDay: 20,
+      paycheckDate: '2026-11-15',
+      dueOn: gifts.nextDueOn
+    }),
+    0
+  )
+  assert.equal(unpaidMonthlyWallCents([gifts], new Map(), '2026-12'), 0, 'nothing held back')
+  assert.equal(
+    unpaidMonthlyWallCents([{ ...gifts, fromPaychecks: true }], new Map(), '2026-12'),
+    50_000,
+    'saving up holds the whole amount by the due month'
   )
 })
