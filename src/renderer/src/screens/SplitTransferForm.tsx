@@ -1,23 +1,35 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { ArrowRightLeft, Plus, Trash2 } from "lucide-react";
+import { ArrowRightLeft, Equal, Plus, Trash2 } from "lucide-react";
 import { formatDateLabel, todayISO } from "@shared/dates";
-import { formatMoney, parseMoneyToCents } from "@shared/money";
+import { formatMoney } from "@shared/money";
 import {
   SPLIT_TRANSFER_MAX_LINES,
   splitTransferProblem,
   splitTransferTotalCents,
 } from "@shared/splitTransfer";
+import { FULL_BPS, centsToBps, formatBps } from "@shared/splitTotal";
 import type { AccountWithBalance, SplitTransferInput } from "@shared/types";
 import { CategoryInput } from "../components/CategoryInput";
-import { Button, Field, IconButton, MoneyInput } from "../components/ui";
+import {
+  Button,
+  Field,
+  IconButton,
+  MoneyInput,
+  PercentInput,
+  Segmented,
+} from "../components/ui";
 import { accountAvailLabel, confirmFloor } from "../lib/finance";
 import { usableLabel } from "@shared/accounts";
 import { useFinanceStore } from "../store/useFinanceStore";
+import {
+  NO_SHARE,
+  useSplitTotal,
+  type ShareLine,
+  type ShareUnit,
+} from "../lib/useSplitTotal";
 
-interface DraftLine {
-  key: number;
+interface DraftLine extends ShareLine {
   accountId: string;
-  amount: string;
   category: { name: string; id: string | null };
   memo: string;
 }
@@ -30,6 +42,7 @@ function blankLine(accountId = ""): DraftLine {
     amount: "",
     category: { name: "", id: null },
     memo: "",
+    share: NO_SHARE,
   };
 }
 
@@ -54,9 +67,10 @@ function LineField({
 }
 
 /**
- * One source sending money to several accounts at once (ADR 0033). The total
- * is added up while typing, so the person knows how much to move between banks,
- * and the save writes every line as an ordinary transfer, all or nothing.
+ * One source sending money to several accounts at once (ADR 0033). Either the
+ * lines are typed and the total added up while typing, or the total is named
+ * first and shared out by slider, amount or percent until the lines equal it.
+ * Both save every line as an ordinary transfer, all or nothing.
  */
 export function SplitTransferForm({
   activeAccounts,
@@ -86,6 +100,8 @@ export function SplitTransferForm({
   ]);
   const [saving, setSaving] = useState<boolean>(false);
   const [attempted, setAttempted] = useState<boolean>(false);
+  const split = useSplitTotal(lines, setLines, currency);
+  const { splitting, unit, goalCents, balance, resolved } = split;
 
   // The source stays on an account that can send money; the via account is never it.
   useEffect(() => {
@@ -114,19 +130,29 @@ export function SplitTransferForm({
     sourceAccountId: sourceId,
     viaAccountId: viaId || null,
     occurredOn,
-    lines: lines.map((line) => ({
+    lines: lines.map((line, index) => ({
       accountId: line.accountId,
-      amountCents: parseMoneyToCents(line.amount) ?? 0,
+      amountCents: split.lineCents(line, index),
       category: line.category.name,
       categoryId: line.category.id,
       memo: line.memo,
     })),
   };
   const totalCents = splitTransferTotalCents(input.lines);
-  const problem = splitTransferProblem(input, (id) => accountMap.get(id));
-  // A half-typed form is not wrong yet; a duplicate or a loop back to the source is.
-  const shownProblem =
-    problem && (attempted || totalCents > 0) ? problem : null;
+  const lineProblem = splitTransferProblem(input, (id) =>
+    accountMap.get(id),
+  );
+  const problem = split.goalProblem ?? lineProblem;
+  // A half-typed form is not wrong yet; a duplicate or a loop back to the
+  // source is. What is left of a total shows in its own box while sharing out.
+  const shownProblem = attempted
+    ? problem
+    : lineProblem && totalCents > 0
+      ? lineProblem
+      : null;
+  const lineName = (index: number) =>
+    accountMap.get(lines[index]?.accountId ?? "")?.name ?? `Line ${index + 1}`;
+  const note = split.note(lineName);
 
   const update = (key: number, change: Partial<DraftLine>) =>
     setLines((current) =>
@@ -146,6 +172,7 @@ export function SplitTransferForm({
         setLines((current) =>
           current.map((line) => ({ ...line, amount: "", memo: "" })),
         );
+        split.reset();
         setAttempted(false);
       }
     } finally {
@@ -160,6 +187,18 @@ export function SplitTransferForm({
 
   return (
     <div className="transfer-card">
+      <Segmented
+        label="How to enter the split"
+        value={split.entry}
+        onChange={(next) => {
+          setAttempted(false);
+          split.switchEntry(next);
+        }}
+        options={[
+          { value: "lines", label: "Add up the lines" },
+          { value: "total", label: "Split a total" },
+        ]}
+      />
       <div className="form-grid">
         <Field label="From account">
           <select
@@ -193,13 +232,47 @@ export function SplitTransferForm({
         </Field>
       </div>
 
+      {splitting && (
+        <div className="split-goal">
+          <Field label="Total to move">
+            <MoneyInput
+              value={split.goalText}
+              placeholder="0.00"
+              onValueChange={split.setGoal}
+            />
+          </Field>
+          <div className="split-goal-tools">
+            <Segmented
+              label="Share by"
+              value={unit}
+              onChange={split.setUnit}
+              options={[
+                { value: "amount", label: "Amount" },
+                { value: "percent", label: "Percent" },
+              ]}
+            />
+            <Button
+              size="sm"
+              icon={<Equal size={14} />}
+              disabled={goalCents <= 0}
+              onClick={split.splitEven}
+            >
+              Split evenly
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div
         className="split-lines"
         role="group"
         aria-label="Accounts to send money to"
       >
         {lines.map((line, index) => (
-          <div className="split-line" key={line.key}>
+          <div
+            className={splitting ? "split-line split-line-share" : "split-line"}
+            key={line.key}
+          >
             <LineField label="To account" shown={index === 0}>
               <select
                 className="select"
@@ -218,13 +291,38 @@ export function SplitTransferForm({
                 ))}
               </select>
             </LineField>
-            <LineField label="Amount" shown={index === 0}>
-              <MoneyInput
-                value={line.amount}
-                placeholder="0.00"
-                onValueChange={(amount) => update(line.key, { amount })}
-              />
-            </LineField>
+            {splitting ? (
+              <LineField
+                label={unit === "percent" ? "Percent" : "Amount"}
+                shown={index === 0}
+              >
+                {unit === "percent" ? (
+                  <PercentInput
+                    value={split.shareText(line, index)}
+                    placeholder="0"
+                    onFocus={() => split.focusShare(line, index)}
+                    onBlur={split.blurShare}
+                    onValueChange={(text) => split.typeShare(line.key, text)}
+                  />
+                ) : (
+                  <MoneyInput
+                    value={split.shareText(line, index)}
+                    placeholder="0.00"
+                    onFocus={() => split.focusShare(line, index)}
+                    onBlur={split.blurShare}
+                    onValueChange={(text) => split.typeShare(line.key, text)}
+                  />
+                )}
+              </LineField>
+            ) : (
+              <LineField label="Amount" shown={index === 0}>
+                <MoneyInput
+                  value={line.amount}
+                  placeholder="0.00"
+                  onValueChange={(amount) => update(line.key, { amount })}
+                />
+              </LineField>
+            )}
             <LineField label="Category" shown={index === 0}>
               <CategoryInput
                 listId={`split-category-options-${line.key}`}
@@ -249,14 +347,27 @@ export function SplitTransferForm({
               label={`Remove line ${index + 1}`}
               danger
               disabled={lines.length === 1}
-              onClick={() =>
+              onClick={() => {
+                split.linesChanged();
                 setLines((current) =>
                   current.filter((item) => item.key !== line.key),
-                )
-              }
+                );
+              }}
             >
               <Trash2 size={14} />
             </IconButton>
+            {splitting && (
+              <ShareSlider
+                name={lineName(index)}
+                unit={unit}
+                cents={resolved.cents[index]}
+                totalCents={goalCents}
+                leftCents={balance.leftCents}
+                currency={currency}
+                onSlide={(value) => split.slide(line.key, value)}
+                onTakeRest={() => split.takeRest(line.key, index)}
+              />
+            )}
           </div>
         ))}
         <div>
@@ -264,7 +375,10 @@ export function SplitTransferForm({
             size="sm"
             icon={<Plus size={14} />}
             disabled={lines.length >= SPLIT_TRANSFER_MAX_LINES}
-            onClick={() => setLines((current) => [...current, blankLine()])}
+            onClick={() => {
+              split.linesChanged();
+              setLines((current) => [...current, blankLine()]);
+            }}
           >
             Add account
           </Button>
@@ -281,10 +395,40 @@ export function SplitTransferForm({
           />
         </Field>
         <div className="split-total" aria-live="polite">
-          <span className="split-total-label">Total to move</span>
-          <strong className="split-total-amount">
-            {formatMoney(totalCents, currency)}
-          </strong>
+          {splitting ? (
+            <>
+              <span className="split-total-label">
+                Shared out of {formatMoney(goalCents, currency)}
+              </span>
+              <strong className="split-total-amount">
+                {formatMoney(balance.allocatedCents, currency)}
+              </strong>
+              <span
+                className={
+                  balance.leftCents === 0
+                    ? "split-balance exact"
+                    : balance.leftCents > 0
+                      ? "split-balance under"
+                      : "split-balance over"
+                }
+              >
+                {goalCents === 0
+                  ? "Enter the total to move"
+                  : balance.leftCents === 0
+                    ? "Adds up exactly"
+                    : balance.leftCents > 0
+                      ? `${formatMoney(balance.leftCents, currency)} left to place`
+                      : `${formatMoney(-balance.leftCents, currency)} over the total`}
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="split-total-label">Total to move</span>
+              <strong className="split-total-amount">
+                {formatMoney(totalCents, currency)}
+              </strong>
+            </>
+          )}
           {source && (
             <span className="muted">
               {source.name} after: {formatMoney(sourceAfterCents, currency)}
@@ -323,13 +467,19 @@ export function SplitTransferForm({
         </div>
       )}
 
+      {note && (
+        <p className="muted split-note" aria-live="polite">
+          {note}
+        </p>
+      )}
+
       {shownProblem && <div className="form-error">{shownProblem}</div>}
 
       <div>
         <Button
           variant="primary"
           icon={<ArrowRightLeft size={16} />}
-          disabled={saving || totalCents <= 0}
+          disabled={saving || totalCents <= 0 || (splitting && problem !== null)}
           onClick={() => void submit()}
         >
           {saving
@@ -339,6 +489,70 @@ export function SplitTransferForm({
               : "Record split transfer"}
         </Button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * One line's share of the total as a real range input: arrow keys step a
+ * dollar or a percent, the value is announced as money and percent, and the
+ * readout beside it updates while dragging.
+ */
+function ShareSlider({
+  name,
+  unit,
+  cents,
+  totalCents,
+  leftCents,
+  currency,
+  onSlide,
+  onTakeRest,
+}: {
+  name: string;
+  unit: ShareUnit;
+  cents: number;
+  totalCents: number;
+  leftCents: number;
+  currency: string;
+  /** Basis points by percent, cents by amount. */
+  onSlide: (value: number) => void;
+  onTakeRest: () => void;
+}) {
+  const bps = centsToBps(totalCents, cents);
+  const percent = `${formatBps(bps) || "0"}%`;
+  const money = formatMoney(cents, currency);
+  const byPercent = unit === "percent";
+  const restLabel =
+    leftCents >= 0
+      ? `Put the ${formatMoney(leftCents, currency)} left on ${name}`
+      : `Take the ${formatMoney(-leftCents, currency)} over off ${name}`;
+  return (
+    <div className="split-share">
+      <input
+        type="range"
+        className="split-share-range"
+        min={0}
+        max={byPercent ? FULL_BPS : Math.max(totalCents, 1)}
+        step={100}
+        value={byPercent ? bps : Math.min(cents, totalCents)}
+        disabled={totalCents <= 0}
+        aria-label={`Share for ${name}`}
+        aria-valuetext={`${money}, ${percent} of ${formatMoney(totalCents, currency)}`}
+        onChange={(event) => onSlide(Number(event.target.value))}
+      />
+      <span className="split-share-readout num" aria-hidden="true">
+        {money} · {percent}
+      </span>
+      <Button
+        size="sm"
+        variant="quiet"
+        disabled={totalCents <= 0 || leftCents === 0}
+        aria-label={restLabel}
+        title={restLabel}
+        onClick={onTakeRest}
+      >
+        Take the rest
+      </Button>
     </div>
   );
 }

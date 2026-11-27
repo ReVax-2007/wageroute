@@ -2160,6 +2160,117 @@ span.wizard-step-chip {
   font-variant-numeric: tabular-nums;
 }
 
+/* Split a total: name the amount first, then share it out line by line. */
+.transfer-card > .segmented {
+  align-self: flex-start;
+}
+
+.split-goal {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 16px;
+}
+
+.split-goal > .field {
+  flex: 0 1 220px;
+  min-width: 160px;
+}
+
+.split-goal-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 4px;
+}
+
+.split-line-share {
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-faint);
+}
+
+.split-share {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.split-share-range {
+  flex: 1 1 0;
+  width: 100%;
+  min-width: 0;
+  height: 22px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.split-share-range:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.split-share-readout {
+  flex: 0 0 auto;
+  min-width: 132px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+
+/* The words stay in the text colour (readable on every theme, Glass too);
+   the dot carries the state. */
+.split-balance {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.split-balance::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--text-muted);
+}
+
+.split-balance.exact::before {
+  background: var(--accent);
+}
+
+.split-balance.under::before {
+  background: var(--warn);
+}
+
+.split-balance.over::before {
+  background: var(--danger);
+}
+
+.split-note {
+  margin: 0;
+  font-size: 12.5px;
+}
+
+@media (max-width: 560px) {
+  .split-share {
+    flex-wrap: wrap;
+  }
+
+  .split-share-range {
+    flex-basis: 100%;
+  }
+
+  .split-share-readout {
+    min-width: 0;
+  }
+}
+
 .transfer-summary-box {
   display: flex;
   align-items: center;
