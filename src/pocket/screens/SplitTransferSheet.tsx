@@ -1,40 +1,76 @@
 import { useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import { todayISO } from '@shared/dates'
-import { formatMoney, parseMoneyToCents } from '@shared/money'
+import { formatMoney } from '@shared/money'
 import {
   SPLIT_TRANSFER_MAX_LINES,
   splitTransferProblem,
   splitTransferTotalCents
 } from '@shared/splitTransfer'
+import { FULL_BPS, centsToBps, formatBps } from '@shared/splitTotal'
 import type { AccountWithBalance, SplitTransferInput } from '@shared/types'
 import { Field } from '../components/Field'
-import { MoneyInput } from '../components/MoneyInput'
+import { MoneyInput, PercentInput } from '../components/MoneyInput'
 import { Sheet } from '../components/Sheet'
 import { FloorWarning, useFloorGate } from '../components/FloorWarning'
 import { usableLabel } from '@shared/accounts'
 import { accountAvailLabel } from '../../renderer/src/lib/finance'
+import {
+  NO_SHARE,
+  useSplitTotal,
+  type ShareLine,
+  type SplitEntry,
+  type ShareUnit
+} from '../../renderer/src/lib/useSplitTotal'
 import { useSheetSave } from '../components/useSheetSave'
 import { categoryMatch, entryCategories } from '../lib/entry'
 import { text } from '../lib/rows'
 import { usePocket } from '../lib/store'
 import { createSplitTransfer } from '../lib/write'
 
-interface DraftLine {
-  key: number
+interface DraftLine extends ShareLine {
   accountId: string
-  amount: string
   memo: string
 }
 
 let nextKey = 1
-const blankLine = (): DraftLine => ({ key: nextKey++, accountId: '', amount: '', memo: '' })
+const blankLine = (): DraftLine => ({ key: nextKey++, accountId: '', amount: '', memo: '', share: NO_SHARE })
+
+/** Two-way choice in the phone's segmented style. */
+function Choice<T extends string>({
+  label,
+  value,
+  options,
+  onChange
+}: {
+  label: string
+  value: T
+  options: readonly { value: T; label: string }[]
+  onChange: (value: T) => void
+}) {
+  return (
+    <div className="segmented" role="group" aria-label={label}>
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          className={option.value === value ? 'segment active' : 'segment'}
+          aria-pressed={option.value === value}
+          onClick={() => onChange(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  )
+}
 
 /**
  * The desktop's split transfer on the phone (ADR 0033): one source to several
- * accounts, the total added up while typing, every line saved as an ordinary
- * transfer in one commit or none at all. One category covers the whole split
- * here; the desktop also lets each line carry its own.
+ * accounts, the total added up while typing (or named first and shared out by
+ * amount or percent), every line saved as an ordinary transfer in one commit or
+ * none at all. One category covers the whole split here; the desktop also lets
+ * each line carry its own.
  */
 export function SplitTransferSheet({
   accounts,
@@ -58,15 +94,17 @@ export function SplitTransferSheet({
   const [occurredOn, setOccurredOn] = useState(todayISO())
   const [category, setCategory] = useState('')
   const [lines, setLines] = useState<DraftLine[]>(() => [blankLine(), blankLine()])
+  const split = useSplitTotal(lines, setLines, currency)
+  const { splitting, unit, goalCents, balance, resolved } = split
 
   const matched = categoryMatch(tables, category)
   const input: SplitTransferInput = {
     sourceAccountId: sourceId,
     viaAccountId: viaId && viaId !== sourceId ? viaId : null,
     occurredOn,
-    lines: lines.map((line) => ({
+    lines: lines.map((line, index) => ({
       accountId: line.accountId,
-      amountCents: parseMoneyToCents(line.amount) ?? 0,
+      amountCents: split.lineCents(line, index),
       category,
       categoryId: matched ? text(matched, 'id') : null,
       memo: line.memo
@@ -74,6 +112,8 @@ export function SplitTransferSheet({
   }
   const totalCents = splitTransferTotalCents(input.lines)
   const source = byId.get(sourceId)
+  const lineName = (index: number) => byId.get(lines[index]?.accountId ?? '')?.name ?? `Line ${index + 1}`
+  const note = split.note(lineName)
 
   const update = (key: number, change: Partial<DraftLine>) => {
     setError(null)
@@ -81,7 +121,7 @@ export function SplitTransferSheet({
   }
 
   const submit = () => {
-    const problem = splitTransferProblem(input, (id) => byId.get(id))
+    const problem = split.goalProblem ?? splitTransferProblem(input, (id) => byId.get(id))
     if (problem) {
       setError(problem)
       return
@@ -99,6 +139,18 @@ export function SplitTransferSheet({
       hint="One account sends money to several. Each line is saved as its own transfer."
       onClose={onClose}
     >
+      <Choice<SplitEntry>
+        label="How to enter the split"
+        value={split.entry}
+        onChange={(next) => {
+          setError(null)
+          split.switchEntry(next)
+        }}
+        options={[
+          { value: 'lines', label: 'Add up the lines' },
+          { value: 'total', label: 'Split a total' }
+        ]}
+      />
       <Field label="From">
         <select
           className="input"
@@ -128,6 +180,41 @@ export function SplitTransferSheet({
         </select>
       </Field>
 
+      {splitting ? (
+        <>
+          <Field label="Total to move">
+            <MoneyInput
+              value={split.goalText}
+              placeholder="0.00"
+              onValueChange={(text) => {
+                setError(null)
+                split.setGoal(text)
+              }}
+            />
+          </Field>
+          <Choice<ShareUnit>
+            label="Share by"
+            value={unit}
+            onChange={split.setUnit}
+            options={[
+              { value: 'amount', label: 'Amount' },
+              { value: 'percent', label: 'Percent' }
+            ]}
+          />
+          <button
+            type="button"
+            className="button compact"
+            disabled={goalCents <= 0}
+            onClick={() => {
+              setError(null)
+              split.splitEven()
+            }}
+          >
+            Split evenly
+          </button>
+        </>
+      ) : null}
+
       {lines.map((line, index) => (
         <fieldset className="split-line" key={line.key}>
           <legend className="small muted">Line {index + 1}</legend>
@@ -147,9 +234,82 @@ export function SplitTransferSheet({
                 ))}
             </select>
           </Field>
-          <Field label="Amount">
-            <MoneyInput value={line.amount} onValueChange={(amount) => update(line.key, { amount })} />
-          </Field>
+          {splitting ? (
+            <>
+              <Field label={unit === 'percent' ? 'Percent' : 'Amount'}>
+                {unit === 'percent' ? (
+                  <PercentInput
+                    value={split.shareText(line, index)}
+                    placeholder="0"
+                    onFocus={() => split.focusShare(line, index)}
+                    onBlur={split.blurShare}
+                    onValueChange={(text) => {
+                      setError(null)
+                      split.typeShare(line.key, text)
+                    }}
+                  />
+                ) : (
+                  <MoneyInput
+                    value={split.shareText(line, index)}
+                    placeholder="0.00"
+                    onFocus={() => split.focusShare(line, index)}
+                    onBlur={split.blurShare}
+                    onValueChange={(text) => {
+                      setError(null)
+                      split.typeShare(line.key, text)
+                    }}
+                  />
+                )}
+              </Field>
+              <div className="share-slider">
+                <input
+                  type="range"
+                  className="share-range"
+                  min={0}
+                  max={unit === 'percent' ? FULL_BPS : Math.max(goalCents, 1)}
+                  step={100}
+                  value={
+                    unit === 'percent'
+                      ? centsToBps(goalCents, resolved.cents[index])
+                      : Math.min(resolved.cents[index], goalCents)
+                  }
+                  disabled={goalCents <= 0}
+                  aria-label={`Share for ${lineName(index)}`}
+                  aria-valuetext={`${formatMoney(resolved.cents[index], currency)}, ${
+                    formatBps(centsToBps(goalCents, resolved.cents[index])) || '0'
+                  }% of ${formatMoney(goalCents, currency)}`}
+                  onChange={(event) => {
+                    setError(null)
+                    split.slide(line.key, Number(event.target.value))
+                  }}
+                />
+                <span className="small muted num" aria-hidden="true">
+                  {formatMoney(resolved.cents[index], currency)} ·{' '}
+                  {formatBps(centsToBps(goalCents, resolved.cents[index])) || '0'}%
+                </span>
+              </div>
+              <button
+                type="button"
+                className="button compact"
+                disabled={goalCents <= 0 || balance.leftCents === 0}
+                aria-label={
+                  balance.leftCents >= 0
+                    ? `Put the ${formatMoney(balance.leftCents, currency)} left on ${lineName(index)}`
+                    : `Take the ${formatMoney(-balance.leftCents, currency)} over off ${lineName(index)}`
+                }
+                onClick={() => {
+                  setError(null)
+                  split.takeRest(line.key, index)
+                }}
+              >
+                Take the rest
+              </button>
+            </>
+          ) : (
+            <Field label="Amount">
+              <MoneyInput value={line.amount} onValueChange={(amount) => update(line.key, { amount })} />
+            </Field>
+          )}
           <Field label="Note">
             <input
               className="input"
@@ -163,7 +323,10 @@ export function SplitTransferSheet({
             <button
               type="button"
               className="button compact"
-              onClick={() => setLines((current) => current.filter((item) => item.key !== line.key))}
+              onClick={() => {
+                split.linesChanged()
+                setLines((current) => current.filter((item) => item.key !== line.key))
+              }}
             >
               <Trash2 size={15} aria-hidden="true" /> Remove line {index + 1}
             </button>
@@ -174,7 +337,10 @@ export function SplitTransferSheet({
         <button
           type="button"
           className="button compact"
-          onClick={() => setLines((current) => [...current, blankLine()])}
+          onClick={() => {
+            split.linesChanged()
+            setLines((current) => [...current, blankLine()])
+          }}
         >
           <Plus size={15} aria-hidden="true" /> Add account
         </button>
@@ -203,6 +369,22 @@ export function SplitTransferSheet({
         />
       </Field>
 
+      {splitting ? (
+        <p className="fine" aria-live="polite">
+          Shared out: <strong>{formatMoney(balance.allocatedCents, currency)}</strong> of{' '}
+          {formatMoney(goalCents, currency)} ·{' '}
+          <strong className={balance.leftCents === 0 ? undefined : balance.leftCents > 0 ? 'warn-text' : 'danger-text'}>
+            {goalCents === 0
+              ? 'enter the total to move'
+              : balance.leftCents === 0
+                ? 'adds up exactly'
+                : balance.leftCents > 0
+                  ? `${formatMoney(balance.leftCents, currency)} left to place`
+                  : `${formatMoney(-balance.leftCents, currency)} over the total`}
+          </strong>
+        </p>
+      ) : null}
+      {note ? <p className="fine">{note}</p> : null}
       <p className="fine" aria-live="polite">
         Total to move: <strong>{formatMoney(totalCents, currency)}</strong>
         {source ? ` · ${source.name} after: ${formatMoney(source.balanceCents - totalCents, currency)}` : ''}
@@ -224,7 +406,7 @@ export function SplitTransferSheet({
         <button
           type="button"
           className="button primary"
-          disabled={saving || totalCents <= 0}
+          disabled={saving || totalCents <= 0 || split.goalProblem !== null}
           onClick={submit}
         >
           {saving ? 'Recording…' : (floorGate.confirmLabel ?? `Split ${formatMoney(totalCents, currency)}`)}
